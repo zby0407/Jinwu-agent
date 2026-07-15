@@ -27,7 +27,6 @@ import { ChatInterface } from "@/app/components/ChatInterface";
 import { SkillsMarketplace } from "@/app/components/SkillsMarketplace";
 import { MemoryPanel } from "@/app/components/MemoryPanel";
 import { ScheduledTasksPanel } from "@/app/components/ScheduledTasksPanel";
-import { ThemeToggle } from "@/app/components/ThemeToggle";
 import { HealthIndicator } from "@/app/components/HealthIndicator";
 import { InspectorPanel } from "@/app/components/InspectorPanel";
 import { RealtimeActivityBridge } from "@/app/components/RealtimeActivityBridge";
@@ -183,11 +182,11 @@ function HomePageInner({
   }, [isDesktopLayout, setInspector, setSidebar, setInspectorTab]);
   const sidebarToggleLabel = view
     ? sidebar
-      ? "Hide navigation"
-      : "Show navigation"
+      ? "\u9690\u85cf\u5bfc\u822a"
+      : "\u663e\u793a\u5bfc\u822a"
     : sidebar
-    ? "Hide research"
-    : "Show research";
+    ? "\u9690\u85cf\u7814\u7a76"
+    : "\u663e\u793a\u7814\u7a76";
   const startNewChat = useCallback(() => {
     setThreadAutoApprove(null, false);
     setThreadId(null);
@@ -314,7 +313,7 @@ function HomePageInner({
                   variant="ghost"
                   size="icon"
                   onClick={startNewChat}
-                  aria-label="New chat"
+                  aria-label="\u65b0\u5efa\u5bf9\u8bdd"
                   className="size-8"
                 >
                   <SquarePen
@@ -332,13 +331,12 @@ function HomePageInner({
                 handleSaveConfig({ ...config, deploymentUrl: url })
               }
             />
-            <ThemeToggle />
             <Button
               variant="ghost"
               size="icon"
               onClick={toggleInspector}
-              aria-label={inspector ? "Hide inspector" : "Show workspace"}
-              title={inspector ? "Hide inspector" : "Show workspace"}
+              aria-label={inspector ? "\u9690\u85cf\u53f3\u4fa7\u680f" : "\u663e\u793a\u5de5\u4f5c\u533a"}
+              title={inspector ? "\u9690\u85cf\u53f3\u4fa7\u680f" : "\u663e\u793a\u5de5\u4f5c\u533a"}
               className="size-8"
             >
               {inspector ? (
@@ -357,8 +355,8 @@ function HomePageInner({
               variant="ghost"
               size="icon"
               onClick={() => setConfigDialogOpen(true)}
-              aria-label="Settings"
-              title="Settings"
+              aria-label="\u8bbe\u7f6e"
+              title="\u8bbe\u7f6e"
               className="size-8"
             >
               <Settings
@@ -374,7 +372,7 @@ function HomePageInner({
             <div className="absolute inset-0 z-40 flex md:hidden">
               <button
                 type="button"
-                aria-label="Close research"
+                aria-label="\u5173\u95ed\u7814\u7a76"
                 className="absolute inset-0 bg-black/40"
                 onClick={closeSidebar}
               />
@@ -399,7 +397,7 @@ function HomePageInner({
             <div className="absolute inset-0 z-40 flex justify-end md:hidden">
               <button
                 type="button"
-                aria-label="Close inspector"
+                aria-label="\u5173\u95ed\u53f3\u4fa7\u680f"
                 className="absolute inset-0 bg-black/40"
                 onClick={closeInspector}
               />

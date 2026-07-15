@@ -56,11 +56,11 @@ import { toast } from "sonner";
 type StatusFilter = "all" | "idle" | "busy" | "interrupted" | "error";
 
 const GROUP_LABELS = {
-  interrupted: "Requiring Attention",
-  today: "Today",
-  yesterday: "Yesterday",
-  week: "This Week",
-  older: "Older",
+  interrupted: "\u9700\u8981\u5904\u7406",
+  today: "\u4eca\u5929",
+  yesterday: "\u6628\u5929",
+  week: "\u672c\u5468",
+  older: "\u66f4\u65e9",
 } as const;
 
 const STATUS_COLORS: Record<ThreadItem["status"], string> = {
@@ -71,10 +71,10 @@ const STATUS_COLORS: Record<ThreadItem["status"], string> = {
 };
 
 const STATUS_LABELS: Record<ThreadItem["status"], string> = {
-  idle: "Idle",
-  busy: "Busy",
-  interrupted: "Interrupted",
-  error: "Error",
+  idle: "\u7a7a\u95f2",
+  busy: "\u8fd0\u884c\u4e2d",
+  interrupted: "\u7b49\u5f85\u5904\u7406",
+  error: "\u9519\u8bef",
 };
 
 function getThreadColor(status: ThreadItem["status"]): string {
@@ -111,7 +111,9 @@ function StatusFilterItem({
 function ErrorState({ message }: { message: string }) {
   return (
     <div className="flex flex-col items-center justify-center p-8 text-center">
-      <p className="text-sm text-red-600">Failed to load research</p>
+      <p className="text-sm text-red-600">
+        {"\u7814\u7a76\u5217\u8868\u52a0\u8f7d\u5931\u8d25"}
+      </p>
       <p className="mt-1 text-xs text-muted-foreground">{message}</p>
     </div>
   );
@@ -134,7 +136,9 @@ function EmptyState() {
   return (
     <div className="flex flex-col items-center justify-center p-8 text-center">
       <MessageSquare className="mb-2 h-12 w-12 text-gray-300" />
-      <p className="text-sm text-muted-foreground">No research yet</p>
+      <p className="text-sm text-muted-foreground">
+        {"\u6682\u65e0\u7814\u7a76\u5bf9\u8bdd"}
+      </p>
     </div>
   );
 }
@@ -341,7 +345,7 @@ export function ThreadList({
       setRenameTarget(null);
       mutateFn();
     } catch {
-      toast.error("Couldn't rename — try again.");
+      toast.error("\u91cd\u547d\u540d\u5931\u8d25\uff0c\u8bf7\u7a0d\u540e\u91cd\u8bd5\u3002");
     } finally {
       actionBusyRef.current = false;
       setActionBusy(false);
@@ -369,7 +373,7 @@ export function ThreadList({
       setDeleteTarget(null);
       mutateFn();
     } catch {
-      toast.error("Couldn't delete — try again.");
+      toast.error("\u5220\u9664\u5931\u8d25\uff0c\u8bf7\u7a0d\u540e\u91cd\u8bd5\u3002");
     } finally {
       actionBusyRef.current = false;
       setActionBusy(false);
@@ -390,8 +394,8 @@ export function ThreadList({
     } catch {
       toast.error(
         thread.pinned
-          ? "Couldn't unpin — try again."
-          : "Couldn't pin — try again."
+          ? "\u53d6\u6d88\u7f6e\u9876\u5931\u8d25\uff0c\u8bf7\u7a0d\u540e\u91cd\u8bd5\u3002"
+          : "\u7f6e\u9876\u5931\u8d25\uff0c\u8bf7\u7a0d\u540e\u91cd\u8bd5\u3002"
       );
     } finally {
       pinBusyIdsRef.current.delete(thread.id);
@@ -414,7 +418,7 @@ export function ThreadList({
     try {
       await exportThread(thread.id, thread.title);
     } catch {
-      toast.error("Couldn't export — try again.");
+      toast.error("\u5bfc\u51fa\u5931\u8d25\uff0c\u8bf7\u7a0d\u540e\u91cd\u8bd5\u3002");
     } finally {
       exportBusyIdsRef.current.delete(thread.id);
       setExportBusyIds((current) => {
@@ -480,8 +484,8 @@ export function ThreadList({
               <div className="ml-2 flex-shrink-0">
                 <span
                   role="img"
-                  aria-label={`Status: ${STATUS_LABELS[thread.status]}`}
-                  title={`Status: ${STATUS_LABELS[thread.status]}`}
+                  aria-label={`\u72b6\u6001\uff1a${STATUS_LABELS[thread.status]}`}
+                  title={`\u72b6\u6001\uff1a${STATUS_LABELS[thread.status]}`}
                   className={cn(
                     "h-2 w-2 rounded-full",
                     getThreadColor(thread.status)
@@ -498,10 +502,10 @@ export function ThreadList({
             type="button"
             aria-label={
               thread.pinned
-                ? `Unpin "${thread.title}"`
-                : `Pin "${thread.title}"`
+                ? `\u53d6\u6d88\u7f6e\u9876\u300c${thread.title}\u300d`
+                : `\u7f6e\u9876\u300c${thread.title}\u300d`
             }
-            title={thread.pinned ? "Unpin" : "Pin"}
+            title={thread.pinned ? "\u53d6\u6d88\u7f6e\u9876" : "\u7f6e\u9876"}
             onClick={() => togglePin(thread)}
             disabled={pinBusy}
             className={cn(
@@ -525,8 +529,8 @@ export function ThreadList({
           </button>
           <button
             type="button"
-            aria-label={`Rename "${thread.title}"`}
-            title="Rename"
+            aria-label={`\u91cd\u547d\u540d\u300c${thread.title}\u300d`}
+            title="\u91cd\u547d\u540d"
             onClick={() => {
               setRenameTarget(thread);
               setRenameValue(thread.title);
@@ -540,8 +544,8 @@ export function ThreadList({
           </button>
           <button
             type="button"
-            aria-label={`Export "${thread.title}" as JSON`}
-            title="Export JSON"
+            aria-label={`\u5c06\u300c${thread.title}\u300d\u5bfc\u51fa\u4e3a JSON`}
+            title="\u5bfc\u51fa JSON"
             onClick={() => runExport(thread)}
             disabled={exportBusy}
             className="rounded p-1 text-muted-foreground transition-colors hover:bg-background hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
@@ -560,8 +564,8 @@ export function ThreadList({
           </button>
           <button
             type="button"
-            aria-label={`Delete "${thread.title}"`}
-            title="Delete"
+            aria-label={`\u5220\u9664\u300c${thread.title}\u300d`}
+            title="\u5220\u9664"
             onClick={() => setDeleteTarget(thread)}
             className="rounded p-1 text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive focus-visible:ring-2 focus-visible:ring-ring"
           >
@@ -595,7 +599,7 @@ export function ThreadList({
           className="size-4"
           aria-hidden="true"
         />
-        New Chat
+        {"\u65b0\u5efa\u5bf9\u8bdd"}
       </button>
       <button
         type="button"
@@ -640,14 +644,14 @@ export function ThreadList({
           className="size-4"
           aria-hidden="true"
         />
-        金乌记忆
+        {"\u91d1\u4e4c\u8bb0\u5fc6"}
         {view !== "memory" && memoryUnseen > 0 && (
           <span
             className="ml-auto inline-flex min-w-4 items-center justify-center rounded-full bg-[var(--brand-solid)] px-1 text-[10px] font-bold leading-none text-[var(--brand-foreground)]"
             title={`${memoryUnseen} memory file${
               memoryUnseen === 1 ? "" : "s"
             } updated since you last looked`}
-            aria-label={`${memoryUnseen} memory updates`}
+            aria-label={`${memoryUnseen} \u6761\u8bb0\u5fc6\u66f4\u65b0`}
           >
             {memoryUnseen}
           </span>
@@ -673,7 +677,7 @@ export function ThreadList({
           className="size-4"
           aria-hidden="true"
         />
-        Scheduled
+        {"\u5b9a\u65f6\u4efb\u52a1"}
       </button>
       <div className="flex-shrink-0 border-b border-border p-2.5">
         <div className="relative">
@@ -686,8 +690,8 @@ export function ThreadList({
             name="research-search"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search research…"
-            aria-label="Search research"
+            placeholder={"\u641c\u7d22\u7814\u7a76..."}
+            aria-label={"\u641c\u7d22\u7814\u7a76"}
             autoComplete="off"
             spellCheck={false}
             className="w-full rounded-md border border-border bg-background py-1.5 pl-8 pr-8 text-sm outline-none placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring"
@@ -695,7 +699,7 @@ export function ThreadList({
           {search && (
             <button
               type="button"
-              aria-label="Clear research search"
+              aria-label={"\u6e05\u7a7a\u7814\u7a76\u641c\u7d22"}
               onClick={() => setSearch("")}
               className="absolute right-1 top-1/2 -translate-y-1/2 rounded p-1 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
             >
@@ -708,7 +712,7 @@ export function ThreadList({
         </div>
       </div>
       <div className="grid flex-shrink-0 grid-cols-[1fr_auto] items-center gap-2 border-b border-border px-3 py-2.5">
-        <h2 className="text-base font-semibold tracking-tight">Recents</h2>
+        <h2 className="text-base font-semibold tracking-tight">{"\u6700\u8fd1"}</h2>
         <div className="flex items-center gap-2">
           <Select
             value={statusFilter}
@@ -718,37 +722,37 @@ export function ThreadList({
               <SelectValue />
             </SelectTrigger>
             <SelectContent align="end">
-              <SelectItem value="all">All</SelectItem>
+              <SelectItem value="all">{"\u5168\u90e8"}</SelectItem>
               <SelectSeparator />
               <SelectGroup>
-                <SelectLabel>Active</SelectLabel>
+                <SelectLabel>{"\u8fd0\u884c\u72b6\u6001"}</SelectLabel>
                 <SelectItem value="idle">
                   <StatusFilterItem
                     status="idle"
-                    label="Idle"
+                    label={"\u7a7a\u95f2"}
                   />
                 </SelectItem>
                 <SelectItem value="busy">
                   <StatusFilterItem
                     status="busy"
-                    label="Busy"
+                    label={"\u8fd0\u884c\u4e2d"}
                   />
                 </SelectItem>
               </SelectGroup>
               <SelectSeparator />
               <SelectGroup>
-                <SelectLabel>Attention</SelectLabel>
+                <SelectLabel>{"\u9700\u8981\u5904\u7406"}</SelectLabel>
                 <SelectItem value="interrupted">
                   <StatusFilterItem
                     status="interrupted"
-                    label="Interrupted"
+                    label={"\u7b49\u5f85\u5904\u7406"}
                     badge={interruptedCount}
                   />
                 </SelectItem>
                 <SelectItem value="error">
                   <StatusFilterItem
                     status="error"
-                    label="Error"
+                    label={"\u9519\u8bef"}
                   />
                 </SelectItem>
               </SelectGroup>
@@ -757,7 +761,7 @@ export function ThreadList({
           {onClose && (
             <button
               type="button"
-              aria-label={view ? "Close navigation" : "Close research"}
+              aria-label={view ? "\u5173\u95ed\u5bfc\u822a" : "\u5173\u95ed\u7814\u7a76\u5bfc\u822a"}
               onClick={onClose}
               className="rounded-md p-2 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
             >
@@ -787,7 +791,7 @@ export function ThreadList({
           filtered.length === 0 && (
             <div className="flex flex-col items-center justify-center p-8 text-center">
               <p className="text-sm text-muted-foreground">
-                No research matches your search.
+                {"\u6ca1\u6709\u5339\u914d\u7684\u7814\u7a76\u5bf9\u8bdd\u3002"}
               </p>
             </div>
           )}
@@ -797,9 +801,7 @@ export function ThreadList({
             {/* Pinned threads — shown only when at least one thread is pinned. */}
             {pinned.length > 0 && (
               <div className="mb-3">
-                <h4 className="m-0 px-2.5 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-                  Research
-                </h4>
+                <h4 className="m-0 px-2.5 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">{"\u5df2\u7f6e\u9876"}</h4>
                 <div className="flex flex-col gap-1">
                   {pinned.map((thread) => renderThreadCard(thread))}
                 </div>
@@ -838,10 +840,10 @@ export function ThreadList({
                   {isLoadingMore ? (
                     <>
                       <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                      Loading…
+                      {"\u52a0\u8f7d\u4e2d..."}
                     </>
                   ) : (
-                    "Load More"
+                    "\u52a0\u8f7d\u66f4\u591a"
                   )}
                 </Button>
               </div>
@@ -860,9 +862,9 @@ export function ThreadList({
       >
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>Rename research</DialogTitle>
+            <DialogTitle>{"\u91cd\u547d\u540d\u7814\u7a76"}</DialogTitle>
             <DialogDescription>
-              Give this conversation a custom title.
+              {"\u4e3a\u8fd9\u4e2a\u5bf9\u8bdd\u8bbe\u7f6e\u4e00\u4e2a\u81ea\u5b9a\u4e49\u6807\u9898\u3002"}
             </DialogDescription>
           </DialogHeader>
           <Input
@@ -875,7 +877,7 @@ export function ThreadList({
                 submitRename();
               }
             }}
-            placeholder="Enter a title…"
+            placeholder={"\u8f93\u5165\u6807\u9898..."}
             maxLength={100}
             disabled={actionBusy}
           />
@@ -885,13 +887,13 @@ export function ThreadList({
               onClick={() => setRenameTarget(null)}
               disabled={actionBusy}
             >
-              Cancel
+              {"\u53d6\u6d88"}
             </Button>
             <Button
               onClick={submitRename}
               disabled={actionBusy || !renameValue.trim()}
             >
-              {actionBusy ? "Saving…" : "Save"}
+              {actionBusy ? "\u4fdd\u5b58\u4e2d..." : "\u4fdd\u5b58"}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -908,7 +910,7 @@ export function ThreadList({
         <DialogContent
           className="sm:max-w-md"
           onCloseAutoFocus={(e) => {
-            // After a delete the trigger row is gone — send focus to New Chat
+            // After a delete the trigger row is gone ? send focus to New Chat
             // instead of letting it fall to <body>.
             if (pendingDeleteFocusRef.current) {
               e.preventDefault();
@@ -918,10 +920,9 @@ export function ThreadList({
           }}
         >
           <DialogHeader>
-            <DialogTitle>Delete this research?</DialogTitle>
+            <DialogTitle>{"\u5220\u9664\u8fd9\u4e2a\u7814\u7a76\uff1f"}</DialogTitle>
             <DialogDescription>
-              “{deleteTarget?.title}” will be permanently deleted. This can’t be
-              undone.
+              {`\u300c${deleteTarget?.title}\u300d\u5c06\u88ab\u6c38\u4e45\u5220\u9664\uff0c\u6b64\u64cd\u4f5c\u65e0\u6cd5\u64a4\u9500\u3002`}
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
@@ -930,14 +931,14 @@ export function ThreadList({
               onClick={() => setDeleteTarget(null)}
               disabled={actionBusy}
             >
-              Cancel
+              {"\u53d6\u6d88"}
             </Button>
             <Button
               onClick={confirmDelete}
               disabled={actionBusy}
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
             >
-              {actionBusy ? "Deleting…" : "Delete"}
+              {actionBusy ? "\u5220\u9664\u4e2d..." : "\u5220\u9664"}
             </Button>
           </DialogFooter>
         </DialogContent>

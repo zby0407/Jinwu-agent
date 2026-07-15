@@ -1,12 +1,13 @@
 "use client";
 
-import { X, FolderOpen, Bot, Zap } from "lucide-react";
+import { X, FolderOpen, Bot, Zap, PackageOpen } from "lucide-react";
 import { useQueryState } from "nuqs";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { WorkspacePanel } from "@/app/components/WorkspacePanel";
 import { AgentsPanel } from "@/app/components/AgentsPanel";
 import { RealtimeActivityPanel } from "@/app/components/RealtimeActivityPanel";
+import { ArtifactsPanel } from "@/app/components/ArtifactsPanel";
 import type { MainChatReporter } from "@/lib/asyncAgents";
 
 interface InspectorPanelProps {
@@ -16,12 +17,13 @@ interface InspectorPanelProps {
   onReportToMainChat?: MainChatReporter | null;
 }
 
-type InspectorTab = "workspace" | "agents" | "activity";
+type InspectorTab = "workspace" | "agents" | "activity" | "artifacts";
 
 /**
  * Dockable right-hand inspector with tabs:
  *  - Activity: real-time view of what the AI is currently processing.
  *  - Workspace: the on-disk workspace browser.
+ *  - Artifacts: numbered research outputs generated in the workspace.
  *  - Agents: background async sub-agents (writing / data-analysis) this
  *    conversation launched, with live status + steps.
  * The active tab is mirrored to the `inspectorTab` URL param so the composer's
@@ -37,6 +39,8 @@ export function InspectorPanel({
       ? "workspace"
       : tabParam === "agents"
       ? "agents"
+      : tabParam === "artifacts"
+      ? "artifacts"
       : "activity";
 
   return (
@@ -53,17 +57,15 @@ export function InspectorPanel({
             aria-selected={tab === "activity"}
             onClick={() => setTab(null)}
             className={cn(
-              "flex items-center gap-1.5 rounded-md px-2 py-1 text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-              tab === "activity"
-                ? "bg-accent text-foreground"
-                : "text-muted-foreground hover:text-foreground"
+              "gold-tab flex items-center gap-1.5 rounded-md px-2 py-1 text-sm font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--gold-shadow)]",
+              tab === "activity" && "is-active"
             )}
           >
             <Zap
               className="size-4 text-[var(--brand)]"
               aria-hidden="true"
             />
-            Activity
+            {"\u6d3b\u52a8"}
           </button>
           <button
             type="button"
@@ -71,17 +73,15 @@ export function InspectorPanel({
             aria-selected={tab === "workspace"}
             onClick={() => setTab("workspace")}
             className={cn(
-              "flex items-center gap-1.5 rounded-md px-2 py-1 text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-              tab === "workspace"
-                ? "bg-accent text-foreground"
-                : "text-muted-foreground hover:text-foreground"
+              "gold-tab flex items-center gap-1.5 rounded-md px-2 py-1 text-sm font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--gold-shadow)]",
+              tab === "workspace" && "is-active"
             )}
           >
             <FolderOpen
               className="size-4 text-[var(--brand)]"
               aria-hidden="true"
             />
-            Workspace
+            {"\u5de5\u4f5c\u533a"}
           </button>
           <button
             type="button"
@@ -89,17 +89,31 @@ export function InspectorPanel({
             aria-selected={tab === "agents"}
             onClick={() => setTab("agents")}
             className={cn(
-              "flex items-center gap-1.5 rounded-md px-2 py-1 text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-              tab === "agents"
-                ? "bg-accent text-foreground"
-                : "text-muted-foreground hover:text-foreground"
+              "gold-tab flex items-center gap-1.5 rounded-md px-2 py-1 text-sm font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--gold-shadow)]",
+              tab === "agents" && "is-active"
             )}
           >
             <Bot
               className="size-4 text-[var(--brand)]"
               aria-hidden="true"
             />
-            Agents
+            {"Agents"}
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={tab === "artifacts"}
+            onClick={() => setTab("artifacts")}
+            className={cn(
+              "gold-tab flex items-center gap-1.5 rounded-md px-2 py-1 text-sm font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--gold-shadow)]",
+              tab === "artifacts" && "is-active"
+            )}
+          >
+            <PackageOpen
+              className="size-4 text-[var(--brand)]"
+              aria-hidden="true"
+            />
+            {"\u4ea7\u7269"}
           </button>
         </div>
         <Button
@@ -107,8 +121,8 @@ export function InspectorPanel({
           size="icon"
           className="size-7"
           onClick={onClose}
-          aria-label="Close inspector"
-          title="Close"
+          aria-label="\u5173\u95ed\u53f3\u4fa7\u680f"
+          title="\u5173\u95ed"
         >
           <X
             className="size-4"
@@ -123,6 +137,10 @@ export function InspectorPanel({
       ) : tab === "workspace" ? (
         <div className="min-h-0 flex-1 overflow-y-auto p-3">
           <WorkspacePanel />
+        </div>
+      ) : tab === "artifacts" ? (
+        <div className="min-h-0 flex-1 overflow-hidden p-3">
+          <ArtifactsPanel />
         </div>
       ) : (
         <div className="min-h-0 flex-1 overflow-hidden">

@@ -65,11 +65,11 @@ function timeValue(iso: string): number {
 
 function activityAriaLabel(item: ActivityItem): string {
   const kind =
-    item.kind === "observation" ? "recent observation" : "recent execution";
+    item.kind === "observation" ? "\u6700\u8fd1\u89c2\u5bdf" : "\u6700\u8fd1\u6267\u884c";
   // formatTime renders an em dash for an unusable timestamp; don't read it out.
   const when = formatTime(new Date(item.createdAtMs || Number.NaN));
   const hasWhen = when !== "" && when !== "—";
-  return `Open ${kind} from ${item.label}${hasWhen ? `, ${when}` : ""}`;
+  return `\u6253\u5f00\u6765\u81ea ${item.label} \u7684${kind}${hasWhen ? `\uff0c${when}` : ""}`;
 }
 
 export function ResearchDashboard({
@@ -139,7 +139,7 @@ export function ResearchDashboard({
             id: e.id,
             created_at: e.created_at,
             createdAtMs: timeValue(e.created_at),
-            summary: e.summary || "Execution completed",
+            summary: e.summary || "\u6267\u884c\u5df2\u5b8c\u6210",
             label: e.agent || "agent",
             color: "var(--brand)",
           })),
@@ -180,30 +180,30 @@ export function ResearchDashboard({
   }> = [
     {
       value: obsCount,
-      label: "Knowledge",
-      hint: "Observations 金乌 has learned.",
+      label: "\u77e5\u8bc6",
+      hint: "\u91d1\u4e4c\u5df2\u5b66\u4e60\u7684\u89c2\u5bdf\u8bb0\u5f55\u3002",
       Icon: Network,
       target: { view: "memory", tab: "knowledge" },
     },
     {
       value: runCount + obsCount,
-      label: "Timeline",
-      hint: "Runs and observations on the activity timeline.",
+      label: "\u65f6\u95f4\u7ebf",
+      hint: "\u6d3b\u52a8\u65f6\u95f4\u7ebf\u4e2d\u7684\u8fd0\u884c\u548c\u89c2\u5bdf\u3002",
       Icon: Activity,
       target: { view: "memory", tab: "history" },
     },
     {
       value: wsSize.num,
       unit: wsSize.unit,
-      label: "Workspace",
-      hint: "Total size of files in the current workspace.",
+      label: "\u5de5\u4f5c\u533a",
+      hint: "\u5f53\u524d\u5de5\u4f5c\u533a\u6587\u4ef6\u603b\u5927\u5c0f\u3002",
       Icon: FolderOpen,
       target: { view: "workspace" },
     },
     {
       value: scheduledCount,
-      label: "Scheduled",
-      hint: "Recurring scheduled tasks.",
+      label: "\u5b9a\u65f6",
+      hint: "\u5468\u671f\u6027\u5b9a\u65f6\u4efb\u52a1\u3002",
       Icon: Clock,
       target: { view: "schedule" },
     },
@@ -252,7 +252,7 @@ export function ResearchDashboard({
               aria-hidden="true"
             />
             <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-              Your research
+              {"\u4f60\u7684\u7814\u7a76"}
             </span>
           </div>
           <div className="space-y-1">
@@ -261,8 +261,8 @@ export function ResearchDashboard({
                 key={t.id}
                 type="button"
                 onClick={() => onOpenThread(t.id)}
-                title={`Open ${t.title}`}
-                aria-label={`Open pinned research thread: ${t.title}`}
+                title={`\u6253\u5f00 ${t.title}`}
+                aria-label={`\u6253\u5f00\u5df2\u7f6e\u9876\u7814\u7a76\u5bf9\u8bdd\uff1a${t.title}`}
                 className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left transition-colors hover:bg-accent/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               >
                 <MessageSquare
@@ -290,7 +290,7 @@ export function ResearchDashboard({
                 aria-hidden="true"
               />
               <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-                Recent activity
+                {"\u6700\u8fd1\u6d3b\u52a8"}
               </span>
             </div>
             <button
@@ -298,7 +298,7 @@ export function ResearchDashboard({
               onClick={() => onNavigate({ view: "memory", tab: "history" })}
               className="flex items-center gap-1 text-[11px] text-[var(--brand)] transition-opacity hover:opacity-80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             >
-              View all
+              {"\u67e5\u770b\u5168\u90e8"}
               <ArrowRight
                 className="size-3"
                 aria-hidden="true"

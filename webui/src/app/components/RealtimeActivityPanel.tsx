@@ -52,7 +52,7 @@ export function RealtimeActivityPanel() {
   })();
 
   const activeTodos = todos.filter((t) => t.status === "in_progress");
-  const isIdle =
+  const is\u7a7a\u95f2 =
     status.label === "空闲" &&
     activeToolCalls.length === 0 &&
     subAgents.length === 0 &&
@@ -168,7 +168,7 @@ export function RealtimeActivityPanel() {
           </div>
         )}
 
-        {isIdle && (
+        {is\u7a7a\u95f2 && (
           <p className="text-center text-xs text-muted-foreground">
             AI 当前没有处理中的任务
           </p>

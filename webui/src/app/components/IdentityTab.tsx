@@ -35,20 +35,20 @@ interface ProfileEntry {
 const CORE_ENTRIES: ProfileEntry[] = [
   {
     path: "profile/USER_PROFILE.md",
-    label: "User",
-    description: "Persistent context about the researcher",
+    label: "\u7528\u6237",
+    description: "\u5173\u4e8e\u7814\u7a76\u8005\u7684\u6301\u4e45\u4e0a\u4e0b\u6587",
     Icon: User,
   },
   {
     path: "profile/RESEARCH_TASTE.md",
-    label: "Taste",
-    description: "Aesthetic and methodological preferences",
+    label: "\u504f\u597d",
+    description: "\u5ba1\u7f8e\u4e0e\u65b9\u6cd5\u504f\u597d",
     Icon: Compass,
   },
   {
     path: "profile/SOUL.md",
-    label: "SOUL",
-    description: "金乌's core values and personality",
+    label: "\u6838\u5fc3",
+    description: "\u91d1\u4e4c\u7684\u6838\u5fc3\u4ef7\u503c\u4e0e\u6027\u683c",
     Icon: Sparkles,
   },
 ];
@@ -242,11 +242,11 @@ function ContentPanel({ entry }: { entry: ProfileEntry | null }) {
               className="size-4 animate-spin"
               aria-hidden="true"
             />
-            Loading…
+            {"\u52a0\u8f7d\u4e2d..."}…
           </div>
         ) : editing ? (
           <textarea
-            aria-label={`Edit ${entry.label} memory`}
+            aria-label={`\u7f16\u8f91${entry.label}\u8bb0\u5fc6`}
             className="size-full resize-none bg-background p-4 font-mono text-sm text-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
@@ -292,7 +292,7 @@ export function IdentityTab({ listing, listingLoading }: IdentityTabProps) {
           return {
             path: e.path,
             label: id.replace(/\/PROJECT_PROFILE\.md$/, ""),
-            description: "Project profile",
+            description: "\u9879\u76ee\u6863\u6848",
             Icon: FolderOpen,
           };
         }),
@@ -315,7 +315,7 @@ export function IdentityTab({ listing, listingLoading }: IdentityTabProps) {
     <ScrollArea className="h-full">
       <div className="p-3">
         <p className="mb-2 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
-          Profile
+          {"\u4e2a\u4eba\u6863\u6848"}
         </p>
         <div className="space-y-1.5">
           {CORE_ENTRIES.map((entry) => (
@@ -329,7 +329,7 @@ export function IdentityTab({ listing, listingLoading }: IdentityTabProps) {
         </div>
 
         <p className="mb-2 mt-5 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
-          Project Profiles
+          {"\u9879\u76ee\u6863\u6848"}
         </p>
         {listingLoading ? (
           <div className="flex h-10 items-center gap-2 text-xs text-muted-foreground">
@@ -337,11 +337,11 @@ export function IdentityTab({ listing, listingLoading }: IdentityTabProps) {
               className="size-3.5 animate-spin"
               aria-hidden="true"
             />
-            Loading projects…
+            {"\u52a0\u8f7d\u4e2d..."} projects…
           </div>
         ) : projectEntries.length === 0 ? (
           <p className="text-xs text-muted-foreground">
-            No project profiles yet.
+            {"\u6682\u65e0\u9879\u76ee\u6863\u6848\u3002"}
           </p>
         ) : (
           <div className="space-y-1.5">
