@@ -1,0 +1,897 @@
+{
+  "schema_version": "b3-pi-science-agents-readiness-v1",
+  "generated_at": "2026-07-15T00:26:12.519455+00:00",
+  "project": "太阳活动周 AI 科学家三 Agent",
+  "passed": true,
+  "offline_contract_ready": true,
+  "credential_present": false,
+  "live_qwen_ready": false,
+  "credential_presence": {
+    "DASHSCOPE_API_KEY": false,
+    "QWEN_API_KEY": false
+  },
+  "input_snapshot": {
+    "algorithm": "sha256-canonical-json-v1",
+    "sha256": "5820a12e086d1f1c96275f42b1474e155a8ed57c83db3fd40adbea27329bf5cf",
+    "files": [
+      {
+        "path": "src/b3cycle/analysis.py",
+        "exists": true,
+        "bytes": 67169,
+        "sha256": "5e537330177a465bafc603d794cef15bfec6515fda8bce5caf955447f9b02885"
+      },
+      {
+        "path": "src/b3cycle/data.py",
+        "exists": true,
+        "bytes": 9993,
+        "sha256": "9301a9d1f9a32ee5fb19e3b35958b2afaf73ae54f82a702af1bd2f22653efa66"
+      },
+      {
+        "path": "src/b3cycle/evidence.py",
+        "exists": true,
+        "bytes": 3432,
+        "sha256": "869a67c7f6d0c542fc3f45cf30e7519737b27763beb005805f1c07ed0f69dfde"
+      },
+      {
+        "path": "src/b3cycle/science_agents.py",
+        "exists": true,
+        "bytes": 136266,
+        "sha256": "599e5cc2a9aeffa7053af1d5469dbf34dcfdde47ee329101b154bfb98822cfec"
+      },
+      {
+        "path": "src/b3cycle/science_toolkit.py",
+        "exists": true,
+        "bytes": 68383,
+        "sha256": "7582b29466ca3da8cef3b4e6e3dfee4d9d4405afcce77dec5dc13380f3c026fa"
+      },
+      {
+        "path": "src/b3cycle/qwen_adapter.py",
+        "exists": true,
+        "bytes": 8954,
+        "sha256": "be061a77184e6db819a6f3cf74e8b367134c9cca398cfb6e94dc605d56e7ca55"
+      },
+      {
+        "path": "scripts_b3/evaluate_pi_science_agents.py",
+        "exists": true,
+        "bytes": 108158,
+        "sha256": "6db3376b7d5cfbb2a926d78eab030e41f2916d6f2e7ba88b65a21857517793c5"
+      },
+      {
+        "path": "scripts_b3/check_qwen_connection.py",
+        "exists": true,
+        "bytes": 9550,
+        "sha256": "0e22855a6c240cd3eb238d31b089c449dbe71da8bd675f263e8d9bb6f3812926"
+      },
+      {
+        "path": "scripts/check_qwen_connection.py",
+        "exists": true,
+        "bytes": 10162,
+        "sha256": "6cda2a6d6d44f0259ddee2d9cd3db57163f3bb2ba1480b6b8b9602aaa21bf29c"
+      },
+      {
+        "path": "scripts_b3/run_analysis_worker.py",
+        "exists": true,
+        "bytes": 3822,
+        "sha256": "399b73da111140bb05027f68d6f9e76fe0c0e79832abf48841c33a28885bc8aa"
+      },
+      {
+        "path": "scripts_b3/science_agent_cli.py",
+        "exists": true,
+        "bytes": 15403,
+        "sha256": "e6f3448414ecaf47200c772f13119ce390ac52f39116940ea73c65a2a90f2d5c"
+      },
+      {
+        "path": "scripts_b3/verify_pi_extensions.py",
+        "exists": true,
+        "bytes": 26480,
+        "sha256": "4caf8a6662d844930c162a1358610abdfd44307824b910db66f9fa724c22e2c4"
+      },
+      {
+        "path": "scripts_b3/verify_pi_agent_loader.mjs",
+        "exists": true,
+        "bytes": 6093,
+        "sha256": "c95012cb771489adcc862dfc44f25fb75f1464e0c2112c2ef9950a9aae92b55a"
+      },
+      {
+        "path": "scripts_b3/verify_pi_child_policy.mjs",
+        "exists": true,
+        "bytes": 3957,
+        "sha256": "c6732539f6a66cd5b193541800be8e5203b4abcd5f74984f2bb0441f4d06e78c"
+      },
+      {
+        "path": "scripts_b3/verify_pi_child_event_stream.mjs",
+        "exists": true,
+        "bytes": 5014,
+        "sha256": "57bc803c9752dfa4458ca437ca6f4640ad2ca888c94dd468ea378bd1663d8ac4"
+      },
+      {
+        "path": "scripts_b3/verify_pi_project_paths.mjs",
+        "exists": true,
+        "bytes": 6430,
+        "sha256": "aed4c01324eaca1b6eacf5925563b59091d17f5e7438ca069fd30433d595a88d"
+      },
+      {
+        "path": "scripts_b3/verify_pi_science_cli_isolation.mjs",
+        "exists": true,
+        "bytes": 3508,
+        "sha256": "6b06c8664803557ee030ff98c8641bf53f2534e9c04c8d05e81fc7b19f13a9b6"
+      },
+      {
+        "path": "scripts_b3/verify_dashscope_provider.mjs",
+        "exists": true,
+        "bytes": 5608,
+        "sha256": "cf666d3a81691497f43fa86e2d7a5bdc0e27230cfa3c442b327dee8f71e2e3e4"
+      },
+      {
+        "path": "scripts_b3/verify_pi_agent_skills.py",
+        "exists": true,
+        "bytes": 39327,
+        "sha256": "d7e75750e37dae98929b6bd318fbf142525ab5ffa6bb7d9a3e7bf27815785385"
+      },
+      {
+        "path": "scripts_b3/verify_question_diversity.py",
+        "exists": true,
+        "bytes": 20739,
+        "sha256": "60d51ec41451deaffc607507f64085c6d7962388cc5eb2be9b119f17c6e493d5"
+      },
+      {
+        "path": "scripts_b3/start_qwen_max_pi.ps1",
+        "exists": true,
+        "bytes": 3976,
+        "sha256": "a3cc4517c51c23ddb2cafeefa26a6d6dc080cb8d3183770a3f0bc073fc7be042"
+      },
+      {
+        "path": "tests/test_science_agents.py",
+        "exists": true,
+        "bytes": 145408,
+        "sha256": "518d640acd03f9bbc3c6091a043d80928d63c701dd8e672540e394f3d3a60c9d"
+      },
+      {
+        "path": "tests/test_pi_science_agent_readiness.py",
+        "exists": true,
+        "bytes": 17273,
+        "sha256": "f2c04149efa045a685f3249aacfaa7de38bf9a62cb5606bf12a9ed71b252cb80"
+      },
+      {
+        "path": "tests/test_question_generalization.py",
+        "exists": true,
+        "bytes": 2318,
+        "sha256": "b444fe2f94eb9f6540440b359f2204a39980b39bf7b250862b9727e7885cbad6"
+      },
+      {
+        "path": "b3/evals/golden_cases.json",
+        "exists": true,
+        "bytes": 2538,
+        "sha256": "28079b752e955e4f41615f44ba7a70abff58276946465f0f8398ca650eec474a"
+      },
+      {
+        "path": "b3/evals/adversarial_cases.json",
+        "exists": true,
+        "bytes": 5415,
+        "sha256": "f98dc14c4b47edc66cdb73d5fbf63c469f63dc767b69c89e8eb2bdb04eff0479"
+      },
+      {
+        "path": "b3/evals/question_diversity_cases.json",
+        "exists": true,
+        "bytes": 4674,
+        "sha256": "ae51d0c4e184b39bc28c9458f96c541308554dbf4dbc1af7cb476fbc6d6bdde4"
+      },
+      {
+        "path": "b3/evals/golden_hypothesis_fixture.json",
+        "exists": true,
+        "bytes": 9110,
+        "sha256": "fc7a5a3f4d140067d49d353360d4c1397880679c07f7768f72a7afcbe9db7914"
+      },
+      {
+        "path": "b3/evals/golden_f107_hypothesis_fixture.json",
+        "exists": true,
+        "bytes": 5445,
+        "sha256": "fb93d92e31ed781159f5bee602b9a1f22ff7190c2bfd686222efde63427977ba"
+      },
+      {
+        "path": ".pi/agents/b3-research-planner.md",
+        "exists": true,
+        "bytes": 5030,
+        "sha256": "f41e826aba476368bbc502bb9c5323c8f62c3bb7cb8a9b4c580b25c8a3b7dae6"
+      },
+      {
+        "path": ".pi/agents/b3-experiment.md",
+        "exists": true,
+        "bytes": 4357,
+        "sha256": "4ebc11ffe10344448201c2f4a2a5ef060dec3c2a6409bb0ad2e82dd12ae2f6c3"
+      },
+      {
+        "path": ".pi/agents/b3-hypothesis.md",
+        "exists": true,
+        "bytes": 4581,
+        "sha256": "ce2edd736b512724d2fcfe02f463a237b4f765c67e5d1aa2de554a844247e3e4"
+      },
+      {
+        "path": ".pi/extensions/b3-science/index.ts",
+        "exists": true,
+        "bytes": 31893,
+        "sha256": "a5e450cc8a364b047af3b02c9bfd8bed6c4825bc56e8b87ea114794a8551fca0"
+      },
+      {
+        "path": ".pi/extensions/b3-science/agents.ts",
+        "exists": true,
+        "bytes": 4906,
+        "sha256": "70018791fd976d06eec5534b7f7b31ae2325df294bf55012e1d6323e201f097b"
+      },
+      {
+        "path": ".pi/extensions/b3-science/child-policy.ts",
+        "exists": true,
+        "bytes": 2744,
+        "sha256": "c55b9b5c27d1d4b7f775e34c600a884a2850fc3d97b15af63f1afbe3e5816c0e"
+      },
+      {
+        "path": ".pi/extensions/b3-science/child-event-stream.ts",
+        "exists": true,
+        "bytes": 13489,
+        "sha256": "dcfde7cc41f64c126f18761bf99db6d10f8ac88a81f1fd700350da6e82a81be2"
+      },
+      {
+        "path": ".pi/extensions/b3-science/model-route.ts",
+        "exists": true,
+        "bytes": 1283,
+        "sha256": "a6ec7b3890a5401872de5dfef821af941cf35f1759c297de62b2cdc97f74e910"
+      },
+      {
+        "path": ".pi/extensions/b3-science/project-paths.ts",
+        "exists": true,
+        "bytes": 3634,
+        "sha256": "dba04c973499a3fd0b26903e996ebcfad3fee7aba17347a965d1d90c37e033bf"
+      },
+      {
+        "path": ".pi/extensions/b3-science/project-root.ts",
+        "exists": true,
+        "bytes": 1262,
+        "sha256": "847ace995c7d34c5d9ee6dafcc4af18a989089bd09d6bc26d3dc3a92d76f8147"
+      },
+      {
+        "path": ".pi/extensions/b3-science/project-tools.ts",
+        "exists": true,
+        "bytes": 10341,
+        "sha256": "a1595fdbfabefb06926e77c4abf18f01284eb50ff05efb3451ef529a7ef6eec6"
+      },
+      {
+        "path": ".pi/extensions/b3-science/scientific-tools.ts",
+        "exists": true,
+        "bytes": 7349,
+        "sha256": "2e1d44dabf8720d2219bea1a3155c380db1a0bb6b5e2c20843a5a3b8ab4cf8b3"
+      },
+      {
+        "path": ".pi/extensions/b3-science/science-cli-runtime.ts",
+        "exists": true,
+        "bytes": 1729,
+        "sha256": "8c6c0513abc7c6623224e6786d939775d67e7c81034a0c4424532b67a13b9c2f"
+      },
+      {
+        "path": ".pi/extensions/dashscope-provider.ts",
+        "exists": true,
+        "bytes": 5063,
+        "sha256": "2323869d1e382e90e65782ed847af706efd4f7a5857c409baf6bd93eab31d20a"
+      },
+      {
+        "path": ".pi/settings.json",
+        "exists": true,
+        "bytes": 263,
+        "sha256": "7083134ec8f589ef0dc7b8ef68b047a3cc5f8b708bd66a7332089a5d94ab8f91"
+      },
+      {
+        "path": ".pi/prompts/b3-research-loop.md",
+        "exists": true,
+        "bytes": 2616,
+        "sha256": "186a3f0f6c9451d104d1955ce6e1a5b0e3642a5ee7de5e738693adf531d550c4"
+      },
+      {
+        "path": ".pi/docs/three-agent-skills.md",
+        "exists": true,
+        "bytes": 2403,
+        "sha256": "7e586d6f08acb611c1b3e3d3f35ae5a83d09ee2ccca8fe910ba3558af2f50ed6"
+      },
+      {
+        "path": ".pi/skills/research-planner-agent/SKILL.md",
+        "exists": true,
+        "bytes": 1978,
+        "sha256": "275b9d794ccf94739c0fa278aeaa9686f56a6cf7ff85aa7dfed92b967d1c738f"
+      },
+      {
+        "path": ".pi/skills/research-planner-agent/references/工作模式与完成标准.md",
+        "exists": true,
+        "bytes": 3095,
+        "sha256": "7d9d60d7f650ba02e1b1f34931c40e6cd98a4c241a8d29111f4b7277457e2371"
+      },
+      {
+        "path": ".pi/skills/experiment-agent/SKILL.md",
+        "exists": true,
+        "bytes": 2033,
+        "sha256": "8bcfd42f3e3b3120f886959fbad1c0203aaf7dafa02ecdd9f63f867e42fcc67c"
+      },
+      {
+        "path": ".pi/skills/experiment-agent/references/工作模式与完成标准.md",
+        "exists": true,
+        "bytes": 2717,
+        "sha256": "b5086de4303ecf8d9225ee14bc3149f13d8fdeee99cff32a325945bb72655dc7"
+      },
+      {
+        "path": ".pi/skills/hypothesis-agent/SKILL.md",
+        "exists": true,
+        "bytes": 2114,
+        "sha256": "458a2a124762c159c8f1ca8be5851a6a9812f787d705d071234fb00e07897fa0"
+      },
+      {
+        "path": ".pi/skills/hypothesis-agent/references/工作模式与完成标准.md",
+        "exists": true,
+        "bytes": 3197,
+        "sha256": "1b8490475faf9a4310982fab5fa083bc52e9fc76ed3de22f2b160fb849924d0e"
+      },
+      {
+        "path": "b3/proofs/question_diversity.json",
+        "exists": true,
+        "bytes": 5855,
+        "sha256": "41ffafdf8a9419888ba4bba92b20ea4db64955cb8a0ec3fb6fc3f0fdb84b933c"
+      },
+      {
+        "path": "b3/proofs/question_diversity.md",
+        "exists": true,
+        "bytes": 1794,
+        "sha256": "d96197828ef032943399419b997a29f11502fb9356ed45e9d2748cd90fd35c83"
+      },
+      {
+        "path": "操作手册.md",
+        "exists": true,
+        "bytes": 9390,
+        "sha256": "a16ed891d3731481623d5df984dc0fb4068f462bd6fb274efa491024bf6b1e13"
+      },
+      {
+        "path": "tests/test_registered_experiments.py",
+        "exists": true,
+        "bytes": 12847,
+        "sha256": "969d2904d7b076ef22fb6c418efcc6679454766fb92dce67e0f3182fcb0720a0"
+      },
+      {
+        "path": "tests/test_science_toolkit.py",
+        "exists": true,
+        "bytes": 26128,
+        "sha256": "f5d5ae74066d75eb045b1633d8d22f24f1135195f05368fd7ac14dc29cd9b556"
+      },
+      {
+        "path": "tests/test_qwen_adapter.py",
+        "exists": true,
+        "bytes": 6687,
+        "sha256": "a95d93a6e66865e7f4a5f56dcfb32e873330a577fc7cd0573105d2798e3f0d0c"
+      },
+      {
+        "path": "tests/test_qwen_connection.py",
+        "exists": true,
+        "bytes": 6570,
+        "sha256": "713ee883f848886f8ab498f5c0b7b247f0209f0047a04f77ecaa674826c9ecaf"
+      },
+      {
+        "path": "b3/specs/research_context.json",
+        "exists": true,
+        "bytes": 3517,
+        "sha256": "4d80caf992d52840152cf298ab82968a57816764b39295b4ac3d29dad4a96fe7"
+      },
+      {
+        "path": "b3/specs/experiment_catalog.json",
+        "exists": true,
+        "bytes": 2929,
+        "sha256": "42230510d375461b8cdf38615c6d9adafc76ca4cf3407f89e264063be0ffb989"
+      },
+      {
+        "path": "b3/specs/evidence_ledger.json",
+        "exists": true,
+        "bytes": 18993,
+        "sha256": "c62a2dcb6a4b362d438fd3fd2a8504efb1d38d450f84851cce6745f624f763af"
+      },
+      {
+        "path": "b3/specs/hypothesis_evidence_matrix.json",
+        "exists": true,
+        "bytes": 21651,
+        "sha256": "f1682082176f0a3bf0baf7f94d2428c882b44f2883e1a9af15fb8dba5fd6908c"
+      },
+      {
+        "path": "b3/data/raw/source_manifest.json",
+        "exists": true,
+        "bytes": 2964,
+        "sha256": "4b70ac963cd5ff1c66a98a620a99a2bfdaef6af85ea4760e5d54c1df40437404"
+      },
+      {
+        "path": "b3/data/raw/SN_m_tot_V2.0.csv",
+        "exists": true,
+        "bytes": 126502,
+        "sha256": "de910b1bf7c52663cf4ee1a73772a3c76ccea339d7f97170e779465a0be10584"
+      },
+      {
+        "path": "b3/data/raw/SN_ms_tot_V2.0.csv",
+        "exists": true,
+        "bytes": 126502,
+        "sha256": "0848ca0fd38da6fdc985f253b5e1ebe6fb1fe41ec4879ea45572c107e4ef5ab2"
+      },
+      {
+        "path": "b3/data/raw/SN_m_hem_V2.0.csv",
+        "exists": true,
+        "bytes": 30149,
+        "sha256": "473c89313c482f3d87a9bfdee8f768f181417ed37df0fcd9db944618e4855b63"
+      },
+      {
+        "path": "b3/data/raw/Catalogue_B.csv",
+        "exists": true,
+        "bytes": 153823,
+        "sha256": "a2398fb2d85be30088e0bc4813e2b58a118ab62a27fda567cc8272408b488419"
+      },
+      {
+        "path": "b3/data/raw/observed-solar-cycle-indices.json",
+        "exists": true,
+        "bytes": 511810,
+        "sha256": "2adb1094a5364d0aeb0027cd239399625d4a6762f19b8999f38831972cb4709c"
+      },
+      {
+        "path": "b3/data/raw/predicted-solar-cycle.json",
+        "exists": true,
+        "bytes": 19158,
+        "sha256": "34c389b39e9a87398dc68f4466333801d3ee1aedc6eb49261f91845f82120e0c"
+      },
+      {
+        "path": "b3/data/raw/wso_polar_field_observations.html",
+        "exists": true,
+        "bytes": 149999,
+        "sha256": "1bd718e75d4832419164491f0a28296ba86017b4acf3d8d36e17811ed7e14113"
+      },
+      {
+        "path": "b3/specs/research_plan_v2.schema.json",
+        "exists": true,
+        "bytes": 6185,
+        "sha256": "92a818c7b5eea7c894e83f6812ece83e3ca5bb83c9d1329a7bcbbc3a01e81b3f"
+      },
+      {
+        "path": "b3/specs/experiment_manifest_v2.schema.json",
+        "exists": true,
+        "bytes": 9296,
+        "sha256": "14644c2dbf9178fcd65920405943e34d39fe0c245ad7b026d2dc271ca8a69571"
+      },
+      {
+        "path": "b3/specs/hypothesis_portfolio_v2.schema.json",
+        "exists": true,
+        "bytes": 11992,
+        "sha256": "d878186a9359bc5dd6ee859644399c645891ea42cde3e2a7e64210433b20f40a"
+      },
+      {
+        "path": "requirements-analysis.lock",
+        "exists": true,
+        "bytes": 101,
+        "sha256": "e3345e43af81b88deb4cd496e0404c94cd0e9109b90d34bcad14227d51568d0c"
+      }
+    ]
+  },
+  "checks": {
+    "skills": {
+      "passed": true,
+      "details": [
+        {
+          "name": "research-planner-agent",
+          "path": ".pi/skills/research-planner-agent/SKILL.md",
+          "passed": true,
+          "missing": [],
+          "forbidden": [],
+          "line_count": 37,
+          "sha256": "275b9d794ccf94739c0fa278aeaa9686f56a6cf7ff85aa7dfed92b967d1c738f",
+          "reference_path": ".pi/skills/research-planner-agent/references/工作模式与完成标准.md",
+          "reference_sha256": "7d9d60d7f650ba02e1b1f34931c40e6cd98a4c241a8d29111f4b7277457e2371"
+        },
+        {
+          "name": "experiment-agent",
+          "path": ".pi/skills/experiment-agent/SKILL.md",
+          "passed": true,
+          "missing": [],
+          "forbidden": [],
+          "line_count": 38,
+          "sha256": "8bcfd42f3e3b3120f886959fbad1c0203aaf7dafa02ecdd9f63f867e42fcc67c",
+          "reference_path": ".pi/skills/experiment-agent/references/工作模式与完成标准.md",
+          "reference_sha256": "b5086de4303ecf8d9225ee14bc3149f13d8fdeee99cff32a325945bb72655dc7"
+        },
+        {
+          "name": "hypothesis-agent",
+          "path": ".pi/skills/hypothesis-agent/SKILL.md",
+          "passed": true,
+          "missing": [],
+          "forbidden": [],
+          "line_count": 39,
+          "sha256": "458a2a124762c159c8f1ca8be5851a6a9812f787d705d071234fb00e07897fa0",
+          "reference_path": ".pi/skills/hypothesis-agent/references/工作模式与完成标准.md",
+          "reference_sha256": "1b8490475faf9a4310982fab5fa083bc52e9fc76ed3de22f2b160fb849924d0e"
+        }
+      ]
+    },
+    "prompt": {
+      "path": ".pi/prompts/b3-research-loop.md",
+      "passed": true,
+      "missing": [],
+      "sha256": "186a3f0f6c9451d104d1955ce6e1a5b0e3642a5ee7de5e738693adf531d550c4"
+    },
+    "readme": {
+      "path": ".pi/docs/three-agent-skills.md",
+      "passed": true,
+      "sha256": "7e586d6f08acb611c1b3e3d3f35ae5a83d09ee2ccca8fe910ba3558af2f50ed6"
+    },
+    "agent_contracts": {
+      "passed": true,
+      "details": {
+        "b3-experiment": {
+          "path": ".pi/agents/b3-experiment.md",
+          "passed": true,
+          "model": "b3-default",
+          "thinking": "low",
+          "tools": [
+            "b3_read_project",
+            "b3_grep_project",
+            "b3_find_project",
+            "b3_list_project",
+            "b3_run_registered_experiment",
+            "b3_read_run_state",
+            "b3_discover_tools",
+            "b3_inspect_tool",
+            "b3_run_tool",
+            "b3_verify_result",
+            "b3_trace_artifact"
+          ],
+          "missing": []
+        },
+        "b3-hypothesis": {
+          "path": ".pi/agents/b3-hypothesis.md",
+          "passed": true,
+          "model": "b3-default",
+          "thinking": "high",
+          "tools": [
+            "b3_read_project",
+            "b3_grep_project",
+            "b3_find_project",
+            "b3_list_project",
+            "b3_read_run_state",
+            "b3_discover_tools",
+            "b3_inspect_tool",
+            "b3_run_tool",
+            "b3_verify_result",
+            "b3_trace_artifact"
+          ],
+          "missing": []
+        },
+        "b3-research-planner": {
+          "path": ".pi/agents/b3-research-planner.md",
+          "passed": true,
+          "model": "b3-default",
+          "thinking": "medium",
+          "tools": [
+            "b3_read_project",
+            "b3_grep_project",
+            "b3_find_project",
+            "b3_list_project",
+            "b3_discover_tools",
+            "b3_inspect_tool",
+            "b3_run_tool",
+            "b3_verify_result",
+            "b3_trace_artifact"
+          ],
+          "missing": []
+        }
+      }
+    },
+    "extensions": {
+      "passed": true,
+      "errors": [],
+      "agents": [
+        "b3-experiment",
+        "b3-hypothesis",
+        "b3-research-planner"
+      ],
+      "tools": [
+        "b3_discover_tools",
+        "b3_find_project",
+        "b3_grep_project",
+        "b3_init_science_run",
+        "b3_inspect_tool",
+        "b3_list_project",
+        "b3_read_project",
+        "b3_read_run_state",
+        "b3_run_registered_experiment",
+        "b3_run_tool",
+        "b3_subagent",
+        "b3_submit_hypothesis_portfolio",
+        "b3_submit_research_plan",
+        "b3_trace_artifact",
+        "b3_validate_hypothesis_portfolio",
+        "b3_verify_result"
+      ],
+      "commands": [
+        "b3-doctor"
+      ],
+      "models": [
+        "dashscope/qwen3.6-flash-2026-04-16",
+        "dashscope/qwen3.7-max-2026-06-08",
+        "dashscope/qwen3.7-plus-2026-05-26"
+      ],
+      "security": {
+        "shell_false": true,
+        "abort_propagation": true,
+        "abort_escalation": true,
+        "output_cap_50_kib": true,
+        "fixed_science_cli": true,
+        "credential_scrubbed_science_cli": true,
+        "isolated_python_runtime": true,
+        "authenticated_tool_receipts": true,
+        "honest_subagent_transport_contract": true,
+        "isolated_child_flags": true,
+        "json_event_transport": true,
+        "safe_child_progress": true,
+        "human_facing_contract_names": true,
+        "diagnostic_timeouts": true,
+        "role_thinking_policy": true,
+        "credential_references_only": true,
+        "https_only": true,
+        "qwen_thinking_compat": true,
+        "qwen_completion_token_field": true,
+        "qwen_provider_route_isolated": true,
+        "doctor_uses_auth_status": true,
+        "doctor_checks_python_dependencies": true,
+        "realpath_agent_boundary": true,
+        "explicit_extension_isolation": true,
+        "dashscope_host_allowlist": true,
+        "qwen_model_allowlist": true,
+        "model_route_allowlist": true,
+        "compact_tool_protocol": true,
+        "parent_bound_scientific_tool_roles": true,
+        "qwen_secret_redaction": true,
+        "no_builtin_file_tools": true,
+        "project_scoped_read_tools": true,
+        "protected_path_filter": true,
+        "anchored_project_root": true
+      }
+    },
+    "schemas": {
+      "passed": true,
+      "details": {
+        "research_plan_v2.schema.json": {
+          "path": "b3/specs/research_plan_v2.schema.json",
+          "passed": true,
+          "errors": [],
+          "sha256": "92a818c7b5eea7c894e83f6812ece83e3ca5bb83c9d1329a7bcbbc3a01e81b3f"
+        },
+        "experiment_manifest_v2.schema.json": {
+          "path": "b3/specs/experiment_manifest_v2.schema.json",
+          "passed": true,
+          "errors": [],
+          "sha256": "14644c2dbf9178fcd65920405943e34d39fe0c245ad7b026d2dc271ca8a69571"
+        },
+        "hypothesis_portfolio_v2.schema.json": {
+          "path": "b3/specs/hypothesis_portfolio_v2.schema.json",
+          "passed": true,
+          "errors": [],
+          "sha256": "d878186a9359bc5dd6ee859644399c645891ea42cde3e2a7e64210433b20f40a"
+        }
+      }
+    },
+    "fixture_evaluation": {
+      "path": "b3/proofs/pi_science_agents_eval.json",
+      "sha256": "576f754b461d04f9bc9d74c530a436adbaf5453e7ffc81b1e3a376ced2cb575a",
+      "passed": true,
+      "score": "12/12",
+      "case_count": 12,
+      "errors": []
+    },
+    "question_diversity": {
+      "path": "b3/proofs/question_diversity.json",
+      "sha256": "41ffafdf8a9419888ba4bba92b20ea4db64955cb8a0ec3fb6fc3f0fdb84b933c",
+      "passed": true,
+      "score": "9/9",
+      "errors": []
+    },
+    "live_evaluation": {
+      "path": "b3/proofs/pi_science_agents_live_eval.json",
+      "sha256": "9cb6277cb40eaebb10d36b59e2290170e61648b9552241cab1bb4b5ff8f0ce86",
+      "passed": true,
+      "verified": false,
+      "honest_boundary": true,
+      "status": "blocked_missing_credentials",
+      "model": "dashscope/qwen3.7-max-2026-06-08",
+      "model_snapshot_pinned": true,
+      "case_count": 0,
+      "fallback_used": false,
+      "errors": []
+    }
+  },
+  "readiness_boundary": "The default development route is the fixed Qwen3.7-Max 2026-06-08 snapshot, while offline contract readiness is model-independent. Live Qwen readiness additionally requires a local credential and a fallback-free, fully grounded 12-case x 3-repetition proof.",
+  "skills": [
+    {
+      "name": "research-planner-agent",
+      "path": ".pi/skills/research-planner-agent/SKILL.md",
+      "passed": true,
+      "missing": [],
+      "forbidden": [],
+      "line_count": 37,
+      "sha256": "275b9d794ccf94739c0fa278aeaa9686f56a6cf7ff85aa7dfed92b967d1c738f",
+      "reference_path": ".pi/skills/research-planner-agent/references/工作模式与完成标准.md",
+      "reference_sha256": "7d9d60d7f650ba02e1b1f34931c40e6cd98a4c241a8d29111f4b7277457e2371"
+    },
+    {
+      "name": "experiment-agent",
+      "path": ".pi/skills/experiment-agent/SKILL.md",
+      "passed": true,
+      "missing": [],
+      "forbidden": [],
+      "line_count": 38,
+      "sha256": "8bcfd42f3e3b3120f886959fbad1c0203aaf7dafa02ecdd9f63f867e42fcc67c",
+      "reference_path": ".pi/skills/experiment-agent/references/工作模式与完成标准.md",
+      "reference_sha256": "b5086de4303ecf8d9225ee14bc3149f13d8fdeee99cff32a325945bb72655dc7"
+    },
+    {
+      "name": "hypothesis-agent",
+      "path": ".pi/skills/hypothesis-agent/SKILL.md",
+      "passed": true,
+      "missing": [],
+      "forbidden": [],
+      "line_count": 39,
+      "sha256": "458a2a124762c159c8f1ca8be5851a6a9812f787d705d071234fb00e07897fa0",
+      "reference_path": ".pi/skills/hypothesis-agent/references/工作模式与完成标准.md",
+      "reference_sha256": "1b8490475faf9a4310982fab5fa083bc52e9fc76ed3de22f2b160fb849924d0e"
+    }
+  ],
+  "prompt": {
+    "path": ".pi/prompts/b3-research-loop.md",
+    "passed": true,
+    "missing": [],
+    "sha256": "186a3f0f6c9451d104d1955ce6e1a5b0e3642a5ee7de5e738693adf531d550c4"
+  },
+  "readme": {
+    "path": ".pi/docs/three-agent-skills.md",
+    "passed": true,
+    "sha256": "7e586d6f08acb611c1b3e3d3f35ae5a83d09ee2ccca8fe910ba3558af2f50ed6"
+  },
+  "verification_commands": [
+    {
+      "id": "science_agent_unit_tests",
+      "command": [
+        "python",
+        "-m",
+        "unittest",
+        "tests.test_science_agents"
+      ],
+      "exit_code": 0,
+      "expected_exit_codes": [
+        0
+      ],
+      "passed": true,
+      "wall_seconds": 20.123949,
+      "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stderr_sha256": "3c899c04fe45618801c35f09a84a61f16be8b71f880c522b763ca6a65765663b",
+      "error_type": null
+    },
+    {
+      "id": "registered_experiment_tests",
+      "command": [
+        "python",
+        "-m",
+        "unittest",
+        "tests.test_registered_experiments"
+      ],
+      "exit_code": 0,
+      "expected_exit_codes": [
+        0
+      ],
+      "passed": true,
+      "wall_seconds": 6.236373,
+      "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stderr_sha256": "d3c8d36993e8a7a38f08ee58a237edff96fbb9faf016c3a235f88b4bbb3cef83",
+      "error_type": null
+    },
+    {
+      "id": "scientific_toolkit_tests",
+      "command": [
+        "python",
+        "-m",
+        "unittest",
+        "tests.test_science_toolkit"
+      ],
+      "exit_code": 0,
+      "expected_exit_codes": [
+        0
+      ],
+      "passed": true,
+      "wall_seconds": 2.503151,
+      "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stderr_sha256": "6647b0ea17f467c4fd31d75f5462c404bfaae244843b579059e59cbee9c994b1",
+      "error_type": null
+    },
+    {
+      "id": "qwen_route_security_tests",
+      "command": [
+        "python",
+        "-m",
+        "unittest",
+        "tests.test_qwen_adapter",
+        "tests.test_qwen_connection"
+      ],
+      "exit_code": 0,
+      "expected_exit_codes": [
+        0
+      ],
+      "passed": true,
+      "wall_seconds": 0.244988,
+      "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stderr_sha256": "a36435e8b0acbdb4ba4a34ca6401451332e28c6854e3ee41093717379b597bdc",
+      "error_type": null
+    },
+    {
+      "id": "pi_extension_verifier",
+      "command": [
+        "python",
+        "scripts_b3/verify_pi_extensions.py"
+      ],
+      "exit_code": 0,
+      "expected_exit_codes": [
+        0
+      ],
+      "passed": true,
+      "wall_seconds": 0.100557,
+      "stdout_sha256": "601e042c99bd8dd9d440ef69831f15aa3b0a364e9085bf02b398436dd982fa9a",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "error_type": null
+    },
+    {
+      "id": "fixture_evaluation",
+      "command": [
+        "python",
+        "scripts_b3/evaluate_pi_science_agents.py",
+        "--mode",
+        "fixture"
+      ],
+      "exit_code": 0,
+      "expected_exit_codes": [
+        0
+      ],
+      "passed": true,
+      "wall_seconds": 4.40047,
+      "stdout_sha256": "576f754b461d04f9bc9d74c530a436adbaf5453e7ffc81b1e3a376ced2cb575a",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "error_type": null
+    },
+    {
+      "id": "question_diversity_contract",
+      "command": [
+        "python",
+        "scripts_b3/verify_question_diversity.py"
+      ],
+      "exit_code": 0,
+      "expected_exit_codes": [
+        0
+      ],
+      "passed": true,
+      "wall_seconds": 0.408144,
+      "stdout_sha256": "382ff3401ece4545ed7fbb9ae0f301c1f310606066533c6394a2024af806c31d",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "error_type": null
+    },
+    {
+      "id": "no_credential_live_boundary",
+      "command": [
+        "python",
+        "scripts_b3/evaluate_pi_science_agents.py",
+        "--mode",
+        "live",
+        "--case",
+        "G01_bounded_cycle26_plan"
+      ],
+      "exit_code": 2,
+      "expected_exit_codes": [
+        2
+      ],
+      "passed": true,
+      "wall_seconds": 0.311527,
+      "stdout_sha256": "9cb6277cb40eaebb10d36b59e2290170e61648b9552241cab1bb4b5ff8f0ce86",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "error_type": null
+    }
+  ],
+  "verification_commands_passed": true
+}

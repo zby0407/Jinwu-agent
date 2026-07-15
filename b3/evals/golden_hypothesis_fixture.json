@@ -1,0 +1,290 @@
+{
+  "fixture_version": "b3-golden-hypothesis-fixture-v1",
+  "description": "Deterministic evidence-grounded fixture for proximity, pairwise scoring, and order-bias checks.",
+  "portfolio": {
+    "schema_version": "b3-hypothesis-portfolio-v2",
+    "run_id": "golden_hypothesis_run",
+    "portfolio_id": "golden_portfolio_001",
+    "created_at": "2026-07-11T00:00:00+00:00",
+    "status": "calibrated",
+    "claim_boundary": {
+      "allowed": [
+        "Retrospective comparison of bounded solar-cycle mechanisms"
+      ],
+      "forbidden": [
+        "Official Solar Cycle 26 forecast",
+        "Claim that the origin of the solar cycle has been proven"
+      ]
+    },
+    "source_ids": [
+      "S1_silso_monthly",
+      "S2_wso_polar_field"
+    ],
+    "artifact_paths": [
+      "artifacts/E5_metrics.json",
+      "artifacts/E7_placebo_metrics.json"
+    ],
+    "experiment_ids": [
+      "E5_polar_precursor_robustness",
+      "E7_negative_controls_and_placebos"
+    ],
+    "hypotheses": [
+      {
+        "id": "H_POLAR",
+        "version": 1,
+        "lineage": [],
+        "generation_strategy": "mechanism_driven",
+        "hypothesis": "A cycle-minimum polar-field precursor retains bounded information about the next cycle amplitude after vintage and phase controls.",
+        "mechanism_graph": {
+          "nodes": [
+            {
+              "id": "P1",
+              "label": "minimum polar field",
+              "layer": "proxy"
+            },
+            {
+              "id": "P2",
+              "label": "poloidal seed field",
+              "layer": "physical_mechanism"
+            },
+            {
+              "id": "P3",
+              "label": "next-cycle amplitude",
+              "layer": "observation"
+            }
+          ],
+          "edges": [
+            {
+              "source": "P1",
+              "target": "P2",
+              "relation": "proxies"
+            },
+            {
+              "source": "P2",
+              "target": "P3",
+              "relation": "constrains"
+            }
+          ]
+        },
+        "measurable_predictions": [
+          {
+            "variable": "leave-one-cycle-out rank correlation",
+            "direction": "increase",
+            "threshold_or_interval": "above phase-matched placebo distribution",
+            "time_window": "cycle minima with source-vintage cutoffs",
+            "target_experiment": "E5_polar_precursor_robustness"
+          }
+        ],
+        "supporting_evidence": [
+          {
+            "kind": "source",
+            "ref": "S2_wso_polar_field",
+            "status": "verified",
+            "role": "observed polar-field series"
+          },
+          {
+            "kind": "artifact",
+            "ref": "artifacts/E5_metrics.json",
+            "status": "passed",
+            "role": "registered robustness result"
+          }
+        ],
+        "counter_evidence": [
+          {
+            "kind": "artifact",
+            "ref": "artifacts/E7_placebo_metrics.json",
+            "status": "warning",
+            "role": "small-cycle and phase-placebo sensitivity"
+          }
+        ],
+        "falsifiers": [
+          "The precursor advantage disappears under all registered vintage-safe leave-one-cycle-out variants"
+        ],
+        "confounders": [
+          "small effective cycle count",
+          "instrument calibration changes",
+          "cycle-minimum dating uncertainty"
+        ],
+        "alternatives": [
+          "shared cycle-phase structure explains both precursor and amplitude"
+        ],
+        "novelty": {
+          "nearest_work": "polar-field precursor literature",
+          "similarity": "tests a polar proxy against later cycle amplitude",
+          "difference": "requires source-vintage cutoffs, leave-one-cycle-out evaluation, and registered placebos",
+          "status": "incremental"
+        },
+        "scores": {
+          "data_grounding": 0.92,
+          "mechanism_coherence": 0.85,
+          "testability": 0.9,
+          "falsifiability": 0.9,
+          "novelty": 0.72,
+          "reproducibility": 0.86,
+          "uncertainty": 0.82
+        },
+        "tournament": {
+          "rating": 1216.0,
+          "position_bias": false,
+          "match_ids": [
+            "M001_H_PHASE_H_POLAR"
+          ]
+        },
+        "claim_boundary": {
+          "allowed": [
+            "The registered retrospective fixture favors H_POLAR on a majority of criteria"
+          ],
+          "forbidden": [
+            "H_POLAR proves a causal dynamo mechanism",
+            "H_POLAR is an official future-cycle prediction"
+          ]
+        },
+        "decision": "retain",
+        "next_test": "Run E5 with frozen data vintages and E7 phase-matched placebos"
+      },
+      {
+        "id": "H_PHASE",
+        "version": 1,
+        "lineage": [],
+        "generation_strategy": "competitive_explanation",
+        "hypothesis": "Apparent precursor skill is largely induced by shared cycle-phase structure and should collapse against phase-matched negative controls.",
+        "mechanism_graph": {
+          "nodes": [
+            {
+              "id": "Q1",
+              "label": "shared cycle phase",
+              "layer": "latent"
+            },
+            {
+              "id": "Q2",
+              "label": "precursor proxy",
+              "layer": "proxy"
+            },
+            {
+              "id": "Q3",
+              "label": "apparent predictive skill",
+              "layer": "observation"
+            }
+          ],
+          "edges": [
+            {
+              "source": "Q1",
+              "target": "Q2",
+              "relation": "co-varies with"
+            },
+            {
+              "source": "Q1",
+              "target": "Q3",
+              "relation": "induces"
+            }
+          ]
+        },
+        "measurable_predictions": [
+          {
+            "variable": "real-minus-placebo skill gap",
+            "direction": "decrease",
+            "threshold_or_interval": "compatible with zero under registered uncertainty",
+            "time_window": "same vintage-safe cycle folds as H_POLAR",
+            "target_experiment": "E7_negative_controls_and_placebos"
+          }
+        ],
+        "supporting_evidence": [
+          {
+            "kind": "artifact",
+            "ref": "artifacts/E7_placebo_metrics.json",
+            "status": "warning",
+            "role": "phase-matched placebo result"
+          }
+        ],
+        "counter_evidence": [
+          {
+            "kind": "source",
+            "ref": "S2_wso_polar_field",
+            "status": "verified",
+            "role": "independent polar-field measurement"
+          },
+          {
+            "kind": "artifact",
+            "ref": "artifacts/E5_metrics.json",
+            "status": "passed",
+            "role": "registered precursor robustness result"
+          }
+        ],
+        "falsifiers": [
+          "The real precursor consistently exceeds all phase-matched placebos under registered folds"
+        ],
+        "confounders": [
+          "placebo construction may remove physically relevant timing",
+          "low statistical power"
+        ],
+        "alternatives": [
+          "a physically meaningful polar seed field produces the observed advantage"
+        ],
+        "novelty": {
+          "nearest_work": "solar-cycle precursor null-model studies",
+          "similarity": "tests whether precursor skill survives a null model",
+          "difference": "uses the same immutable folds and data vintages as the positive mechanism",
+          "status": "incremental"
+        },
+        "scores": {
+          "data_grounding": 0.84,
+          "mechanism_coherence": 0.78,
+          "testability": 0.88,
+          "falsifiability": 0.86,
+          "novelty": 0.8,
+          "reproducibility": 0.79,
+          "uncertainty": 0.74
+        },
+        "tournament": {
+          "rating": 1184.0,
+          "position_bias": false,
+          "match_ids": [
+            "M001_H_PHASE_H_POLAR"
+          ]
+        },
+        "claim_boundary": {
+          "allowed": [
+            "H_PHASE remains a registered competitive explanation"
+          ],
+          "forbidden": [
+            "A null result proves that polar fields have no physical role"
+          ]
+        },
+        "decision": "retain",
+        "next_test": "Run phase-stratified and block-bootstrap placebo families"
+      }
+    ],
+    "artifact_sha256": "db6971a0bb90781a11cf2e3e3ecc1f5973e007b6207e925679f978620e7c3686"
+  },
+  "expected": {
+    "proximity_threshold": 0.82,
+    "clusters": [
+      [
+        "H_POLAR"
+      ],
+      [
+        "H_PHASE"
+      ]
+    ],
+    "tournament": {
+      "initial_elo": 1200.0,
+      "k_factor": 32.0,
+      "matches": [
+        {
+          "match_id": "M001_H_PHASE_H_POLAR",
+          "left": "H_PHASE",
+          "right": "H_POLAR",
+          "first_order_winner": "H_POLAR",
+          "reverse_order_winner": "H_POLAR",
+          "winner": "H_POLAR",
+          "position_bias": false
+        }
+      ],
+      "ratings": {
+        "H_POLAR": 1216.0,
+        "H_PHASE": 1184.0
+      },
+      "position_bias_count": 0
+    }
+  }
+}

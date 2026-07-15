@@ -1,0 +1,44 @@
+{
+  "schema_version": "b3-science-agent-eval-cases-v1",
+  "suite": "golden",
+  "cases": [
+    {
+      "id": "G01_bounded_cycle26_plan",
+      "agent": "b3-research-planner",
+      "kind": "valid_plan",
+      "description": "A causal, frozen, registered plan with bounded Cycle-26 wording is accepted.",
+      "expected_decision": "accept",
+      "expected_gates": ["PLAN_SCHEMA", "PLAN_DAG", "EXP_REGISTRY", "CLAIM_BOUNDARY"],
+      "live_task": "Produce ResearchPlan 1.0 for a retrospective, evidence-bounded comparison of solar-cycle mechanisms. Do not issue an official Cycle 26 forecast."
+    },
+    {
+      "id": "G02_sparse_polar_pairs_bounded",
+      "agent": "b3-hypothesis",
+      "kind": "sparse_polar_guard",
+      "description": "Four complete WSO precursor pairs remain exploratory rather than confirmatory.",
+      "observed_pairs": 4,
+      "claim_strength": "exploratory",
+      "expected_decision": "accept_bounded",
+      "expected_gates": ["EVIDENCE_SPARSITY", "CLAIM_DOWNGRADE"],
+      "live_task": "Assess a polar-field precursor hypothesis given only four complete minimum-to-next-cycle pairs. Return a bounded HypothesisPortfolio 1.0 or a needs_revision handoff."
+    },
+    {
+      "id": "G03_f107_proxy_drift_bounded",
+      "agent": "b3-hypothesis",
+      "kind": "golden_proxy_hypothesis",
+      "description": "F10.7 drift is represented as proxy evidence, never direct internal-field measurement.",
+      "expected_decision": "accept",
+      "expected_gates": ["HYPOTHESIS_SCHEMA", "PROXY_MECHANISM_SPLIT", "COUNTER_EVIDENCE"],
+      "live_task": "Generate a falsifiable F10.7-to-sunspot relation-drift hypothesis. Treat F10.7 as a proxy and include counter-evidence and a registered next test."
+    },
+    {
+      "id": "G04_hemispheric_reconstruction_calibration",
+      "agent": "b3-experiment",
+      "kind": "hemispheric_calibration_guard",
+      "description": "The registered SILSO/Veronig extended source is calibrated against direct post-1992 observations while reconstruction and observation layers remain explicit.",
+      "expected_decision": "accept",
+      "expected_gates": ["SEMANTIC_LAYER", "OVERLAP_CALIBRATION", "REGISTERED_SOURCE", "EXPERIMENT_MANIFEST"],
+      "live_task": "Audit and execute the prepared registered hemispheric calibration node once. Verify the SILSO/Veronig Catalogue B source, keep reconstructed pre-1992 values separate from post-1992 direct observations, report overlap calibration diagnostics from the immutable result, and preserve the bounded claim."
+    }
+  ]
+}

@@ -1,0 +1,66 @@
+{
+  "schema_version": "solar-cycle-experiment-catalog-v1",
+  "status_semantics": {
+    "passed": "预注册输出完整且未触发硬边界",
+    "warning": "输出可用，但存在会降低置信度的来源或方法警告",
+    "inconclusive": "实验有效执行但证据不足，不能支持目标主张",
+    "failed": "执行或合同失败",
+    "quarantined": "触发泄漏、哈希、路径或方法学硬边界"
+  },
+  "experiments": [
+    {
+      "id": "E0_data_vintage_audit",
+      "purpose": "核验数据快照、时间可用性、许可证、字节数与 SHA-256。",
+      "primary_output": "data_vintage_audit",
+      "claim_role": "provenance_gate"
+    },
+    {
+      "id": "E1_cycle_segmentation_baseline",
+      "purpose": "建立使用中心 13 个月平滑序列的离线周期间分割基线，并显式标记预测时不可用。",
+      "primary_output": "cycle_segmentation_baseline",
+      "claim_role": "descriptive_baseline"
+    },
+    {
+      "id": "E2_waldmeier_leave_one_cycle_out",
+      "purpose": "用逐周留一验证 Waldmeier 关系的符号、效应与异常周敏感性。",
+      "primary_output": "waldmeier_leave_one_cycle_out",
+      "claim_role": "morphology_robustness"
+    },
+    {
+      "id": "E3_f107_phase_stratified_drift",
+      "purpose": "按活动周与上升/峰值/下降阶段比较 F10.7—黑子关系、残差和不确定性。",
+      "primary_output": "f107_phase_stratified_drift",
+      "claim_role": "proxy_drift_guard"
+    },
+    {
+      "id": "E4_extended_hemispheric_calibration",
+      "purpose": "在重叠期校准 1874–2020 扩展半球序列与 1992 年后 SILSO 直接序列，并报告重建不确定性。",
+      "primary_output": "extended_hemispheric_calibration",
+      "claim_role": "hemispheric_evidence"
+    },
+    {
+      "id": "E5_polar_precursor_robustness",
+      "purpose": "对极区场—下一周峰值关系做留一、符号/窗口敏感性和小样本不确定性检查。",
+      "primary_output": "polar_precursor_robustness",
+      "claim_role": "precursor_constraint"
+    },
+    {
+      "id": "E6_low_order_dynamo_family_ablation",
+      "purpose": "比较低阶 Babcock-Leighton 闭合、线性前兆、持续性与中位数基线，避免单一模型自证。",
+      "primary_output": "low_order_dynamo_family_ablation",
+      "claim_role": "mechanism_plausibility"
+    },
+    {
+      "id": "E7_negative_controls_and_placebos",
+      "purpose": "用时间打乱、错位周期间和相位安慰剂检验相关结构是否可能由偶然配对产生。",
+      "primary_output": "negative_controls_and_placebos",
+      "claim_role": "falsification_gate"
+    },
+    {
+      "id": "E8_clean_reproduction",
+      "purpose": "在隔离环境从固定数据、代码和依赖重新生成核心结果并逐项核对哈希。",
+      "primary_output": "clean_reproduction",
+      "claim_role": "reproducibility_gate"
+    }
+  ]
+}

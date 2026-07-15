@@ -1,0 +1,198 @@
+{
+  "artifact_sha256": "2e0046526bc891f9e344cb3a46b9c4ecd50cab4c7821dedfd9c52a2f5861d385",
+  "error": null,
+  "experiment_id": "E5_polar_precursor_robustness",
+  "finished_at": "2026-07-14T17:58:43.988830+00:00",
+  "node_id": "E5_polar_precursor_robustness_seed42",
+  "result": {
+    "claim_boundary": "结论限于回顾性观测约束、反证和假设优先级，因果机制仍待独立验证；产物仅供研究。",
+    "experiment_id": "E5_polar_precursor_robustness",
+    "facts": {
+      "polar_precursor": {
+        "coverage": {
+          "end_year": 2025.97,
+          "n_valid_rows": 1793,
+          "start_year": 1976.417
+        },
+        "cycle_minimum_pairs": [
+          {
+            "cycle": 20,
+            "minimum_year": 1976.206,
+            "next_cycle_peak_ssn": 232.9,
+            "north_filtered": 111.0,
+            "polar_strength_proxy": 101.5,
+            "signed_average_filtered": 101.5,
+            "south_filtered": -92.0,
+            "wso_year": 1976.417
+          },
+          {
+            "cycle": 21,
+            "minimum_year": 1986.707,
+            "next_cycle_peak_ssn": 212.5,
+            "north_filtered": -114.0,
+            "polar_strength_proxy": 127.5,
+            "signed_average_filtered": -127.5,
+            "south_filtered": 141.0,
+            "wso_year": 1986.709
+          },
+          {
+            "cycle": 22,
+            "minimum_year": 1996.373,
+            "next_cycle_peak_ssn": 180.3,
+            "north_filtered": 101.0,
+            "polar_strength_proxy": 93.5,
+            "signed_average_filtered": 93.5,
+            "south_filtered": -86.0,
+            "wso_year": 1996.376
+          },
+          {
+            "cycle": 23,
+            "minimum_year": 2008.958,
+            "next_cycle_peak_ssn": 116.4,
+            "north_filtered": -51.0,
+            "polar_strength_proxy": 53.5,
+            "signed_average_filtered": -53.5,
+            "south_filtered": 56.0,
+            "wso_year": 2008.967
+          }
+        ],
+        "interpretation": "WSO polar-field data convert H1 from a missing-data warning into a testable polar-precursor constraint, but only a few complete cycles are available.",
+        "latest_filtered": {
+          "avg_filtered": -26.0,
+          "decimal_year": 2025.97,
+          "north_filtered": -38.0,
+          "signed_average_filtered": -26.0,
+          "south_filtered": 14.0
+        },
+        "n_pairs": 4,
+        "pearson_polar_strength_vs_next_peak": 0.8673,
+        "source": "WSO Polar Field Observations - 1976-Present",
+        "spearman_polar_strength_vs_next_peak": 0.8
+      },
+      "polar_precursor_robustness": {
+        "bootstrap_95_interval_spearman": [
+          -0.6,
+          1.0
+        ],
+        "claim_boundary": "Sparse retrospective precursor evidence; no operational Cycle-26 amplitude forecast.",
+        "full_sample": {
+          "pearson": 0.8673,
+          "spearman": 0.8
+        },
+        "interpretation": "留一结果若对单个周期间极敏感，应降低极区前兆的置信度；当前完整配对数量只足以形成机制约束。",
+        "leave_one_cycle_out": {
+          "folds": [
+            {
+              "held_out_cycle": 20,
+              "n_train": 3,
+              "pearson": 0.99,
+              "spearman": 1.0
+            },
+            {
+              "held_out_cycle": 21,
+              "n_train": 3,
+              "pearson": 0.9519,
+              "spearman": 1.0
+            },
+            {
+              "held_out_cycle": 22,
+              "n_train": 3,
+              "pearson": 0.8687,
+              "spearman": 0.5
+            },
+            {
+              "held_out_cycle": 23,
+              "n_train": 3,
+              "pearson": 0.3483,
+              "spearman": 0.5
+            }
+          ],
+          "positive_spearman_fraction": 1.0,
+          "spearman_range": [
+            0.5,
+            1.0
+          ]
+        },
+        "n_complete_pairs": 4,
+        "seed": 42,
+        "small_sample_warning": true,
+        "status": "executed"
+      }
+    },
+    "feature_availability_audit": {
+      "reasons": [
+        "All declared feature rows were available at the forecast origin."
+      ],
+      "status": "passed",
+      "violations": []
+    },
+    "hard_failures": [],
+    "missing_required_inputs": [],
+    "recommended_status": "passed",
+    "registered_operation": "polar_precursor",
+    "seed": 42,
+    "source_hashes": [
+      {
+        "file": "b3/data/raw/SN_m_tot_V2.0.csv",
+        "hash_origin": "source_manifest",
+        "id": "silso_monthly_total",
+        "recorded_sha256": "de910b1bf7c52663cf4ee1a73772a3c76ccea339d7f97170e779465a0be10584",
+        "sha256": "de910b1bf7c52663cf4ee1a73772a3c76ccea339d7f97170e779465a0be10584",
+        "url": "https://www.sidc.be/SILSO/DATA/SN_m_tot_V2.0.csv"
+      },
+      {
+        "file": "b3/data/raw/SN_ms_tot_V2.0.csv",
+        "hash_origin": "source_manifest",
+        "id": "silso_monthly_smoothed_total",
+        "recorded_sha256": "0848ca0fd38da6fdc985f253b5e1ebe6fb1fe41ec4879ea45572c107e4ef5ab2",
+        "sha256": "0848ca0fd38da6fdc985f253b5e1ebe6fb1fe41ec4879ea45572c107e4ef5ab2",
+        "url": "https://www.sidc.be/SILSO/DATA/SN_ms_tot_V2.0.csv"
+      },
+      {
+        "file": "b3/data/raw/SN_m_hem_V2.0.csv",
+        "hash_origin": "source_manifest",
+        "id": "silso_monthly_hemispheric",
+        "recorded_sha256": "473c89313c482f3d87a9bfdee8f768f181417ed37df0fcd9db944618e4855b63",
+        "sha256": "473c89313c482f3d87a9bfdee8f768f181417ed37df0fcd9db944618e4855b63",
+        "url": "https://www.sidc.be/SILSO/DATA/SN_m_hem_V2.0.csv"
+      },
+      {
+        "file": "b3/data/raw/Catalogue_B.csv",
+        "hash_origin": "source_manifest",
+        "id": "silso_extended_hemispheric_catalogue_b",
+        "recorded_sha256": "a2398fb2d85be30088e0bc4813e2b58a118ab62a27fda567cc8272408b488419",
+        "sha256": "a2398fb2d85be30088e0bc4813e2b58a118ab62a27fda567cc8272408b488419",
+        "url": "https://www.sidc.be/SILSO/DATA/HEMI/Veronig/Catalogue_B.csv"
+      },
+      {
+        "file": "b3/data/raw/observed-solar-cycle-indices.json",
+        "hash_origin": "source_manifest",
+        "id": "noaa_observed_solar_cycle_indices",
+        "recorded_sha256": "2adb1094a5364d0aeb0027cd239399625d4a6762f19b8999f38831972cb4709c",
+        "sha256": "2adb1094a5364d0aeb0027cd239399625d4a6762f19b8999f38831972cb4709c",
+        "url": "https://services.swpc.noaa.gov/json/solar-cycle/observed-solar-cycle-indices.json"
+      },
+      {
+        "file": "b3/data/raw/predicted-solar-cycle.json",
+        "hash_origin": "source_manifest",
+        "id": "noaa_predicted_solar_cycle",
+        "recorded_sha256": "34c389b39e9a87398dc68f4466333801d3ee1aedc6eb49261f91845f82120e0c",
+        "sha256": "34c389b39e9a87398dc68f4466333801d3ee1aedc6eb49261f91845f82120e0c",
+        "url": "https://services.swpc.noaa.gov/json/solar-cycle/predicted-solar-cycle.json"
+      },
+      {
+        "file": "b3/data/raw/wso_polar_field_observations.html",
+        "hash_origin": "source_manifest",
+        "id": "wso_polar_field_observations",
+        "recorded_sha256": "1bd718e75d4832419164491f0a28296ba86017b4acf3d8d36e17811ed7e14113",
+        "sha256": "1bd718e75d4832419164491f0a28296ba86017b4acf3d8d36e17811ed7e14113",
+        "url": "http://wso.stanford.edu/Polar.html"
+      }
+    ],
+    "warnings": []
+  },
+  "run_id": "Is_the_peak_timing_of_solar_cycle_25_statistically_significantly_different_from_cycle_24_20260714T175836Z_811c60c2",
+  "schema_version": "b3-registered-experiment-result-v1",
+  "seed": 42,
+  "status": "passed"
+}

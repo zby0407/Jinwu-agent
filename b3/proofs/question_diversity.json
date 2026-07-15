@@ -1,0 +1,191 @@
+{
+  "schema_version": "b3-question-diversity-proof-v1",
+  "generated_at": "2026-07-14T17:50:25.337551+00:00",
+  "passed": true,
+  "mode": "offline_contract",
+  "proof_scope": "Parameterized prompt, exact task-to-plan binding, ResearchPlan 1.0 validation, role coverage, and E0-E8 routing coverage only.",
+  "fixture_input": true,
+  "model_invoked": false,
+  "qwen_live_quality_evaluated": false,
+  "case_count": 9,
+  "unique_question_count": 9,
+  "task_type_count": 9,
+  "agent_coverage": {
+    "b3-experiment": 3,
+    "b3-hypothesis": 3,
+    "b3-research-planner": 3
+  },
+  "experiment_coverage": [
+    "E0_data_vintage_audit",
+    "E1_cycle_segmentation_baseline",
+    "E2_waldmeier_leave_one_cycle_out",
+    "E3_f107_phase_stratified_drift",
+    "E4_extended_hemispheric_calibration",
+    "E5_polar_precursor_robustness",
+    "E6_low_order_dynamo_family_ablation",
+    "E7_negative_controls_and_placebos",
+    "E8_clean_reproduction"
+  ],
+  "prompt": {
+    "path": ".pi/prompts/b3-research-loop.md",
+    "passed": true,
+    "parameterized": true,
+    "silent_default_absent": true,
+    "missing_question_stops": true,
+    "deprecated_alias_absent": true,
+    "errors": []
+  },
+  "agents": [
+    {
+      "agent": "b3-research-planner",
+      "path": ".pi/agents/b3-research-planner.md",
+      "passed": true,
+      "errors": []
+    },
+    {
+      "agent": "b3-experiment",
+      "path": ".pi/agents/b3-experiment.md",
+      "passed": true,
+      "errors": []
+    },
+    {
+      "agent": "b3-hypothesis",
+      "path": ".pi/agents/b3-hypothesis.md",
+      "passed": true,
+      "errors": []
+    }
+  ],
+  "cases": [
+    {
+      "id": "Q01_data_vintage_scope",
+      "agent": "b3-research-planner",
+      "task_type": "data_provenance",
+      "question_sha256": "d9b021338c20f24a3324651ed875d3a2b3ccc02f2f633582aaf21f333af431b6",
+      "expected_experiments": [
+        "E0_data_vintage_audit"
+      ],
+      "task_bound": true,
+      "plan_contract_valid": true,
+      "plan_artifact_hash_present": true,
+      "passed": true,
+      "errors": []
+    },
+    {
+      "id": "Q02_causal_cycle_segmentation",
+      "agent": "b3-research-planner",
+      "task_type": "causal_segmentation",
+      "question_sha256": "3756980ec13a0f610f0c5fc6dd45be8a6b5f24c14948eb5560ab24855ac6a1a0",
+      "expected_experiments": [
+        "E1_cycle_segmentation_baseline"
+      ],
+      "task_bound": true,
+      "plan_contract_valid": true,
+      "plan_artifact_hash_present": true,
+      "passed": true,
+      "errors": []
+    },
+    {
+      "id": "Q03_waldmeier_robustness",
+      "agent": "b3-research-planner",
+      "task_type": "relation_robustness",
+      "question_sha256": "6a63732f196c6e2824da11c759b0ad2e140fbb5c417ecb914c25ed68846c0c96",
+      "expected_experiments": [
+        "E2_waldmeier_leave_one_cycle_out",
+        "E7_negative_controls_and_placebos"
+      ],
+      "task_bound": true,
+      "plan_contract_valid": true,
+      "plan_artifact_hash_present": true,
+      "passed": true,
+      "errors": []
+    },
+    {
+      "id": "Q04_f107_proxy_drift",
+      "agent": "b3-hypothesis",
+      "task_type": "proxy_drift",
+      "question_sha256": "c2400fc27ddee9b5192359b830bceb7a70e904a5a5bb3eb44ab410d6e4468691",
+      "expected_experiments": [
+        "E3_f107_phase_stratified_drift",
+        "E7_negative_controls_and_placebos"
+      ],
+      "task_bound": true,
+      "plan_contract_valid": true,
+      "plan_artifact_hash_present": true,
+      "passed": true,
+      "errors": []
+    },
+    {
+      "id": "Q05_hemispheric_overlap_calibration",
+      "agent": "b3-experiment",
+      "task_type": "measurement_calibration",
+      "question_sha256": "9b5a180d4a77579a8ab9123e2df6adf3540fc2f193f6fb4a542299e88b428a16",
+      "expected_experiments": [
+        "E4_extended_hemispheric_calibration"
+      ],
+      "task_bound": true,
+      "plan_contract_valid": true,
+      "plan_artifact_hash_present": true,
+      "passed": true,
+      "errors": []
+    },
+    {
+      "id": "Q06_polar_precursor_small_sample",
+      "agent": "b3-hypothesis",
+      "task_type": "precursor_uncertainty",
+      "question_sha256": "d1aaddd04c0ad291a83967d73350e0f06b170649d65e47e0414d8153a7e5c04d",
+      "expected_experiments": [
+        "E5_polar_precursor_robustness",
+        "E7_negative_controls_and_placebos"
+      ],
+      "task_bound": true,
+      "plan_contract_valid": true,
+      "plan_artifact_hash_present": true,
+      "passed": true,
+      "errors": []
+    },
+    {
+      "id": "Q07_dynamo_family_ablation",
+      "agent": "b3-hypothesis",
+      "task_type": "mechanism_ablation",
+      "question_sha256": "5d809439c8179d2b2be8994a828abd6da87bff9e0518cc557e7032612386c658",
+      "expected_experiments": [
+        "E6_low_order_dynamo_family_ablation",
+        "E7_negative_controls_and_placebos"
+      ],
+      "task_bound": true,
+      "plan_contract_valid": true,
+      "plan_artifact_hash_present": true,
+      "passed": true,
+      "errors": []
+    },
+    {
+      "id": "Q08_negative_control_accounting",
+      "agent": "b3-experiment",
+      "task_type": "falsification",
+      "question_sha256": "8f24ce8dd05d9df600a237cd69fb13b44c128c70f0dcd3e2ffaa0110b0929f87",
+      "expected_experiments": [
+        "E7_negative_controls_and_placebos"
+      ],
+      "task_bound": true,
+      "plan_contract_valid": true,
+      "plan_artifact_hash_present": true,
+      "passed": true,
+      "errors": []
+    },
+    {
+      "id": "Q09_clean_reproduction_gate",
+      "agent": "b3-experiment",
+      "task_type": "reproduction",
+      "question_sha256": "dbd50179a43de671c9d09a2b2938a0a9de367d3fe6d7c317851708928abcd896",
+      "expected_experiments": [
+        "E8_clean_reproduction"
+      ],
+      "task_bound": true,
+      "plan_contract_valid": true,
+      "plan_artifact_hash_present": true,
+      "passed": true,
+      "errors": []
+    }
+  ],
+  "errors": []
+}

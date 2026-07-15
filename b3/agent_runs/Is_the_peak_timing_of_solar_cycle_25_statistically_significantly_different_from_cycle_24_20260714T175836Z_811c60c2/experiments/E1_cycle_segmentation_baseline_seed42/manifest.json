@@ -1,0 +1,556 @@
+{
+  "artifact_sha256": "17a82a60318b39fc4a7148c1b696e94c1fbb8a94c627604e0bae570a318b8f8f",
+  "artifacts": [
+    {
+      "kind": "metrics",
+      "path": "experiments/E1_cycle_segmentation_baseline_seed42/result.json",
+      "sha256": "b8d11c7dbc4c54c1501146aa6b7d0b48655dcc338b1a5597caa0dde394ccc32e"
+    }
+  ],
+  "claim_effect": "keeps_confidence_bounded",
+  "data_sources": [
+    {
+      "available_at": "2026-06-21T06:14:00+00:00",
+      "data_status": "retrospective",
+      "id": "silso_monthly_total",
+      "license": "CC-BY-NC-4.0",
+      "retrieved_at": "2026-06-21T06:14:00+00:00",
+      "sha256": "de910b1bf7c52663cf4ee1a73772a3c76ccea339d7f97170e779465a0be10584",
+      "url": "https://www.sidc.be/SILSO/DATA/SN_m_tot_V2.0.csv"
+    },
+    {
+      "available_at": "2026-06-21T06:14:02+00:00",
+      "data_status": "retrospective",
+      "id": "silso_monthly_smoothed_total",
+      "license": "CC-BY-NC-4.0",
+      "retrieved_at": "2026-06-21T06:14:02+00:00",
+      "sha256": "0848ca0fd38da6fdc985f253b5e1ebe6fb1fe41ec4879ea45572c107e4ef5ab2",
+      "url": "https://www.sidc.be/SILSO/DATA/SN_ms_tot_V2.0.csv"
+    }
+  ],
+  "error": null,
+  "execution": {
+    "code_sha256": "4b2dac38d6f71c9ec9842d3278258fb5bb2fc1c2998268fb2f138ce274d20436",
+    "command": "registered:E1_cycle_segmentation_baseline",
+    "cwd": "temporary_analysis_root",
+    "dependency_lock_sha256": "e3345e43af81b88deb4cd496e0404c94cd0e9109b90d34bcad14227d51568d0c",
+    "hardware": "AMD64",
+    "os": "Windows-11-10.0.26200-SP0",
+    "python_version": "3.13.1"
+  },
+  "experiment_id": "E1_cycle_segmentation_baseline",
+  "feature_availability_audit": {
+    "reasons": [
+      "All declared feature rows were available at the forecast origin."
+    ],
+    "status": "passed"
+  },
+  "finished_at": "2026-07-14T17:58:39.253365+00:00",
+  "gates": {
+    "baseline": {
+      "reasons": [
+        "registered outcome: passed"
+      ],
+      "status": "passed"
+    },
+    "leakage": {
+      "reasons": [
+        "All declared feature rows were available at the forecast origin."
+      ],
+      "status": "passed"
+    },
+    "reproduction": {
+      "reasons": [
+        "This node is not the registered clean-reproduction node."
+      ],
+      "status": "not_run"
+    },
+    "safety": {
+      "reasons": [
+        "Execution completed in the fixed isolated Python worker."
+      ],
+      "status": "passed"
+    },
+    "stability": {
+      "reasons": [
+        "No extra unregistered stability computation was executed."
+      ],
+      "status": "not_run"
+    }
+  },
+  "node_id": "E1_cycle_segmentation_baseline_seed42",
+  "parent_id": "N1",
+  "provenance": {
+    "accounting_complete": true,
+    "accounting_failure_stages": [],
+    "code_files_sha256": {
+      "scripts_b3/run_analysis_worker.py": "399b73da111140bb05027f68d6f9e76fe0c0e79832abf48841c33a28885bc8aa",
+      "src/b3cycle/analysis.py": "5e537330177a465bafc603d794cef15bfec6515fda8bce5caf955447f9b02885",
+      "src/b3cycle/data.py": "9301a9d1f9a32ee5fb19e3b35958b2afaf73ae54f82a702af1bd2f22653efa66",
+      "src/b3cycle/science_agents.py": "599e5cc2a9aeffa7053af1d5469dbf34dcfdde47ee329101b154bfb98822cfec"
+    },
+    "dependency_lock": "requirements-analysis.lock",
+    "dependency_versions": {
+      "numpy": "2.4.6",
+      "psutil": "5.9.0"
+    },
+    "execution_boundary": "isolated_python_worker",
+    "filesystem_isolation": {
+      "os_write_sandbox": false,
+      "shared_output_writes": false,
+      "source_copy": true,
+      "temporary_data_root": true
+    },
+    "plan_artifact": "research_plan.json",
+    "plan_artifact_sha256": "d2d765c4b93ded09e8505d60da32d9f49aea7f6fa3e4edf6e0bd1e499f7a824a",
+    "registry_operation": "cycle_segmentation",
+    "source_hash_policy": "preserve a verified recorded SHA-256; otherwise use the computed local-file SHA-256, retain the recorded value for audit, and quarantine mismatches",
+    "worker_completed": true,
+    "worker_is_default": true,
+    "worker_path": "scripts_b3/run_analysis_worker.py",
+    "worker_started": true
+  },
+  "result": {
+    "claim_boundary": "结论限于回顾性观测约束、反证和假设优先级，因果机制仍待独立验证；产物仅供研究。",
+    "experiment_id": "E1_cycle_segmentation_baseline",
+    "facts": {
+      "cycle_features": [
+        {
+          "cycle": 1,
+          "decay_years": 5.0,
+          "end_year": 1766.455,
+          "integrated_activity": 787.275,
+          "length_years": 11.332,
+          "next_peak_ssn": 193.0,
+          "peak_ssn": 144.1,
+          "peak_year": 1761.455,
+          "previous_peak_ssn": null,
+          "rise_rate": 22.757,
+          "rise_years": 6.332,
+          "start_year": 1755.123
+        },
+        {
+          "cycle": 2,
+          "decay_years": 5.748,
+          "end_year": 1775.455,
+          "integrated_activity": 894.9,
+          "length_years": 9.0,
+          "next_peak_ssn": 264.3,
+          "peak_ssn": 193.0,
+          "peak_year": 1769.707,
+          "previous_peak_ssn": 144.1,
+          "rise_rate": 59.348,
+          "rise_years": 3.252,
+          "start_year": 1766.455
+        },
+        {
+          "cycle": 3,
+          "decay_years": 6.337,
+          "end_year": 1784.708,
+          "integrated_activity": 1030.708,
+          "length_years": 9.253,
+          "next_peak_ssn": 235.3,
+          "peak_ssn": 264.3,
+          "peak_year": 1778.371,
+          "previous_peak_ssn": 193.0,
+          "rise_rate": 90.638,
+          "rise_years": 2.916,
+          "start_year": 1775.455
+        },
+        {
+          "cycle": 4,
+          "decay_years": 10.164,
+          "end_year": 1798.288,
+          "integrated_activity": 1401.575,
+          "length_years": 13.58,
+          "next_peak_ssn": 82.0,
+          "peak_ssn": 235.3,
+          "peak_year": 1788.124,
+          "previous_peak_ssn": 264.3,
+          "rise_rate": 68.882,
+          "rise_years": 3.416,
+          "start_year": 1784.708
+        },
+        {
+          "cycle": 5,
+          "decay_years": 5.081,
+          "end_year": 1810.204,
+          "integrated_activity": 475.158,
+          "length_years": 11.916,
+          "next_peak_ssn": 81.2,
+          "peak_ssn": 82.0,
+          "peak_year": 1805.123,
+          "previous_peak_ssn": 235.3,
+          "rise_rate": 11.997,
+          "rise_years": 6.835,
+          "start_year": 1798.288
+        },
+        {
+          "cycle": 6,
+          "decay_years": 6.831,
+          "end_year": 1823.204,
+          "integrated_activity": 391.725,
+          "length_years": 13.0,
+          "next_peak_ssn": 119.2,
+          "peak_ssn": 81.2,
+          "peak_year": 1816.373,
+          "previous_peak_ssn": 82.0,
+          "rise_rate": 13.163,
+          "rise_years": 6.169,
+          "start_year": 1810.204
+        },
+        {
+          "cycle": 7,
+          "decay_years": 4.0,
+          "end_year": 1833.874,
+          "integrated_activity": 663.342,
+          "length_years": 10.67,
+          "next_peak_ssn": 244.9,
+          "peak_ssn": 119.2,
+          "peak_year": 1829.874,
+          "previous_peak_ssn": 81.2,
+          "rise_rate": 17.871,
+          "rise_years": 6.67,
+          "start_year": 1823.204
+        },
+        {
+          "cycle": 8,
+          "decay_years": 6.334,
+          "end_year": 1843.538,
+          "integrated_activity": 1085.942,
+          "length_years": 9.664,
+          "next_peak_ssn": 219.9,
+          "peak_ssn": 244.9,
+          "peak_year": 1837.204,
+          "previous_peak_ssn": 119.2,
+          "rise_rate": 73.544,
+          "rise_years": 3.33,
+          "start_year": 1833.874
+        },
+        {
+          "cycle": 9,
+          "decay_years": 7.834,
+          "end_year": 1855.958,
+          "integrated_activity": 1235.917,
+          "length_years": 12.42,
+          "next_peak_ssn": 186.2,
+          "peak_ssn": 219.9,
+          "peak_year": 1848.124,
+          "previous_peak_ssn": 244.9,
+          "rise_rate": 47.95,
+          "rise_years": 4.586,
+          "start_year": 1843.538
+        },
+        {
+          "cycle": 10,
+          "decay_years": 7.08,
+          "end_year": 1867.204,
+          "integrated_activity": 1038.625,
+          "length_years": 11.246,
+          "next_peak_ssn": 234.0,
+          "peak_ssn": 186.2,
+          "peak_year": 1860.124,
+          "previous_peak_ssn": 219.9,
+          "rise_rate": 44.695,
+          "rise_years": 4.166,
+          "start_year": 1855.958
+        },
+        {
+          "cycle": 11,
+          "decay_years": 8.335,
+          "end_year": 1878.958,
+          "integrated_activity": 1044.658,
+          "length_years": 11.754,
+          "next_peak_ssn": 124.4,
+          "peak_ssn": 234.0,
+          "peak_year": 1870.623,
+          "previous_peak_ssn": 186.2,
+          "rise_rate": 68.441,
+          "rise_years": 3.419,
+          "start_year": 1867.204
+        },
+        {
+          "cycle": 12,
+          "decay_years": 6.246,
+          "end_year": 1890.204,
+          "integrated_activity": 640.108,
+          "length_years": 11.246,
+          "next_peak_ssn": 146.5,
+          "peak_ssn": 124.4,
+          "peak_year": 1883.958,
+          "previous_peak_ssn": 234.0,
+          "rise_rate": 24.88,
+          "rise_years": 5.0,
+          "start_year": 1878.958
+        },
+        {
+          "cycle": 13,
+          "decay_years": 8.0,
+          "end_year": 1902.042,
+          "integrated_activity": 769.65,
+          "length_years": 11.838,
+          "next_peak_ssn": 107.1,
+          "peak_ssn": 146.5,
+          "peak_year": 1894.042,
+          "previous_peak_ssn": 124.4,
+          "rise_rate": 38.171,
+          "rise_years": 3.838,
+          "start_year": 1890.204
+        },
+        {
+          "cycle": 14,
+          "decay_years": 7.415,
+          "end_year": 1913.538,
+          "integrated_activity": 619.333,
+          "length_years": 11.496,
+          "next_peak_ssn": 175.7,
+          "peak_ssn": 107.1,
+          "peak_year": 1906.123,
+          "previous_peak_ssn": 146.5,
+          "rise_rate": 26.244,
+          "rise_years": 4.081,
+          "start_year": 1902.042
+        },
+        {
+          "cycle": 15,
+          "decay_years": 5.915,
+          "end_year": 1923.538,
+          "integrated_activity": 739.8,
+          "length_years": 10.0,
+          "next_peak_ssn": 130.2,
+          "peak_ssn": 175.7,
+          "peak_year": 1917.623,
+          "previous_peak_ssn": 107.1,
+          "rise_rate": 43.011,
+          "rise_years": 4.085,
+          "start_year": 1913.538
+        },
+        {
+          "cycle": 16,
+          "decay_years": 5.417,
+          "end_year": 1933.707,
+          "integrated_activity": 688.875,
+          "length_years": 10.169,
+          "next_peak_ssn": 198.6,
+          "peak_ssn": 130.2,
+          "peak_year": 1928.29,
+          "previous_peak_ssn": 175.7,
+          "rise_rate": 27.399,
+          "rise_years": 4.752,
+          "start_year": 1923.538
+        },
+        {
+          "cycle": 17,
+          "decay_years": 6.836,
+          "end_year": 1944.124,
+          "integrated_activity": 1000.492,
+          "length_years": 10.417,
+          "next_peak_ssn": 218.7,
+          "peak_ssn": 198.6,
+          "peak_year": 1937.288,
+          "previous_peak_ssn": 130.2,
+          "rise_rate": 55.459,
+          "rise_years": 3.581,
+          "start_year": 1933.707
+        },
+        {
+          "cycle": 18,
+          "decay_years": 6.917,
+          "end_year": 1954.288,
+          "integrated_activity": 1108.533,
+          "length_years": 10.164,
+          "next_peak_ssn": 285.0,
+          "peak_ssn": 218.7,
+          "peak_year": 1947.371,
+          "previous_peak_ssn": 198.6,
+          "rise_rate": 67.354,
+          "rise_years": 3.247,
+          "start_year": 1944.124
+        },
+        {
+          "cycle": 19,
+          "decay_years": 6.587,
+          "end_year": 1964.791,
+          "integrated_activity": 1357.575,
+          "length_years": 10.503,
+          "next_peak_ssn": 156.6,
+          "peak_ssn": 285.0,
+          "peak_year": 1958.204,
+          "previous_peak_ssn": 218.7,
+          "rise_rate": 72.778,
+          "rise_years": 3.916,
+          "start_year": 1954.288
+        },
+        {
+          "cycle": 20,
+          "decay_years": 7.332,
+          "end_year": 1976.206,
+          "integrated_activity": 993.917,
+          "length_years": 11.415,
+          "next_peak_ssn": 232.9,
+          "peak_ssn": 156.6,
+          "peak_year": 1968.874,
+          "previous_peak_ssn": 285.0,
+          "rise_rate": 38.354,
+          "rise_years": 4.083,
+          "start_year": 1964.791
+        },
+        {
+          "cycle": 21,
+          "decay_years": 6.749,
+          "end_year": 1986.707,
+          "integrated_activity": 1169.517,
+          "length_years": 10.501,
+          "next_peak_ssn": 212.5,
+          "peak_ssn": 232.9,
+          "peak_year": 1979.958,
+          "previous_peak_ssn": 156.6,
+          "rise_rate": 62.074,
+          "rise_years": 3.752,
+          "start_year": 1976.206
+        },
+        {
+          "cycle": 22,
+          "decay_years": 6.499,
+          "end_year": 1996.373,
+          "integrated_activity": 1051.667,
+          "length_years": 9.666,
+          "next_peak_ssn": 180.3,
+          "peak_ssn": 212.5,
+          "peak_year": 1989.874,
+          "previous_peak_ssn": 232.9,
+          "rise_rate": 67.098,
+          "rise_years": 3.167,
+          "start_year": 1986.707
+        },
+        {
+          "cycle": 23,
+          "decay_years": 7.084,
+          "end_year": 2008.958,
+          "integrated_activity": 1020.15,
+          "length_years": 12.585,
+          "next_peak_ssn": 116.4,
+          "peak_ssn": 180.3,
+          "peak_year": 2001.874,
+          "previous_peak_ssn": 212.5,
+          "rise_rate": 32.776,
+          "rise_years": 5.501,
+          "start_year": 1996.373
+        },
+        {
+          "cycle": 24,
+          "decay_years": 5.67,
+          "end_year": 2019.958,
+          "integrated_activity": 544.817,
+          "length_years": 11.0,
+          "next_peak_ssn": null,
+          "peak_ssn": 116.4,
+          "peak_year": 2014.288,
+          "previous_peak_ssn": 180.3,
+          "rise_rate": 21.839,
+          "rise_years": 5.33,
+          "start_year": 2008.958
+        }
+      ],
+      "cycle_segmentation_baseline": {
+        "centered_smoothing_role": "retrospective_only",
+        "n_complete_cycles": 24,
+        "split_strategy": "leave-one-complete-cycle-out_or_not-applicable",
+        "status": "executed"
+      },
+      "series_coverage": {
+        "noaa_observed_end": 2026.375,
+        "noaa_predicted_end": 2030.9583333333333,
+        "silso_extended_hemispheric_end": 2020.7916666666667,
+        "silso_extended_hemispheric_start": 1874.375,
+        "silso_monthly_end": 2026.371,
+        "silso_monthly_start": 1749.042,
+        "wso_polar_end": 2025.9700547570158,
+        "wso_polar_start": 1976.4168377823407
+      }
+    },
+    "feature_availability_audit": {
+      "reasons": [
+        "All declared feature rows were available at the forecast origin."
+      ],
+      "status": "passed",
+      "violations": []
+    },
+    "hard_failures": [],
+    "missing_required_inputs": [],
+    "recommended_status": "passed",
+    "registered_operation": "cycle_segmentation",
+    "seed": 42,
+    "source_hashes": [
+      {
+        "file": "b3/data/raw/SN_m_tot_V2.0.csv",
+        "hash_origin": "source_manifest",
+        "id": "silso_monthly_total",
+        "recorded_sha256": "de910b1bf7c52663cf4ee1a73772a3c76ccea339d7f97170e779465a0be10584",
+        "sha256": "de910b1bf7c52663cf4ee1a73772a3c76ccea339d7f97170e779465a0be10584",
+        "url": "https://www.sidc.be/SILSO/DATA/SN_m_tot_V2.0.csv"
+      },
+      {
+        "file": "b3/data/raw/SN_ms_tot_V2.0.csv",
+        "hash_origin": "source_manifest",
+        "id": "silso_monthly_smoothed_total",
+        "recorded_sha256": "0848ca0fd38da6fdc985f253b5e1ebe6fb1fe41ec4879ea45572c107e4ef5ab2",
+        "sha256": "0848ca0fd38da6fdc985f253b5e1ebe6fb1fe41ec4879ea45572c107e4ef5ab2",
+        "url": "https://www.sidc.be/SILSO/DATA/SN_ms_tot_V2.0.csv"
+      },
+      {
+        "file": "b3/data/raw/SN_m_hem_V2.0.csv",
+        "hash_origin": "source_manifest",
+        "id": "silso_monthly_hemispheric",
+        "recorded_sha256": "473c89313c482f3d87a9bfdee8f768f181417ed37df0fcd9db944618e4855b63",
+        "sha256": "473c89313c482f3d87a9bfdee8f768f181417ed37df0fcd9db944618e4855b63",
+        "url": "https://www.sidc.be/SILSO/DATA/SN_m_hem_V2.0.csv"
+      },
+      {
+        "file": "b3/data/raw/Catalogue_B.csv",
+        "hash_origin": "source_manifest",
+        "id": "silso_extended_hemispheric_catalogue_b",
+        "recorded_sha256": "a2398fb2d85be30088e0bc4813e2b58a118ab62a27fda567cc8272408b488419",
+        "sha256": "a2398fb2d85be30088e0bc4813e2b58a118ab62a27fda567cc8272408b488419",
+        "url": "https://www.sidc.be/SILSO/DATA/HEMI/Veronig/Catalogue_B.csv"
+      },
+      {
+        "file": "b3/data/raw/observed-solar-cycle-indices.json",
+        "hash_origin": "source_manifest",
+        "id": "noaa_observed_solar_cycle_indices",
+        "recorded_sha256": "2adb1094a5364d0aeb0027cd239399625d4a6762f19b8999f38831972cb4709c",
+        "sha256": "2adb1094a5364d0aeb0027cd239399625d4a6762f19b8999f38831972cb4709c",
+        "url": "https://services.swpc.noaa.gov/json/solar-cycle/observed-solar-cycle-indices.json"
+      },
+      {
+        "file": "b3/data/raw/predicted-solar-cycle.json",
+        "hash_origin": "source_manifest",
+        "id": "noaa_predicted_solar_cycle",
+        "recorded_sha256": "34c389b39e9a87398dc68f4466333801d3ee1aedc6eb49261f91845f82120e0c",
+        "sha256": "34c389b39e9a87398dc68f4466333801d3ee1aedc6eb49261f91845f82120e0c",
+        "url": "https://services.swpc.noaa.gov/json/solar-cycle/predicted-solar-cycle.json"
+      },
+      {
+        "file": "b3/data/raw/wso_polar_field_observations.html",
+        "hash_origin": "source_manifest",
+        "id": "wso_polar_field_observations",
+        "recorded_sha256": "1bd718e75d4832419164491f0a28296ba86017b4acf3d8d36e17811ed7e14113",
+        "sha256": "1bd718e75d4832419164491f0a28296ba86017b4acf3d8d36e17811ed7e14113",
+        "url": "http://wso.stanford.edu/Polar.html"
+      }
+    ],
+    "warnings": []
+  },
+  "run_id": "Is_the_peak_timing_of_solar_cycle_25_statistically_significantly_different_from_cycle_24_20260714T175836Z_811c60c2",
+  "schema_version": "b3-experiment-manifest-v2",
+  "seed": 42,
+  "started_at": "2026-07-14T17:58:38.719674+00:00",
+  "status": "passed",
+  "usage": {
+    "cpu_seconds": 0.359375,
+    "gpu_seconds": 0.0,
+    "peak_ram_mb": 39.265625,
+    "tokens": 0,
+    "wall_seconds": 0.5339565999965998
+  }
+}

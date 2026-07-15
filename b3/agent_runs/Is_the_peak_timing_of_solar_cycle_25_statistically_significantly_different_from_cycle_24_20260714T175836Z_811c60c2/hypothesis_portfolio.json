@@ -1,0 +1,378 @@
+{
+  "artifact_paths": [
+    "experiments/E0_data_vintage_audit_seed0/result.json",
+    "experiments/E1_cycle_segmentation_baseline_seed42/result.json",
+    "experiments/E2_waldmeier_leave_one_cycle_out_seed42/result.json",
+    "experiments/E3_f107_phase_stratified_drift_seed42/result.json",
+    "experiments/E4_extended_hemispheric_calibration_seed42/result.json",
+    "experiments/E5_polar_precursor_robustness_seed42/result.json",
+    "experiments/E6_low_order_dynamo_family_ablation_seed42/result.json",
+    "experiments/E7_negative_controls_and_placebos_seed42/result.json",
+    "experiments/E8_clean_reproduction_seed0/result.json"
+  ],
+  "artifact_sha256": "a73f69a2e589d8bce5061df14a5505aa3132a8348abe5a4aa80372d596d13aed",
+  "claim_boundary": {
+    "allowed": [
+      "活动周 24 峰值时间已确定为 2014.288（居中 13 个月平滑最大值）",
+      "活动周 25 尚未完成，其峰值时间只能从 provisional 数据估计",
+      "Waldmeier 形态约束在 17 周留一验证下符号稳定",
+      "F10.7-SSN 关系存在跨周期漂移"
+    ],
+    "forbidden": [
+      "不得声称活动周 25 的峰值时间已最终确定",
+      "不得将峰值时间差异归因为发电机机制变化",
+      "不得把本流程称为官方活动周 26 预报或太阳周期起源证明"
+    ]
+  },
+  "created_at": "2026-07-14T17:58:48.617581+00:00",
+  "experiment_ids": [
+    "E0_data_vintage_audit",
+    "E1_cycle_segmentation_baseline",
+    "E2_waldmeier_leave_one_cycle_out",
+    "E3_f107_phase_stratified_drift",
+    "E4_extended_hemispheric_calibration",
+    "E5_polar_precursor_robustness",
+    "E6_low_order_dynamo_family_ablation",
+    "E7_negative_controls_and_placebos",
+    "E8_clean_reproduction"
+  ],
+  "hypotheses": [
+    {
+      "alternatives": [
+        "峰值时间差异为零（零假设）",
+        "周期 25 可能展现双峰类似周期 23"
+      ],
+      "claim_boundary": "峰值差异检验在活动周 25 完成前只能 inconclusive",
+      "confounders": [
+        "provisional 数据可能修订峰值位置",
+        "13 个月平滑的滞后特性"
+      ],
+      "counter_evidence": [
+        {
+          "kind": "artifact",
+          "ref": "experiments/E7_negative_controls_and_placebos_seed42/result.json",
+          "role": "Waldmeier permutation p=0.015 structural signal exists",
+          "status": "passed"
+        }
+      ],
+      "decision": "retain",
+      "falsifiers": [
+        "活动周 25 完成后峰值时间超出历史变异范围",
+        "周期 25 出现延迟双峰结构"
+      ],
+      "generation_strategy": "mechanism_driven",
+      "hypothesis": "活动周 25 的峰值时间与活动周 24 的统计显著差异目前无法确定，因为活动周 25 尚未完成。",
+      "id": "H1_peak_timing_inconclusive",
+      "lineage": [],
+      "measurable_predictions": [
+        {
+          "direction": "bounded",
+          "target_experiment": "E1_cycle_segmentation_baseline",
+          "threshold_or_interval": "2024.0-2026.0 provisional",
+          "time_window": "until cycle 25 minimum declared",
+          "variable": "cycle_25_peak_month"
+        }
+      ],
+      "mechanism_graph": {
+        "edges": [
+          {
+            "relation": "13-month centered smoothing",
+            "source": "n1",
+            "target": "n2"
+          },
+          {
+            "relation": "incomplete future half-window",
+            "source": "n1",
+            "target": "n3"
+          }
+        ],
+        "nodes": [
+          {
+            "id": "n1",
+            "label": "SILSO smoothed SSN",
+            "layer": "observation"
+          },
+          {
+            "id": "n2",
+            "label": "Cycle 24 peak 2014.288",
+            "layer": "observation"
+          },
+          {
+            "id": "n3",
+            "label": "Cycle 25 provisional peak",
+            "layer": "proxy"
+          }
+        ]
+      },
+      "next_test": "等待 SILSO 宣布活动周 25 最小值后重新提取峰值",
+      "novelty": {
+        "difference": "Explicit incompleteness blocker for symmetric comparison",
+        "nearest_work": "Hathaway 2015 solar cycle review",
+        "similarity": "Standard cycle segmentation",
+        "status": "incremental"
+      },
+      "scores": {
+        "data_grounding": 0.9,
+        "falsifiability": 0.6,
+        "mechanism_coherence": 0.85,
+        "novelty": 0.3,
+        "reproducibility": 0.95,
+        "testability": 0.5,
+        "uncertainty": 0.9
+      },
+      "supporting_evidence": [
+        {
+          "kind": "artifact",
+          "ref": "experiments/E1_cycle_segmentation_baseline_seed42/result.json",
+          "role": "n_complete_cycles=24 cycle 25 absent",
+          "status": "passed"
+        },
+        {
+          "kind": "artifact",
+          "ref": "experiments/E3_f107_phase_stratified_drift_seed42/result.json",
+          "role": "cycle25_provisional=true",
+          "status": "passed"
+        }
+      ],
+      "tournament": {
+        "match_ids": [
+          "M001_H1_peak_timing_inconclusive_H2_waldmeier_morphology",
+          "M002_H1_peak_timing_inconclusive_H3_proxy_drift"
+        ],
+        "position_bias": false,
+        "rating": 1200.736307
+      },
+      "version": 1
+    },
+    {
+      "alternatives": [
+        "峰值和上升速率由不同过程控制"
+      ],
+      "claim_boundary": "形态约束非因果证明",
+      "confounders": [
+        "早期周期数据质量",
+        "双峰周期违反假设"
+      ],
+      "counter_evidence": [
+        {
+          "kind": "artifact",
+          "ref": "experiments/E3_f107_phase_stratified_drift_seed42/result.json",
+          "role": "proxy drift may affect morphology",
+          "status": "passed"
+        }
+      ],
+      "decision": "retain",
+      "falsifiers": [
+        "任一 LOO fold 产生正 Spearman",
+        "bootstrap CI 包含零"
+      ],
+      "generation_strategy": "mechanism_driven",
+      "hypothesis": "Waldmeier 效应在活动周 8-24 的 17 个完整周期中符号稳定，为峰值时间形态学提供有界约束。",
+      "id": "H2_waldmeier_morphology",
+      "lineage": [],
+      "measurable_predictions": [
+        {
+          "direction": "bounded",
+          "target_experiment": "E2_waldmeier_leave_one_cycle_out",
+          "threshold_or_interval": "[-0.656, -0.538]",
+          "time_window": "cycles 8-24",
+          "variable": "spearman_peak_vs_rise_time"
+        }
+      ],
+      "mechanism_graph": {
+        "edges": [
+          {
+            "relation": "Spearman=-0.581",
+            "source": "n1",
+            "target": "n2"
+          },
+          {
+            "relation": "amplification rate",
+            "source": "n3",
+            "target": "n1"
+          },
+          {
+            "relation": "saturation level",
+            "source": "n3",
+            "target": "n2"
+          }
+        ],
+        "nodes": [
+          {
+            "id": "n1",
+            "label": "Rise time",
+            "layer": "observation"
+          },
+          {
+            "id": "n2",
+            "label": "Peak SSN",
+            "layer": "observation"
+          },
+          {
+            "id": "n3",
+            "label": "Nonlinear dynamo",
+            "layer": "physical_mechanism"
+          }
+        ]
+      },
+      "next_test": "周期 25 完成后加入 LOO 样本",
+      "novelty": {
+        "difference": "LOO with bootstrap CI and permutation gate",
+        "nearest_work": "Hathaway 2015",
+        "similarity": "Known Waldmeier correlation",
+        "status": "incremental"
+      },
+      "scores": {
+        "data_grounding": 0.95,
+        "falsifiability": 0.85,
+        "mechanism_coherence": 0.8,
+        "novelty": 0.3,
+        "reproducibility": 0.95,
+        "testability": 0.9,
+        "uncertainty": 0.8
+      },
+      "supporting_evidence": [
+        {
+          "kind": "artifact",
+          "ref": "experiments/E2_waldmeier_leave_one_cycle_out_seed42/result.json",
+          "role": "negative_time_effect_fraction=1.0",
+          "status": "passed"
+        },
+        {
+          "kind": "artifact",
+          "ref": "experiments/E7_negative_controls_and_placebos_seed42/result.json",
+          "role": "permutation p=0.015",
+          "status": "passed"
+        }
+      ],
+      "tournament": {
+        "match_ids": [
+          "M001_H1_peak_timing_inconclusive_H2_waldmeier_morphology",
+          "M003_H2_waldmeier_morphology_H3_proxy_drift"
+        ],
+        "position_bias": false,
+        "rating": 1230.496883
+      },
+      "version": 1
+    },
+    {
+      "alternatives": [
+        "仪器变更或校准方法变化",
+        "太阳活动区物理特性缓慢演化"
+      ],
+      "claim_boundary": "代理量漂移诊断不测量太阳内部磁场",
+      "confounders": [
+        "NOAA 临时数据",
+        "peak_band 仅 25 个月"
+      ],
+      "counter_evidence": [
+        {
+          "kind": "artifact",
+          "ref": "experiments/E7_negative_controls_and_placebos_seed42/result.json",
+          "role": "proxy drift not directly placebo-tested",
+          "status": "passed"
+        }
+      ],
+      "decision": "retain",
+      "falsifiers": [
+        "跨周期斜率 bootstrap CI 完全重叠",
+        "校准后差异消失"
+      ],
+      "generation_strategy": "anomaly_driven",
+      "hypothesis": "F10.7-SSN 关系在活动周 24 和 25 间存在斜率漂移，单一代理量峰值比较会被系统偏差污染。",
+      "id": "H3_proxy_drift",
+      "lineage": [],
+      "measurable_predictions": [
+        {
+          "direction": "non_monotonic",
+          "target_experiment": "E3_f107_phase_stratified_drift",
+          "threshold_or_interval": "0.289 max absolute",
+          "time_window": "cycles 23-25",
+          "variable": "f107_ssn_slope_diff"
+        }
+      ],
+      "mechanism_graph": {
+        "edges": [
+          {
+            "relation": "sunspot distribution",
+            "source": "n3",
+            "target": "n1"
+          },
+          {
+            "relation": "coronal emission",
+            "source": "n3",
+            "target": "n2"
+          },
+          {
+            "relation": "slope drift 0.289",
+            "source": "n1",
+            "target": "n2"
+          }
+        ],
+        "nodes": [
+          {
+            "id": "n1",
+            "label": "SSN",
+            "layer": "observation"
+          },
+          {
+            "id": "n2",
+            "label": "F10.7",
+            "layer": "proxy"
+          },
+          {
+            "id": "n3",
+            "label": "Activity morphology",
+            "layer": "physical_mechanism"
+          }
+        ]
+      },
+      "next_test": "用 Mg II 指数等独立代理量重复漂移检测",
+      "novelty": {
+        "difference": "Phase-stratified with block bootstrap",
+        "nearest_work": "Clette 2021 F10.7-SSN",
+        "similarity": "F10.7-SSN instability",
+        "status": "incremental"
+      },
+      "scores": {
+        "data_grounding": 0.85,
+        "falsifiability": 0.75,
+        "mechanism_coherence": 0.7,
+        "novelty": 0.4,
+        "reproducibility": 0.9,
+        "testability": 0.8,
+        "uncertainty": 0.75
+      },
+      "supporting_evidence": [
+        {
+          "kind": "artifact",
+          "ref": "experiments/E3_f107_phase_stratified_drift_seed42/result.json",
+          "role": "drift_flag=true",
+          "status": "passed"
+        }
+      ],
+      "tournament": {
+        "match_ids": [
+          "M002_H1_peak_timing_inconclusive_H3_proxy_drift",
+          "M003_H2_waldmeier_morphology_H3_proxy_drift"
+        ],
+        "position_bias": false,
+        "rating": 1168.76681
+      },
+      "version": 1
+    }
+  ],
+  "portfolio_id": "peak-timing-c25-vs-c24-v1",
+  "run_id": "Is_the_peak_timing_of_solar_cycle_25_statistically_significantly_different_from_cycle_24_20260714T175836Z_811c60c2",
+  "schema_version": "b3-hypothesis-portfolio-v2",
+  "source_ids": [
+    "silso_monthly_total",
+    "silso_monthly_smoothed_total",
+    "silso_monthly_hemispheric",
+    "silso_extended_hemispheric_catalogue_b",
+    "noaa_observed_solar_cycle_indices",
+    "noaa_predicted_solar_cycle",
+    "wso_polar_field_observations"
+  ],
+  "status": "calibrated"
+}

@@ -1,0 +1,214 @@
+{
+  "id": "case_04_evidence_query_h1",
+  "title": "Evidence retrieval for polar precursor hypothesis",
+  "api": {
+    "method": "POST",
+    "path": "/api/evidence/query",
+    "payload": {
+      "query": "polar precursor Babcock-Leighton WSO",
+      "limit": 5
+    }
+  },
+  "output_excerpt": {
+    "query_results": {
+      "query": "polar precursor Babcock-Leighton WSO",
+      "tokens": [
+        "babcock-leighton",
+        "precursor",
+        "polar",
+        "wso"
+      ],
+      "results": [
+        {
+          "score": 4,
+          "source": {
+            "id": "SRC_WSO_POLAR",
+            "title": "WSO Polar Field Observations - 1976-Present",
+            "authors": "Wilcox Solar Observatory",
+            "year": 2026,
+            "source_type": "official_data_source",
+            "url": "http://wso.stanford.edu/Polar.html",
+            "key_claim": "Provides polar-field observations and low-pass filtered values suitable for precursor-style diagnostics.",
+            "design_role": "Primary data source for H1 polar precursor and low-order toy model.",
+            "limitation": "Only a few complete WSO-to-next-cycle pairs are available for long-cycle validation.",
+            "tags": [
+              "wso",
+              "polar-field",
+              "precursor",
+              "babcock-leighton"
+            ],
+            "evidence_quality": "official"
+          }
+        },
+        {
+          "score": 3,
+          "source": {
+            "id": "SRC_BABCOCK_1961",
+            "title": "The Topology of the Sun's Magnetic Field and the 22-Year Cycle",
+            "authors": "Babcock",
+            "year": 1961,
+            "source_type": "foundational_paper",
+            "url": "https://doi.org/10.1086/147060",
+            "key_claim": "The solar magnetic cycle can be explained through magnetic-field topology and polarity reversal processes.",
+            "design_role": "Foundational support for Babcock-Leighton style precursor and poloidal-to-toroidal narrative.",
+            "limitation": "Foundational conceptual model, not a modern data pipeline.",
+            "tags": [
+              "babcock",
+              "magnetic-cycle",
+              "foundational",
+              "poloidal"
+            ],
+            "evidence_quality": "landmark"
+          }
+        },
+        {
+          "score": 2,
+          "source": {
+            "id": "SRC_PETROVAY_2020",
+            "title": "Solar cycle prediction",
+            "authors": "Petrovay",
+            "year": 2020,
+            "source_type": "review_paper",
+            "url": "https://link.springer.com/article/10.1007/s41116-020-0022-z",
+            "key_claim": "Solar-cycle prediction methods can be grouped into precursor, model-based, and extrapolation approaches; polar-field precursors have performed well in recent cycles.",
+            "design_role": "Supports H1 framing and the claim boundary separating precursor constraints from operational forecasts.",
+            "limitation": "Review taxonomy does not provide enough data for Cycle 26 by itself.",
+            "tags": [
+              "solar-cycle-prediction",
+              "polar-precursor",
+              "forecast-boundary"
+            ],
+            "evidence_quality": "high"
+          }
+        },
+        {
+          "score": 1,
+          "source": {
+            "id": "SRC_CHARBONNEAU_2020",
+            "title": "Dynamo models of the solar cycle",
+            "authors": "Charbonneau",
+            "year": 2020,
+            "source_type": "review_paper",
+            "url": "https://link.springer.com/article/10.1007/s41116-020-00025-6",
+            "key_claim": "Solar-cycle modeling is a hydromagnetic dynamo problem with observational constraints and multiple regeneration mechanisms.",
+            "design_role": "Supports Babcock-Leighton mechanism language, H5 toy closure, and observation-model comparison.",
+            "limitation": "A contest toy model is only a surrogate and not a full MHD dynamo.",
+            "tags": [
+              "dynamo",
+              "babcock-leighton",
+              "toy-model",
+              "mechanism"
+            ],
+            "evidence_quality": "high"
+          }
+        }
+      ]
+    },
+    "h1_links": {
+      "hypothesis_id": "H1_poloidal_precursor_needed",
+      "links": [
+        {
+          "hypothesis_id": "H1_poloidal_precursor_needed",
+          "claim": "Cycle-26 confidence should be governed by polar-field precursor evidence, not by sunspot/F10.7 proxies alone.",
+          "source_ids": [
+            "SRC_WSO_POLAR",
+            "SRC_PETROVAY_2020",
+            "SRC_BABCOCK_1961",
+            "SRC_CHARBONNEAU_2020"
+          ],
+          "support_level": "strong_but_sparse",
+          "counter_evidence": [
+            "Only four complete WSO precursor pairs are available in the current pipeline.",
+            "Cycle 25/26 minimum-time polar field is not mature enough for a direct Cycle-26 amplitude forecast."
+          ],
+          "next_validation": [
+            "Extend polar precursor evidence using NSO/SOLIS or polar faculae proxies.",
+            "Run leave-one-cycle-out tests after adding earlier polar-field proxies."
+          ],
+          "unresolved_gaps": [
+            "pre-1976 polar-field proxy extension",
+            "Cycle 25/26 minimum maturity"
+          ],
+          "sources": [
+            {
+              "id": "SRC_WSO_POLAR",
+              "title": "WSO Polar Field Observations - 1976-Present",
+              "authors": "Wilcox Solar Observatory",
+              "year": 2026,
+              "source_type": "official_data_source",
+              "url": "http://wso.stanford.edu/Polar.html",
+              "key_claim": "Provides polar-field observations and low-pass filtered values suitable for precursor-style diagnostics.",
+              "design_role": "Primary data source for H1 polar precursor and low-order toy model.",
+              "limitation": "Only a few complete WSO-to-next-cycle pairs are available for long-cycle validation.",
+              "tags": [
+                "wso",
+                "polar-field",
+                "precursor",
+                "babcock-leighton"
+              ],
+              "evidence_quality": "official"
+            },
+            {
+              "id": "SRC_PETROVAY_2020",
+              "title": "Solar cycle prediction",
+              "authors": "Petrovay",
+              "year": 2020,
+              "source_type": "review_paper",
+              "url": "https://link.springer.com/article/10.1007/s41116-020-0022-z",
+              "key_claim": "Solar-cycle prediction methods can be grouped into precursor, model-based, and extrapolation approaches; polar-field precursors have performed well in recent cycles.",
+              "design_role": "Supports H1 framing and the claim boundary separating precursor constraints from operational forecasts.",
+              "limitation": "Review taxonomy does not provide enough data for Cycle 26 by itself.",
+              "tags": [
+                "solar-cycle-prediction",
+                "polar-precursor",
+                "forecast-boundary"
+              ],
+              "evidence_quality": "high"
+            },
+            {
+              "id": "SRC_BABCOCK_1961",
+              "title": "The Topology of the Sun's Magnetic Field and the 22-Year Cycle",
+              "authors": "Babcock",
+              "year": 1961,
+              "source_type": "foundational_paper",
+              "url": "https://doi.org/10.1086/147060",
+              "key_claim": "The solar magnetic cycle can be explained through magnetic-field topology and polarity reversal processes.",
+              "design_role": "Foundational support for Babcock-Leighton style precursor and poloidal-to-toroidal narrative.",
+              "limitation": "Foundational conceptual model, not a modern data pipeline.",
+              "tags": [
+                "babcock",
+                "magnetic-cycle",
+                "foundational",
+                "poloidal"
+              ],
+              "evidence_quality": "landmark"
+            },
+            {
+              "id": "SRC_CHARBONNEAU_2020",
+              "title": "Dynamo models of the solar cycle",
+              "authors": "Charbonneau",
+              "year": 2020,
+              "source_type": "review_paper",
+              "url": "https://link.springer.com/article/10.1007/s41116-020-00025-6",
+              "key_claim": "Solar-cycle modeling is a hydromagnetic dynamo problem with observational constraints and multiple regeneration mechanisms.",
+              "design_role": "Supports Babcock-Leighton mechanism language, H5 toy closure, and observation-model comparison.",
+              "limitation": "A contest toy model is only a surrogate and not a full MHD dynamo.",
+              "tags": [
+                "dynamo",
+                "babcock-leighton",
+                "toy-model",
+                "mechanism"
+              ],
+              "evidence_quality": "high"
+            }
+          ]
+        }
+      ]
+    }
+  },
+  "verification_points": [
+    "证据检索返回 WSO、Babcock、Petrovay、Charbonneau 等与 H1 直接相关的来源。",
+    "H1 证据链同时包含支持来源、反证/限制和下一步验证计划。",
+    "该案例证明文献层不是静态参考文献列表，而是可被 API 查询的结构化证据矩阵。"
+  ]
+}

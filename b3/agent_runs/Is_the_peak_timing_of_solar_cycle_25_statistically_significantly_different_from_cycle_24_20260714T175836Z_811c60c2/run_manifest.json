@@ -1,0 +1,9 @@
+{
+  "artifact_sha256": "8db36f039f9272fdfc6118f95849ddbc502b80cf5ee858c5079b74d402671843",
+  "created_at": "2026-07-14T17:58:36.903051+00:00",
+  "research_question_binding": "exact",
+  "run_id": "Is_the_peak_timing_of_solar_cycle_25_statistically_significantly_different_from_cycle_24_20260714T175836Z_811c60c2",
+  "schema_version": "b3-science-run-v2",
+  "task": "Is the peak timing of solar cycle 25 statistically significantly different from cycle 24",
+  "task_sha256": "c9d73edec27789ff26ed7e5057e640fa681649510b1febde1fc602248bae3947"
+}

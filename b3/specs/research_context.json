@@ -1,0 +1,86 @@
+{
+  "schema_version": "solar-cycle-research-context-v1",
+  "project_title": "太阳活动周 AI 科学家",
+  "competition_context": {
+    "name": "挑战杯揭榜挂帅 XH-202619 阿里云榜题",
+    "track": "赛道一·方向二·B3 太阳活动周起源探秘",
+    "official_model_gate": "正式验收需保留 Qwen/阿里云百炼真实调用凭证",
+    "development_model_route": "三 Agent 默认使用固定快照 dashscope/qwen3.7-max-2026-06-08；科学合同与产物不依赖具体模型"
+  },
+  "research_question": "第 25 太阳活动周后期观测能否对第 26 周的强度趋势与物理机制形成有边界、可反驳的约束？",
+  "research_directions": [
+    {
+      "id": "R1_cycle26_bounded_constraint",
+      "priority": "primary",
+      "question": "如何把当前观测转化为第 26 周的趋势等级、区间和置信降级原因？",
+      "required_outputs": [
+        "trend_or_interval",
+        "supporting_evidence",
+        "counter_evidence",
+        "uncertainty",
+        "next_discriminating_test"
+      ]
+    },
+    {
+      "id": "R2_dynamo_mechanism",
+      "priority": "mechanism",
+      "question": "约 11 年活动周期、22 年 Hale 磁周期、极区反转和 Babcock-Leighton 发电机链条得到哪些观测支持与反证？",
+      "required_outputs": [
+        "mechanism_chain",
+        "polar_precursor_robustness",
+        "low_order_model_ablation",
+        "alternative_explanations"
+      ]
+    },
+    {
+      "id": "R3_proxy_and_hemisphere_drift",
+      "priority": "diagnostic",
+      "question": "F10.7—太阳黑子关系、Waldmeier 形态和南北半球活动是否存在跨周期漂移？",
+      "required_outputs": [
+        "phase_stratified_drift",
+        "leave_one_cycle_out_stability",
+        "extended_hemispheric_calibration",
+        "negative_controls"
+      ]
+    }
+  ],
+  "claim_boundaries": [
+    "不把 NOAA 对当前周的产品改写成第 26 周官方预报",
+    "不把相关性、代理量或 Elo 排名写成因果证明",
+    "不把低阶模型称为完整磁流体发电机模拟",
+    "证据不足时允许输出 inconclusive 或 insufficient_evidence",
+    "任何迁移前旧模型的 live 成功、离线 fixture 或 fallback 都不能替代当前固定 Qwen Max 快照的百炼 live 证明"
+  ],
+  "agent_responsibilities": {
+    "b3-research-planner": [
+      "范围与主张边界",
+      "证据地图与数据可行性",
+      "预注册 DAG、指标、预算、停止条件和失败分支",
+      "计划修订差异与人工审批点"
+    ],
+    "b3-experiment": [
+      "实验预检与时序泄漏检查",
+      "基线、对照、消融、多 seed 和负结果保留",
+      "不确定性、稳定性、适用范围和失败诊断",
+      "不可变环境、数据快照、seed、代码和产物哈希"
+    ],
+    "b3-hypothesis": [
+      "竞争性机制假设组合",
+      "支持、反证、可证伪条件和替代解释",
+      "近邻去重、双顺序成对比较、演化和 Meta-review",
+      "最小判别实验；排序只表示优先级"
+    ]
+  },
+  "human_review_points": [
+    "冻结研究计划前",
+    "接受高风险数据或模型假设前",
+    "从统计关联升级为机制表述前",
+    "对外发布结论或正式 live 证明前"
+  ],
+  "source_files": [
+    "最新参考材料7.11/2026-06-20-solar-cycle-co-scientist-design.md",
+    "b3/specs/evidence_ledger.json",
+    "b3/specs/hypothesis_evidence_matrix.json",
+    "b3/data/raw/source_manifest.json"
+  ]
+}
