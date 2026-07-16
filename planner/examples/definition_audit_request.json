@@ -1,0 +1,9 @@
+{
+  "schema_version": "research-planner-request-v1",
+  "task_name": "cycle_boundary_definition_audit",
+  "research_question": "不同太阳活动周极小值定义会怎样改变周期长度比较的可解释性？",
+  "data_sources": [],
+  "max_iterations": 2,
+  "hypothesis_review_enabled": false,
+  "self_correction_enabled": true
+}

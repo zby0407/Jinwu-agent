@@ -5,6 +5,7 @@ to work unchanged thanks to these re-exports.
 """
 
 from .b3_science import B3_SCIENCE_TOOLS
+from .research_planner import RESEARCH_PLANNER_TOOLS
 from .search import fetch_webpage_content, tavily_search
 from .skill_manager import skill_manager
 from .solar_feature import (
@@ -24,6 +25,7 @@ SOLAR_FEATURE_TOOLS = [
 
 __all__ = [
     "B3_SCIENCE_TOOLS",
+    "RESEARCH_PLANNER_TOOLS",
     "SOLAR_FEATURE_TOOLS",
     "audit_solar_data_quality",
     "dataset_statistics",

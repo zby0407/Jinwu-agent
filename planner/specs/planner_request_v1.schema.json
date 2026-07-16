@@ -1,0 +1,47 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://research-planner.local/planner_request_v1.schema.json",
+  "title": "Research Planner Request 1.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "task_name",
+    "research_question",
+    "data_sources",
+    "max_iterations",
+    "hypothesis_review_enabled",
+    "self_correction_enabled"
+  ],
+  "properties": {
+    "schema_version": { "const": "research-planner-request-v1" },
+    "task_name": { "$ref": "#/$defs/id" },
+    "research_question": { "type": "string", "minLength": 8, "maxLength": 4000 },
+    "data_sources": {
+      "type": "array",
+      "minItems": 0,
+      "maxItems": 20,
+      "items": { "$ref": "#/$defs/dataSource" }
+    },
+    "max_iterations": { "type": "integer", "minimum": 1, "maximum": 12 },
+    "hypothesis_review_enabled": { "type": "boolean" },
+    "self_correction_enabled": { "type": "boolean" }
+  },
+  "$defs": {
+    "id": { "type": "string", "pattern": "^[A-Za-z][A-Za-z0-9_-]{0,63}$" },
+    "text": { "type": "string", "minLength": 1, "maxLength": 2000, "pattern": "\\S" },
+    "dataSource": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "name", "description", "location", "availability", "constraints"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "name": { "type": "string", "minLength": 1, "maxLength": 300 },
+        "description": { "type": "string", "minLength": 1, "maxLength": 1000 },
+        "location": { "type": ["string", "null"], "maxLength": 1000 },
+        "availability": { "enum": ["selected", "available", "to_acquire"] },
+        "constraints": { "type": "array", "maxItems": 10, "uniqueItems": true, "items": { "$ref": "#/$defs/text" } }
+      }
+    }
+  }
+}

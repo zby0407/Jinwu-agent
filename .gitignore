@@ -48,3 +48,6 @@ conversation_history/
 *meals/
 botpy.log
 large_tool_results/
+
+# Research planner runtime artifacts
+planner/runs/

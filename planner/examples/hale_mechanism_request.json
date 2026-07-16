@@ -1,0 +1,9 @@
+{
+  "schema_version": "research-planner-request-v1",
+  "task_name": "hale_cycle_evidence_question",
+  "research_question": "要区分22年Hale磁周期对相邻11年太阳黑子周差异的解释与简单相邻周相关，需要哪些证据？",
+  "data_sources": [],
+  "max_iterations": 3,
+  "hypothesis_review_enabled": true,
+  "self_correction_enabled": true
+}

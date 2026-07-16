@@ -46,7 +46,14 @@ def build_async_subagent_graph(name: str) -> Any:
         _get_default_middleware,
         _inject_subagent_middleware,
     )
-    from EvoScientist.tools import skill_manager, tavily_search, think_tool
+    from EvoScientist.tools import (
+        B3_SCIENCE_TOOLS,
+        RESEARCH_PLANNER_TOOLS,
+        SOLAR_FEATURE_TOOLS,
+        skill_manager,
+        tavily_search,
+        think_tool,
+    )
     from EvoScientist.utils import load_subagents
 
     # Surface API keys as env vars so downstream SDKs (openai, anthropic, …)
@@ -62,6 +69,8 @@ def build_async_subagent_graph(name: str) -> Any:
         "tavily_search": tavily_search,
         "skill_manager": skill_manager,
     }
+    for _t in SOLAR_FEATURE_TOOLS + B3_SCIENCE_TOOLS + RESEARCH_PLANNER_TOOLS:
+        tool_registry[_t.name] = _t
 
     # Use the official loader so resolved tools, prompt_refs, and skills are
     # all wired the same way as the in-process sync version.

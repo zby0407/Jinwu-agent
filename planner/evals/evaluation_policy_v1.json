@@ -1,0 +1,59 @@
+{
+  "schema_version": "research-planner-evaluation-policy-v1",
+  "suite_file": "research_question_suite_v1.json",
+  "profiles": {
+    "pr": {
+      "deterministic_tests": "python -m unittest discover -s tests -v",
+      "case_ids": [
+        "rq_dm_01",
+        "rq_le_01",
+        "rq_oc_01",
+        "rq_mc_01",
+        "rq_pd_01",
+        "rq_cn_01",
+        "rq_dg_01",
+        "rq_ar_01"
+      ],
+      "repetitions": 1
+    },
+    "nightly": {
+      "case_selection": "all_40",
+      "repetitions": 3,
+      "record": [
+        "quality",
+        "cost",
+        "stability",
+        "wall_time_seconds",
+        "search_time_seconds",
+        "validation_time_seconds",
+        "save_time_seconds"
+      ]
+    },
+    "release": {
+      "case_selection": "held_40",
+      "repetitions": 3,
+      "review": "domain_expert_paired_review"
+    }
+  },
+  "behavior_dimensions": {
+    "measurement_role_separation": "Operational definitions, proxy indicators, phase markers, contextual variables, and validation references are not conflated.",
+    "method_dataset_closure": "Every observation, variable, or dataset directly used by a method is present in that step's dataset references.",
+    "criterion_basis_traceability": "Every evaluation rule identifies located evidence, planned data, exact user wording, or a qualitative check without a fixed numeric cutoff.",
+    "claim_level_evidence_quality": "Supported and partially supported statements use claim-level locators or applicable dataset inspection rather than bibliography metadata alone."
+  },
+  "acceptance": {
+    "structure_and_reference_validity": 1.0,
+    "known_dead_branch_detection": 1.0,
+    "supported_finding_evidence_linkage": 1.0,
+    "supported_state_qualified_evidence_linkage": 1.0,
+    "method_dataset_reference_validity": 1.0,
+    "criterion_basis_reference_validity": 1.0,
+    "measurement_role_separation_rate": 0.9,
+    "fixed_route_leakage_when_unneeded": 0.0,
+    "cases_without_obviously_irrelevant_steps": 0.9,
+    "must_distinguish_plan_hypothesis_gap_and_evidence": true,
+    "must_not_claim_experiment_execution": true,
+    "fresh_session_target_seconds": 360,
+    "fresh_session_hard_limit_seconds": 1200
+  }
+}

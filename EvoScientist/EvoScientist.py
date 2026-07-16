@@ -481,6 +481,7 @@ def _build_base_kwargs(
     """Build agent kwargs *without* MCP (fast, no subprocess spawning)."""
     from .tools import (
         B3_SCIENCE_TOOLS,
+        RESEARCH_PLANNER_TOOLS,
         SOLAR_FEATURE_TOOLS,
         skill_manager,
         tavily_search,
@@ -496,9 +497,9 @@ def _build_base_kwargs(
         "tavily_search": tavily_search,
         "skill_manager": skill_manager,
     }
-    for _t in SOLAR_FEATURE_TOOLS + B3_SCIENCE_TOOLS:
+    for _t in SOLAR_FEATURE_TOOLS + B3_SCIENCE_TOOLS + RESEARCH_PLANNER_TOOLS:
         tool_registry[_t.name] = _t
-    base_tools = [think_tool, skill_manager] + SOLAR_FEATURE_TOOLS + B3_SCIENCE_TOOLS
+    base_tools = [think_tool, skill_manager] + SOLAR_FEATURE_TOOLS + B3_SCIENCE_TOOLS + RESEARCH_PLANNER_TOOLS
 
     subs = load_subagents(
         SUBAGENTS_CONFIG,
@@ -545,6 +546,7 @@ def load_mcp_and_build_kwargs(
     """
     from .tools import (
         B3_SCIENCE_TOOLS,
+        RESEARCH_PLANNER_TOOLS,
         SOLAR_FEATURE_TOOLS,
         skill_manager,
         tavily_search,
@@ -570,9 +572,9 @@ def load_mcp_and_build_kwargs(
         "tavily_search": tavily_search,
         "skill_manager": skill_manager,
     }
-    for _t in SOLAR_FEATURE_TOOLS + B3_SCIENCE_TOOLS:
+    for _t in SOLAR_FEATURE_TOOLS + B3_SCIENCE_TOOLS + RESEARCH_PLANNER_TOOLS:
         tool_registry[_t.name] = _t
-    base_tools = [think_tool, skill_manager] + SOLAR_FEATURE_TOOLS + B3_SCIENCE_TOOLS
+    base_tools = [think_tool, skill_manager] + SOLAR_FEATURE_TOOLS + B3_SCIENCE_TOOLS + RESEARCH_PLANNER_TOOLS
 
     # Fresh tool registry — start from base tools + MCP tools
     registry = dict(tool_registry)

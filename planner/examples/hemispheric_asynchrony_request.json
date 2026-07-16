@@ -1,0 +1,20 @@
+{
+  "schema_version": "research-planner-request-v1",
+  "task_name": "hemispheric_boundary_asynchrony",
+  "research_question": "南北半球太阳黑子活动不同步会在多大程度上影响全日面太阳活动周边界的定义？",
+  "data_sources": [
+    {
+      "id": "hemispheric_series",
+      "name": "半球太阳黑子数时间序列",
+      "description": "用户选定的南、北半球同步时间索引太阳黑子数来源描述。",
+      "location": "https://www.sidc.be/SILSO/datafiles",
+      "availability": "selected",
+      "constraints": [
+        "正式使用前确认版本、单位、缺测和南北序列时间覆盖"
+      ]
+    }
+  ],
+  "max_iterations": 2,
+  "hypothesis_review_enabled": true,
+  "self_correction_enabled": true
+}

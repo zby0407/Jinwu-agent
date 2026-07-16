@@ -1,0 +1,152 @@
+{
+  "schema_version": "research-planner-response-v1",
+  "task_name": "cycle_boundary_definition_audit",
+  "research_question": "不同太阳活动周极小值定义会怎样改变周期长度比较的可解释性？",
+  "response_kind": "plan_ready",
+  "plan_content": {
+    "scope": {
+      "objective": "规划一次定义审计，说明不同极小值定义如何改变周期边界与周期长度的解释。",
+      "population_or_period": "具有可比较记录的太阳活动周及其相邻极小期。",
+      "boundaries": ["只规划定义、证据与比较逻辑，不执行数据分析。"],
+      "non_goals": ["不预设预测模型、消融实验或固定评价指标。"]
+    },
+    "research_subquestions": [
+      {
+        "id": "Q1",
+        "question": "候选极小值定义的判据、适用范围和隐含假设分别是什么？",
+        "purpose": "先统一可比较对象，避免把定义差异误当作物理差异。",
+        "depends_on": [],
+        "completion_evidence": "形成逐项定义表，并能追溯每个判据的依据与限制。"
+      }
+    ],
+    "research_state_map": {
+      "items": [
+        {
+          "id": "S1",
+          "statement": "尚缺少可追溯的候选极小值定义与适用边界清单。",
+          "item_kind": "evidence_gap",
+          "status": "unresolved",
+          "rationale": "请求没有指定定义集合，规划必须先建立定义审计表。",
+          "evidence_source_ids": [],
+          "subquestion_ids": ["Q1"],
+          "blocking": false,
+          "resolution_requirements": ["列出候选定义、判据、依据、适用条件和限制。"],
+          "resolution_step_ids": ["R1"],
+          "impact_if_wrong": "遗漏重要定义会使后续周期长度比较产生选择偏差。",
+          "confidence": {
+            "level": "high",
+            "basis": "该缺口直接来自请求未给出候选定义清单。"
+          }
+        }
+      ]
+    },
+    "evidence_sources": [],
+    "required_datasets": [],
+    "research_artifacts": [
+      {
+        "id": "A1",
+        "name": "极小值定义审计表",
+        "artifact_kind": "definition_audit",
+        "purpose": "承载候选定义、判据、依据、限制及其对边界解释的影响。",
+        "source_kind": "planned_output",
+        "producer_step_id": "R1",
+        "subquestion_ids": ["Q1"],
+        "content_requirements": ["每项定义必须含来源定位、判据、适用范围和限制。"]
+      }
+    ],
+    "research_route": [
+      {
+        "id": "R1",
+        "iteration": 1,
+        "stage": "definition_mapping",
+        "objective": "建立可追溯的极小值定义审计表，并说明定义选择如何传播到周期长度解释。",
+        "necessity": "问题的核心是定义敏感性；在比较周期长度前必须先固定并审计定义。",
+        "subquestion_ids": ["Q1"],
+        "required_dataset_ids": [],
+        "consumes_artifact_ids": [],
+        "produces_artifact_ids": ["A1"],
+        "prerequisite_step_ids": [],
+        "join_policy": "all",
+        "method_outline": "检索并定位候选定义的原始依据，逐项记录判据、时间尺度、边界条件和已知局限；随后构造同一记录在不同定义下可能产生的解释差异表。",
+        "capability_needs": [
+          {
+            "id": "C1",
+            "purpose": "定位定义性主张的原始来源并提取可核验段落。",
+            "input_types": ["文献书目信息", "全文或本地材料"],
+            "output_types": ["带页码或章节定位的定义证据"],
+            "constraints": ["元数据不得冒充全文证据。"]
+          }
+        ],
+        "outcome_rules": [
+          {
+            "outcome": "completed",
+            "criteria": ["候选定义均有可核验依据、适用范围和限制。"],
+            "evidence_required": ["完整的极小值定义审计表。"]
+          },
+          {
+            "outcome": "inconclusive",
+            "criteria": ["部分定义缺少可定位依据，但已诚实记录缺口与影响。"],
+            "evidence_required": ["已核实条目及未核实条目清单。"]
+          }
+        ],
+        "transitions": [
+          {"on": "completed", "terminal_status": "plan_complete"},
+          {"on": "inconclusive", "terminal_status": "partial_result"}
+        ],
+        "visit_limit": 1,
+        "evaluation_rule_ids": ["E1"]
+      }
+    ],
+    "evaluation_rules": [
+      {
+        "id": "E1",
+        "name": "定义证据完整性检查",
+        "purpose": "判定定义审计表是否足以支持后续解释。",
+        "target_step_ids": ["R1"],
+        "outcome": "completed",
+        "check": "检查每个定义是否同时具备来源定位、操作判据、适用范围与限制。",
+        "interpretation": "全部满足则该步骤完成；缺项进入不确定结果而不是补造依据。",
+        "uncertainty": "全文不可用或来源间定义不一致时保留缺口与冲突。",
+        "criterion_basis": {
+          "kind": "qualitative",
+          "basis_text": "按定义审计表应具备的可追溯要素进行定性完整性检查，不设置固定数值门槛。",
+          "evidence_source_ids": [],
+          "artifact_ids": []
+        }
+      }
+    ],
+    "report_outline": [
+      {
+        "id": "P1",
+        "order": 1,
+        "title": "极小值定义及其解释边界",
+        "purpose": "报告定义依据、差异、限制以及它们对周期长度解释的影响。",
+        "source_step_ids": ["R1"]
+      }
+    ],
+    "iteration_policy": {
+      "global_visit_limit": 1,
+      "review_step_ids": ["R1"],
+      "revision_triggers": [],
+      "budget_response": "partial_result"
+    },
+    "stop_rules": [
+      {
+        "id": "T1",
+        "terminal_status": "plan_complete",
+        "condition_kind": "evidence_sufficient",
+        "condition": "所有候选定义均有可追溯依据、判据、适用范围和限制。",
+        "required_evidence": ["极小值定义审计表。"],
+        "report_section_ids": ["P1"]
+      },
+      {
+        "id": "T2",
+        "terminal_status": "partial_result",
+        "condition_kind": "partial_result_ready",
+        "condition": "预算内仍有未核实定义，但已记录现有证据、缺口及其影响。",
+        "required_evidence": ["已核实内容和未解决缺口清单。"],
+        "report_section_ids": ["P1"]
+      }
+    ]
+  }
+}

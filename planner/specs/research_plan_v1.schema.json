@@ -1,0 +1,68 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://research-planner.local/research_plan_v1.schema.json",
+  "title": "Research Plan 1.0",
+  "description": "Frozen Research Planner 1.0 plan, deterministically bound to the original request. This is a plan only and contains no experiment results or tool bindings.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "plan_id",
+    "created_at",
+    "status",
+    "planning_readiness",
+    "request_sha256",
+    "plan_sha256",
+    "input_data_sources",
+    "configuration",
+    "task_name",
+    "research_question",
+    "scope",
+    "research_subquestions",
+    "research_state_map",
+    "evidence_sources",
+    "required_datasets",
+    "research_artifacts",
+    "research_route",
+    "evaluation_rules",
+    "report_outline",
+    "iteration_policy",
+    "stop_rules"
+  ],
+  "properties": {
+    "schema_version": { "const": "research-plan-v1" },
+    "plan_id": { "type": "string", "minLength": 1, "maxLength": 128 },
+    "created_at": { "type": "string", "format": "date-time" },
+    "status": { "const": "frozen" },
+    "planning_readiness": { "enum": ["complete", "external_inputs_required"] },
+    "request_sha256": { "$ref": "#/$defs/sha256" },
+    "plan_sha256": { "$ref": "#/$defs/sha256" },
+    "input_data_sources": { "type": "array", "maxItems": 20 },
+    "configuration": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["max_iterations", "hypothesis_review_enabled", "self_correction_enabled"],
+      "properties": {
+        "max_iterations": { "type": "integer", "minimum": 1, "maximum": 12 },
+        "hypothesis_review_enabled": { "type": "boolean" },
+        "self_correction_enabled": { "type": "boolean" }
+      }
+    },
+    "task_name": { "$ref": "planner_response_v1.schema.json#/$defs/id" },
+    "research_question": { "type": "string", "minLength": 8, "maxLength": 4000 },
+    "scope": { "$ref": "planner_response_v1.schema.json#/$defs/scope" },
+    "research_subquestions": { "type": "array", "minItems": 1, "maxItems": 12, "items": { "$ref": "planner_response_v1.schema.json#/$defs/subquestion" } },
+    "research_state_map": { "$ref": "planner_response_v1.schema.json#/$defs/researchStateMap" },
+    "evidence_sources": { "type": "array", "maxItems": 40, "items": { "$ref": "planner_response_v1.schema.json#/$defs/evidenceSource" } },
+    "required_datasets": { "type": "array", "maxItems": 20, "items": { "$ref": "planner_response_v1.schema.json#/$defs/dataset" } },
+    "research_artifacts": { "type": "array", "minItems": 1, "maxItems": 60, "items": { "$ref": "planner_response_v1.schema.json#/$defs/artifact" } },
+    "research_route": { "type": "array", "minItems": 1, "maxItems": 30, "items": { "$ref": "planner_response_v1.schema.json#/$defs/routeStep" } },
+    "evaluation_rules": { "type": "array", "maxItems": 30, "items": { "$ref": "planner_response_v1.schema.json#/$defs/evaluationRule" } },
+    "report_outline": { "type": "array", "minItems": 1, "maxItems": 15, "items": { "$ref": "planner_response_v1.schema.json#/$defs/reportSection" } },
+    "iteration_policy": { "$ref": "planner_response_v1.schema.json#/$defs/iterationPolicy" },
+    "stop_rules": { "type": "array", "minItems": 1, "maxItems": 20, "items": { "$ref": "planner_response_v1.schema.json#/$defs/stopRule" } }
+  },
+  "$defs": {
+    "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+  }
+}

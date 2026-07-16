@@ -1,0 +1,9 @@
+{
+  "schema_version": "research-planner-request-v1",
+  "task_name": "butterfly_overlap_boundary_question",
+  "research_question": "新旧太阳活动周黑子纬度带重叠时，纬度迁移信息能否帮助界定仅靠全日面太阳黑子数难以确定的周边界？",
+  "data_sources": [],
+  "max_iterations": 3,
+  "hypothesis_review_enabled": true,
+  "self_correction_enabled": true
+}

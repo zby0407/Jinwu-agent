@@ -1,0 +1,15 @@
+{
+  "schema_version": "research-planner-response-v1",
+  "task_name": "undefined_effect_proof",
+  "research_question": "在禁止使用数据、文献、观测、理论假设和澄清的前提下，证明尚未定义的X参数具有确定因果效应。",
+  "response_kind": "planning_blocked",
+  "blockers": [
+    {
+      "id": "B1",
+      "code": "unresearchable_formulation",
+      "reason": "X参数未定义，同时请求排除了形成可检验表述所需的全部证据与澄清途径。",
+      "recoverable": true,
+      "resolution": "定义X参数、可观测结果和因果语境，并至少允许一种可核验的证据来源。"
+    }
+  ]
+}

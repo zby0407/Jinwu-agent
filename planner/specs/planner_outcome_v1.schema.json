@@ -1,0 +1,76 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://research-planner.local/planner_outcome_v1.schema.json",
+  "title": "Research Planner Outcome 1.0",
+  "description": "Command-line or Pi entry outcome. Only plan_ready may produce frozen paths.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "status"],
+  "properties": {
+    "schema_version": { "const": "research-planner-outcome-v1" },
+    "status": {
+      "enum": ["frozen_and_valid", "clarification_needed", "planning_blocked", "needs_revision", "request_blocked", "credential_missing", "harness_failed", "dry_run_ready", "error"]
+    },
+    "mode": { "type": "string" },
+    "task_name": { "type": "string" },
+    "data_source_count": { "$ref": "#/$defs/nonnegative" },
+    "experiment_registry_present": { "const": false },
+    "experiment_data_required": { "const": false },
+    "run_id": { "type": "string" },
+    "planning_readiness": { "enum": ["complete", "external_inputs_required"] },
+    "request_path": { "type": "string" },
+    "research_plan_path": { "type": "string" },
+    "research_plan_markdown_path": { "type": "string" },
+    "user_message": { "type": "string" },
+    "user_report_markdown": { "type": "string" },
+    "user_display_markdown": { "type": "string" },
+    "request_sha256": { "$ref": "#/$defs/sha256" },
+    "bound_request_sha256": { "$ref": "#/$defs/sha256" },
+    "plan_sha256": { "$ref": "#/$defs/sha256" },
+    "max_iterations": { "type": "integer", "minimum": 1, "maximum": 12 },
+    "hypothesis_review_enabled": { "type": "boolean" },
+    "self_correction_enabled": { "type": "boolean" },
+    "required_dataset_count": { "$ref": "#/$defs/nonnegative" },
+    "state_item_count": { "$ref": "#/$defs/nonnegative" },
+    "subquestion_count": { "$ref": "#/$defs/nonnegative" },
+    "evidence_source_count": { "$ref": "#/$defs/nonnegative" },
+    "artifact_count": { "$ref": "#/$defs/nonnegative" },
+    "route_step_count": { "$ref": "#/$defs/nonnegative" },
+    "evaluation_rule_count": { "$ref": "#/$defs/nonnegative" },
+    "report_section_count": { "$ref": "#/$defs/nonnegative" },
+    "experiments_executed": { "const": 0 },
+    "agent_relationships_used": { "const": false },
+    "files_written": { "type": "integer", "minimum": 0, "maximum": 3 },
+    "model": { "type": "string" },
+    "model_calls": { "$ref": "#/$defs/nonnegative" },
+    "contract_repairs": { "$ref": "#/$defs/nonnegative" },
+    "response_submissions": { "$ref": "#/$defs/nonnegative" },
+    "repair_budget_exhausted": { "type": "boolean" },
+    "model_tool_calls": { "$ref": "#/$defs/nonnegative" },
+    "planner_response": { "$ref": "planner_response_v1.schema.json" },
+    "preflight": { "type": "object" },
+    "transcript_path": { "type": ["string", "null"] },
+    "validation_error": { "type": "string" },
+    "error": { "type": "string" },
+    "handoff": { "type": "object" }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "status": { "const": "frozen_and_valid" } }, "required": ["status"] },
+      "then": {
+        "required": ["run_id", "planning_readiness", "request_path", "research_plan_path", "research_plan_markdown_path", "user_message", "user_report_markdown", "user_display_markdown", "request_sha256", "plan_sha256", "files_written", "experiments_executed"]
+      }
+    },
+    {
+      "if": { "properties": { "status": { "enum": ["clarification_needed", "planning_blocked"] } }, "required": ["status"] },
+      "then": {
+        "required": ["planner_response", "files_written", "experiments_executed"],
+        "properties": { "files_written": { "const": 0 } }
+      }
+    }
+  ],
+  "$defs": {
+    "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "nonnegative": { "type": "integer", "minimum": 0 }
+  }
+}

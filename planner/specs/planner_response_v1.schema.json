@@ -1,0 +1,358 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://research-planner.local/planner_response_v1.schema.json",
+  "title": "Research Planner Response 1.0",
+  "description": "Model-authored response for Research Planner 1.0. It either provides a plan candidate, requests clarification, or reports a planning blocker.",
+  "oneOf": [
+    { "$ref": "#/$defs/planReadyResponse" },
+    { "$ref": "#/$defs/clarificationResponse" },
+    { "$ref": "#/$defs/blockedResponse" }
+  ],
+  "$defs": {
+    "id": { "type": "string", "pattern": "^[A-Za-z][A-Za-z0-9_-]{0,63}$" },
+    "ref": { "type": "string", "pattern": "^[A-Za-z][A-Za-z0-9_.:-]{0,127}$" },
+    "text": { "type": "string", "minLength": 1, "maxLength": 2000, "pattern": "\\S" },
+    "textArray": { "type": "array", "maxItems": 20, "uniqueItems": true, "items": { "$ref": "#/$defs/text" } },
+    "refArray": { "type": "array", "maxItems": 40, "uniqueItems": true, "items": { "$ref": "#/$defs/ref" } },
+    "routeOutcome": {
+      "enum": ["completed", "inconclusive", "input_missing", "evidence_conflict", "method_invalid", "budget_reached"]
+    },
+    "terminalStatus": {
+      "enum": ["plan_complete", "partial_result", "needs_input", "no_viable_route"]
+    },
+    "scope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["objective", "population_or_period", "boundaries", "non_goals"],
+      "properties": {
+        "objective": { "$ref": "#/$defs/text" },
+        "population_or_period": { "$ref": "#/$defs/text" },
+        "boundaries": { "type": "array", "minItems": 1, "maxItems": 10, "uniqueItems": true, "items": { "$ref": "#/$defs/text" } },
+        "non_goals": { "type": "array", "minItems": 1, "maxItems": 10, "uniqueItems": true, "items": { "$ref": "#/$defs/text" } }
+      }
+    },
+    "subquestion": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "question", "purpose", "depends_on", "completion_evidence"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "question": { "type": "string", "minLength": 4, "maxLength": 2000 },
+        "purpose": { "$ref": "#/$defs/text" },
+        "depends_on": { "type": "array", "maxItems": 11, "uniqueItems": true, "items": { "$ref": "#/$defs/ref" } },
+        "completion_evidence": { "$ref": "#/$defs/text" }
+      }
+    },
+    "confidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["level", "basis"],
+      "properties": {
+        "level": { "enum": ["high", "medium", "low", "unknown"] },
+        "basis": { "$ref": "#/$defs/text" }
+      }
+    },
+    "researchStateItem": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "statement", "item_kind", "status", "rationale", "evidence_source_ids", "subquestion_ids", "blocking", "resolution_requirements", "resolution_step_ids", "impact_if_wrong", "confidence"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "statement": { "$ref": "#/$defs/text" },
+        "item_kind": { "enum": ["supported_finding", "working_assumption", "testable_hypothesis", "evidence_gap", "evidence_conflict"] },
+        "status": { "enum": ["supported", "partially_supported", "unresolved", "unavailable", "not_required"] },
+        "rationale": { "$ref": "#/$defs/text" },
+        "evidence_source_ids": { "$ref": "#/$defs/refArray" },
+        "subquestion_ids": { "type": "array", "minItems": 1, "maxItems": 12, "uniqueItems": true, "items": { "$ref": "#/$defs/ref" } },
+        "blocking": { "type": "boolean" },
+        "resolution_requirements": { "$ref": "#/$defs/textArray" },
+        "resolution_step_ids": { "$ref": "#/$defs/refArray" },
+        "impact_if_wrong": { "$ref": "#/$defs/text" },
+        "confidence": { "$ref": "#/$defs/confidence" }
+      }
+    },
+    "researchStateMap": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["items"],
+      "properties": {
+        "items": { "type": "array", "minItems": 1, "maxItems": 50, "items": { "$ref": "#/$defs/researchStateItem" } }
+      }
+    },
+    "evidenceSource": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "citation", "locator", "source_kind", "verification_level", "role", "state_item_ids", "subquestion_ids", "limitations"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "citation": { "type": "string", "minLength": 1, "maxLength": 1000 },
+        "locator": { "$ref": "#/$defs/text" },
+        "source_kind": { "enum": ["local_material", "scholarly", "dataset_metadata", "user_provided"] },
+        "verification_level": { "enum": ["unverified", "reference_resolved", "claim_located", "dataset_inspected"] },
+        "role": { "$ref": "#/$defs/text" },
+        "state_item_ids": { "type": "array", "minItems": 1, "maxItems": 50, "uniqueItems": true, "items": { "$ref": "#/$defs/ref" } },
+        "subquestion_ids": { "type": "array", "minItems": 1, "maxItems": 12, "uniqueItems": true, "items": { "$ref": "#/$defs/ref" } },
+        "limitations": { "$ref": "#/$defs/text" }
+      }
+    },
+    "dataset": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "source_kind", "selected_source_id", "name", "purpose", "required_variables", "time_coverage_needed", "cadence_needed", "quality_requirements", "version_requirement", "unit_requirements", "revision_requirements", "license_requirements", "acquisition_status"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "source_kind": { "enum": ["selected", "proposed"] },
+        "selected_source_id": { "type": ["string", "null"], "maxLength": 128 },
+        "name": { "type": "string", "minLength": 1, "maxLength": 300 },
+        "purpose": { "$ref": "#/$defs/text" },
+        "required_variables": { "type": "array", "minItems": 1, "maxItems": 30, "uniqueItems": true, "items": { "type": "string", "minLength": 1, "maxLength": 200 } },
+        "time_coverage_needed": { "$ref": "#/$defs/text" },
+        "cadence_needed": { "type": "string", "minLength": 1, "maxLength": 300 },
+        "quality_requirements": { "type": "array", "minItems": 1, "maxItems": 20, "uniqueItems": true, "items": { "$ref": "#/$defs/text" } },
+        "version_requirement": { "$ref": "#/$defs/text" },
+        "unit_requirements": { "$ref": "#/$defs/textArray" },
+        "revision_requirements": { "$ref": "#/$defs/textArray" },
+        "license_requirements": { "$ref": "#/$defs/textArray" },
+        "acquisition_status": { "enum": ["selected", "missing", "needs_confirmation"] }
+      }
+    },
+    "artifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "name", "artifact_kind", "purpose", "source_kind", "producer_step_id", "subquestion_ids", "content_requirements"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "name": { "type": "string", "minLength": 1, "maxLength": 300 },
+        "artifact_kind": { "$ref": "#/$defs/id" },
+        "purpose": { "$ref": "#/$defs/text" },
+        "source_kind": { "enum": ["request_input", "external_input", "planned_output"] },
+        "producer_step_id": { "type": ["string", "null"], "maxLength": 128 },
+        "subquestion_ids": { "type": "array", "minItems": 1, "maxItems": 12, "uniqueItems": true, "items": { "$ref": "#/$defs/ref" } },
+        "content_requirements": { "type": "array", "minItems": 1, "maxItems": 20, "uniqueItems": true, "items": { "$ref": "#/$defs/text" } }
+      }
+    },
+    "capabilityNeed": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "purpose", "input_types", "output_types", "constraints"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "purpose": { "$ref": "#/$defs/text" },
+        "input_types": { "type": "array", "maxItems": 20, "uniqueItems": true, "items": { "$ref": "#/$defs/text" } },
+        "output_types": { "type": "array", "minItems": 1, "maxItems": 20, "uniqueItems": true, "items": { "$ref": "#/$defs/text" } },
+        "constraints": { "$ref": "#/$defs/textArray" }
+      }
+    },
+    "outcomeRule": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["outcome", "criteria", "evidence_required"],
+      "properties": {
+        "outcome": { "$ref": "#/$defs/routeOutcome" },
+        "criteria": { "type": "array", "minItems": 1, "maxItems": 20, "uniqueItems": true, "items": { "$ref": "#/$defs/text" } },
+        "evidence_required": { "$ref": "#/$defs/textArray" }
+      }
+    },
+    "transition": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["on"],
+      "properties": {
+        "on": { "$ref": "#/$defs/routeOutcome" },
+        "target_step_id": { "$ref": "#/$defs/ref" },
+        "terminal_status": { "$ref": "#/$defs/terminalStatus" }
+      },
+      "oneOf": [
+        { "required": ["target_step_id"], "not": { "required": ["terminal_status"] } },
+        { "required": ["terminal_status"], "not": { "required": ["target_step_id"] } }
+      ]
+    },
+    "routeStep": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "iteration", "stage", "objective", "necessity", "subquestion_ids", "required_dataset_ids", "consumes_artifact_ids", "produces_artifact_ids", "prerequisite_step_ids", "join_policy", "method_outline", "capability_needs", "outcome_rules", "transitions", "visit_limit", "evaluation_rule_ids"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "iteration": { "type": "integer", "minimum": 1, "maximum": 12 },
+        "stage": { "$ref": "#/$defs/id" },
+        "objective": { "$ref": "#/$defs/text" },
+        "necessity": { "$ref": "#/$defs/text" },
+        "subquestion_ids": { "type": "array", "minItems": 1, "maxItems": 12, "uniqueItems": true, "items": { "$ref": "#/$defs/ref" } },
+        "required_dataset_ids": { "type": "array", "maxItems": 20, "uniqueItems": true, "items": { "$ref": "#/$defs/ref" } },
+        "consumes_artifact_ids": { "$ref": "#/$defs/refArray" },
+        "produces_artifact_ids": { "type": "array", "minItems": 1, "maxItems": 30, "uniqueItems": true, "items": { "$ref": "#/$defs/ref" } },
+        "prerequisite_step_ids": { "$ref": "#/$defs/refArray" },
+        "join_policy": { "enum": ["all", "any"] },
+        "method_outline": { "type": "string", "minLength": 1, "maxLength": 4000 },
+        "capability_needs": { "type": "array", "maxItems": 12, "items": { "$ref": "#/$defs/capabilityNeed" } },
+        "outcome_rules": { "type": "array", "minItems": 2, "maxItems": 6, "items": { "$ref": "#/$defs/outcomeRule" } },
+        "transitions": { "type": "array", "minItems": 2, "maxItems": 6, "items": { "$ref": "#/$defs/transition" } },
+        "visit_limit": { "type": "integer", "minimum": 1, "maximum": 12 },
+        "evaluation_rule_ids": { "$ref": "#/$defs/refArray" }
+      }
+    },
+    "criterionBasis": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "basis_text", "evidence_source_ids", "artifact_ids"],
+      "properties": {
+        "kind": { "enum": ["source_based", "data_based", "request_based", "qualitative"] },
+        "basis_text": { "$ref": "#/$defs/text" },
+        "evidence_source_ids": { "$ref": "#/$defs/refArray" },
+        "artifact_ids": { "$ref": "#/$defs/refArray" }
+      },
+      "oneOf": [
+        {
+          "properties": {
+            "kind": { "const": "source_based" },
+            "evidence_source_ids": { "minItems": 1 },
+            "artifact_ids": { "maxItems": 0 }
+          }
+        },
+        {
+          "properties": {
+            "kind": { "const": "data_based" },
+            "evidence_source_ids": { "maxItems": 0 },
+            "artifact_ids": { "minItems": 1 }
+          }
+        },
+        {
+          "properties": {
+            "kind": { "enum": ["request_based", "qualitative"] },
+            "evidence_source_ids": { "maxItems": 0 },
+            "artifact_ids": { "maxItems": 0 }
+          }
+        }
+      ]
+    },
+    "evaluationRule": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "name", "purpose", "target_step_ids", "outcome", "check", "interpretation", "uncertainty", "criterion_basis"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "name": { "$ref": "#/$defs/text" },
+        "purpose": { "$ref": "#/$defs/text" },
+        "target_step_ids": { "type": "array", "minItems": 1, "maxItems": 30, "uniqueItems": true, "items": { "$ref": "#/$defs/ref" } },
+        "outcome": { "$ref": "#/$defs/routeOutcome" },
+        "check": { "$ref": "#/$defs/text" },
+        "interpretation": { "$ref": "#/$defs/text" },
+        "uncertainty": { "$ref": "#/$defs/text" },
+        "criterion_basis": { "$ref": "#/$defs/criterionBasis" }
+      }
+    },
+    "reportSection": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "order", "title", "purpose", "source_step_ids"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "order": { "type": "integer", "minimum": 1, "maximum": 30 },
+        "title": { "type": "string", "minLength": 1, "maxLength": 300 },
+        "purpose": { "$ref": "#/$defs/text" },
+        "source_step_ids": { "$ref": "#/$defs/refArray" }
+      }
+    },
+    "iterationPolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["global_visit_limit", "review_step_ids", "revision_triggers", "budget_response"],
+      "properties": {
+        "global_visit_limit": { "type": "integer", "minimum": 1, "maximum": 360 },
+        "review_step_ids": { "$ref": "#/$defs/refArray" },
+        "revision_triggers": { "type": "array", "maxItems": 6, "uniqueItems": true, "items": { "$ref": "#/$defs/routeOutcome" } },
+        "budget_response": { "$ref": "#/$defs/terminalStatus" }
+      }
+    },
+    "stopRule": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "terminal_status", "condition_kind", "condition", "required_evidence", "report_section_ids"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "terminal_status": { "$ref": "#/$defs/terminalStatus" },
+        "condition_kind": { "enum": ["goal_satisfied", "evidence_sufficient", "no_viable_route", "budget_exhausted", "human_stop", "unsafe_to_continue", "partial_result_ready", "input_required"] },
+        "condition": { "$ref": "#/$defs/text" },
+        "required_evidence": { "$ref": "#/$defs/textArray" },
+        "report_section_ids": { "type": "array", "minItems": 1, "maxItems": 15, "uniqueItems": true, "items": { "$ref": "#/$defs/ref" } }
+      }
+    },
+    "planContent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["scope", "research_subquestions", "research_state_map", "evidence_sources", "required_datasets", "research_artifacts", "research_route", "evaluation_rules", "report_outline", "iteration_policy", "stop_rules"],
+      "properties": {
+        "scope": { "$ref": "#/$defs/scope" },
+        "research_subquestions": { "type": "array", "minItems": 1, "maxItems": 12, "items": { "$ref": "#/$defs/subquestion" } },
+        "research_state_map": { "$ref": "#/$defs/researchStateMap" },
+        "evidence_sources": { "type": "array", "maxItems": 40, "items": { "$ref": "#/$defs/evidenceSource" } },
+        "required_datasets": { "type": "array", "maxItems": 20, "items": { "$ref": "#/$defs/dataset" } },
+        "research_artifacts": { "type": "array", "minItems": 1, "maxItems": 60, "items": { "$ref": "#/$defs/artifact" } },
+        "research_route": { "type": "array", "minItems": 1, "maxItems": 30, "items": { "$ref": "#/$defs/routeStep" } },
+        "evaluation_rules": { "type": "array", "maxItems": 30, "items": { "$ref": "#/$defs/evaluationRule" } },
+        "report_outline": { "type": "array", "minItems": 1, "maxItems": 15, "items": { "$ref": "#/$defs/reportSection" } },
+        "iteration_policy": { "$ref": "#/$defs/iterationPolicy" },
+        "stop_rules": { "type": "array", "minItems": 1, "maxItems": 20, "items": { "$ref": "#/$defs/stopRule" } }
+      }
+    },
+    "planReadyResponse": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "task_name", "research_question", "response_kind", "plan_content"],
+      "properties": {
+        "schema_version": { "const": "research-planner-response-v1" },
+        "task_name": { "$ref": "#/$defs/id" },
+        "research_question": { "type": "string", "minLength": 8, "maxLength": 4000 },
+        "response_kind": { "const": "plan_ready" },
+        "plan_content": { "$ref": "#/$defs/planContent" }
+      }
+    },
+    "clarificationQuestion": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "question", "why_it_matters", "expected_answer"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "question": { "$ref": "#/$defs/text" },
+        "why_it_matters": { "$ref": "#/$defs/text" },
+        "expected_answer": { "$ref": "#/$defs/text" }
+      }
+    },
+    "clarificationResponse": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "task_name", "research_question", "response_kind", "questions"],
+      "properties": {
+        "schema_version": { "const": "research-planner-response-v1" },
+        "task_name": { "$ref": "#/$defs/id" },
+        "research_question": { "type": "string", "minLength": 8, "maxLength": 4000 },
+        "response_kind": { "const": "clarification_needed" },
+        "questions": { "type": "array", "minItems": 1, "maxItems": 3, "items": { "$ref": "#/$defs/clarificationQuestion" } }
+      }
+    },
+    "planningBlocker": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "code", "reason", "recoverable", "resolution"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "code": { "enum": ["unsupported_scope", "unresearchable_formulation", "missing_indispensable_condition", "safety_boundary"] },
+        "reason": { "$ref": "#/$defs/text" },
+        "recoverable": { "type": "boolean" },
+        "resolution": { "$ref": "#/$defs/text" }
+      }
+    },
+    "blockedResponse": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "task_name", "research_question", "response_kind", "blockers"],
+      "properties": {
+        "schema_version": { "const": "research-planner-response-v1" },
+        "task_name": { "$ref": "#/$defs/id" },
+        "research_question": { "type": "string", "minLength": 8, "maxLength": 4000 },
+        "response_kind": { "const": "planning_blocked" },
+        "blockers": { "type": "array", "minItems": 1, "maxItems": 10, "items": { "$ref": "#/$defs/planningBlocker" } }
+      }
+    }
+  }
+}

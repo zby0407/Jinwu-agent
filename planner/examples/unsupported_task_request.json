@@ -1,0 +1,9 @@
+{
+  "schema_version": "research-planner-request-v1",
+  "task_name": "undefined_effect_proof",
+  "research_question": "在禁止使用数据、文献、观测、理论假设和澄清的前提下，证明尚未定义的X参数具有确定因果效应。",
+  "data_sources": [],
+  "max_iterations": 1,
+  "hypothesis_review_enabled": false,
+  "self_correction_enabled": false
+}

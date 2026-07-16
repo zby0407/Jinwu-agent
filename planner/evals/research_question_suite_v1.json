@@ -1,0 +1,362 @@
+[
+  {
+    "id": "rq_dm_01",
+    "category": "definition_measurement",
+    "research_question": "在太阳活动周项目中，南北半球活动不同步时，应如何定义一个可复现的全日面太阳活动周起止时间，并量化边界不确定性？",
+    "request_overrides": {"data_sources": [], "max_iterations": 3, "hypothesis_review_enabled": false, "self_correction_enabled": true},
+    "expected_response_kinds": ["plan_ready"],
+    "required_planning_signals": ["比较候选周期边界定义", "给出可计算的操作化指标", "规划半球差异与平滑尺度敏感性分析"],
+    "forbidden_unless_justified": ["固定平滑窗", "机器学习分类", "磁流体数值模拟"]
+  },
+  {
+    "id": "rq_dm_02",
+    "category": "definition_measurement",
+    "research_question": "在太阳活动周项目中，如何从太阳黑子蝴蝶图定义相邻活动周新旧纬度带的重叠期，并区分真实重叠与观测漏检造成的假象？",
+    "request_overrides": {"data_sources": [], "max_iterations": 3, "hypothesis_review_enabled": true, "self_correction_enabled": true},
+    "expected_response_kinds": ["plan_ready"],
+    "required_planning_signals": ["定义纬度带归属规则", "处理探测阈值和缺测", "报告重叠期区间而非单点"],
+    "forbidden_unless_justified": ["任意二元阈值", "聚类算法", "跨资料无校准拼接"]
+  },
+  {
+    "id": "rq_dm_03",
+    "category": "definition_measurement",
+    "research_question": "在太阳活动周项目中，极区磁场反转的开始、过零与完成应分别怎样定义，才能处理短暂回摆和南北半球不同步？",
+    "request_overrides": {"data_sources": [], "max_iterations": 2, "hypothesis_review_enabled": false, "self_correction_enabled": true},
+    "expected_response_kinds": ["plan_ready"],
+    "required_planning_signals": ["区分反转事件的多个阶段", "规定持续性和回摆判据", "保留半球级测量与不确定性"],
+    "forbidden_unless_justified": ["单次过零判定", "全日面平均替代极区测量", "频谱分析"]
+  },
+  {
+    "id": "rq_dm_04",
+    "category": "definition_measurement",
+    "research_question": "在太阳活动周项目中，如何构建同时适用于太阳黑子数、太阳黑子面积和10.7厘米射电流量的周振幅度量，并避免把量纲差异误当成物理差异？",
+    "request_overrides": {"data_sources": [], "max_iterations": 2, "hypothesis_review_enabled": false, "self_correction_enabled": true},
+    "expected_response_kinds": ["plan_ready"],
+    "required_planning_signals": ["明确每种代理量的测量尺度", "规划归一化与不确定性传播", "分别报告原始量和可比量"],
+    "forbidden_unless_justified": ["无量纲说明的指数加权", "主成分分析", "以相关系数替代一致性评估"]
+  },
+  {
+    "id": "rq_dm_05",
+    "category": "definition_measurement",
+    "research_question": "在太阳活动周项目中，请定义并测量太阳活动低谷；该指标可能用于划分活动周边界，也可能用于标注航天器风险较低的时间窗。",
+    "request_overrides": {"data_sources": [], "max_iterations": 2, "hypothesis_review_enabled": false, "self_correction_enabled": false},
+    "expected_response_kinds": ["clarification_needed"],
+    "required_planning_signals": ["指出两种用途会改变目标变量和时间尺度", "询问主要决策用途", "将澄清问题限制在必要边界"],
+    "forbidden_unless_justified": ["默认采用月均太阳黑子数", "风险评分模型", "固定百分位阈值"]
+  },
+  {
+    "id": "rq_le_01",
+    "category": "literature_evidence",
+    "research_question": "在太阳活动周项目中，现有研究对沃尔德迈尔效应在不同活动指标和不同活动周中的稳健性提供了什么证据？",
+    "request_overrides": {"data_sources": [], "max_iterations": 3, "hypothesis_review_enabled": true, "self_correction_enabled": true},
+    "expected_response_kinds": ["plan_ready"],
+    "required_planning_signals": ["定义效应的竞争表述", "规划可定位文献与证据提取表", "区分支持证据、冲突证据和测量依赖"],
+    "forbidden_unless_justified": ["元分析", "按引用次数裁决", "统一平滑后合并效应"]
+  },
+  {
+    "id": "rq_le_02",
+    "category": "literature_evidence",
+    "research_question": "在太阳活动周项目中，极区磁场作为下一活动周振幅前兆的文献证据有多强，结论受观测台站、取样时刻和数据修订影响多大？",
+    "request_overrides": {"data_sources": [], "max_iterations": 3, "hypothesis_review_enabled": true, "self_correction_enabled": true},
+    "expected_response_kinds": ["plan_ready"],
+    "required_planning_signals": ["建立来源层级和纳入标准", "提取预测发出时点与数据版本", "评价独立验证和回顾性偏差"],
+    "forbidden_unless_justified": ["元分析", "仅汇总显著结果", "用最新修订数据回填历史预报"]
+  },
+  {
+    "id": "rq_le_03",
+    "category": "literature_evidence",
+    "research_question": "在太阳活动周项目中，双峰结构与格涅维舍夫间隙的观测证据、定义分歧和候选解释在文献中如何对应？",
+    "request_overrides": {"data_sources": [], "max_iterations": 3, "hypothesis_review_enabled": true, "self_correction_enabled": true},
+    "expected_response_kinds": ["plan_ready"],
+    "required_planning_signals": ["分离现象定义与机制主张", "比较不同代理量和半球分解", "建立主张到证据的可追溯映射"],
+    "forbidden_unless_justified": ["主题模型", "单一平滑尺度", "把时间重合当作机制证据"]
+  },
+  {
+    "id": "rq_le_04",
+    "category": "literature_evidence",
+    "research_question": "在太阳活动周项目中，宇生同位素重建的大极小期证据可在多大程度上用于解释现代太阳活动周，哪些外推存在争议？",
+    "request_overrides": {"data_sources": [], "max_iterations": 3, "hypothesis_review_enabled": true, "self_correction_enabled": true},
+    "expected_response_kinds": ["plan_ready"],
+    "required_planning_signals": ["区分代理量校准与物理解释", "记录年代模型和地磁调制局限", "限定现代观测与历史重建的可比范围"],
+    "forbidden_unless_justified": ["代理序列直接拼接", "周期外推", "贝叶斯年代重建"]
+  },
+  {
+    "id": "rq_le_05",
+    "category": "literature_evidence",
+    "research_question": "在太阳活动周项目中，关于第24活动周较弱与日球层开放磁通下降之间关系的证据链是否足以支持机制性表述？",
+    "request_overrides": {"data_sources": [], "max_iterations": 2, "hypothesis_review_enabled": true, "self_correction_enabled": true},
+    "expected_response_kinds": ["plan_ready"],
+    "required_planning_signals": ["拆分观测关联和机制推断", "检索相互独立的测量来源", "列出替代解释与证据缺口"],
+    "forbidden_unless_justified": ["因果图识别", "磁流体数值模拟", "相关性因果化"]
+  },
+  {
+    "id": "rq_oc_01",
+    "category": "observational_comparison",
+    "research_question": "在太阳活动周项目中，如何比较第21至第25活动周南北半球太阳黑子活动的相位差，并判断差异是否超出测量与边界定义的不确定性？",
+    "request_overrides": {"data_sources": [], "max_iterations": 3, "hypothesis_review_enabled": true, "self_correction_enabled": true},
+    "expected_response_kinds": ["plan_ready"],
+    "required_planning_signals": ["统一时间基准和半球口径", "预先定义相位差估计量", "量化周期边界与平滑选择敏感性"],
+    "forbidden_unless_justified": ["动态时间规整", "固定滞后相关", "无误差条的峰值比较"]
+  },
+  {
+    "id": "rq_oc_02",
+    "category": "observational_comparison",
+    "research_question": "在太阳活动周项目中，太阳黑子数与10.7厘米射电流量对活动周上升、峰值和下降阶段的刻画何时一致、何时系统偏离？",
+    "request_overrides": {"data_sources": [], "max_iterations": 2, "hypothesis_review_enabled": false, "self_correction_enabled": true},
+    "expected_response_kinds": ["plan_ready"],
+    "required_planning_signals": ["按阶段定义比较窗口", "处理单位、非线性和时间覆盖差异", "规划一致性而非仅相关性指标"],
+    "forbidden_unless_justified": ["线性回归强制同斜率", "单一相关系数", "全时段统一标准化"]
+  },
+  {
+    "id": "rq_oc_03",
+    "category": "observational_comparison",
+    "research_question": "在太阳活动周项目中，第23与第24活动周活动区初现纬度、赤道漂移速率和面积分布有哪些可比差异？",
+    "request_overrides": {"data_sources": [], "max_iterations": 3, "hypothesis_review_enabled": true, "self_correction_enabled": true},
+    "expected_response_kinds": ["plan_ready"],
+    "required_planning_signals": ["定义活动区样本和重复观测处理", "校准跨仪器探测阈值", "分离纬度、时间和面积分布比较"],
+    "forbidden_unless_justified": ["无监督聚类", "合并南北半球", "忽略截尾的均值检验"]
+  },
+  {
+    "id": "rq_oc_04",
+    "category": "observational_comparison",
+    "research_question": "在太阳活动周项目中，在匹配太阳黑子活动水平后，第23、第24和第25活动周的日冕物质抛射产出率是否仍有差异？",
+    "request_overrides": {"data_sources": [], "max_iterations": 3, "hypothesis_review_enabled": true, "self_correction_enabled": true},
+    "expected_response_kinds": ["plan_ready"],
+    "required_planning_signals": ["定义抛射事件目录与匹配口径", "控制观测覆盖和仪器变化", "区分计数率差异与事件能量差异"],
+    "forbidden_unless_justified": ["倾向得分匹配", "泊松回归", "事件目录直接合并"]
+  },
+  {
+    "id": "rq_oc_05",
+    "category": "observational_comparison",
+    "research_question": "在太阳活动周项目中，极区光斑与磁图给出的极区场反转时刻在不同台站间是否一致，偏差主要来自何种观测定义？",
+    "request_overrides": {"data_sources": [], "max_iterations": 2, "hypothesis_review_enabled": true, "self_correction_enabled": true},
+    "expected_response_kinds": ["plan_ready"],
+    "required_planning_signals": ["建立台站和代理量对照表", "对齐时间、空间孔径和符号约定", "分解系统偏差与随机不确定性"],
+    "forbidden_unless_justified": ["简单平均台站结果", "数据融合", "把代理量视为直接磁场测量"]
+  },
+  {
+    "id": "rq_mc_01",
+    "category": "mechanism_causality",
+    "research_question": "在太阳活动周项目中，太阳表面经向流速变化是否通过磁通输运影响极区场积累并进而调制下一活动周振幅？",
+    "request_overrides": {"data_sources": [], "max_iterations": 4, "hypothesis_review_enabled": true, "self_correction_enabled": true},
+    "expected_response_kinds": ["plan_ready"],
+    "required_planning_signals": ["给出可证伪的中介机制链", "区分观测检验与模型检验", "规划混杂因素和替代机制比较"],
+    "forbidden_unless_justified": ["结构因果模型", "磁通输运模拟", "相关性因果化"]
+  },
+  {
+    "id": "rq_mc_02",
+    "category": "mechanism_causality",
+    "research_question": "在太阳活动周项目中，扭转振荡带向赤道迁移是新活动周开始的驱动因素、共同结果，还是仅可用作前兆？",
+    "request_overrides": {"data_sources": [], "max_iterations": 3, "hypothesis_review_enabled": true, "self_correction_enabled": true},
+    "expected_response_kinds": ["plan_ready"],
+    "required_planning_signals": ["明确三种竞争因果解释", "规定时间先后和可区分预测", "识别共同驱动与测量滞后"],
+    "forbidden_unless_justified": ["格兰杰因果", "深度学习", "仅凭领先关系判定驱动"]
+  },
+  {
+    "id": "rq_mc_03",
+    "category": "mechanism_causality",
+    "research_question": "在太阳活动周项目中，跨赤道磁通抵消能否解释南北半球活动同步程度的变化，应怎样设计观测与机制证据的联合检验？",
+    "request_overrides": {"data_sources": [], "max_iterations": 4, "hypothesis_review_enabled": true, "self_correction_enabled": true},
+    "expected_response_kinds": ["plan_ready"],
+    "required_planning_signals": ["定义跨赤道磁通和同步性的可测量量", "提出方向性与时序预测", "规划替代解释和负对照"],
+    "forbidden_unless_justified": ["磁流体数值模拟", "传递熵", "跨台站无校准合成"]
+  },
+  {
+    "id": "rq_mc_04",
+    "category": "mechanism_causality",
+    "research_question": "在太阳活动周项目中，活动区倾角离散度是否会改变极区场反转过程并影响下一活动周的种子磁场？",
+    "request_overrides": {"data_sources": [], "max_iterations": 4, "hypothesis_review_enabled": true, "self_correction_enabled": true},
+    "expected_response_kinds": ["plan_ready"],
+    "required_planning_signals": ["连接倾角分布、磁通贡献和极区场结果", "处理大活动区的高杠杆影响", "规划反事实或扰动式模型检验"],
+    "forbidden_unless_justified": ["删除离群活动区", "蒙特卡洛模拟", "把相关斜率解释为机制强度"]
+  },
+  {
+    "id": "rq_mc_05",
+    "category": "mechanism_causality",
+    "research_question": "在太阳活动周项目中，行星潮汐被声称会锁定约11年的太阳活动周期；如何规划一项能区分物理机制、偶然周期对应和选择性报告的检验？",
+    "request_overrides": {"data_sources": [], "max_iterations": 3, "hypothesis_review_enabled": true, "self_correction_enabled": true},
+    "expected_response_kinds": ["plan_ready"],
+    "required_planning_signals": ["要求量级合理的作用机制", "预注册可证伪时间预测", "规划多重比较和样本外检验"],
+    "forbidden_unless_justified": ["事后频率搜索", "小波相干", "以周期吻合作为因果证据"]
+  },
+  {
+    "id": "rq_pd_01",
+    "category": "prediction_design",
+    "research_question": "在太阳活动周项目中，如何用历次活动周最低点之前可获得的信息回顾性评估第25活动周峰值振幅预报，且不产生未来数据泄漏？",
+    "request_overrides": {"data_sources": [], "max_iterations": 3, "hypothesis_review_enabled": true, "self_correction_enabled": true},
+    "expected_response_kinds": ["plan_ready"],
+    "required_planning_signals": ["冻结每次预报的可用信息截止点", "设定朴素基线和误差指标", "使用按时间推进的样本外验证"],
+    "forbidden_unless_justified": ["随机交叉验证", "用修订后数据训练历史预报", "深度学习"]
+  },
+  {
+    "id": "rq_pd_02",
+    "category": "prediction_design",
+    "research_question": "在太阳活动周项目中，怎样设计基于极区磁场的下一活动周振幅概率预报，使预测区间反映台站差异和活动周样本量有限？",
+    "request_overrides": {"data_sources": [], "max_iterations": 4, "hypothesis_review_enabled": true, "self_correction_enabled": true},
+    "expected_response_kinds": ["plan_ready"],
+    "required_planning_signals": ["明确预报发出时点与目标定义", "分解测量和模型不确定性", "评估校准度、分辨率与基线技能"],
+    "forbidden_unless_justified": ["高维机器学习", "正态误差默认", "仅报告点预测"]
+  },
+  {
+    "id": "rq_pd_03",
+    "category": "prediction_design",
+    "research_question": "在太阳活动周项目中，能否提前6至12个月预测南北半球新活动周开始时刻，并怎样避免把事后定义的开始时刻用于特征构造？",
+    "request_overrides": {"data_sources": [], "max_iterations": 3, "hypothesis_review_enabled": true, "self_correction_enabled": true},
+    "expected_response_kinds": ["plan_ready"],
+    "required_planning_signals": ["预先冻结开始事件定义", "构造实时可得特征清单", "按半球评估提前量和删失事件"],
+    "forbidden_unless_justified": ["随机数据切分", "事后峰值对齐", "循环神经网络"]
+  },
+  {
+    "id": "rq_pd_04",
+    "category": "prediction_design",
+    "research_question": "在太阳活动周项目中，如何预测不同活动周阶段未来一个月的高等级太阳耀斑负荷，同时区分活动周背景风险与活动区即时信息？",
+    "request_overrides": {"data_sources": [], "max_iterations": 4, "hypothesis_review_enabled": true, "self_correction_enabled": true},
+    "expected_response_kinds": ["plan_ready"],
+    "required_planning_signals": ["定义事件负荷与预报窗口", "设置仅含活动周阶段的基线", "规划时间分层验证和概率评分"],
+    "forbidden_unless_justified": ["深度学习", "随机过采样", "准确率作为唯一指标"]
+  },
+  {
+    "id": "rq_pd_05",
+    "category": "prediction_design",
+    "research_question": "在太阳活动周项目中，如何把赤道附近新旧活动带的终止事件转化为可实时检验的活动周相位预报，并评估提前量？",
+    "request_overrides": {"data_sources": [], "max_iterations": 3, "hypothesis_review_enabled": true, "self_correction_enabled": true},
+    "expected_response_kinds": ["plan_ready"],
+    "required_planning_signals": ["定义实时事件触发规则", "区分检测与预测任务", "设计滚动回测和虚警漏警权衡"],
+    "forbidden_unless_justified": ["隐马尔可夫模型", "未来平滑", "用全样本调节阈值"]
+  },
+  {
+    "id": "rq_cn_01",
+    "category": "conflict_null_result",
+    "research_question": "在太阳活动周项目中，不同研究对极区磁场前兆强度给出冲突结论；如何判断冲突来自数据修订、台站校准、时间窗还是抽样波动？",
+    "request_overrides": {"data_sources": [], "max_iterations": 3, "hypothesis_review_enabled": true, "self_correction_enabled": true},
+    "expected_response_kinds": ["plan_ready"],
+    "required_planning_signals": ["建立冲突主张矩阵", "逐项复核版本、口径和时间窗", "允许证据不足或不可调和结论"],
+    "forbidden_unless_justified": ["投票式文献计数", "元分析", "选择支持预期的版本"]
+  },
+  {
+    "id": "rq_cn_02",
+    "category": "conflict_null_result",
+    "research_question": "在太阳活动周项目中，若重新分析后未发现活动周长度与下一周振幅的显著关系，应如何区分真实无效应、低功效和测量误差？",
+    "request_overrides": {"data_sources": [], "max_iterations": 3, "hypothesis_review_enabled": true, "self_correction_enabled": true},
+    "expected_response_kinds": ["plan_ready"],
+    "required_planning_signals": ["把零结果列为合法结果", "规划效应区间与最小关注效应", "评估样本量和边界测量误差"],
+    "forbidden_unless_justified": ["显著性二分", "事后子组搜索", "将不显著写成无效应证明"]
+  },
+  {
+    "id": "rq_cn_03",
+    "category": "conflict_null_result",
+    "research_question": "在太阳活动周项目中，太阳黑子数显示显著南北不对称而太阳黑子面积没有显示时，应如何处理代理量冲突？",
+    "request_overrides": {"data_sources": [], "max_iterations": 2, "hypothesis_review_enabled": true, "self_correction_enabled": true},
+    "expected_response_kinds": ["plan_ready"],
+    "required_planning_signals": ["比较两个代理量的观测过程", "预先定义一致与冲突判据", "分别保留计数效应和面积效应"],
+    "forbidden_unless_justified": ["代理量简单平均", "只保留显著指标", "主成分分析"]
+  },
+  {
+    "id": "rq_cn_04",
+    "category": "conflict_null_result",
+    "research_question": "在太阳活动周项目中，预期出现的双峰在采用预注册平滑尺度后没有出现，但其他尺度可见；后续研究应如何规划而不追逐结果？",
+    "request_overrides": {"data_sources": [], "max_iterations": 2, "hypothesis_review_enabled": true, "self_correction_enabled": true},
+    "expected_response_kinds": ["plan_ready"],
+    "required_planning_signals": ["保留预注册主分析的零结果", "将尺度探索标记为探索性", "规划独立周期或代理量复核"],
+    "forbidden_unless_justified": ["事后选择平滑尺度", "多重检验后只报显著结果", "重新定义峰值"]
+  },
+  {
+    "id": "rq_cn_05",
+    "category": "conflict_null_result",
+    "research_question": "在太阳活动周项目中，改变上升时间定义后沃尔德迈尔效应消失；如何评估结论对操作化定义的依赖并报告不确定结果？",
+    "request_overrides": {"data_sources": [], "max_iterations": 3, "hypothesis_review_enabled": true, "self_correction_enabled": true},
+    "expected_response_kinds": ["plan_ready"],
+    "required_planning_signals": ["列出有科学依据的候选定义", "区分主分析与敏感性分析", "报告定义依赖而非强行汇总结论"],
+    "forbidden_unless_justified": ["选择最大效应定义", "模型平均", "把敏感性差异归为异常值"]
+  },
+  {
+    "id": "rq_dg_01",
+    "category": "data_governance",
+    "research_question": "在太阳活动周项目中，如何整合SILSO太阳黑子数、NOAA事件目录、极区磁场和日震资料，并保证版本、许可、来源与处理链可审计？",
+    "request_overrides": {"data_sources": [], "max_iterations": 2, "hypothesis_review_enabled": false, "self_correction_enabled": true},
+    "expected_response_kinds": ["plan_ready"],
+    "required_planning_signals": ["建立来源清单和许可核验", "冻结原始版本并记录校验值", "规划数据字典、派生谱系和更新策略"],
+    "forbidden_unless_justified": ["未授权网页抓取", "覆盖原始数据", "无版本自动更新"]
+  },
+  {
+    "id": "rq_dg_02",
+    "category": "data_governance",
+    "research_question": "在太阳活动周项目中，准备公开跨台站磁图派生数据集时，应怎样记录校准、质量标志、许可限制和可复现处理环境？",
+    "request_overrides": {"data_sources": [], "max_iterations": 2, "hypothesis_review_enabled": false, "self_correction_enabled": true},
+    "expected_response_kinds": ["plan_ready"],
+    "required_planning_signals": ["区分原始数据再发布权和派生物许可", "定义字段级质量与缺测标志", "规划版本化代码、环境和引用信息"],
+    "forbidden_unless_justified": ["重新分发受限原始数据", "静默插补", "删除质量标志"]
+  },
+  {
+    "id": "rq_dg_03",
+    "category": "data_governance",
+    "research_question": "在太阳活动周项目中，如何审计历史太阳黑子数版本修订对既有结论的影响，使读者能够复现修订前后两套分析？",
+    "request_overrides": {"data_sources": [], "max_iterations": 3, "hypothesis_review_enabled": false, "self_correction_enabled": true},
+    "expected_response_kinds": ["plan_ready"],
+    "required_planning_signals": ["保存并标识各数据版本", "建立版本差异与结论差异映射", "记录获取日期、处理代码和参数"],
+    "forbidden_unless_justified": ["用新版覆盖旧版", "只公布最终图表", "未记录的人工修正"]
+  },
+  {
+    "id": "rq_dg_04",
+    "category": "data_governance",
+    "research_question": "在太阳活动周项目中，多台站事件记录存在时区、事件命名和重复报告差异；如何建立保留原始身份的去重与合并规范？",
+    "request_overrides": {"data_sources": [], "max_iterations": 2, "hypothesis_review_enabled": false, "self_correction_enabled": true},
+    "expected_response_kinds": ["plan_ready"],
+    "required_planning_signals": ["统一时区但保留原始时间字段", "定义可审计的实体匹配规则", "保留来源级记录和合并置信度"],
+    "forbidden_unless_justified": ["仅按时间最近去重", "模糊匹配自动覆盖", "删除来源标识"]
+  },
+  {
+    "id": "rq_dg_05",
+    "category": "data_governance",
+    "research_question": "在太阳活动周项目中，如何发布用于下一活动周预报的基准数据集，使训练、验证和测试切分在后续数据更新时仍可追溯且无时间泄漏？",
+    "request_overrides": {"data_sources": [], "max_iterations": 3, "hypothesis_review_enabled": false, "self_correction_enabled": true},
+    "expected_response_kinds": ["plan_ready"],
+    "required_planning_signals": ["按信息可用时间冻结切分", "版本化标签、特征和修订记录", "规定测试集访问与基准更新政策"],
+    "forbidden_unless_justified": ["随机切分", "测试集反复调参", "无版本滚动覆盖"]
+  },
+  {
+    "id": "rq_ar_01",
+    "category": "ambiguous_resource_limited",
+    "research_question": "围绕太阳活动周项目，请帮我规划一个最有价值的研究，但我尚未确定是解释周期机制、比较历史周期，还是做下一周期预报。",
+    "request_overrides": {"data_sources": [], "max_iterations": 2, "hypothesis_review_enabled": true, "self_correction_enabled": false},
+    "expected_response_kinds": ["clarification_needed"],
+    "required_planning_signals": ["指出研究目的会实质改变证据和路线", "询问主要产出或决策目标", "不把科学选题责任完全转回用户"],
+    "forbidden_unless_justified": ["默认选择预报", "通用综述", "机器学习"]
+  },
+  {
+    "id": "rq_ar_02",
+    "category": "ambiguous_resource_limited",
+    "research_question": "太阳活动周项目只能使用用户的一张数据表来比较两个活动周，但尚未说明表中记录的是太阳黑子、磁场、耀斑还是其他变量，也未指定两个活动周。",
+    "request_overrides": {"data_sources": [], "max_iterations": 1, "hypothesis_review_enabled": false, "self_correction_enabled": false},
+    "expected_response_kinds": ["clarification_needed"],
+    "required_planning_signals": ["询问数据表变量与时间覆盖", "询问需要比较的活动周", "说明这些边界会改变可回答问题"],
+    "forbidden_unless_justified": ["假定为太阳黑子数", "自动选择活动周", "跨变量插补"]
+  },
+  {
+    "id": "rq_ar_03",
+    "category": "ambiguous_resource_limited",
+    "research_question": "在太阳活动周项目中，不允许使用任何观测、文献或模型，却要求证明下一活动周峰值的精确日期和精确振幅且保证绝对正确。",
+    "request_overrides": {"data_sources": [], "max_iterations": 1, "hypothesis_review_enabled": false, "self_correction_enabled": false},
+    "expected_response_kinds": ["planning_blocked"],
+    "required_planning_signals": ["识别绝对确定性与无证据约束不可满足", "说明形成可检验计划所需的最低条件", "给出可解除阻塞的有限改写方向"],
+    "forbidden_unless_justified": ["虚构预测数据", "确定性外推", "伪造证据"]
+  },
+  {
+    "id": "rq_ar_04",
+    "category": "ambiguous_resource_limited",
+    "research_question": "在太阳活动周项目中，仅凭全球月均太阳黑子数，要求计算某颗未提供轨道、屏蔽结构和载荷信息的卫星在下一活动周每天的个体器件辐射剂量。",
+    "request_overrides": {"data_sources": [], "max_iterations": 1, "hypothesis_review_enabled": false, "self_correction_enabled": false},
+    "expected_response_kinds": ["planning_blocked"],
+    "required_planning_signals": ["识别轨道与屏蔽信息为不可替代条件", "区分太阳活动代理与器件剂量", "列出解除阻塞所需的最低输入"],
+    "forbidden_unless_justified": ["从太阳黑子数直接换算剂量", "假定卫星轨道", "生成虚构工程参数"]
+  },
+  {
+    "id": "rq_ar_05",
+    "category": "ambiguous_resource_limited",
+    "research_question": "太阳活动周项目只有两周、公开数据和普通笔记本电脑；如何最小化设计一项检验极区磁场在活动周最低点附近能否预测下一周振幅的可复现研究？",
+    "request_overrides": {"data_sources": [], "max_iterations": 2, "hypothesis_review_enabled": true, "self_correction_enabled": true},
+    "expected_response_kinds": ["plan_ready"],
+    "required_planning_signals": ["限定最小可回答问题和公开来源", "选择低计算量基线与时间验证", "给出两周内的停止规则和可复现产物"],
+    "forbidden_unless_justified": ["深度学习", "大规模磁流体模拟", "穷举超参数搜索"]
+  }
+]
