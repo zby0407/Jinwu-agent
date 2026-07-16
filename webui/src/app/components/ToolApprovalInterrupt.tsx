@@ -152,7 +152,7 @@ export function ToolApprovalInterrupt({
           aria-hidden="true"
         />
         <span className="text-xs font-semibold uppercase tracking-wider">
-          Approval Required
+          {"\u9700\u8981\u6279\u51c6"}
         </span>
       </div>
 
@@ -167,7 +167,7 @@ export function ToolApprovalInterrupt({
       <div className="mb-4 rounded-sm border border-border bg-background p-3">
         <div className="mb-2">
           <span className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
-            Tool
+            {"\u5de5\u5177"}
           </span>
           <p className="mt-1 font-mono text-sm font-medium text-foreground">
             {actionRequest.name}
@@ -177,7 +177,7 @@ export function ToolApprovalInterrupt({
         {isEditing ? (
           <div>
             <span className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
-              Edit Arguments
+              {"\u7f16\u8f91\u53c2\u6570"}
             </span>
             <div className="mt-2 space-y-3">
               {Object.entries(actionArgs).map(([key, value]) => (
@@ -209,7 +209,7 @@ export function ToolApprovalInterrupt({
         ) : (
           <div>
             <span className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
-              Arguments
+              {"\u53c2\u6570"}
             </span>
             <pre className="mt-2 overflow-x-auto whitespace-pre-wrap break-all rounded-sm border border-border bg-muted/40 p-2 font-mono text-xs text-foreground">
               {formatValue(actionArgs)}
@@ -222,12 +222,12 @@ export function ToolApprovalInterrupt({
       {showRejectionInput && !isEditing && (
         <div className="mb-4">
           <label className="mb-2 block text-xs font-medium text-foreground">
-            Rejection Message (optional)
+            {"\u62d2\u7edd\u539f\u56e0\uff08\u53ef\u9009\uff09"}
           </label>
           <Textarea
             value={rejectionMessage}
             onChange={(e) => setRejectionMessage(e.target.value)}
-            placeholder="Explain why you're rejecting this action…"
+            placeholder={"\u8bf4\u660e\u4f60\u62d2\u7edd\u8fd9\u4e2a\u64cd\u4f5c\u7684\u539f\u56e0..."}
             className="text-sm"
             rows={2}
             disabled={isLoading}
@@ -246,7 +246,7 @@ export function ToolApprovalInterrupt({
               onClick={cancelEditing}
               disabled={isLoading}
             >
-              Cancel
+              {"\u53d6\u6d88"}
             </Button>
             <Button
               type="button"
@@ -259,7 +259,7 @@ export function ToolApprovalInterrupt({
                 size={14}
                 aria-hidden="true"
               />
-              {isLoading ? "Saving…" : "Save & Approve"}
+              {isLoading ? "\u4fdd\u5b58\u4e2d..." : "\u4fdd\u5b58\u5e76\u6279\u51c6"}
             </Button>
           </>
         ) : showRejectionInput ? (
@@ -274,7 +274,7 @@ export function ToolApprovalInterrupt({
               }}
               disabled={isLoading}
             >
-              Cancel
+              {"\u53d6\u6d88"}
             </Button>
             <Button
               type="button"
@@ -283,7 +283,7 @@ export function ToolApprovalInterrupt({
               onClick={handleRejectConfirm}
               disabled={isLoading}
             >
-              {isLoading ? "Rejecting…" : "Confirm Reject"}
+              {isLoading ? "\u62d2\u7edd\u4e2d..." : "\u786e\u8ba4\u62d2\u7edd"}
             </Button>
           </>
         ) : (
@@ -301,7 +301,7 @@ export function ToolApprovalInterrupt({
                   size={14}
                   aria-hidden="true"
                 />
-                Reject
+                {"\u62d2\u7edd"}
               </Button>
             )}
             {allowedDecisions.includes("edit") && (
@@ -316,7 +316,7 @@ export function ToolApprovalInterrupt({
                   size={14}
                   aria-hidden="true"
                 />
-                Edit
+                {"\u7f16\u8f91"}
               </Button>
             )}
             {allowedDecisions.includes("approve") && (
@@ -334,7 +334,7 @@ export function ToolApprovalInterrupt({
                   size={14}
                   aria-hidden="true"
                 />
-                {isLoading ? "Approving…" : "Approve"}
+                {isLoading ? "\u6279\u51c6\u4e2d..." : "\u6279\u51c6"}
               </Button>
             )}
           </>

@@ -133,15 +133,15 @@ export const ActionGroup = React.memo<ActionGroupProps>(function ActionGroup({
   const count = items.reduce((total, item) => total + item.toolCalls.length, 0);
   const toolName = lastToolName(items);
   const headerText = isStreaming
-    ? `${count} action${count === 1 ? "" : "s"} running — ${toolName}`
-    : `${count} action${count === 1 ? "" : "s"} — last: ${toolName}`;
+    ? `${count}\u4e2a\u64cd\u4f5c\u6b63\u5728\u8fd0\u884c - ${toolName}`
+    : `${count}\u4e2a\u64cd\u4f5c - \u6700\u540e: ${toolName}`;
 
   return (
     <div className="my-2">
       <button
         type="button"
         aria-expanded={open}
-        aria-label={`${open ? "Collapse" : "Expand"} ${headerText}`}
+        aria-label={`${open ? "\u6536\u8d77" : "\u5c55\u5f00"} ${headerText}`}
         title={headerText}
         onClick={handleToggle}
         className={cn(
@@ -239,13 +239,13 @@ export const ActionGroup = React.memo<ActionGroupProps>(function ActionGroup({
             type="button"
             onClick={handleCollapse}
             className="flex w-full items-center justify-center gap-1.5 rounded-md py-1.5 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-            aria-label={`Collapse ${count} action${count === 1 ? "" : "s"}`}
+            aria-label={`\u6536\u8d77${count}\u4e2a\u64cd\u4f5c`}
           >
             <ChevronUp
               aria-hidden="true"
               className="size-3.5"
             />
-            Collapse
+            {"\u6536\u8d77"}
           </button>
         </div>
       )}

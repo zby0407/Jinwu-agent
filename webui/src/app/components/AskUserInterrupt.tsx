@@ -114,13 +114,13 @@ export function AskUserInterrupt({
                       : "border-border bg-background hover:bg-accent"
                   )}
                 >
-                  Other…
+                  {"\u5176\u4ed6..."}
                 </button>
                 {picked[i] === OTHER && (
                   <Textarea
                     value={answers[i]}
                     onChange={(e) => setAnswer(i, e.target.value)}
-                    placeholder="Type your answer…"
+                    placeholder={"\u8f93\u5165\u4f60\u7684\u56de\u7b54..."}
                     className="text-sm"
                     rows={2}
                     disabled={isLoading}
@@ -133,8 +133,8 @@ export function AskUserInterrupt({
                 onChange={(e) => setAnswer(i, e.target.value)}
                 placeholder={
                   isOptional(q)
-                    ? "Type your answer… (optional)"
-                    : "Type your answer…"
+                    ? "\u8f93\u5165\u4f60\u7684\u56de\u7b54...\uff08\u53ef\u9009\uff09"
+                    : "\u8f93\u5165\u4f60\u7684\u56de\u7b54..."
                 }
                 className="text-sm"
                 rows={2}
@@ -152,7 +152,7 @@ export function AskUserInterrupt({
           onClick={onCancel}
           disabled={isLoading}
         >
-          Cancel
+          {"\u53d6\u6d88"}
         </Button>
         <Button
           size="sm"
@@ -160,7 +160,7 @@ export function AskUserInterrupt({
           disabled={!canSubmit || isLoading}
           className="bg-[var(--brand-solid)] text-[var(--brand-foreground)] hover:opacity-90"
         >
-          {isLoading ? "Submitting…" : "Submit"}
+          {isLoading ? "\u63d0\u4ea4\u4e2d..." : "\u63d0\u4ea4"}
         </Button>
       </div>
     </div>

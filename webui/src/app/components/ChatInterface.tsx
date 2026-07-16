@@ -127,9 +127,9 @@ interface ChatInterfaceProps {
 }
 
 const SUGGESTED_PROMPTS = [
-  "Survey recent papers on a topic",
-  "Design an experiment plan",
-  "Analyze workspace files",
+  "\u8c03\u7814\u8fd1\u671f\u8bba\u6587",
+  "\u8bbe\u8ba1\u5b9e\u9a8c\u65b9\u6848",
+  "\u5206\u6790\u5de5\u4f5c\u533a\u6587\u4ef6",
 ];
 
 interface UploadedWorkspaceFile {
@@ -912,7 +912,7 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
       });
     }, []);
 
-    // "Steer": prioritize this instruction without interrupting the
+    // "\u4f18\u5148\u53d1\u9001": prioritize this instruction without interrupting the
     // active run. It remains in our visible queue and drains in the next idle
     // window, which preserves the same non-interrupting contract.
     const steerQueuedMessage = useCallback((id: number) => {
@@ -1319,11 +1319,9 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
         >
           <DialogContent className="sm:max-w-md">
             <DialogHeader>
-              <DialogTitle>Enable Auto-approve?</DialogTitle>
+              <DialogTitle>{"\u542f\u7528\u81ea\u52a8\u6279\u51c6\uff1f"}</DialogTitle>
               <DialogDescription>
-                金乌 will run tool actions in this research without
-                asking you to review each one. Turn this on only when you trust
-                the current task and deployment.
+                {"\u91d1\u4e4c\u5c06\u5728\u8fd9\u4e2a\u7814\u7a76\u4e2d\u76f4\u63a5\u8fd0\u884c\u5de5\u5177\u64cd\u4f5c\uff0c\u4e0d\u518d\u9010\u4e2a\u8bf7\u4f60\u5ba1\u6838\u3002\u53ea\u5728\u4f60\u4fe1\u4efb\u5f53\u524d\u4efb\u52a1\u548c\u8fd0\u884c\u73af\u5883\u65f6\u5f00\u542f\u3002"}
               </DialogDescription>
             </DialogHeader>
             <div className="flex items-start gap-3 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-100">
@@ -1348,7 +1346,7 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
                 onClick={enableAutoApprove}
                 className="bg-amber-600 text-white hover:bg-amber-700"
               >
-                Enable Auto-approve
+                {"\u542f\u7528\u81ea\u52a8\u6279\u51c6"}
               </Button>
             </DialogFooter>
           </DialogContent>
@@ -1518,18 +1516,14 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
           >
             {isThreadLoading ? (
               <div className="flex items-center justify-center p-8">
-                <p className="text-muted-foreground">Loading…</p>
+                <p className="text-muted-foreground">{"\u52a0\u8f7d\u4e2d..."}</p>
               </div>
             ) : (
               <>
                 {processedMessages.length === 0 && !isLoading && (
                   <div className="flex min-h-[42vh] flex-col items-center justify-center px-3 pt-12 text-center sm:pt-16">
-                    <h2 className="text-pretty text-lg font-semibold sm:text-xl">
-                      开启你的科研探索
-                    </h2>
-                    <p className="mt-2 max-w-lg text-sm text-muted-foreground">
-                      金乌是你的 AI 科研伙伴 —— 阅读文献、运行实验、沉淀知识。
-                    </p>
+                    <h2 className="text-pretty text-lg font-semibold sm:text-xl">{"\u5f00\u542f\u4f60\u7684\u79d1\u7814\u63a2\u7d22"}</h2>
+                    <p className="mt-2 max-w-lg text-sm text-muted-foreground">{"\u91d1\u4e4c\u662f\u4f60\u7684 AI \u79d1\u7814\u4f19\u4f34 - \u9605\u8bfb\u6587\u732e\u3001\u8fd0\u884c\u5b9e\u9a8c\u3001\u6c89\u6dc0\u77e5\u8bc6\u3002"}</p>
                     <div className="mt-4 flex max-w-2xl flex-wrap justify-center gap-2">
                       {SUGGESTED_PROMPTS.map((prompt) => (
                         <button
@@ -1649,7 +1643,7 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
         <div className="flex-shrink-0 bg-background">
           {queuedMessages.length > 0 && (
             <div
-              aria-label="Queued messages"
+              aria-label={"\u5df2\u6392\u961f\u6d88\u606f"}
               className="relative mx-auto -mb-4 w-[calc(100%-16px)] max-w-[960px] px-2 sm:w-[calc(100%-24px)]"
             >
               <div className="rounded-b-lg rounded-t-2xl border border-border bg-background pb-5 pt-1 shadow-sm">
@@ -1715,8 +1709,7 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
                               className="size-3 shrink-0"
                               aria-hidden="true"
                             />
-                            {q.files.length} file
-                            {q.files.length === 1 ? "" : "s"}
+                            {q.files.length}{"\u4e2a\u6587\u4ef6"}
                           </span>
                         )}
                       </div>
@@ -1724,21 +1717,21 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
                         <button
                           type="button"
                           onClick={() => steerQueuedMessage(q.id)}
-                          aria-label="Steer with this message next"
-                          title="Submit next without interrupting the current turn"
+                          aria-label={"\u4f18\u5148\u53d1\u9001\u8fd9\u6761\u6d88\u606f"}
+                          title={"\u5c06\u8fd9\u6761\u6d88\u606f\u4f5c\u4e3a\u4e0b\u4e00\u6761\u53d1\u9001"}
                           className="inline-flex h-7 items-center gap-1 rounded-full px-2 text-xs font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
                         >
                           <CornerDownRight
                             className="size-3.5"
                             aria-hidden="true"
                           />
-                          <span className="hidden sm:inline">Steer</span>
+                          <span className="hidden sm:inline">{"\u4f18\u5148\u53d1\u9001"}</span>
                         </button>
                         <button
                           type="button"
                           onClick={() => removeQueuedMessage(q.id)}
-                          aria-label="Remove queued message"
-                          title="Remove from queue"
+                          aria-label={"\u79fb\u9664\u5df2\u6392\u961f\u6d88\u606f"}
+                          title={"\u4ece\u961f\u5217\u4e2d\u79fb\u9664"}
                           className="inline-flex size-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
                         >
                           <Trash2
@@ -1765,8 +1758,8 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
                           }}
                         >
                           <summary
-                            aria-label="More queued message actions"
-                            title="More actions"
+                            aria-label={"\u66f4\u591a\u5df2\u6392\u961f\u6d88\u606f\u64cd\u4f5c"}
+                            title={"\u66f4\u591a\u64cd\u4f5c"}
                             className="inline-flex size-7 cursor-pointer list-none items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring [&::-webkit-details-marker]:hidden"
                           >
                             <Ellipsis
@@ -1785,7 +1778,7 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
                                 className="size-4"
                                 aria-hidden="true"
                               />
-                              Edit message
+                              {"\u7f16\u8f91\u6d88\u606f"}
                             </button>
                             <button
                               type="button"
@@ -1796,7 +1789,7 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
                                 className="size-4"
                                 aria-hidden="true"
                               />
-                              Close queue
+                              {"\u5173\u95ed\u961f\u5217"}
                             </button>
                           </div>
                         </details>
@@ -2134,14 +2127,14 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
                 onKeyDown={handleKeyDown}
-                aria-label="Message"
+                aria-label={"\u6d88\u606f"}
                 disabled={hasPendingInterrupt}
                 placeholder={
                   hasPendingInterrupt
-                    ? "Respond to the request above to continue…"
+                    ? "\u56de\u590d\u4e0a\u65b9\u8bf7\u6c42\u4ee5\u7ee7\u7eed..."
                     : isLoading
-                    ? "Queue a follow-up — sends when this turn finishes…"
-                    : "Ask 金乌 anything…"
+                    ? "\u6392\u961f\u540e\u7eed\u6d88\u606f\uff0c\u5f53\u524d\u8f6e\u7ed3\u675f\u540e\u53d1\u9001..."
+                    : "\u95ee\u91d1\u4e4c\u4efb\u4f55\u95ee\u9898..."
                 }
                 className="font-inherit field-sizing-content flex-1 resize-none border-0 bg-transparent px-3.5 pb-2.5 pt-3 text-sm leading-6 text-primary outline-none placeholder:text-tertiary disabled:cursor-not-allowed sm:px-4"
                 rows={1}
@@ -2164,8 +2157,8 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
                     disabled={
                       !assistant || hasPendingInterrupt || isUploadingFiles
                     }
-                    aria-label="Upload files to workspace"
-                    title="Upload files to workspace (max 50 MB each)"
+                    aria-label={"\u4e0a\u4f20\u6587\u4ef6\u5230\u5de5\u4f5c\u533a"}
+                    title={"\u4e0a\u4f20\u6587\u4ef6\u5230\u5de5\u4f5c\u533a\uff08\u5355\u4e2a\u6587\u4ef6\u6700\u5927 50 MB\uff09"}
                     className="inline-flex size-8 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
                   >
                     <Paperclip
@@ -2181,7 +2174,7 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
                         : setAutoApproveDialogOpen(true)
                     }
                     aria-pressed={autoApprove}
-                    title="Auto-approve all tool actions in this conversation"
+                    title={"\u81ea\u52a8\u6279\u51c6\u672c\u5bf9\u8bdd\u4e2d\u7684\u6240\u6709\u5de5\u5177\u64cd\u4f5c"}
                     className={cn(
                       "inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium transition-colors",
                       autoApprove
@@ -2194,7 +2187,7 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
                       aria-hidden="true"
                     />
                     <span className="hidden min-[360px]:inline">
-                      {autoApprove ? "Auto-approve On" : "Auto-approve"}
+                      {autoApprove ? "\u81ea\u52a8\u6279\u51c6\u5df2\u5f00" : "\u81ea\u52a8\u6279\u51c6"}
                     </span>
                   </button>
                   {onNavigate && workspaceDir && (
@@ -2202,11 +2195,11 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
                       type="button"
                       onClick={() => onNavigate({ view: "workspace" })}
                       title={`${
-                        workspaceOpen ? "Close" : "Open"
-                      } workspace: ${workspaceDir}`}
+                        workspaceOpen ? "\u5173\u95ed" : "\u6253\u5f00"
+                      }\u5de5\u4f5c\u533a: ${workspaceDir}`}
                       aria-label={`${
-                        workspaceOpen ? "Close" : "Open"
-                      } workspace: ${workspaceDir}`}
+                        workspaceOpen ? "\u5173\u95ed" : "\u6253\u5f00"
+                      }\u5de5\u4f5c\u533a: ${workspaceDir}`}
                       aria-pressed={Boolean(workspaceOpen)}
                       className="inline-flex min-w-0 items-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
                     >
@@ -2230,17 +2223,17 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
                       !isLoading &&
                       (submitDisabled || isUploadingFiles || !input.trim())
                     }
-                    aria-label={isLoading ? "Stop generating" : "Send message"}
+                    aria-label={isLoading ? "\u505c\u6b62\u751f\u6210" : "\u53d1\u9001\u6d88\u606f"}
                   >
                     {isLoading ? (
                       <>
                         <Square size={14} />
-                        <span className="hidden sm:inline">Stop</span>
+                        <span className="hidden sm:inline">{"\u505c\u6b62"}</span>
                       </>
                     ) : (
                       <>
                         <ArrowUp size={18} />
-                        <span className="hidden sm:inline">Send</span>
+                        <span className="hidden sm:inline">{"\u53d1\u9001"}</span>
                       </>
                     )}
                   </Button>

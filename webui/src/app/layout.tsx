@@ -1,30 +1,19 @@
 import type { Metadata, Viewport } from "next";
 import { NuqsAdapter } from "nuqs/adapters/next/app";
 import { ThemeProvider, ThemedToaster } from "@/providers/ThemeProvider";
-import { THEME_STORAGE_KEY } from "@/lib/theme";
 import "katex/dist/katex.min.css";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "金乌科研助手",
+  title: "\u91d1\u4e4c\u79d1\u7814\u52a9\u624b",
   description:
-    "金乌科研助手 WebUI — 基于 DeepAgents/LangGraph 的自主科研智能体界面。",
+    "\u91d1\u4e4c\u79d1\u7814\u52a9\u624b WebUI - \u57fa\u4e8e DeepAgents/LangGraph \u7684\u81ea\u4e3b\u79d1\u7814\u667a\u80fd\u4f53\u754c\u9762\u3002",
 };
 
 export const viewport: Viewport = {
-  themeColor: [
-    { media: "(prefers-color-scheme: light)", color: "#f9f9f9" },
-    { media: "(prefers-color-scheme: dark)", color: "#212121" },
-  ],
-  colorScheme: "light dark",
+  themeColor: "#212121",
+  colorScheme: "dark",
 };
-
-// Runs before paint so the right theme class is on <html> immediately — no flash
-// of the wrong theme. Mirrors ThemeProvider's resolution (default: follow the
-// system); ThemeProvider takes over once React mounts. Kept inline + minimal.
-const themeScript = `(function(){var k=${JSON.stringify(
-  THEME_STORAGE_KEY
-)};var t="system";try{t=localStorage.getItem(k)||"system";}catch(_){}var d=t==="dark"||(t!=="light"&&window.matchMedia("(prefers-color-scheme: dark)").matches);var e=document.documentElement;e.classList.toggle("dark",d);e.style.colorScheme=d?"dark":"light";})();`;
 
 export default function RootLayout({
   children,
@@ -33,14 +22,15 @@ export default function RootLayout({
 }) {
   return (
     <html
-      lang="en"
+      lang="zh-CN"
+      className="dark"
+      style={{ colorScheme: "dark" }}
       suppressHydrationWarning
     >
       <body
         className="font-sans"
         suppressHydrationWarning
       >
-        <script dangerouslySetInnerHTML={{ __html: themeScript }} />
         <NuqsAdapter>
           <ThemeProvider>
             {children}

@@ -138,7 +138,7 @@ type ViewMode = "tree" | "type";
 export function WorkspacePanel() {
   const [view, setView] = useState<ViewMode>("tree");
 
-  // --- Tree view state (listing cache keyed by dir path; "" = root) ---
+  // --- \u6811\u72b6 view state (listing cache keyed by dir path; "" = root) ---
   const [children, setChildren] = useState<Record<string, WorkspaceEntry[]>>(
     {}
   );
@@ -368,7 +368,7 @@ export function WorkspacePanel() {
   return (
     <div className="flex min-h-0 flex-col">
       <div className="flex items-center justify-between gap-2 pb-1.5">
-        {/* Tree / By-type toggle */}
+        {/* \u6811\u72b6 / By-type toggle */}
         <div className="flex items-center gap-0.5 rounded-md bg-muted p-0.5 text-xs">
           {(["tree", "type"] as const).map((m) => (
             <button
@@ -383,7 +383,7 @@ export function WorkspacePanel() {
               )}
               aria-pressed={view === m}
             >
-              {m === "tree" ? "Tree" : "By type"}
+              {m === "tree" ? "\u76ee\u5f55" : "\u6309\u7c7b\u578b"}
             </button>
           ))}
         </div>
@@ -392,18 +392,16 @@ export function WorkspacePanel() {
             href="/api/workspace/download"
             download
             className="inline-flex items-center gap-1 rounded-md px-1.5 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-            title="Download the whole workspace as a zip"
+            title="\u4e0b\u8f7d\u6574\u4e2a\u5de5\u4f5c\u533a ZIP"
           >
-            <Download className="size-3.5" />
-            All
-          </a>
+            <Download className="size-3.5" />{"\u5168\u90e8"}</a>
           <button
             type="button"
             onClick={refresh}
             disabled={refreshing}
             className="inline-flex size-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:opacity-50"
-            aria-label="Refresh workspace"
-            title="Refresh"
+            aria-label="\u5237\u65b0\u5de5\u4f5c\u533a"
+            title="\u5237\u65b0"
           >
             <RefreshCw
               className={cn("size-3.5", refreshing && "animate-spin")}

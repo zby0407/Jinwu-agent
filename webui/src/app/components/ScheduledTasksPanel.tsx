@@ -67,37 +67,37 @@ interface Template {
 const TEMPLATES: Template[] = [
   {
     icon: ClipboardList,
-    label: "Daily Papers",
-    description: "Track new ML papers against your research preferences.",
-    name: "Daily Papers",
+    label: "\u6bcf\u65e5\u8bba\u6587",
+    description: "\u6839\u636e\u4f60\u7684\u7814\u7a76\u504f\u597d\u8ddf\u8e2a\u65b0\u7684\u673a\u5668\u5b66\u4e60\u8bba\u6587\u3002",
+    name: "\u6bcf\u65e5\u8bba\u6587",
     prompt:
       "Summarise the latest ML papers from arXiv according to my research preferences with the paper-navigator skill. Focus on papers that are relevant to my current projects, explain why each one matters, and save the summary to ./daily-papers.md in the current workspace.",
     schedule: "0 9 * * *",
   },
   {
     icon: Repeat2,
-    label: "Weekly Research Review",
+    label: "\u6bcf\u5468\u7814\u7a76\u590d\u76d8",
     description:
       "Summarise this week's research progress and future direction.",
-    name: "Weekly Research Review",
+    name: "\u6bcf\u5468\u7814\u7a76\u590d\u76d8",
     prompt:
       "Summarise this week's research progress across my active projects. Highlight key results, decisions, blockers, open questions, and what changed in my understanding. Then propose future research directions and concrete next steps. Save the review to ./weekly-research-review.md in the current workspace.",
     schedule: "0 17 * * 5",
   },
   {
     icon: Activity,
-    label: "Weekly Research Plan",
-    description: "Draft a Monday plan for the week's research priorities.",
-    name: "Weekly Research Plan",
+    label: "\u6bcf\u5468\u7814\u7a76\u8ba1\u5212",
+    description: "\u5236\u5b9a\u672c\u5468\u7814\u7a76\u4f18\u5148\u7ea7\u7684\u5468\u4e00\u8ba1\u5212\u3002",
+    name: "\u6bcf\u5468\u7814\u7a76\u8ba1\u5212",
     prompt:
       "Draft this week's research plan based on my active projects, recent progress, project files, and open questions. Prioritise the most important research goals, propose concrete experiments or reading tasks, identify risks, and write a practical schedule for the week. Save the plan to ./weekly-research-plan.md in the current workspace.",
     schedule: "0 8 * * 1",
   },
   {
     icon: FlaskConical,
-    label: "Experiment Backlog",
-    description: "Convert open questions into testable experiment ideas.",
-    name: "Experiment Backlog",
+    label: "\u5b9e\u9a8c\u5f85\u529e",
+    description: "\u628a\u5f85\u89e3\u95ee\u9898\u8f6c\u6210\u53ef\u9a8c\u8bc1\u7684\u5b9e\u9a8c\u60f3\u6cd5\u3002",
+    name: "\u5b9e\u9a8c\u5f85\u529e",
     prompt:
       "Review my active project files, recent research notes, and open questions. Turn the most important unresolved ideas into a prioritised experiment backlog with hypotheses, expected signal, required data or code, estimated effort, and success criteria. Save it to ./experiment-backlog.md in the current workspace.",
     schedule: "0 10 * * 2",
@@ -105,7 +105,7 @@ const TEMPLATES: Template[] = [
 ];
 
 function formatAbsoluteDate(iso: string | null): string {
-  if (!iso) return "Not scheduled";
+  if (!iso) return "\u672a\u5b89\u6392";
   const date = new Date(iso);
   if (Number.isNaN(date.getTime())) return "Unknown";
   return new Intl.DateTimeFormat(undefined, {
@@ -197,40 +197,43 @@ function ScheduleBuilder({
     <div className="space-y-2">
       <div className="grid gap-2 sm:grid-cols-[minmax(9rem,1fr)_auto_auto_auto_auto] sm:items-center">
         <select
-          aria-label="Schedule frequency"
+          aria-label={"\u5b9a\u65f6\u9891\u7387"}
           value={value.frequency}
           onChange={(e) => set({ frequency: e.target.value as Frequency })}
           className={frequencySelectClass}
         >
-          <option value="daily">Every day</option>
-          <option value="weekly">Every week</option>
-          <option value="monthly">Every month</option>
-          <option value="custom">Custom cron</option>
+          <option value="daily">{"\u6bcf\u5929"}</option>
+          <option value="weekly">{"\u6bcf\u5468"}</option>
+          <option value="monthly">{"\u6bcf\u6708"}</option>
+          <option value="custom">{"\u81ea\u5b9a\u4e49 cron"}</option>
         </select>
 
         {value.frequency !== "custom" && (
           <>
             {value.frequency === "weekly" && (
               <select
-                aria-label="Day of week"
+                aria-label={"\u661f\u671f\u51e0"}
                 value={value.dayOfWeek}
                 onChange={(e) => set({ dayOfWeek: Number(e.target.value) })}
                 className={daySelectClass}
               >
-                {DAY_NAMES.map((day, index) => (
-                  <option
-                    key={day}
-                    value={index}
-                  >
-                    {day}
-                  </option>
-                ))}
+                {DAY_NAMES.map((day, index) => {
+                  const dayLabel = ["\u5468\u65e5", "\u5468\u4e00", "\u5468\u4e8c", "\u5468\u4e09", "\u5468\u56db", "\u5468\u4e94", "\u5468\u516d"][index] ?? day;
+                  return (
+                    <option
+                      key={day}
+                      value={index}
+                    >
+                      {dayLabel}
+                    </option>
+                  );
+                })}
               </select>
             )}
 
             {value.frequency === "monthly" && (
               <select
-                aria-label="Day of month"
+                aria-label={"\u6bcf\u6708\u51e0\u53f7"}
                 value={value.dayOfMonth}
                 onChange={(e) => set({ dayOfMonth: Number(e.target.value) })}
                 className={daySelectClass}
@@ -241,7 +244,7 @@ function ScheduleBuilder({
                       key={day}
                       value={day}
                     >
-                      Day {day}
+                      {"\u7b2c"} {day} {"\u5929"}
                     </option>
                   )
                 )}
@@ -249,11 +252,11 @@ function ScheduleBuilder({
             )}
 
             <span className="hidden text-xs text-muted-foreground sm:block">
-              at
+              {"\u5728"}
             </span>
             <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-1 sm:col-span-2 sm:w-32">
               <Input
-                aria-label="Hour"
+                aria-label={"\u5c0f\u65f6"}
                 type="number"
                 min={0}
                 max={23}
@@ -263,7 +266,7 @@ function ScheduleBuilder({
               />
               <span className="font-mono text-muted-foreground">:</span>
               <Input
-                aria-label="Minute"
+                aria-label={"\u5206\u949f"}
                 type="number"
                 min={0}
                 max={59}
@@ -391,11 +394,11 @@ function TaskForm({
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
     if (!name.trim()) {
-      toast.error("Task name is required.");
+      toast.error("\u8bf7\u586b\u5199\u4efb\u52a1\u540d\u79f0\u3002");
       return;
     }
     if (!prompt.trim()) {
-      toast.error("Task description is required.");
+      toast.error("\u8bf7\u586b\u5199\u4efb\u52a1\u63cf\u8ff0\u3002");
       return;
     }
     if (cronError) {
@@ -416,7 +419,7 @@ function TaskForm({
           toast.success(`"${name.trim()}" updated.`);
         } else {
           toast.warning(
-            `"${name.trim()}" was saved, but the old scheduled task could not be removed.`
+            `"${name.trim()}" \u5df2\u4fdd\u5b58\uff0c\u4f46\u65e7\u7684\u5b9a\u65f6\u4efb\u52a1\u672a\u80fd\u79fb\u9664\u3002`
           );
         }
         onSaved(result.task);
@@ -434,8 +437,8 @@ function TaskForm({
         err instanceof Error
           ? err.message
           : isEditing
-          ? "Failed to update scheduled task."
-          : "Failed to create scheduled task."
+          ? "\u66f4\u65b0\u5b9a\u65f6\u4efb\u52a1\u5931\u8d25\u3002"
+          : "\u521b\u5efa\u5b9a\u65f6\u4efb\u52a1\u5931\u8d25\u3002"
       );
     } finally {
       setSaving(false);
@@ -451,7 +454,7 @@ function TaskForm({
         <button
           type="button"
           onClick={onCancel}
-          aria-label="Back to scheduled tasks"
+          aria-label={"\u8fd4\u56de\u5b9a\u65f6\u4efb\u52a1"}
           className="rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring md:hidden"
         >
           <ArrowLeft
@@ -461,10 +464,10 @@ function TaskForm({
         </button>
         <div className="min-w-0 flex-1">
           <h2 className="truncate text-sm font-semibold">
-            {isEditing ? "Edit scheduled task" : "New scheduled task"}
+            {isEditing ? "\u7f16\u8f91\u5b9a\u65f6\u4efb\u52a1" : "\u65b0\u5efa\u5b9a\u65f6\u4efb\u52a1"}
           </h2>
           <p className="truncate text-xs text-muted-foreground">
-            金乌 will run this task description unattended.
+            {"\u91d1\u4e4c\u4f1a\u6309\u7167\u8fd9\u4e2a\u4efb\u52a1\u63cf\u8ff0\u81ea\u52a8\u8fd0\u884c\u3002"}
           </p>
         </div>
       </div>
@@ -472,34 +475,34 @@ function TaskForm({
       <ScrollArea className="min-h-0 flex-1">
         <div className="mx-auto flex w-full max-w-3xl flex-col gap-4 p-3 sm:p-5">
           <div className="space-y-1.5">
-            <FieldLabel htmlFor="scheduled-task-name">Task name</FieldLabel>
+            <FieldLabel htmlFor="scheduled-task-name">{"\u4efb\u52a1\u540d\u79f0"}</FieldLabel>
             <Input
               id="scheduled-task-name"
               ref={nameRef}
               type="text"
               value={name}
               onChange={(e) => setName(e.target.value)}
-              placeholder="Daily Briefing"
+              placeholder={"\u6bcf\u65e5\u7b80\u62a5"}
               autoComplete="off"
             />
           </div>
 
           <div className="space-y-1.5">
             <FieldLabel htmlFor="scheduled-task-prompt">
-              Task description
+              {"\u4efb\u52a1\u63cf\u8ff0"}
             </FieldLabel>
             <Textarea
               id="scheduled-task-prompt"
               value={prompt}
               onChange={(e) => setPrompt(e.target.value)}
-              placeholder="Describe what 金乌 should do each time this task runs..."
+              placeholder={"\u63cf\u8ff0\u91d1\u4e4c\u6bcf\u6b21\u8fd0\u884c\u8be5\u4efb\u52a1\u65f6\u9700\u8981\u505a\u4ec0\u4e48..."}
               rows={9}
               className="min-h-52 resize-y leading-relaxed"
             />
           </div>
 
           <div className="space-y-1.5">
-            <FieldLabel>Schedule</FieldLabel>
+            <FieldLabel>{"\u6267\u884c\u65f6\u95f4"}</FieldLabel>
             <ScheduleBuilder
               value={spec}
               onChange={setSpec}
@@ -517,7 +520,7 @@ function TaskForm({
           onClick={onCancel}
           disabled={saving}
         >
-          Cancel
+          {"\u53d6\u6d88"}
         </Button>
         <Button
           type="submit"
@@ -531,7 +534,7 @@ function TaskForm({
           ) : (
             <Plus className="size-3.5" />
           )}
-          {isEditing ? "Save changes" : "Create task"}
+          {isEditing ? "\u4fdd\u5b58\u66f4\u6539" : "\u521b\u5efa\u4efb\u52a1"}
         </Button>
       </div>
     </form>
@@ -555,10 +558,10 @@ function TaskDetail({ task, onBack, onEdit, onDeleted }: TaskDetailProps) {
     setRunning(true);
     try {
       await runScheduledTaskNow(task.prompt);
-      toast.success(`"${task.name}" started.`);
+      toast.success(`"${task.name}" \u5df2\u5f00\u59cb\u8fd0\u884c\u3002`);
     } catch (err) {
       toast.error(
-        err instanceof Error ? err.message : "Failed to start the task."
+        err instanceof Error ? err.message : "\u542f\u52a8\u4efb\u52a1\u5931\u8d25\u3002"
       );
     } finally {
       setRunning(false);
@@ -569,12 +572,12 @@ function TaskDetail({ task, onBack, onEdit, onDeleted }: TaskDetailProps) {
     setDeleting(true);
     try {
       await deleteScheduledTask(task.cron_id);
-      toast.success(`"${task.name}" deleted.`);
+      toast.success(`"${task.name}" \u5df2\u5220\u9664\u3002`);
       setDeleteOpen(false);
       onDeleted();
     } catch (err) {
       toast.error(
-        err instanceof Error ? err.message : "Failed to delete the task."
+        err instanceof Error ? err.message : "\u5220\u9664\u4efb\u52a1\u5931\u8d25\u3002"
       );
     } finally {
       setDeleting(false);
@@ -588,7 +591,7 @@ function TaskDetail({ task, onBack, onEdit, onDeleted }: TaskDetailProps) {
           <button
             type="button"
             onClick={onBack}
-            aria-label="Back to scheduled tasks"
+            aria-label={"\u8fd4\u56de\u5b9a\u65f6\u4efb\u52a1"}
             className="rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring md:hidden"
           >
             <ArrowLeft
@@ -612,7 +615,7 @@ function TaskDetail({ task, onBack, onEdit, onDeleted }: TaskDetailProps) {
             ) : (
               <Play className="size-3.5" />
             )}
-            Run now
+            {"\u7acb\u5373\u8fd0\u884c"}
           </Button>
         </div>
 
@@ -621,7 +624,7 @@ function TaskDetail({ task, onBack, onEdit, onDeleted }: TaskDetailProps) {
             <div className="grid gap-2 sm:grid-cols-3">
               <div className="rounded-md border border-border bg-[var(--color-surface)] px-3 py-2">
                 <p className="text-[11px] font-medium uppercase text-muted-foreground">
-                  Next run
+                  {"\u4e0b\u6b21\u8fd0\u884c"}
                 </p>
                 <p
                   className="mt-1 truncate text-sm font-medium tabular-nums"
@@ -631,7 +634,7 @@ function TaskDetail({ task, onBack, onEdit, onDeleted }: TaskDetailProps) {
                     ? `${nextRunLabel(
                         task.next_run_date
                       )} · ${formatAbsoluteDate(task.next_run_date)}`
-                    : "Not scheduled"}
+                    : "\u672a\u5b89\u6392"}
                 </p>
               </div>
               <div className="rounded-md border border-border bg-[var(--color-surface)] px-3 py-2">
@@ -644,7 +647,7 @@ function TaskDetail({ task, onBack, onEdit, onDeleted }: TaskDetailProps) {
               </div>
               <div className="rounded-md border border-border bg-[var(--color-surface)] px-3 py-2">
                 <p className="text-[11px] font-medium uppercase text-muted-foreground">
-                  Created
+                  {"\u521b\u5efa\u65f6\u95f4"}
                 </p>
                 <p className="mt-1 truncate text-sm">
                   {formatCreatedDate(task.created_at)}
@@ -654,7 +657,7 @@ function TaskDetail({ task, onBack, onEdit, onDeleted }: TaskDetailProps) {
 
             <section className="space-y-1.5">
               <p className="text-xs font-medium text-muted-foreground">
-                Task description
+                {"\u4efb\u52a1\u63cf\u8ff0"}
               </p>
               <div className="max-h-[min(38rem,55vh)] overflow-auto rounded-md border border-border bg-[var(--color-surface)] px-3 py-2.5">
                 {task.prompt ? (
@@ -663,7 +666,7 @@ function TaskDetail({ task, onBack, onEdit, onDeleted }: TaskDetailProps) {
                   </p>
                 ) : (
                   <p className="text-sm italic text-muted-foreground">
-                    No task description stored.
+                    {"\u6ca1\u6709\u4fdd\u5b58\u4efb\u52a1\u63cf\u8ff0\u3002"}
                   </p>
                 )}
               </div>
@@ -673,27 +676,27 @@ function TaskDetail({ task, onBack, onEdit, onDeleted }: TaskDetailProps) {
 
         <div className="flex flex-shrink-0 items-center justify-between gap-2 border-t border-border bg-background px-3 py-2.5 sm:px-5">
           <p className="hidden truncate text-xs text-muted-foreground sm:block">
-            Manual runs create a scheduler thread immediately.
+            {"\u624b\u52a8\u8fd0\u884c\u4f1a\u7acb\u5373\u521b\u5efa\u4e00\u4e2a\u8c03\u5ea6\u5bf9\u8bdd\u3002"}
           </p>
           <div className="ml-auto flex items-center gap-2">
             <Button
               variant="outline"
               size="sm"
               onClick={onEdit}
-              aria-label={`Edit scheduled task "${task.name}"`}
+              aria-label={`\u7f16\u8f91\u5b9a\u65f6\u4efb\u52a1\u300c${task.name}\u300d`}
             >
               <Pencil className="size-3.5" />
-              Edit
+              {"\u7f16\u8f91"}
             </Button>
             <Button
               variant="outline"
               size="sm"
               onClick={() => setDeleteOpen(true)}
-              aria-label={`Delete scheduled task "${task.name}"`}
+              aria-label={`\u5220\u9664\u5b9a\u65f6\u4efb\u52a1\u300c${task.name}\u300d`}
               className="text-destructive hover:border-destructive hover:text-destructive"
             >
               <Trash2 className="size-3.5" />
-              Delete
+              {"\u5220\u9664"}
             </Button>
           </div>
         </div>
@@ -707,10 +710,9 @@ function TaskDetail({ task, onBack, onEdit, onDeleted }: TaskDetailProps) {
       >
         <DialogContent className="sm:max-w-sm">
           <DialogHeader>
-            <DialogTitle>Delete scheduled task?</DialogTitle>
+            <DialogTitle>{"\u5220\u9664\u5b9a\u65f6\u4efb\u52a1\uff1f"}</DialogTitle>
             <DialogDescription>
-              &ldquo;{task.name}&rdquo; will stop running. This cannot be
-              undone.
+              {`\u300c${task.name}\u300d\u5c06\u505c\u6b62\u8fd0\u884c\uff0c\u6b64\u64cd\u4f5c\u65e0\u6cd5\u64a4\u9500\u3002`}
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
@@ -720,17 +722,17 @@ function TaskDetail({ task, onBack, onEdit, onDeleted }: TaskDetailProps) {
               onClick={() => setDeleteOpen(false)}
               disabled={deleting}
             >
-              Cancel
+              {"\u53d6\u6d88"}
             </Button>
             <Button
               variant="destructive"
               size="sm"
               onClick={handleDelete}
               disabled={deleting}
-              aria-label={`Confirm delete scheduled task "${task.name}"`}
+              aria-label={`\u786e\u8ba4\u5220\u9664\u5b9a\u65f6\u4efb\u52a1\u300c${task.name}\u300d`}
             >
               {deleting && <Loader2 className="size-3.5 animate-spin" />}
-              Delete
+              {"\u5220\u9664"}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -775,7 +777,7 @@ function TaskRow({
             className="truncate tabular-nums"
             title={formatLongDate(nextRun)}
           >
-            {nextRun ? nextRunLabel(nextRun) : "No next run"}
+            {nextRun ? nextRunLabel(nextRun) : "\u6682\u65e0\u4e0b\u6b21\u8fd0\u884c"}
           </span>
         </span>
       </span>
@@ -872,7 +874,7 @@ export function ScheduledTasksPanel() {
           </span>
           <div className="min-w-0">
             <div className="flex min-w-0 items-center gap-2">
-              <h1 className="truncate text-sm font-semibold">Scheduled</h1>
+              <h1 className="truncate text-sm font-semibold">{"\u5b9a\u65f6\u4efb\u52a1"}</h1>
               {!loading && (
                 <span className="rounded-full bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
                   {tasks.length}
@@ -881,8 +883,8 @@ export function ScheduledTasksPanel() {
             </div>
             <p className="truncate text-xs text-muted-foreground">
               {nextTask?.next_run_date
-                ? `Next: ${nextRunLabel(nextTask.next_run_date)}`
-                : "Recurring 金乌 tasks"}
+                ? `\u4e0b\u6b21: ${nextRunLabel(nextTask.next_run_date)}`
+                : "\u91d1\u4e4c\u7684\u5faa\u73af\u4efb\u52a1"}
             </p>
           </div>
         </div>
@@ -891,8 +893,8 @@ export function ScheduledTasksPanel() {
             type="button"
             onClick={refresh}
             disabled={loading}
-            aria-label="Refresh scheduled tasks"
-            title="Refresh scheduled tasks"
+            aria-label={"\u5237\u65b0\u5b9a\u65f6\u4efb\u52a1"}
+            title={"\u5237\u65b0\u5b9a\u65f6\u4efb\u52a1"}
             className="rounded-md p-2 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
           >
             <RefreshCw
@@ -905,8 +907,8 @@ export function ScheduledTasksPanel() {
             onClick={() => openCreate()}
           >
             <Plus className="size-3.5" />
-            <span className="hidden sm:inline">New task</span>
-            <span className="sm:hidden">New</span>
+            <span className="hidden sm:inline">{"\u65b0\u5efa\u4efb\u52a1"}</span>
+            <span className="sm:hidden">{"\u65b0\u5efa"}</span>
           </Button>
         </div>
       </header>
@@ -929,8 +931,8 @@ export function ScheduledTasksPanel() {
                 name="scheduled-search"
                 value={query}
                 onChange={(event) => setQuery(event.target.value)}
-                placeholder="Search scheduled tasks..."
-                aria-label="Search scheduled tasks"
+                placeholder={"\u641c\u7d22\u5b9a\u65f6\u4efb\u52a1..."}
+                aria-label={"\u641c\u7d22\u5b9a\u65f6\u4efb\u52a1"}
                 autoComplete="off"
                 spellCheck={false}
                 className="h-9 pl-8 pr-8"
@@ -939,7 +941,7 @@ export function ScheduledTasksPanel() {
                 <button
                   type="button"
                   onClick={() => setQuery("")}
-                  aria-label="Clear scheduled task search"
+                  aria-label={"\u6e05\u7a7a\u5b9a\u65f6\u4efb\u52a1\u641c\u7d22"}
                   className="absolute right-1 top-1/2 -translate-y-1/2 rounded p-1 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
                 >
                   <X
@@ -958,7 +960,7 @@ export function ScheduledTasksPanel() {
                   className="size-4 animate-spin"
                   aria-hidden="true"
                 />
-                Loading tasks...
+                {"\u52a0\u8f7d\u4efb\u52a1\u4e2d..."}
               </div>
             ) : error ? (
               <div
@@ -972,7 +974,7 @@ export function ScheduledTasksPanel() {
                   onClick={refresh}
                 >
                   <RefreshCw className="size-3.5" />
-                  Retry
+                  {"\u91cd\u8bd5"}
                 </Button>
               </div>
             ) : tasks.length === 0 ? (
@@ -982,14 +984,14 @@ export function ScheduledTasksPanel() {
                     className="mx-auto size-7 text-muted-foreground/60"
                     aria-hidden="true"
                   />
-                  <p className="mt-2 text-sm font-medium">No scheduled tasks</p>
+                  <p className="mt-2 text-sm font-medium">{"\u6682\u65e0\u5b9a\u65f6\u4efb\u52a1"}</p>
                   <p className="mt-1 text-xs text-muted-foreground">
-                    Start from a template or create one from scratch.
+                    {"\u53ef\u4ee5\u4ece\u6a21\u677f\u5f00\u59cb\uff0c\u6216\u8005\u65b0\u5efa\u4e00\u4e2a\u4efb\u52a1\u3002"}
                   </p>
                 </div>
                 <div className="space-y-2">
                   <p className="px-1 text-[11px] font-semibold uppercase text-muted-foreground">
-                    Templates
+                    {"\u6a21\u677f"}
                   </p>
                   {TEMPLATES.map((template) => (
                     <TemplateButton
@@ -1002,23 +1004,23 @@ export function ScheduledTasksPanel() {
               </div>
             ) : filteredTasks.length === 0 ? (
               <div className="space-y-3 p-4 text-center">
-                <p className="text-sm font-medium">No matching tasks</p>
+                <p className="text-sm font-medium">{"\u6ca1\u6709\u5339\u914d\u7684\u4efb\u52a1"}</p>
                 <p className="text-xs text-muted-foreground">
-                  Try a task name, schedule, or description keyword.
+                  {"\u8bd5\u8bd5\u4efb\u52a1\u540d\u3001\u65f6\u95f4\u6216\u63cf\u8ff0\u5173\u952e\u8bcd\u3002"}
                 </p>
                 <Button
                   variant="outline"
                   size="sm"
                   onClick={() => setQuery("")}
                 >
-                  Clear search
+                  {"\u6e05\u7a7a\u641c\u7d22"}
                 </Button>
               </div>
             ) : (
               <div className="p-1.5">
                 <div className="mb-2 flex items-center justify-between px-2 py-1">
                   <p className="text-[11px] font-semibold uppercase text-muted-foreground">
-                    Tasks
+                    {"\u4efb\u52a1"}
                   </p>
                   <p className="text-[11px] text-muted-foreground">
                     {filteredTasks.length}
@@ -1041,7 +1043,7 @@ export function ScheduledTasksPanel() {
                 </div>
                 <div className="mt-3 space-y-2 border-t border-border px-1 py-3">
                   <p className="px-1 text-[11px] font-semibold uppercase text-muted-foreground">
-                    Templates
+                    {"\u6a21\u677f"}
                   </p>
                   <div className="grid gap-1.5">
                     {TEMPLATES.map((template) => (
@@ -1073,10 +1075,9 @@ export function ScheduledTasksPanel() {
                     className="mx-auto size-9 text-muted-foreground/40"
                     aria-hidden="true"
                   />
-                  <p className="text-sm font-medium">Pick a scheduled task</p>
+                  <p className="text-sm font-medium">{"\u9009\u62e9\u4e00\u4e2a\u5b9a\u65f6\u4efb\u52a1"}</p>
                   <p className="text-xs text-muted-foreground">
-                    Pick a template below, or ask 金乌 in chat to create
-                    a recurring task.
+                    {"\u9009\u62e9\u4e0b\u65b9\u6a21\u677f\uff0c\u6216\u5728\u5bf9\u8bdd\u4e2d\u8ba9\u91d1\u4e4c\u521b\u5efa\u5faa\u73af\u4efb\u52a1\u3002"}
                   </p>
                 </div>
                 {tasks.length > 0 && (
