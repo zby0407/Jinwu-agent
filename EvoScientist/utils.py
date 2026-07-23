@@ -110,22 +110,31 @@ def show_prompt(prompt_text: str, title: str = "Prompt", border_style: str = "bl
 
 
 def load_subagents(
-    config_path: Path,
+    config_path: Path | list[Path] | tuple[Path, ...],
     *,
     tool_registry: dict[str, Any],
     prompt_refs: dict[str, str] | None = None,
 ) -> list[dict[str, Any]]:
-    """Load subagent definitions from a directory of YAML files and wire up tools.
+    """Load subagent definitions from one or more directories of YAML files.
 
     NOTE: This is a custom utility. deepagents does not natively load subagents
     from files - they're normally defined inline in the create_deep_agent() call.
     We externalize to YAML here to keep configuration separate from code.
 
-    ``config_path`` must be a directory containing one ``<name>.yaml`` per
-    sub-agent. All ``*.yaml`` files are merged into a single mapping. Files
-    starting with ``.`` (dotfiles, editor swap files) or ``_`` (private /
-    disabled) are ignored. ``.yml`` is intentionally not supported — keeps
-    one canonical extension and avoids the dev-vs-wheel packaging mismatch.
+    ``config_path`` may be:
+
+    * a single directory — scanned **recursively** for ``*.yaml`` files, so
+      callers can organise agents into bundle sub-directories (e.g.
+      ``subagents/core/``, ``subagents/solar/``) without changing the loader;
+    * a list/tuple of directories — each is scanned recursively and merged
+      into one mapping, letting a deployment enable multiple domain bundles
+      side-by-side.
+
+    All ``*.yaml`` files across every directory are merged into a single
+    mapping. Files starting with ``.`` (dotfiles, editor swap files) or ``_``
+    (private / disabled) are ignored. ``.yml`` is intentionally not supported
+    — keeps one canonical extension and avoids the dev-vs-wheel packaging
+    mismatch.
 
     Each file's top level must be a mapping ``{<agent-name>: <spec>}``::
 
@@ -142,11 +151,19 @@ def load_subagents(
     """
     prompt_refs = prompt_refs or {}
 
-    if not config_path.is_dir():
-        raise ValueError(
-            f"{config_path}: sub-agent config must be a directory "
-            f"containing one <name>.yaml per agent"
-        )
+    # Normalise to a list of directories. Accepting a single Path keeps the
+    # original call-sites working unchanged.
+    if isinstance(config_path, (str, Path)):
+        config_dirs: list[Path] = [Path(config_path)]
+    else:
+        config_dirs = [Path(p) for p in config_path]
+
+    for d in config_dirs:
+        if not d.is_dir():
+            raise ValueError(
+                f"{d}: sub-agent config must be a directory "
+                f"containing one <name>.yaml per agent"
+            )
 
     # Only ``.yaml`` is supported (canonical extension). Skip files starting
     # with ``_`` (private / disabled) or ``.`` (dotfiles, editor swap files
@@ -154,37 +171,57 @@ def load_subagents(
     # one canonical extension across the project, simplifies packaging
     # (no need for a parallel ``subagents/*.yml`` entry in ``pyproject.toml``
     # ``package-data``), and matches every existing yaml file in this repo.
+    #
+    # ``rglob`` makes the scan recursive so bundle sub-directories (core/,
+    # solar/, ...) are picked up transparently. Sorting by the path relative
+    # to each config dir keeps load order deterministic across platforms.
     config: dict[str, Any] = {}
-    for yml in sorted(config_path.glob("*.yaml")):
-        if yml.name.startswith(".") or yml.name.startswith("_"):
-            continue
-        with yml.open(encoding="utf-8") as f:
-            data = yaml.safe_load(f)
-        if data is None:
-            # Empty file — skip silently (matches dotfile/underscore skip behavior)
-            continue
-        if not isinstance(data, dict):
-            raise ValueError(
-                f"{yml}: top-level must be a mapping (one entry per sub-agent)"
-            )
-        # Detect duplicate keys across files
-        for key in data:
-            if key in config:
+    for config_dir in config_dirs:
+        yaml_files = sorted(
+            config_dir.rglob("*.yaml"),
+            key=lambda p: p.relative_to(config_dir).as_posix(),
+        )
+        for yml in yaml_files:
+            if yml.name.startswith(".") or yml.name.startswith("_"):
+                continue
+            # ``bundle.yaml`` is bundle metadata (name/version/agents/skills
+            # manifest), NOT a sub-agent definition — skip it so it doesn't
+            # get parsed as a ``{agent-name: spec}`` mapping.
+            if yml.name == "bundle.yaml":
+                continue
+            # Skip yaml files living under a disabled/private sub-directory
+            # (any path component starting with ``_`` or ``.``). This lets a
+            # bundle ship an ``_archive/`` folder without it being loaded.
+            rel_parts = yml.relative_to(config_dir).parts
+            if any(part.startswith((".", "_")) for part in rel_parts[:-1]):
+                continue
+            with yml.open(encoding="utf-8") as f:
+                data = yaml.safe_load(f)
+            if data is None:
+                # Empty file — skip silently (matches dotfile/underscore skip behavior)
+                continue
+            if not isinstance(data, dict):
                 raise ValueError(
-                    f"Sub-agent {key!r} defined in multiple files; "
-                    f"second occurrence in {yml.name}"
+                    f"{yml}: top-level must be a mapping (one entry per sub-agent)"
                 )
-        for key, spec in data.items():
-            if not isinstance(spec, dict):
-                raise ValueError(
-                    f"{yml}: sub-agent {key!r} must map to a spec dict, "
-                    f"got {type(spec).__name__}"
-                )
-        config.update(data)
+            # Detect duplicate keys across files (and across bundle dirs)
+            for key in data:
+                if key in config:
+                    raise ValueError(
+                        f"Sub-agent {key!r} defined in multiple files; "
+                        f"second occurrence in {yml.name}"
+                    )
+            for key, spec in data.items():
+                if not isinstance(spec, dict):
+                    raise ValueError(
+                        f"{yml}: sub-agent {key!r} must map to a spec dict, "
+                        f"got {type(spec).__name__}"
+                    )
+            config.update(data)
 
     if not config:
         raise ValueError(
-            f"{config_path}: no sub-agent definitions found "
+            f"{config_dirs}: no sub-agent definitions found "
             f"(expected one or more <name>.yaml files)"
         )
 
@@ -247,7 +284,7 @@ def load_subagents(
 
 
 def load_subagent(
-    config_path: Path,
+    config_path: Path | list[Path] | tuple[Path, ...],
     name: str,
     *,
     tool_registry: dict[str, Any],

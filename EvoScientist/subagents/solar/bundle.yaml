@@ -1,0 +1,33 @@
+# Solar bundle — Solar-Cycle Co-Scientist domain sub-agents.
+#
+# Planning, data/feature engineering, hypothesis formation, experiment
+# execution, evidence review, and knowledge management for solar-cycle
+# research. Enable this bundle together with `core` for the full
+# Solar-Cycle Co-Scientist workflow.
+
+name: solar
+version: "1.0"
+description: >-
+  Solar-Cycle Co-Scientist domain agents: research planning, solar data
+  and feature engineering, scientific-hypothesis management, automatic
+  experiment execution, evidence review, and LLM-Wiki knowledge curation.
+  Depends on the `core` bundle for generic workflow primitives.
+
+# Sub-agents that live in this directory.
+agents:
+  - solar-planner
+  - solar-data
+  - solar-hypothesis
+  - solar-experiment
+  - solar-evidence
+  - solar-knowledge
+
+# Skills (under EvoScientist/skills/) owned by this bundle.
+skills:
+  - solar-cycle
+  - knowledge-base-agent
+
+# Bundle dependency: solar agents assume core agents (planner, research,
+# code, debug, data-analysis, writing) are also loaded.
+depends_on:
+  - core

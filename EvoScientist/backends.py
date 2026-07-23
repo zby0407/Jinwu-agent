@@ -25,7 +25,7 @@ from . import paths
 
 # Reproduced here to dodge a circular import from .EvoScientist (the canonical
 # SKILLS_DIR constant).
-_BUILTIN_SKILLS_DIR = Path(__file__).parent / "skills"
+_BUILTIN_SKILLS_DIR = Path(__file__).parent / "subagents"
 
 # System path prefixes that should never appear in virtual paths.
 # If the agent hallucinates an absolute system path, we block it.

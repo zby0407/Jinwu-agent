@@ -28,7 +28,7 @@ from ..config import EvoScientistConfig
 
 logger = logging.getLogger(__name__)
 
-_BUILTIN_SKILLS_DIR = Path(__file__).parent.parent / "skills"
+_BUILTIN_SKILLS_DIR = Path(__file__).parent.parent / "subagents"
 
 
 class PiToolBridge:

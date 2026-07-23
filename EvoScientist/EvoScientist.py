@@ -46,8 +46,33 @@ if TYPE_CHECKING:
 # =============================================================================
 
 SUBAGENTS_CONFIG = Path(__file__).parent / "subagents"
-SKILLS_DIR = str(Path(__file__).parent / "skills")
+SKILLS_DIR = str(Path(__file__).parent / "subagents")
 DEFAULT_SKILL_SOURCES = ("/skills/",)
+
+
+def _resolve_subagent_dirs(
+    bundles: list[str] | None = None,
+) -> list[Path]:
+    """Return the sub-agent config directories to load, honouring bundles.
+
+    Thin wrapper around :func:`EvoScientist.subagents._registry.resolve_bundle_dirs`
+    so the rest of this module keeps a single call-site. ``bundles=None``
+    enables every discovered bundle (the historical default behaviour);
+    pass an explicit list (e.g. ``["core"]``) to restrict which domain
+    bundles are active for a deployment.
+
+    Falls back to ``[SUBAGENTS_CONFIG]`` if the registry is unavailable so
+    the agent still boots against a legacy flat ``subagents/`` layout.
+    """
+    try:
+        from .subagents._registry import resolve_bundle_dirs
+
+        dirs = resolve_bundle_dirs(SUBAGENTS_CONFIG, bundles=bundles)
+        if dirs:
+            return dirs
+    except Exception:  # pragma: no cover - defensive fallback
+        pass
+    return [SUBAGENTS_CONFIG]
 
 # =============================================================================
 # Lazy state — initialized on first use, not at import time
@@ -514,7 +539,7 @@ def _build_base_kwargs(
     base_tools = [think_tool, skill_manager] + SOLAR_FEATURE_TOOLS + SCIENTIFIC_HYPOTHESIS_TOOLS + AUTOMATIC_EXPERIMENT_TOOLS + RESEARCH_PLANNER_TOOLS + KB_TOOLS
 
     subs = load_subagents(
-        SUBAGENTS_CONFIG,
+        _resolve_subagent_dirs(),
         tool_registry=tool_registry,
     )
     _ensure_general_purpose_subagent(subs)
@@ -599,7 +624,7 @@ def load_mcp_and_build_kwargs(
     mcp_main = mcp_by_agent.pop("main", [])
 
     subs = load_subagents(
-        SUBAGENTS_CONFIG,
+        _resolve_subagent_dirs(),
         tool_registry=registry,
     )
 

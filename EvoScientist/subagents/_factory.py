@@ -45,6 +45,7 @@ def build_async_subagent_graph(name: str) -> Any:
         _get_default_middleware,
         _get_scoped_backend_factory,
         _inject_subagent_middleware,
+        _resolve_subagent_dirs,
     )
     from EvoScientist.tools import (
         AUTOMATIC_EXPERIMENT_TOOLS,
@@ -77,7 +78,7 @@ def build_async_subagent_graph(name: str) -> Any:
     # Use the official loader so resolved tools, prompt_refs, and skills are
     # all wired the same way as the in-process sync version.
     specs = load_subagents(
-        SUBAGENTS_CONFIG,
+        _resolve_subagent_dirs(),
         tool_registry=tool_registry,
     )
     spec = next((s for s in specs if s.get("name") == name), None)
