@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import sys
 from pathlib import Path
+from threading import RLock
 from typing import Any
 
 _PROJECT_ROOT = Path("/Users/zhuanz/Desktop/tb2/EvoScientist")
@@ -17,8 +18,14 @@ _SRC = _PROJECT_ROOT / "src"
 if str(_SRC) not in sys.path:
     sys.path.insert(0, str(_SRC))
 
+from langchain_core.runnables import RunnableConfig  # noqa: E402
 from langchain_core.tools import tool  # noqa: E402
 
+from EvoScientist.workspaces import (  # noqa: E402
+    resolve_scoped_path,
+    workspace_context_key,
+    workspace_root_from_config,
+)
 from research_planner.contracts import (  # noqa: E402
     canonical_json_sha256,
     validate_planner_request,
@@ -37,26 +44,33 @@ from research_planner.knowledge import (  # noqa: E402
     search_scholarly_literature,
 )
 
-_REQUEST_CACHE: dict[str, dict[str, Any]] = {}
-_ACTIVE_REQUEST_SHA256: str | None = None
-_VALIDATED_RESPONSES: dict[str, dict[str, Any]] = {}
+_REQUEST_CACHE: dict[tuple[str, str], dict[str, Any]] = {}
+_ACTIVE_REQUEST_SHA256: dict[str, str] = {}
+_VALIDATED_RESPONSES: dict[tuple[str, str], dict[str, Any]] = {}
+_STATE_LOCK = RLock()
 
 
-def _bind_request(request: dict[str, Any]) -> str:
+def _bind_request(request: dict[str, Any], config: RunnableConfig | None) -> str:
     """Store a canonical request and make it the active request."""
     sha = canonical_json_sha256(request)
-    _REQUEST_CACHE[sha] = request
-    global _ACTIVE_REQUEST_SHA256
-    _ACTIVE_REQUEST_SHA256 = sha
+    context = workspace_context_key(config)
+    with _STATE_LOCK:
+        _REQUEST_CACHE[(context, sha)] = request
+        _ACTIVE_REQUEST_SHA256[context] = sha
     return sha
 
 
-def _lookup_request(request_sha256: str) -> dict[str, Any]:
+def _lookup_request(
+    request_sha256: str, config: RunnableConfig | None
+) -> dict[str, Any]:
     """Return the cached request, falling back to the active request."""
-    if request_sha256 and request_sha256 in _REQUEST_CACHE:
-        return _REQUEST_CACHE[request_sha256]
-    if _ACTIVE_REQUEST_SHA256 and _ACTIVE_REQUEST_SHA256 in _REQUEST_CACHE:
-        return _REQUEST_CACHE[_ACTIVE_REQUEST_SHA256]
+    context = workspace_context_key(config)
+    with _STATE_LOCK:
+        if request_sha256 and (context, request_sha256) in _REQUEST_CACHE:
+            return _REQUEST_CACHE[(context, request_sha256)]
+        active = _ACTIVE_REQUEST_SHA256.get(context, "")
+        if active and (context, active) in _REQUEST_CACHE:
+            return _REQUEST_CACHE[(context, active)]
     raise RuntimeError(
         "No research planner request is bound. Call research_planner_get_brief first."
     )
@@ -67,11 +81,15 @@ def _ok(result: dict[str, Any]) -> str:
 
 
 def _err(message: str) -> str:
-    return json.dumps({"status": "error", "error": message}, ensure_ascii=False, default=str)
+    return json.dumps(
+        {"status": "error", "error": message}, ensure_ascii=False, default=str
+    )
 
 
 @tool(parse_docstring=True)
-def research_planner_get_brief(request_input: str) -> str:
+def research_planner_get_brief(
+    request_input: str, config: RunnableConfig = None
+) -> str:
     """Create or load a research planner request and return a planning brief.
 
     This is the entry point for the research-planner-agent skill. If
@@ -88,16 +106,14 @@ def research_planner_get_brief(request_input: str) -> str:
     try:
         if request_input.startswith("@"):
             raw_path = request_input[1:]
-            path = Path(raw_path)
-            if not path.is_absolute():
-                path = _PROJECT_ROOT / path
+            path = resolve_scoped_path(raw_path, config, allow_project=True)
             payload = json.loads(path.read_text(encoding="utf-8"))
             request = validate_planner_request(payload)
         else:
             request = build_natural_planner_request(request_input)
 
         brief = build_planning_brief(request)
-        sha = _bind_request(request)
+        sha = _bind_request(request, config)
         return _ok({"brief": brief, "request_sha256": sha})
     except Exception as exc:  # noqa: BLE001
         return _err(str(exc))
@@ -105,7 +121,10 @@ def research_planner_get_brief(request_input: str) -> str:
 
 @tool(parse_docstring=True)
 def research_planner_search_local_knowledge(
-    query: str, limit: int = 5, request_sha256: str = ""
+    query: str,
+    limit: int = 5,
+    request_sha256: str = "",
+    config: RunnableConfig = None,
 ) -> str:
     """Search bundled local Markdown knowledge for the active research request.
 
@@ -119,7 +138,7 @@ def research_planner_search_local_knowledge(
         JSON string with ranked local knowledge snippets.
     """
     try:
-        request = _lookup_request(request_sha256)
+        request = _lookup_request(request_sha256, config)
         result = search_local_knowledge(query, limit)
         result["request_sha256"] = canonical_json_sha256(request)
         return _ok(result)
@@ -134,6 +153,7 @@ def research_planner_search_literature(
     from_year: int = 0,
     to_year: int = 0,
     request_sha256: str = "",
+    config: RunnableConfig = None,
 ) -> str:
     """Search OpenAlex scholarly literature metadata.
 
@@ -149,7 +169,7 @@ def research_planner_search_literature(
         JSON string with literature metadata results.
     """
     try:
-        request = _lookup_request(request_sha256)
+        request = _lookup_request(request_sha256, config)
         result = search_scholarly_literature(
             query,
             limit,
@@ -164,7 +184,9 @@ def research_planner_search_literature(
 
 @tool(parse_docstring=True)
 def research_planner_resolve_reference(
-    reference: str, request_sha256: str = ""
+    reference: str,
+    request_sha256: str = "",
+    config: RunnableConfig = None,
 ) -> str:
     """Resolve a DOI, URL, or local file reference.
 
@@ -177,7 +199,7 @@ def research_planner_resolve_reference(
         JSON string with canonical locator and verification status.
     """
     try:
-        request = _lookup_request(request_sha256)
+        request = _lookup_request(request_sha256, config)
         result = resolve_reference(reference)
         result["request_sha256"] = canonical_json_sha256(request)
         return _ok(result)
@@ -194,6 +216,7 @@ def research_planner_extract_evidence(
     local_path: str = "",
     limit: int = 5,
     request_sha256: str = "",
+    config: RunnableConfig = None,
 ) -> str:
     """Extract candidate passages from source text or a local file.
 
@@ -214,7 +237,7 @@ def research_planner_extract_evidence(
         JSON string with candidate evidence passages.
     """
     try:
-        request = _lookup_request(request_sha256)
+        request = _lookup_request(request_sha256, config)
         if bool(source_text) == bool(local_path):
             raise ValueError("Provide exactly one of source_text or local_path.")
 
@@ -238,6 +261,7 @@ def research_planner_inspect_dataset(
     time_field: str = "",
     sample_limit: int = 5000,
     request_sha256: str = "",
+    config: RunnableConfig = None,
 ) -> str:
     """Inspect a local CSV/JSON/JSONL dataset and report bounded metadata.
 
@@ -253,13 +277,11 @@ def research_planner_inspect_dataset(
         JSON string with dataset metadata and variable checks.
     """
     try:
-        request = _lookup_request(request_sha256)
+        request = _lookup_request(request_sha256, config)
         expected_list: list[str] | None = None
         if expected_variables:
             expected_list = [
-                name.strip()
-                for name in expected_variables.split(",")
-                if name.strip()
+                name.strip() for name in expected_variables.split(",") if name.strip()
             ]
 
         result = inspect_dataset(
@@ -276,7 +298,9 @@ def research_planner_inspect_dataset(
 
 @tool(parse_docstring=True)
 def research_planner_validate_plan(
-    response_json: str, request_sha256: str = ""
+    response_json: str,
+    request_sha256: str = "",
+    config: RunnableConfig = None,
 ) -> str:
     """Validate a research planner response against the bound request.
 
@@ -293,22 +317,25 @@ def research_planner_validate_plan(
         JSON string with validation status and counts.
     """
     try:
-        request = _lookup_request(request_sha256)
+        request = _lookup_request(request_sha256, config)
         response_payload = json.loads(response_json)
         result = preflight_planner_response(
             request, response_payload, include_validated_response=True
         )
         if result.get("status") == "plan_ready" and "_validated_response" in result:
-            _VALIDATED_RESPONSES[canonical_json_sha256(request)] = result[
-                "_validated_response"
-            ]
+            context = workspace_context_key(config)
+            sha = canonical_json_sha256(request)
+            with _STATE_LOCK:
+                _VALIDATED_RESPONSES[(context, sha)] = result["_validated_response"]
         return _ok(result)
     except Exception as exc:  # noqa: BLE001
         return _err(str(exc))
 
 
 @tool(parse_docstring=True)
-def research_planner_freeze_plan(request_sha256: str = "") -> str:
+def research_planner_freeze_plan(
+    request_sha256: str = "", config: RunnableConfig = None
+) -> str:
     """Freeze the most recently validated plan-ready response for the bound request.
 
     The validated response must have been produced by
@@ -322,14 +349,22 @@ def research_planner_freeze_plan(request_sha256: str = "") -> str:
         JSON string with freeze outcome and file paths.
     """
     try:
-        request = _lookup_request(request_sha256)
+        request = _lookup_request(request_sha256, config)
         sha = canonical_json_sha256(request)
-        validated_response = _VALIDATED_RESPONSES.get(sha)
+        context = workspace_context_key(config)
+        with _STATE_LOCK:
+            validated_response = _VALIDATED_RESPONSES.get((context, sha))
         if not validated_response:
             raise RuntimeError(
                 "No validated plan-ready response found. Call research_planner_validate_plan first."
             )
-        result = freeze_research_plan(request, validated_response)
+        workspace_root = workspace_root_from_config(config)
+        result = freeze_research_plan(
+            request,
+            validated_response,
+            runs_root=workspace_root / "planner" / "runs",
+            path_root=workspace_root,
+        )
         return _ok(result)
     except Exception as exc:  # noqa: BLE001
         return _err(str(exc))

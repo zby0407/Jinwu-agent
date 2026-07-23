@@ -1,0 +1,239 @@
+{
+  "schema_version": "scientific-hypothesis-release-inventory-v1",
+  "generated_at": "2026-07-20T18:43:55Z",
+  "product": "科学假设 Agent 1.0",
+  "inventory_excludes": [
+    "RELEASE_INVENTORY.json",
+    "runs/* except runs/README.md",
+    "raw eval logs under evals/results/* except curated deterministic_tests.json and live_status.json"
+  ],
+  "file_count": 45,
+  "total_bytes": 302035,
+  "files": [
+    {
+      "path": ".pi/agents/scientific-hypothesis.md",
+      "size_bytes": 4195,
+      "sha256": "763b074dc3d136e226d02574109293d97e57b792fed966a09b2b0bfb26ff283d"
+    },
+    {
+      "path": ".pi/APPEND_SYSTEM.md",
+      "size_bytes": 3569,
+      "sha256": "1ca201eca5bc64da9c62c8ce8c027ef48d94de12cc59542bce669b1760c24d8f"
+    },
+    {
+      "path": ".pi/extensions/dashscope-provider.ts",
+      "size_bytes": 2058,
+      "sha256": "6f937c056f72f2afe9e1f10fa09ef125afbb6b76ad82d7371aad792fa8cc2a08"
+    },
+    {
+      "path": ".pi/extensions/scientific-hypothesis/index.ts",
+      "size_bytes": 40771,
+      "sha256": "af79426ea88b4d385e905dc8e3693c4ed19a285d1c1aea41605f8cf564d5b8e8"
+    },
+    {
+      "path": ".pi/settings.json",
+      "size_bytes": 263,
+      "sha256": "7083134ec8f589ef0dc7b8ef68b047a3cc5f8b708bd66a7332089a5d94ab8f91"
+    },
+    {
+      "path": ".pi/skills/hypothesis-candidate-generation/SKILL.md",
+      "size_bytes": 1672,
+      "sha256": "cae1e2ded95bfc0e024f10fa153f7690bbbffe305e1aab5162c5d04ba79e2623"
+    },
+    {
+      "path": ".pi/skills/hypothesis-dedup-review/SKILL.md",
+      "size_bytes": 1002,
+      "sha256": "b8e3390454bf078f6ca7f7f5daf197d40fea56f5845275b2fa91fcfe2862f956"
+    },
+    {
+      "path": ".pi/skills/hypothesis-evidence-grounding/SKILL.md",
+      "size_bytes": 1843,
+      "sha256": "cdcec60035f6808a5f5c64a20823aa99c3d0bdbe713ab9158a2a0ffeaa8bc2b7"
+    },
+    {
+      "path": ".pi/skills/hypothesis-evidence-update/SKILL.md",
+      "size_bytes": 1180,
+      "sha256": "8c4ad9705556528bd1efea0f33083c0d8de8c569cfaeabe03a5d57ed12914457"
+    },
+    {
+      "path": ".pi/skills/hypothesis-falsifiability/SKILL.md",
+      "size_bytes": 1182,
+      "sha256": "5c1fd7e23c9d296c5be5edd788e274d5268f73e74d289f6c10926c022f0627eb"
+    },
+    {
+      "path": ".pi/skills/hypothesis-next-test/SKILL.md",
+      "size_bytes": 1160,
+      "sha256": "1dafb1ac4036b2c4aa4195ae05c3f0aaaab802a968bddd1a7231540338fd269a"
+    },
+    {
+      "path": ".pi/skills/hypothesis-question-scope/SKILL.md",
+      "size_bytes": 1004,
+      "sha256": "6f7d0bef89763954a0dd703afee3859681a24160122116f7cd5fc0b38beaab2b"
+    },
+    {
+      "path": ".pi/skills/scientific-hypothesis-agent/references/工作模式与完成标准.md",
+      "size_bytes": 5255,
+      "sha256": "ee4d6ea3f3d2c59e822ef4904d2e208d9d964c4aec659e9b85e079acb93ad153"
+    },
+    {
+      "path": ".pi/skills/scientific-hypothesis-agent/SKILL.md",
+      "size_bytes": 2604,
+      "sha256": "3ed3f68d4b259f80e464cdfab62bf555905bbed40383dfcc29905572a6bb72d9"
+    },
+    {
+      "path": "evals/behavior_cases_v1.json",
+      "size_bytes": 2912,
+      "sha256": "36fd5d3ff2a03279b7ab2a9874653661a858220f661ebfa6300d84c39154e00f"
+    },
+    {
+      "path": "evals/live_cases_v1.json",
+      "size_bytes": 1922,
+      "sha256": "70ccb7736593ad4f5dfbd107efbd7b44019e19fe349b12bfa99f88f072a722c4"
+    },
+    {
+      "path": "evals/results/deterministic_tests.json",
+      "size_bytes": 325,
+      "sha256": "20c0edc47736a8bebe424a0ab8f46bccf5cd105752eae2911ff633b45032003d"
+    },
+    {
+      "path": "inputs/conflict_demo_request.json",
+      "size_bytes": 2078,
+      "sha256": "dd29c7609ff5157396cc64d51707847ccb394f7f8be17ac133fb22d17fe7a213"
+    },
+    {
+      "path": "inputs/example_request.json",
+      "size_bytes": 1530,
+      "sha256": "ecc99eabedf9eab20e4b1d681d671c7c99673e29958d83d5a4f2d8b4cf597bbc"
+    },
+    {
+      "path": "inputs/handoff_demo_request.json",
+      "size_bytes": 2548,
+      "sha256": "10f22b34220cf37f6900413d443409a7bfe416728529cd4b45d06bfe92523d89"
+    },
+    {
+      "path": "inputs/update_demo_request.json",
+      "size_bytes": 1625,
+      "sha256": "87a922aaeccbef4e7181e3b0c4acc68bcdb01fbdfc64588c8566b632fb9e10ce"
+    },
+    {
+      "path": "README.md",
+      "size_bytes": 3920,
+      "sha256": "048438218abc9244b7295a9cfad7abbbd4a38e82df6a8db38680b9815f168ee6"
+    },
+    {
+      "path": "requirements.lock",
+      "size_bytes": 152,
+      "sha256": "8f930364cf77f5df56636b0417bd32ff9f8663c1315422320d67b4f1c5417da2"
+    },
+    {
+      "path": "requirements.txt",
+      "size_bytes": 88,
+      "sha256": "d49f71b430306b8d18e7c123da1039a0bb33c18e06c65a44c788062e8ae33675"
+    },
+    {
+      "path": "run_hypothesis.py",
+      "size_bytes": 5941,
+      "sha256": "0f7f2afd39ce23e94a9986d5e5553133f19443ffa38481d30f08ce5c8d07304e"
+    },
+    {
+      "path": "runs/README.md",
+      "size_bytes": 330,
+      "sha256": "64e36e95ae8c6379126af653f5e2e65893e5ee2b0ec646acfcdde4e6bda5631a"
+    },
+    {
+      "path": "specs/hypothesis_outcome_v1.schema.json",
+      "size_bytes": 1617,
+      "sha256": "53e75bbfaceb1b5259af1f26da911ce41b350f561ec0601e8a558c8a01665b78"
+    },
+    {
+      "path": "specs/hypothesis_portfolio_v1.schema.json",
+      "size_bytes": 3793,
+      "sha256": "47488191562f9a3e8f8cb0b53c65b77591fd6a800edc14bb1bbde1c3d9b0ff87"
+    },
+    {
+      "path": "specs/hypothesis_ranking_v1.schema.json",
+      "size_bytes": 4638,
+      "sha256": "a7d68e0fa498a5d2c15fc238a6cc1353b278fb89b3dc1c7e08bb69676fb8f7a3"
+    },
+    {
+      "path": "specs/hypothesis_request_v1.schema.json",
+      "size_bytes": 3578,
+      "sha256": "c36a4ab4b1d4d8f2b2a1af4137706bbe0904efded9b18f08f9c479598cef862f"
+    },
+    {
+      "path": "specs/hypothesis_response_v1.schema.json",
+      "size_bytes": 9853,
+      "sha256": "a3f02a622ed53a0b4a4d7d737d26f4e4acb8b141026bc715df113a01b096868e"
+    },
+    {
+      "path": "specs/upstream_inspection_v1.schema.json",
+      "size_bytes": 3931,
+      "sha256": "700e47b66dcbd4cf551060d8801aa5a48c1ef114dafec34ec720ef2e4f07c96f"
+    },
+    {
+      "path": "src/scientific_hypothesis/__init__.py",
+      "size_bytes": 1331,
+      "sha256": "2152052de60a193b3dc6a9d65dc86842dda0327333e4ce7d852035de1de80aed"
+    },
+    {
+      "path": "src/scientific_hypothesis/contracts.py",
+      "size_bytes": 35496,
+      "sha256": "e3d4e9310d7615970a9a3a34ccf4c56774570239df1b7ef86c388af02a652525"
+    },
+    {
+      "path": "src/scientific_hypothesis/harness.py",
+      "size_bytes": 40925,
+      "sha256": "b9b9c74d7122f0a233613441bf7f8fb97335251123c64a36221d68d14c1beb4e"
+    },
+    {
+      "path": "src/scientific_hypothesis/ranking.py",
+      "size_bytes": 12755,
+      "sha256": "49cb9e1753582cdc62a5316a9d01e63a4e63f578d9f94496540fffd55dde3d3b"
+    },
+    {
+      "path": "src/scientific_hypothesis/upstream.py",
+      "size_bytes": 14401,
+      "sha256": "50169a1f233a2d3e79f66de29299ceb538b2513cdc8e3372f66a5836d1246fd4"
+    },
+    {
+      "path": "tests/__init__.py",
+      "size_bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "tests/pi_rpc_live_runner.mjs",
+      "size_bytes": 4258,
+      "sha256": "3c77f6e5c8141e4aa25d8c287b4b6ee70df724ebf61a8268ed4621414f3af776"
+    },
+    {
+      "path": "tests/test_hypothesis.py",
+      "size_bytes": 32764,
+      "sha256": "0bca3955a00d43447f954953cbe0ea7437de1c365fc550e36c1d7038c3638c57"
+    },
+    {
+      "path": "tests/test_release_consistency.py",
+      "size_bytes": 5230,
+      "sha256": "71ff02c95493f0acb93aaafe39de3115a32d24e12811abbfa5e9c42fcac29008"
+    },
+    {
+      "path": "tests/test_upstream_ranking.py",
+      "size_bytes": 21435,
+      "sha256": "5d1d81c53b98e8a9a749107814543edf90733833e2f687ae764d0d3f5b362c53"
+    },
+    {
+      "path": "tools/build_release_inventory.py",
+      "size_bytes": 2416,
+      "sha256": "33950b84104d5c1f56b164399da761cde303528af32b77dbee8180535928a873"
+    },
+    {
+      "path": "科学假设Agent技术说明.md",
+      "size_bytes": 7642,
+      "sha256": "7564c6caa6501ccfdade1e23d6bf59834da1e97cec7bbde6e0947b2ebca4cedb"
+    },
+    {
+      "path": "科学假设Agent测试与使用手册.md",
+      "size_bytes": 4843,
+      "sha256": "fc7b50604e8d956be8cb561c5d83ce1bfcc5a59baa313eb7d1ed77740ecfc7fa"
+    }
+  ]
+}

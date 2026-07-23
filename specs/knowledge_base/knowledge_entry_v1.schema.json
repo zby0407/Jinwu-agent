@@ -1,0 +1,174 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "knowledge-entry-v1",
+  "title": "Knowledge Base Entry 1.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "id",
+    "type",
+    "title",
+    "content",
+    "source_type",
+    "source_ref",
+    "confidence",
+    "status",
+    "version"
+  ],
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^kb_(concept|mechanism|data_source|experiment_paradigm|hypothesis_template|finding|counterexample)_[A-Za-z0-9][A-Za-z0-9_-]{0,127}_[0-9]{3,}$"
+    },
+    "type": {
+      "type": "string",
+      "enum": [
+        "concept",
+        "mechanism",
+        "data_source",
+        "experiment_paradigm",
+        "hypothesis_template",
+        "finding",
+        "counterexample"
+      ]
+    },
+    "title": {"type": "string", "minLength": 1, "maxLength": 500},
+    "content": {"type": "object", "minProperties": 1},
+    "source_type": {
+      "type": "string",
+      "enum": [
+        "literature",
+        "textbook",
+        "dataset_doc",
+        "historical_run",
+        "expert",
+        "derived"
+      ]
+    },
+    "source_ref": {"type": "string", "minLength": 1, "maxLength": 1000},
+    "confidence": {"type": "string", "enum": ["high", "medium", "low"]},
+    "status": {
+      "type": "string",
+      "enum": ["candidate", "canonical", "deprecated", "superseded"]
+    },
+    "valid_range": {"type": "string", "maxLength": 500},
+    "related_ids": {
+      "type": "array",
+      "maxItems": 100,
+      "items": {"type": "string"}
+    },
+    "provenance": {"type": "object"},
+    "version": {"type": "integer", "minimum": 1},
+    "created_at": {"type": "string"},
+    "updated_at": {"type": "string"},
+    "created_by": {"type": "string"}
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"type": {"const": "concept"}}},
+      "then": {
+        "properties": {
+          "content": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["definition"],
+            "properties": {
+              "definition": {"type": "string", "minLength": 1},
+              "physical_notes": {"type": "string"},
+              "see_also": {"type": "array", "items": {"type": "string"}}
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {"properties": {"type": {"const": "mechanism"}}},
+      "then": {
+        "properties": {
+          "content": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["claim"],
+            "properties": {
+              "claim": {"type": "string", "minLength": 1},
+              "supporting_evidence": {"type": "string"},
+              "counter_evidence": {"type": "string"},
+              "controversy": {"type": "string"},
+              "testable_predictions": {"type": "array", "items": {"type": "string"}}
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {"properties": {"type": {"const": "data_source"}}},
+      "then": {
+        "properties": {
+          "content": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["collection_method"],
+            "properties": {
+              "collection_method": {"type": "string", "minLength": 1},
+              "known_biases": {"type": "string"},
+              "calibration_history": {"type": "string"},
+              "coverage": {"type": "string"}
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {"properties": {"type": {"const": "experiment_paradigm"}}},
+      "then": {
+        "properties": {
+          "content": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["design"],
+            "properties": {
+              "design": {"type": "string", "minLength": 1},
+              "metrics": {"type": "string"},
+              "pitfalls": {"type": "string"}
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {"properties": {"type": {"const": "hypothesis_template"}}},
+      "then": {
+        "properties": {
+          "content": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["structure"],
+            "properties": {
+              "structure": {"type": "string", "minLength": 1},
+              "example": {"type": "string"},
+              "applicable_when": {"type": "string"}
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {"properties": {"type": {"enum": ["finding", "counterexample"]}}},
+      "then": {
+        "properties": {
+          "content": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["statement", "run_id"],
+            "properties": {
+              "statement": {"type": "string", "minLength": 1},
+              "run_id": {"type": "string", "minLength": 1},
+              "effect_size": {"type": "string"},
+              "uncertainty": {"type": "string"}
+            }
+          }
+        }
+      }
+    }
+  ]
+}

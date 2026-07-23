@@ -1,0 +1,56 @@
+{
+  "schema_version": "scientific-hypothesis-request-v1",
+  "task_name": "experiment_agent_handoff_demo",
+  "research_question": "第24活动周极小期长于第25活动周，更可能由发电机机制变化解释，还是由观测口径差异解释？",
+  "upstream_materials": [
+    {
+      "id": "mat_exp_recalc",
+      "material_kind": "experiment_result",
+      "title": "极小期长度同口径复算实验（自动实验 Agent 真实执行记录）",
+      "locator": "runs/exp_demo/recalc/record.json",
+      "content_notes": "自动实验 Agent 对第24与第25活动周极小期长度做了同口径复算：同一数据产品（国际太阳黑子数v2.0）、同一13月平滑口径。结论：第24周极小期比第25周长约8个月。",
+      "experiment_summary": {
+        "execution_completed": true,
+        "outcome": "completed",
+        "metrics": [
+          {
+            "name": "极小期长度差",
+            "value_text": "第24周极小期比第25周长约8个月",
+            "definition": "同一数据产品同一平滑口径下的极小期间隔差"
+          },
+          {
+            "name": "数据覆盖",
+            "value_text": "1996-01至2020-12月均值",
+            "definition": "复算使用的月平均黑子数时间范围"
+          }
+        ],
+        "uncertainty_notes": "未估计抽样不确定性；未做口径扰动敏感性分析",
+        "record_sha256": null
+      }
+    },
+    {
+      "id": "mat_exp_failed",
+      "material_kind": "experiment_result",
+      "title": "极区磁场跨周对比实验（技术失败）",
+      "locator": "runs/exp_demo/polar_field/record.json",
+      "content_notes": "自动实验 Agent 尝试对比两个极小期的极区磁场强度，因数据下载权限问题未能完成。",
+      "experiment_summary": {
+        "execution_completed": false,
+        "outcome": "technical_failure",
+        "metrics": [],
+        "uncertainty_notes": "环境网络权限不足，未产生任何科学输出",
+        "record_sha256": null
+      }
+    },
+    {
+      "id": "mat_lit_note",
+      "material_kind": "literature_note",
+      "title": "极小期判定口径综述笔记",
+      "locator": "notes/minima_definitions.md",
+      "content_notes": "笔记综述了三种常见的极小期判定口径（13月平滑最低点、活动区出现间隔、半球综合指标），指出不同口径下同一活动周的极小期位置可能相差数月。",
+      "experiment_summary": null
+    }
+  ],
+  "prior_hypotheses": [],
+  "max_candidates": 4
+}

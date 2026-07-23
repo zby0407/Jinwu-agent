@@ -1,0 +1,23 @@
+"""Deterministic core for 自动实验 Agent 1.0."""
+
+from .contracts import (
+    DESIGN_VERSION,
+    ENTRY_RESULT_VERSION,
+    OUTCOMES,
+    RECORD_VERSION,
+    REQUEST_VERSION,
+    RESPONSE_VERSION,
+    SESSION_VERSION,
+    WORKER_RESULT_VERSION,
+)
+
+__all__ = [
+    "DESIGN_VERSION",
+    "ENTRY_RESULT_VERSION",
+    "OUTCOMES",
+    "RECORD_VERSION",
+    "REQUEST_VERSION",
+    "RESPONSE_VERSION",
+    "SESSION_VERSION",
+    "WORKER_RESULT_VERSION",
+]

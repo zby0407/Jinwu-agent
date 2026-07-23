@@ -30,6 +30,7 @@ from starlette.responses import JSONResponse
 from starlette.routing import Route
 
 from EvoScientist.config import get_effective_config
+from EvoScientist.langgraph_dev.knowledge_api import KB_ROUTES
 from EvoScientist.llm.models import list_model_picker_entries
 
 
@@ -78,5 +79,7 @@ async def get_models(_request: Request) -> JSONResponse:
 app = Starlette(
     routes=[
         Route("/api/models", get_models, methods=["GET"]),
+        # Read-only knowledge-base surface (see knowledge_api.py).
+        *KB_ROUTES,
     ]
 )

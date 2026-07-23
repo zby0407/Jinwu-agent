@@ -38,7 +38,9 @@ def _load_json(path: Path) -> dict[str, Any]:
     try:
         value = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, UnicodeError, json.JSONDecodeError) as exc:
-        raise ContractError(f"required planner schema is unavailable or invalid: {path}") from exc
+        raise ContractError(
+            f"required planner schema is unavailable or invalid: {path}"
+        ) from exc
     if not isinstance(value, dict):
         raise ContractError(f"required planner schema must be an object: {path}")
     return value
@@ -117,9 +119,15 @@ def audit_harness() -> dict[str, Any]:
         "needs_input",
         "no_viable_route",
     }
-    if set(response_defs.get("routeOutcome", {}).get("enum", [])) != expected_route_outcomes:
+    if (
+        set(response_defs.get("routeOutcome", {}).get("enum", []))
+        != expected_route_outcomes
+    ):
         raise ContractError("response schema route outcome drift")
-    if set(response_defs.get("terminalStatus", {}).get("enum", [])) != expected_terminal_statuses:
+    if (
+        set(response_defs.get("terminalStatus", {}).get("enum", []))
+        != expected_terminal_statuses
+    ):
         raise ContractError("response schema terminal status drift")
     if response_defs.get("refArray", {}).get("maxItems") != 40:
         raise ContractError("response schema reference bound drift")
@@ -409,7 +417,11 @@ def _compact_response_contract() -> dict[str, Any]:
             "join_policy": ["all", "any"],
             "dataset_source_kind": ["selected", "proposed"],
             "dataset_acquisition_status": ["selected", "missing", "needs_confirmation"],
-            "artifact_source_kind": ["request_input", "external_input", "planned_output"],
+            "artifact_source_kind": [
+                "request_input",
+                "external_input",
+                "planned_output",
+            ],
             "evidence_source_kind": [
                 "local_material",
                 "scholarly",
@@ -448,16 +460,65 @@ def _compact_response_contract() -> dict[str, Any]:
     }
 
 
+def _kb_brief_context(request: dict[str, Any]) -> dict[str, Any]:
+    """Plan §5.4 #1: kb candidates + open conflicts for the planning brief.
+
+    Silent-degrades to ``{}`` whenever the knowledge base is unavailable so
+    the brief keeps its pre-P2 shape in that case.
+    """
+
+    try:
+        from knowledge_base import service as kb_service
+        from knowledge_base.store import KnowledgeStore
+    except Exception:  # noqa: BLE001
+        return {}
+    try:
+        query = " ".join(
+            part
+            for part in (
+                str(request.get("task_name", "")).replace("_", " "),
+                str(request.get("research_question", "")),
+            )
+            if part.strip()
+        )
+        store = KnowledgeStore()
+        try:
+            hits = kb_service.search(store, query, limit=5)["results"]
+            open_conflicts = kb_service.conflicts(store)["conflicts"]
+        finally:
+            store.close()
+        return {
+            "related_candidates": [
+                {
+                    "id": hit["id"],
+                    "type": hit["type"],
+                    "title": hit["title"],
+                    "status": hit["status"],
+                    "confidence": hit["confidence"],
+                    "valid_range": hit.get("valid_range", ""),
+                }
+                for hit in hits
+            ],
+            "open_conflicts": open_conflicts,
+        }
+    except Exception:  # noqa: BLE001
+        return {}
+
+
 def build_planning_brief(request_payload: dict[str, Any]) -> dict[str, Any]:
     request = validate_planner_request(request_payload)
     audit = audit_harness()
-    return {
+    brief = {
         "schema_version": "research-planner-brief-v1",
         "request_sha256": canonical_json_sha256(request),
         "request": request,
         "harness_audit": audit,
         "planner_contract": {
-            "response_kinds": ["plan_ready", "clarification_needed", "planning_blocked"],
+            "response_kinds": [
+                "plan_ready",
+                "clarification_needed",
+                "planning_blocked",
+            ],
             "plan_outputs": [
                 "research_subquestions",
                 "research_state_map",
@@ -515,6 +576,8 @@ def build_planning_brief(request_payload: dict[str, Any]) -> dict[str, Any]:
             "run ids, hashes, execution results, tool bindings, or prose to the response object."
         ),
     }
+    brief.update(_kb_brief_context(request))
+    return brief
 
 
 def _require_plan_ready(response: dict[str, Any]) -> None:
@@ -533,7 +596,11 @@ def _planning_readiness(plan_content: dict[str, Any]) -> str:
         item["blocking"] and item["status"] in {"unresolved", "unavailable"}
         for item in plan_content["research_state_map"]["items"]
     )
-    return "external_inputs_required" if missing_dataset or unresolved_blocker else "complete"
+    return (
+        "external_inputs_required"
+        if missing_dataset or unresolved_blocker
+        else "complete"
+    )
 
 
 def compile_research_plan(
@@ -639,7 +706,9 @@ def _collect_schema_shape_errors(
         allowed_types = [item for item in expected if isinstance(item, str)]
     else:
         allowed_types = []
-    if allowed_types and not any(_matches_json_type(value, item) for item in allowed_types):
+    if allowed_types and not any(
+        _matches_json_type(value, item) for item in allowed_types
+    ):
         errors.append(
             f"{path}: 需要 {' 或 '.join(allowed_types)}，实际为 {_json_type_name(value)}"
         )
@@ -649,9 +718,7 @@ def _collect_schema_shape_errors(
         errors.append(f"{path}: 必须为 {schema['const']!r}")
     allowed_values = schema.get("enum")
     if isinstance(allowed_values, list) and value not in allowed_values:
-        errors.append(
-            f"{path}: 值 {value!r} 不可用；允许值为 {allowed_values}"
-        )
+        errors.append(f"{path}: 值 {value!r} 不可用；允许值为 {allowed_values}")
 
     if isinstance(value, dict):
         required = {
@@ -693,7 +760,9 @@ def _collect_schema_shape_errors(
         if isinstance(maximum, int) and len(value) > maximum:
             errors.append(f"{path}: 最多允许 {maximum} 项，实际为 {len(value)} 项")
         if schema.get("uniqueItems"):
-            serialized = [json.dumps(item, ensure_ascii=False, sort_keys=True) for item in value]
+            serialized = [
+                json.dumps(item, ensure_ascii=False, sort_keys=True) for item in value
+            ]
             if len(serialized) != len(set(serialized)):
                 errors.append(f"{path}: 数组项必须唯一")
         item_schema = schema.get("items")
@@ -757,14 +826,28 @@ def collect_planner_response_shape_errors(response_payload: object) -> list[str]
             )
         common_fields = {
             key: response_payload[key]
-            for key in ("schema_version", "task_name", "research_question", "response_kind")
+            for key in (
+                "schema_version",
+                "task_name",
+                "research_question",
+                "response_kind",
+            )
             if key in response_payload
         }
-        for key in ("schema_version", "task_name", "research_question", "response_kind"):
+        for key in (
+            "schema_version",
+            "task_name",
+            "research_question",
+            "response_kind",
+        ):
             child_schema = variant.get("properties", {}).get(key)
             if key in common_fields and isinstance(child_schema, dict):
                 _collect_schema_shape_errors(
-                    common_fields[key], child_schema, schema, f"planner_response.{key}", errors
+                    common_fields[key],
+                    child_schema,
+                    schema,
+                    f"planner_response.{key}",
+                    errors,
                 )
     else:
         _collect_schema_shape_errors(
@@ -776,7 +859,10 @@ def collect_planner_response_shape_errors(response_payload: object) -> list[str]
 def collect_planner_route_semantic_errors(response_payload: object) -> list[str]:
     """Collect all obvious non-completed transitions into success-only dependencies."""
 
-    if not isinstance(response_payload, dict) or response_payload.get("response_kind") != "plan_ready":
+    if (
+        not isinstance(response_payload, dict)
+        or response_payload.get("response_kind") != "plan_ready"
+    ):
         return []
     content = response_payload.get("plan_content")
     if not isinstance(content, dict):
@@ -803,15 +889,25 @@ def collect_planner_route_semantic_errors(response_payload: object) -> list[str]
         prerequisites = step.get("prerequisite_step_ids")
         if isinstance(prerequisites, list):
             dependencies[step_id].update(
-                value for value in prerequisites if isinstance(value, str) and value in steps
+                value
+                for value in prerequisites
+                if isinstance(value, str) and value in steps
             )
         consumes = step.get("consumes_artifact_ids")
         if isinstance(consumes, list):
             for artifact_id in consumes:
                 producer = producers.get(artifact_id)
-                if isinstance(producer, str) and producer in steps and producer != step_id:
+                if (
+                    isinstance(producer, str)
+                    and producer in steps
+                    and producer != step_id
+                ):
                     dependencies[step_id].add(producer)
-        join_policies[step_id] = step.get("join_policy") if step.get("join_policy") in {"all", "any"} else "all"
+        join_policies[step_id] = (
+            step.get("join_policy")
+            if step.get("join_policy") in {"all", "any"}
+            else "all"
+        )
 
     visiting: set[str] = set()
     visited: set[str] = set()
@@ -847,9 +943,7 @@ def collect_planner_route_semantic_errors(response_payload: object) -> list[str]
             for dependency in node_dependencies
         ]
         required = (
-            all(requirements)
-            if join_policies[node] == "any"
-            else any(requirements)
+            all(requirements) if join_policies[node] == "any" else any(requirements)
         )
         memo[key] = required
         return required
@@ -913,7 +1007,10 @@ def collect_planner_scientific_semantic_errors(
                 f"evidence source {source_id} is marked claim_located but has no page-, section-, "
                 "paragraph-, line-, figure-, or table-level locator"
             )
-        if level == "dataset_inspected" and source.get("source_kind") != "dataset_metadata":
+        if (
+            level == "dataset_inspected"
+            and source.get("source_kind") != "dataset_metadata"
+        ):
             errors.append(
                 f"evidence source {source_id} uses dataset_inspected without dataset_metadata source_kind"
             )
@@ -934,7 +1031,11 @@ def collect_planner_scientific_semantic_errors(
                 source.get("name"),
                 source.get("description"),
                 source.get("location"),
-                *(source.get("constraints", []) if isinstance(source.get("constraints"), list) else []),
+                *(
+                    source.get("constraints", [])
+                    if isinstance(source.get("constraints"), list)
+                    else []
+                ),
             )
             if isinstance(value, str)
         )
@@ -1005,7 +1106,9 @@ def collect_planner_scientific_semantic_errors(
                 if isinstance(value, str)
             }
             step_subquestion_refs[step_id] = {
-                value for value in step.get("subquestion_ids", []) if isinstance(value, str)
+                value
+                for value in step.get("subquestion_ids", [])
+                if isinstance(value, str)
             }
             numeric_criteria: list[str] = []
             for outcome_rule in step.get("outcome_rules", []):
@@ -1034,8 +1137,7 @@ def collect_planner_scientific_semantic_errors(
                 if missing_named:
                     errors.append(
                         f"route step {step.get('id', '<unknown>')} names datasets absent from "
-                        "required_dataset_ids: "
-                        + ", ".join(missing_named)
+                        "required_dataset_ids: " + ", ".join(missing_named)
                     )
     unused_datasets = sorted(dataset_ids - used_dataset_ids)
     if unused_datasets:
@@ -1184,7 +1286,9 @@ def _normalize_model_response(
         "stop_rules",
     }
     if response.get("response_kind") == "plan_ready" and "plan_content" not in response:
-        flat_content = {key: response.pop(key) for key in list(response) if key in content_fields}
+        flat_content = {
+            key: response.pop(key) for key in list(response) if key in content_fields
+        }
         if flat_content:
             response["plan_content"] = flat_content
             notes.append("wrapped flat plan fields in plan_content")
@@ -1220,9 +1324,13 @@ def _normalize_model_response(
         normalize_list(scope, "boundaries", "scope.boundaries")
         normalize_list(scope, "non_goals", "scope.non_goals")
         for index, item in enumerate(object_list(content.get("research_subquestions"))):
-            normalize_list(item, "depends_on", f"research_subquestions[{index}].depends_on")
+            normalize_list(
+                item, "depends_on", f"research_subquestions[{index}].depends_on"
+            )
         state_map = content.get("research_state_map")
-        state_items = object_list(state_map.get("items")) if isinstance(state_map, dict) else []
+        state_items = (
+            object_list(state_map.get("items")) if isinstance(state_map, dict) else []
+        )
         for index, item in enumerate(state_items):
             for key in (
                 "evidence_source_ids",
@@ -1258,7 +1366,9 @@ def _normalize_model_response(
                 "evaluation_rule_ids",
             ):
                 normalize_list(step, key, f"research_route[{index}].{key}")
-            for child_index, capability in enumerate(object_list(step.get("capability_needs"))):
+            for child_index, capability in enumerate(
+                object_list(step.get("capability_needs"))
+            ):
                 for key in ("input_types", "output_types", "constraints"):
                     normalize_list(
                         capability,
@@ -1273,7 +1383,9 @@ def _normalize_model_response(
                         f"research_route[{index}].outcome_rules[{child_index}].{key}",
                     )
         for index, item in enumerate(object_list(content.get("evaluation_rules"))):
-            normalize_list(item, "target_step_ids", f"evaluation_rules[{index}].target_step_ids")
+            normalize_list(
+                item, "target_step_ids", f"evaluation_rules[{index}].target_step_ids"
+            )
             basis = item.get("criterion_basis") if isinstance(item, dict) else None
             normalize_list(
                 basis,
@@ -1312,13 +1424,21 @@ def _normalize_model_response(
                         f"from qualitative to {inferred_kind} based on its sole reference family"
                     )
         for index, item in enumerate(object_list(content.get("report_outline"))):
-            normalize_list(item, "source_step_ids", f"report_outline[{index}].source_step_ids")
+            normalize_list(
+                item, "source_step_ids", f"report_outline[{index}].source_step_ids"
+            )
         policy = content.get("iteration_policy")
         normalize_list(policy, "review_step_ids", "iteration_policy.review_step_ids")
-        normalize_list(policy, "revision_triggers", "iteration_policy.revision_triggers")
+        normalize_list(
+            policy, "revision_triggers", "iteration_policy.revision_triggers"
+        )
         for index, item in enumerate(object_list(content.get("stop_rules"))):
-            normalize_list(item, "required_evidence", f"stop_rules[{index}].required_evidence")
-            normalize_list(item, "report_section_ids", f"stop_rules[{index}].report_section_ids")
+            normalize_list(
+                item, "required_evidence", f"stop_rules[{index}].required_evidence"
+            )
+            normalize_list(
+                item, "report_section_ids", f"stop_rules[{index}].report_section_ids"
+            )
     return response, notes
 
 
@@ -1466,7 +1586,9 @@ def render_nonplan_response_markdown(response_payload: dict[str, Any]) -> str:
                 ]
             )
         return "\n".join(lines).rstrip() + "\n"
-    raise ContractError("reader response rendering requires clarification or blocked response")
+    raise ContractError(
+        "reader response rendering requires clarification or blocked response"
+    )
 
 
 def render_research_plan_markdown(plan_payload: dict[str, Any]) -> str:
@@ -1569,15 +1691,11 @@ def render_research_plan_markdown(plan_payload: dict[str, Any]) -> str:
             dependencies = [
                 questions[dependency]["question"] for dependency in item["depends_on"]
             ]
-            lines.extend(
-                ["", f"需先回答：{_markdown_list(dependencies)}"]
-            )
+            lines.extend(["", f"需先回答：{_markdown_list(dependencies)}"])
         lines.append("")
 
     lines.extend(["## 目前认识与仍需核实的问题", ""])
-    grouped_state: dict[str, list[dict[str, Any]]] = {
-        key: [] for key in state_titles
-    }
+    grouped_state: dict[str, list[dict[str, Any]]] = {key: [] for key in state_titles}
     for item in plan["research_state_map"]["items"]:
         grouped_state[item["item_kind"]].append(item)
     for kind, title in state_titles.items():
@@ -1604,7 +1722,9 @@ def render_research_plan_markdown(plan_payload: dict[str, Any]) -> str:
                 lines.append(
                     f"  - 需要补充：{_markdown_list(item['resolution_requirements'])}"
                 )
-            lines.append(f"  - 判断有误的影响：{_markdown_text(item['impact_if_wrong'])}")
+            lines.append(
+                f"  - 判断有误的影响：{_markdown_text(item['impact_if_wrong'])}"
+            )
             if item["blocking"]:
                 lines.append("  - 该事项未解决前，不宜进入依赖它的后续判断。")
         lines.append("")
@@ -1671,10 +1791,12 @@ def render_research_plan_markdown(plan_payload: dict[str, Any]) -> str:
     lines.extend(["## 研究步骤", ""])
     for index, step in enumerate(plan["research_route"], start=1):
         input_names = [
-            artifacts[artifact_id]["name"] for artifact_id in step["consumes_artifact_ids"]
+            artifacts[artifact_id]["name"]
+            for artifact_id in step["consumes_artifact_ids"]
         ]
         output_names = [
-            artifacts[artifact_id]["name"] for artifact_id in step["produces_artifact_ids"]
+            artifacts[artifact_id]["name"]
+            for artifact_id in step["produces_artifact_ids"]
         ]
         dataset_names = [
             datasets[dataset_id]["name"] for dataset_id in step["required_dataset_ids"]
@@ -1791,9 +1913,7 @@ def render_research_plan_markdown(plan_payload: dict[str, Any]) -> str:
             f"{_markdown_text(rule['condition'])}"
         )
         if rule["required_evidence"]:
-            lines.append(
-                f"  - 需要具备：{_markdown_list(rule['required_evidence'])}"
-            )
+            lines.append(f"  - 需要具备：{_markdown_list(rule['required_evidence'])}")
         lines.append(f"  - 写入报告：{_markdown_list(related_sections)}")
 
     preparation: list[str] = []
@@ -1804,7 +1924,9 @@ def render_research_plan_markdown(plan_payload: dict[str, Any]) -> str:
             )
     for item in plan["research_state_map"]["items"]:
         if item["blocking"] and item["status"] in {"unresolved", "unavailable"}:
-            preparation.extend(_markdown_text(value) for value in item["resolution_requirements"])
+            preparation.extend(
+                _markdown_text(value) for value in item["resolution_requirements"]
+            )
     if preparation:
         lines.extend(["", "## 开始执行前优先准备", ""])
         lines.extend(f"- {item}" for item in dict.fromkeys(preparation))
@@ -1816,6 +1938,7 @@ def freeze_research_plan(
     request_payload: dict[str, Any],
     response_payload: dict[str, Any],
     runs_root: Path | None = None,
+    path_root: Path | None = None,
 ) -> dict[str, Any]:
     """Validate a plan-ready response, publish its machine and reader views, and roll back on failure."""
 
@@ -1859,7 +1982,9 @@ def freeze_research_plan(
             shutil.rmtree(target, ignore_errors=True)
         raise
     try:
-        relative = target.relative_to(PROJECT_ROOT).as_posix()
+        relative = target.relative_to(
+            Path(path_root or PROJECT_ROOT).resolve()
+        ).as_posix()
     except ValueError:
         relative = str(target)
     markdown_path = f"{relative}/research_plan.md"

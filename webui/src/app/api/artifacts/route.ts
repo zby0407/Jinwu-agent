@@ -100,9 +100,7 @@ const EXCLUDED_SEGMENTS = new Set([
 // reflects files generated in the active workspace.
 const EXCLUDED_REPO_ROOTS = new Set([
   "EvoScientist",
-  "b3",
   "docs",
-  "scripts_b3",
   "tests",
   "webui",
 ]);

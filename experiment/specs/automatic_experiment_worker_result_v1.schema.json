@@ -1,0 +1,121 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "automatic-experiment-worker-result-v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "execution_completed",
+    "measurements",
+    "result_items",
+    "artifacts",
+    "warnings",
+    "endpoint_results",
+    "scientific_payload"
+  ],
+  "properties": {
+    "schema_version": {"const": "automatic-experiment-worker-result-v1"},
+    "execution_completed": {"const": true},
+    "measurements": {
+      "type": "array",
+      "maxItems": 200,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "value", "unit", "role", "source_artifact"],
+        "properties": {
+          "name": {"type": "string", "pattern": "^[A-Za-z][A-Za-z0-9_.:-]{0,127}$"},
+          "value": {"type": "number"},
+          "unit": {"type": "string", "maxLength": 100},
+          "role": {"enum": ["primary", "secondary", "diagnostic"]},
+          "source_artifact": {"type": ["string", "null"], "maxLength": 500}
+        }
+      }
+    },
+    "result_items": {
+      "type": "array",
+      "maxItems": 200,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "display_name", "value_kind", "value", "unit", "role", "source_artifact"],
+        "properties": {
+          "id": {"type": "string", "pattern": "^[A-Za-z][A-Za-z0-9_.:-]{0,127}$"},
+          "display_name": {"type": "string", "minLength": 1, "maxLength": 200},
+          "value_kind": {"enum": ["number", "count", "boolean", "category", "text"]},
+          "value": {"type": ["number", "integer", "boolean", "string"]},
+          "unit": {"type": "string", "maxLength": 100},
+          "role": {"enum": ["primary", "secondary", "diagnostic"]},
+          "source_artifact": {"type": ["string", "null"], "maxLength": 500}
+        }
+      }
+    },
+    "artifacts": {
+      "type": "array",
+      "maxItems": 200,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["path", "kind", "description"],
+        "properties": {
+          "path": {"type": "string", "minLength": 1, "maxLength": 500},
+          "kind": {"enum": ["json", "csv", "text", "markdown", "image", "fits", "netcdf", "hdf5", "parquet", "other"]},
+          "description": {"type": "string", "minLength": 1, "maxLength": 1000}
+        }
+      }
+    },
+    "warnings": {
+      "type": "array",
+      "maxItems": 100,
+      "items": {"type": "string", "minLength": 1, "maxLength": 1000}
+    },
+    "endpoint_results": {
+      "type": "array",
+      "maxItems": 100,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "status", "summary"],
+        "properties": {
+          "id": {"type": "string", "pattern": "^[A-Za-z][A-Za-z0-9_-]{0,63}$"},
+          "status": {"enum": ["completed", "failed", "not_evaluated"]},
+          "summary": {"type": "string", "minLength": 1, "maxLength": 4000}
+        }
+      }
+    },
+    "scientific_payload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "primary_estimand",
+        "estimate",
+        "interval",
+        "equivalence_bounds",
+        "sensitivity",
+        "uncertainty_reasons"
+      ],
+      "properties": {
+        "primary_estimand": {"type": "string", "minLength": 1, "maxLength": 4000},
+        "estimate": {"type": ["number", "null"]},
+        "interval": {
+          "oneOf": [
+            {"type": "null"},
+            {"type": "array", "prefixItems": [{"type": "number"}, {"type": "number"}], "items": false}
+          ]
+        },
+        "equivalence_bounds": {
+          "oneOf": [
+            {"type": "null"},
+            {"type": "array", "prefixItems": [{"type": "number"}, {"type": "number"}], "items": false}
+          ]
+        },
+        "sensitivity": {"type": ["string", "null"], "maxLength": 4000},
+        "uncertainty_reasons": {
+          "type": "array",
+          "maxItems": 30,
+          "items": {"type": "string", "minLength": 1, "maxLength": 1000}
+        }
+      }
+    }
+  }
+}

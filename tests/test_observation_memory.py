@@ -2246,6 +2246,59 @@ def test_memory_worker_accepts_roots_at_build_time(tmp_path, monkeypatch):
     assert calls[0]["workspace_dir"] == tmp_path / "workspace"
 
 
+def test_structured_memory_worker_disables_thinking(monkeypatch, tmp_path):
+    import importlib
+
+    import deepagents
+
+    from EvoScientist.memory.agents import _factory
+
+    agent_module = importlib.import_module("EvoScientist.EvoScientist")
+
+    class FakeModel:
+        def __init__(self):
+            self.thinking = {"type": "enabled"}
+            self.reasoning = None
+            self.model_kwargs = {"thinking": {"type": "enabled"}}
+
+        def model_copy(self, *, update):
+            assert update == {"thinking": None}
+            clone = FakeModel()
+            clone.thinking = None
+            clone.model_kwargs = {}
+            return clone
+
+    class FakeAgent:
+        def with_config(self, config):
+            assert config == {
+                "recursion_limit": _factory.MEMORY_AGENT_RECURSION_LIMIT
+            }
+            return self
+
+    captured = {}
+
+    def fake_create_deep_agent(**kwargs):
+        captured.update(kwargs)
+        return FakeAgent()
+
+    monkeypatch.setattr(agent_module, "_ensure_auxiliary_chat_model", FakeModel)
+    monkeypatch.setattr(deepagents, "create_deep_agent", fake_create_deep_agent)
+
+    _factory.build_memory_agent_graph(
+        name="memory-worker",
+        system_prompt="test",
+        memory_dir=tmp_path / "memories",
+        workspace_dir=tmp_path / "workspace",
+        tools=[],
+        middleware=[],
+        response_format=memory_worker.SubagentMemoryDecision,
+        backend=object(),
+    )
+
+    assert captured["model"].thinking is None
+    assert captured["response_format"] is memory_worker.SubagentMemoryDecision
+
+
 def _memory_tool_names(middleware) -> list[str]:
     memory_middleware = next(item for item in middleware if getattr(item, "tools", ()))
     return [tool.name for tool in memory_middleware.tools]

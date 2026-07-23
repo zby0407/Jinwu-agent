@@ -42,13 +42,15 @@ def build_async_subagent_graph(name: str) -> Any:
         _ensure_auxiliary_chat_model,
         _ensure_chat_model,
         _ensure_general_purpose_subagent,
-        _get_default_backend,
         _get_default_middleware,
+        _get_scoped_backend_factory,
         _inject_subagent_middleware,
     )
     from EvoScientist.tools import (
-        B3_SCIENCE_TOOLS,
+        AUTOMATIC_EXPERIMENT_TOOLS,
+        KB_TOOLS,
         RESEARCH_PLANNER_TOOLS,
+        SCIENTIFIC_HYPOTHESIS_TOOLS,
         SOLAR_FEATURE_TOOLS,
         skill_manager,
         tavily_search,
@@ -69,7 +71,7 @@ def build_async_subagent_graph(name: str) -> Any:
         "tavily_search": tavily_search,
         "skill_manager": skill_manager,
     }
-    for _t in SOLAR_FEATURE_TOOLS + B3_SCIENCE_TOOLS + RESEARCH_PLANNER_TOOLS:
+    for _t in SOLAR_FEATURE_TOOLS + SCIENTIFIC_HYPOTHESIS_TOOLS + AUTOMATIC_EXPERIMENT_TOOLS + RESEARCH_PLANNER_TOOLS + KB_TOOLS:
         tool_registry[_t.name] = _t
 
     # Use the official loader so resolved tools, prompt_refs, and skills are
@@ -131,7 +133,7 @@ def build_async_subagent_graph(name: str) -> Any:
         system_prompt=spec.get("system_prompt", ""),
         tools=spec.get("tools", []) + agent_mcp_tools,
         skills=spec.get("skills"),
-        backend=_get_default_backend(),
+        backend=_get_scoped_backend_factory(),
         middleware=middleware,
         subagents=subagents,
     ).with_config({"recursion_limit": cfg.recursion_limit})

@@ -1,0 +1,129 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://b3.local/specs/hypothesis_portfolio_v1.schema.json",
+  "title": "Scientific Hypothesis Portfolio 1.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "portfolio_id",
+    "created_at",
+    "status",
+    "request_sha256",
+    "research_question",
+    "candidates",
+    "pairwise_distinctions",
+    "evidence_register",
+    "ranking",
+    "counterexample_table",
+    "portfolio_notes",
+    "portfolio_sha256"
+  ],
+  "properties": {
+    "schema_version": { "const": "scientific-hypothesis-portfolio-v1" },
+    "portfolio_id": { "type": "string", "minLength": 1, "maxLength": 200 },
+    "created_at": { "type": "string", "format": "date-time" },
+    "status": { "const": "frozen" },
+    "request_sha256": { "$ref": "#/$defs/sha256" },
+    "research_question": { "type": "string", "minLength": 8, "maxLength": 4000 },
+    "candidates": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 8,
+      "items": { "type": "object" }
+    },
+    "pairwise_distinctions": {
+      "type": "array",
+      "maxItems": 28,
+      "items": { "type": "object" }
+    },
+    "evidence_register": {
+      "type": "array",
+      "maxItems": 20,
+      "items": { "$ref": "#/$defs/evidenceEntry" }
+    },
+    "ranking": {
+      "anyOf": [
+        { "$ref": "hypothesis_ranking_v1.schema.json" },
+        { "type": "null" }
+      ],
+      "description": "本侧初审排序；null 表示本次未排序"
+    },
+    "counterexample_table": {
+      "anyOf": [
+        { "$ref": "#/$defs/counterexampleTable" },
+        { "type": "null" }
+      ]
+    },
+    "portfolio_notes": {
+      "anyOf": [{ "type": "string", "maxLength": 2000 }, { "type": "null" }]
+    },
+    "portfolio_sha256": { "$ref": "#/$defs/sha256" }
+  },
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "evidenceEntry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "evidence_id",
+        "evidence_kind",
+        "material_id",
+        "excerpt",
+        "verified_support",
+        "role"
+      ],
+      "properties": {
+        "evidence_id": {
+          "type": "string",
+          "pattern": "^[A-Za-z][A-Za-z0-9_-]{0,63}$"
+        },
+        "evidence_kind": {
+          "enum": ["experiment", "literature", "upstream", "user"]
+        },
+        "material_id": {
+          "type": "string",
+          "pattern": "^[A-Za-z][A-Za-z0-9_-]{0,63}$"
+        },
+        "excerpt": { "type": "string", "minLength": 1, "maxLength": 2000 },
+        "verified_support": { "type": "boolean" },
+        "role": { "enum": ["supports", "opposes", "limits", "gap"] }
+      }
+    },
+    "counterexampleTable": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["rows", "notes"],
+      "properties": {
+        "rows": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["candidate_id", "kind", "summary", "evidence_id"],
+            "properties": {
+              "candidate_id": {
+                "anyOf": [{ "$ref": "#/$defs/safeId" }, { "type": "null" }]
+              },
+              "kind": { "enum": ["counterexample", "conflict"] },
+              "summary": { "type": "string", "minLength": 1, "maxLength": 2000 },
+              "evidence_id": {
+                "anyOf": [{ "$ref": "#/$defs/safeId" }, { "type": "null" }]
+              }
+            }
+          }
+        },
+        "notes": {
+          "anyOf": [{ "type": "string", "maxLength": 2000 }, { "type": "null" }]
+        }
+      }
+    },
+    "safeId": {
+      "type": "string",
+      "pattern": "^[A-Za-z][A-Za-z0-9_-]{0,63}$"
+    }
+  }
+}

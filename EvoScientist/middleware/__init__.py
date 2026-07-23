@@ -11,6 +11,10 @@ from .ask_user import (
     Choice,
     Question,
 )
+from .closed_loop_orchestration import (
+    ClosedLoopOrchestrationGuardMiddleware,
+    closed_loop_receipts,
+)
 from .code_interpreter import create_code_interpreter_middleware
 from .configurable_model import ConfigurableModelMiddleware
 from .context_editing import (
@@ -18,6 +22,11 @@ from .context_editing import (
     create_context_editing_middleware,
 )
 from .context_overflow import ContextOverflowMapperMiddleware
+from .contract_tool_allowlist import (
+    CONTRACT_TOOL_ALLOWLISTS,
+    ContractToolAllowlistMiddleware,
+    contract_tool_allowlist,
+)
 from .memory import (
     EvoMemoryMiddleware,
     create_memory_middleware,
@@ -33,9 +42,12 @@ from .scheduler import (
     SchedulerMiddleware,
     create_scheduler_middleware,
 )
+from .task_workspace import TaskWorkspaceMiddleware
+from .task_cancellation import TaskCancellationMiddleware
 from .tool_error_handler import ToolErrorHandlerMiddleware
 from .tool_selector import create_tool_selector_middleware
 from .utils import disable_thinking
+from .virtual_path_code_guard import VirtualPathCodeGuardMiddleware
 
 __all__ = [
     "AskUserMiddleware",
@@ -43,6 +55,9 @@ __all__ = [
     "AskUserWidgetResult",
     "Choice",
     "ConfigurableModelMiddleware",
+    "CONTRACT_TOOL_ALLOWLISTS",
+    "ContractToolAllowlistMiddleware",
+    "ClosedLoopOrchestrationGuardMiddleware",
     "ContextOverflowMapperMiddleware",
     "EvoMemoryLifecycleMiddleware",
     "EvoMemoryMiddleware",
@@ -50,8 +65,13 @@ __all__ = [
     "Question",
     "RuntimeContextMiddleware",
     "SchedulerMiddleware",
+    "TaskWorkspaceMiddleware",
+    "TaskCancellationMiddleware",
     "ToolErrorHandlerMiddleware",
+    "VirtualPathCodeGuardMiddleware",
     "compute_context_editing_trigger",
+    "contract_tool_allowlist",
+    "closed_loop_receipts",
     "create_code_interpreter_middleware",
     "create_context_editing_middleware",
     "create_memory_lifecycle_middleware",

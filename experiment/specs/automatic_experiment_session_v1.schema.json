@@ -1,0 +1,104 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "automatic-experiment-session-v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "run_id",
+    "phase",
+    "request_sha256",
+    "request_path",
+    "response_path",
+    "design_path",
+    "input_manifest_path",
+    "current_attempt",
+    "current_stage_id",
+    "attempt_count",
+    "remaining_attempts",
+    "stage_attempt_counts",
+    "stage_history",
+    "artifact_lineage",
+    "budget_usage",
+    "run_deadline_seconds",
+    "last_error",
+    "outcome",
+    "verified_record_sha256",
+    "report_sha256",
+    "cancel_requested",
+    "checkpoints",
+    "created_at",
+    "updated_at"
+  ],
+  "properties": {
+    "schema_version": {"const": "automatic-experiment-session-v1"},
+    "run_id": {"type": "string", "minLength": 1, "maxLength": 128},
+    "phase": {
+      "enum": [
+        "request_bound",
+        "inputs_snapshotted",
+        "design_validated",
+        "attempt_prepared",
+        "execution_started",
+        "execution_finished",
+        "verification_finished",
+        "report_finalized"
+      ]
+    },
+    "request_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "request_fingerprint": {
+      "type": ["string", "null"],
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "input_fingerprint": {
+      "type": ["string", "null"],
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "lineage": {"type": "object"},
+    "request_path": {"const": "request.json"},
+    "response_path": {"type": ["string", "null"]},
+    "design_path": {"type": ["string", "null"]},
+    "input_manifest_path": {"type": ["string", "null"]},
+    "current_attempt": {"type": ["string", "null"]},
+    "current_stage_id": {"type": ["string", "null"]},
+    "attempt_count": {"type": "integer", "minimum": 0, "maximum": 10},
+    "remaining_attempts": {"type": "integer", "minimum": 0, "maximum": 10},
+    "stage_attempt_counts": {
+      "type": "object",
+      "additionalProperties": {"type": "integer", "minimum": 0, "maximum": 5}
+    },
+    "stage_history": {"type": "array", "maxItems": 5, "items": {"type": "object"}},
+    "artifact_lineage": {"type": "array", "maxItems": 100, "items": {"type": "object"}},
+    "budget_usage": {"type": "object"},
+    "run_deadline_seconds": {"type": "integer", "minimum": 1, "maximum": 5400},
+    "last_error": {"type": ["string", "null"]},
+    "outcome": {
+      "type": ["string", "null"],
+      "enum": [
+        null,
+        "completed_interpretable",
+        "partial_result",
+        "scientific_null",
+        "high_uncertainty",
+        "input_missing",
+        "method_mismatch",
+        "technical_failure",
+        "budget_stopped",
+        "clarification_required",
+        "boundary_blocked",
+        "cancelled_by_user"
+      ]
+    },
+    "verified_record_sha256": {"type": ["string", "null"]},
+    "report_sha256": {"type": ["string", "null"]},
+    "audit_sha256": {
+      "type": ["string", "null"],
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "report_assets": {"type": "array", "items": {"type": "object"}},
+    "cancel_requested": {"type": "boolean"},
+    "checkpoints": {"type": "array", "items": {"type": "object"}},
+    "created_at": {"type": "string", "format": "date-time"},
+    "updated_at": {"type": "string", "format": "date-time"}
+  }
+}

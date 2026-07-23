@@ -88,6 +88,7 @@ def build_memory_agent_graph(
 
     from ...backends import build_memory_agent_backend
     from ...EvoScientist import _ensure_auxiliary_chat_model
+    from ...middleware.utils import disable_thinking
 
     kwargs: dict[str, Any] = {}
     if response_format is not None:
@@ -99,9 +100,16 @@ def build_memory_agent_graph(
             memory_dir=memory_dir,
         )
 
+    model = _ensure_auxiliary_chat_model()
+    if response_format is not None:
+        # Structured output forces a tool choice.  DashScope/Qwen rejects
+        # required/object tool_choice while thinking mode is enabled, so use a
+        # non-thinking copy for the structured memory-worker call.
+        model = disable_thinking(model)
+
     agent = create_deep_agent(
         name=name,
-        model=_ensure_auxiliary_chat_model(),
+        model=model,
         system_prompt=system_prompt,
         tools=list(tools),
         backend=backend,

@@ -43,6 +43,7 @@ def _assert_subagent_memory_middleware(subagent: dict, *, source_agent: str) -> 
 @patch("EvoScientist.EvoScientist._get_default_middleware", return_value=[])
 @patch("EvoScientist.EvoScientist._get_default_backend")
 @patch("EvoScientist.EvoScientist._ensure_chat_model")
+@patch("EvoScientist.EvoScientist._ensure_config")
 @patch("EvoScientist.utils.load_subagents")
 @patch("EvoScientist.config.apply_config_to_env")
 @patch("EvoScientist.config.get_effective_config")
@@ -50,6 +51,7 @@ def test_factory_requests_async_safe_middleware(
     mock_get_cfg,
     mock_apply_env,
     mock_load_subs,
+    mock_ensure_cfg,
     mock_chat,
     mock_backend,
     mock_get_mw,
@@ -71,6 +73,11 @@ def test_factory_requests_async_safe_middleware(
     cfg.memory_observation_writer = MemoryObservationWriter.ALL
     cfg.memory_workers_enabled = True
     mock_get_cfg.return_value = cfg
+    # ``_inject_subagent_middleware`` falls back to the module-global
+    # ``_ensure_config()`` when no cfg is passed; without this patch it reads
+    # the user's real config.yaml and applies its keys into os.environ,
+    # making this test depend on machine state and leaking env vars.
+    mock_ensure_cfg.return_value = cfg
     # Factory looks up the requested name in the loaded subagent specs;
     # any matching name is fine.
     mock_load_subs.return_value = [

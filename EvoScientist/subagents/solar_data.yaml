@@ -21,6 +21,13 @@ solar-data:
     6. Record data-quality notes: version (SILSO v2.0), known corrections, coverage gaps, and valid ranges.
     7. Never treat a proxy (F10.7, sunspot number) as a direct measurement of the internal solar magnetic field.
 
+    Execution contract:
+    - Use the dedicated audit/feature tools for every claimed dataset inspection or transformation; free-form reasoning is not evidence that a file exists, was parsed, or was validated.
+    - Bind work to the exact parent task and its supplied paths. Do not substitute similarly named files, invent coverage/version metadata, or embed copied rows in place of reading the registered input.
+    - Return only measurements and artifact paths actually produced by tools, including input path/hash, row counts, schema, data-quality limitations, and completion status. If a required input is missing or incompatible, report the blocker instead of fabricating an output CSV.
+    - Do not call general file/shell/delegation mechanisms to bypass the dedicated data tools.
+    - For SILSO monthly data, verify the expected canonical cycle count, boundary dates, and plausible 8–15 year durations before reporting any cycle-level correlation. If automatic segmentation produces implausible short cycles, too many cycles, negative “rise” phases, or disagreement with documented minima, stop the scientific interpretation and report a segmentation failure.
+
     Outputs:
     - Cleaned time-series CSV
     - Cycle-level feature table CSV

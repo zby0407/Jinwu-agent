@@ -1,0 +1,76 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "automatic-experiment-entry-result-v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "status",
+    "run_id",
+    "outcome",
+    "record_path",
+    "record_sha256",
+    "report_path",
+    "report_sha256",
+    "user_display_markdown",
+    "safe_next_action",
+    "created_at",
+    "entry_sha256"
+  ],
+  "properties": {
+    "schema_version": {"const": "automatic-experiment-entry-result-v1"},
+    "status": {"const": "finalized"},
+    "run_id": {"type": "string", "minLength": 1, "maxLength": 128},
+    "outcome": {
+      "enum": [
+        "completed_interpretable",
+        "partial_result",
+        "scientific_null",
+        "high_uncertainty",
+        "input_missing",
+        "method_mismatch",
+        "technical_failure",
+        "budget_stopped",
+        "clarification_required",
+        "boundary_blocked",
+        "cancelled_by_user"
+      ]
+    },
+    "record_path": {"const": "record.json"},
+    "record_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "report_path": {"const": "report.md"},
+    "report_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "audit_path": {"const": "audit.md"},
+    "audit_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "report_assets": {
+      "type": "array",
+      "maxItems": 10,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "path",
+          "kind",
+          "description",
+          "sha256",
+          "size_bytes",
+          "row_handling",
+          "row_count"
+        ],
+        "properties": {
+          "path": {"type": "string", "pattern": "^report_assets/[A-Za-z0-9_.-]+$"},
+          "kind": {"const": "svg"},
+          "description": {"type": "string", "minLength": 1, "maxLength": 1000},
+          "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+          "size_bytes": {"type": "integer", "minimum": 1},
+          "row_handling": {"enum": ["all_rows", "full_data_aggregate"]},
+          "row_count": {"type": "integer", "minimum": 1}
+        }
+      }
+    },
+    "user_display_markdown": {"type": "string", "minLength": 1},
+    "safe_next_action": {"type": "string", "minLength": 1},
+    "created_at": {"type": "string", "format": "date-time"},
+    "entry_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+  }
+}

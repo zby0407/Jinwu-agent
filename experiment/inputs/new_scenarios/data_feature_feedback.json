@@ -1,0 +1,71 @@
+{
+  "schema_version": "simulated-upstream-data-feature-feedback-v1",
+  "fixture_kind": "synthetic_multi_stage_demo",
+  "not_real_observation": true,
+  "research_question": "Evaluate cross-instrument calibration and phase-stratified backtest on synthetic cycle 25 proxy data without claiming real solar-cycle prediction.",
+  "processed_artifact": {
+    "path": "cycle25_proxy_features.csv",
+    "row_count": 30,
+    "time_ordered": true,
+    "coverage": "2023-01 to 2025-06 in synthetic fixture time",
+    "missing_values": 0
+  },
+  "columns": [
+    {
+      "name": "date",
+      "role": "time_index",
+      "description": "Synthetic ordered observation date."
+    },
+    {
+      "name": "cycle_phase",
+      "role": "context",
+      "description": "Synthetic activity-phase label; not a target variable."
+    },
+    {
+      "name": "wso_reference_g",
+      "role": "comparison_coordinate",
+      "unit": "G",
+      "description": "Reference coordinate for this fixture only; not an absolute truth claim."
+    },
+    {
+      "name": "hmi_candidate_g",
+      "role": "candidate_measurement",
+      "unit": "G",
+      "description": "Synthetic candidate-instrument measurement paired to the reference coordinate."
+    },
+    {
+      "name": "geomag_index",
+      "role": "auxiliary_feature",
+      "description": "Synthetic auxiliary geomagnetic-like index for feature ablation."
+    },
+    {
+      "name": "quality_flag",
+      "role": "quality_control",
+      "description": "Two rows are marked for sensitivity analysis."
+    }
+  ],
+  "quality_summary": {
+    "paired_rows": 30,
+    "duplicate_dates": 0,
+    "missing_values": 0,
+    "suspect_rows": 2,
+    "suspect_flags": [
+      "suspect_geometry",
+      "suspect_timing"
+    ]
+  },
+  "recommended_checks_not_mandatory_methods": [
+    "Preserve time order when separating calibration and evaluation data.",
+    "Compare uncalibrated and calibrated agreement on data not used to fit calibration parameters.",
+    "Repeat the analysis after excluding each suspect row separately and together.",
+    "Report both improvement and remaining error rather than only a correlation coefficient.",
+    "For phase-stratified backtest, keep early-phase calibration and late-phase evaluation disjoint."
+  ],
+  "unsupported_claims": [
+    "No next-cycle amplitude target is present.",
+    "No causal instrument-aperture attribution can be established.",
+    "No real WSO or HMI performance claim is supported.",
+    "No Solar Cycle 26 forecast is supported."
+  ],
+  "handoff_note": "The downstream automatic experiment agent should choose the concrete experiment design. These recommendations are quality constraints, not a fixed method route."
+}

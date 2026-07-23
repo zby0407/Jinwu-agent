@@ -24,6 +24,34 @@ features, run diagnostic experiments, generate structured hypotheses, and review
 
 ## Quick workflow
 
+### Closed-contract routing (mandatory for agents)
+
+The commands below are domain helpers, not substitutes for an agent contract.
+
+- `solar-planner`: first bind the exact request, then use the research-planner
+  evidence/data tools as needed, validate the complete response, and freeze it.
+  A free Markdown plan or workspace file without a frozen `planner/runs/<run_id>/`
+  receipt is invalid.
+- `solar-hypothesis` and `solar-evidence`: bind request and evidence, validate the
+  scientific-hypothesis response, then freeze it. Free-form cards/scores are invalid.
+- `solar-experiment`: bind request, inspect registered inputs, validate the design,
+  prepare/execute immutable attempts, verify results, and finalize. Embedded copies
+  of unbound input data are invalid.
+- `solar-knowledge`: bind the parent research question and task-supplied distillation
+  focus before literature search. Use `lit_bind_task → lit_search → lit_fetch →
+  lit_distill`; do not bypass it with a generic knowledge proposal.
+
+Parent agents must reject a specialist result that lacks the contract's completion
+status, run id, and saved artifact path. They must not repackage free prose as if the
+specialist had completed its contract.
+
+For literature distillation, the task owns `distill_focus`. Keep distinctive terms
+from the research question and add source-language equivalents when necessary so
+relevance can be audited. Single-source abstract candidates default to `low` and
+cannot exceed `medium`; DOI presence never makes an entry canonical.
+
+### Domain helper workflow
+
 1. **Fetch data**
    ```bash
    python /skills/solar-cycle/scripts/fetch_data.py --output-dir ./data

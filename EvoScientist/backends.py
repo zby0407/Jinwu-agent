@@ -1142,6 +1142,7 @@ class CustomSandboxBackend(LocalShellBackend):
         env: dict[str, str] | None = None,
         inherit_env: bool = True,
         dangerous: bool = False,
+        ensure_root: bool = True,
     ):
         """
         Initialize custom sandbox backend.
@@ -1157,6 +1158,9 @@ class CustomSandboxBackend(LocalShellBackend):
                 paths anywhere on disk (no workspace confinement). Forces
                 ``virtual_mode=False`` and relaxes path validation while keeping
                 the privileged-command blocklist. Defaults to False.
+            ensure_root: Create ``root_dir`` during construction. Task-scoped
+                deployments pass False because the binding layer already creates
+                it away from the async event loop.
         """
         self._dangerous = dangerous
         if dangerous:
@@ -1173,8 +1177,11 @@ class CustomSandboxBackend(LocalShellBackend):
         )
         # Override parent's "local-" prefix with our own
         self._sandbox_id = f"evosci-{uuid.uuid4().hex[:8]}"
-        # Ensure working directory exists
-        os.makedirs(str(self.cwd), exist_ok=True)
+        # Ensure working directory exists. Dynamic task backends are constructed
+        # by a synchronous factory inside an async middleware node, so their
+        # already-created roots must not call os.mkdir on that event loop.
+        if ensure_root:
+            os.makedirs(str(self.cwd), exist_ok=True)
 
     def _resolve_path(self, key: str) -> Path:
         """Resolve path with sanitization to prevent nested directories.

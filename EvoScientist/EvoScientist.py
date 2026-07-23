@@ -305,7 +305,10 @@ def _inject_subagent_middleware(
     """
     from .middleware import (
         ContextOverflowMapperMiddleware,
+        ContractToolAllowlistMiddleware,
+        TaskCancellationMiddleware,
         ToolErrorHandlerMiddleware,
+        contract_tool_allowlist,
         create_context_editing_middleware,
         create_memory_lifecycle_middleware,
         create_memory_middleware,
@@ -333,6 +336,7 @@ def _inject_subagent_middleware(
             memory_scheduler=memory_scheduler,
         )
         middleware = [
+            TaskCancellationMiddleware(),
             # Subagents share the main agent's model: use the threaded
             # ``chat_model`` on the pure path, else defer to the factory's
             # ``_ensure_chat_model()`` fallback (when ``chat_model=None``).
@@ -354,6 +358,12 @@ def _inject_subagent_middleware(
                     memory_scheduler=memory_scheduler,
                 )
             )
+        allowed_tools = contract_tool_allowlist(name)
+        if allowed_tools is not None:
+            # Keep this last: DeepAgents prepends filesystem middleware and
+            # other middleware may inject tools.  The closed-contract filter
+            # must see and remove all of them before the model call.
+            middleware.append(ContractToolAllowlistMiddleware(allowed_tools))
         sa.setdefault("middleware", []).extend(middleware)
 
 
@@ -480,8 +490,10 @@ def _build_base_kwargs(
 ):
     """Build agent kwargs *without* MCP (fast, no subprocess spawning)."""
     from .tools import (
-        B3_SCIENCE_TOOLS,
+        AUTOMATIC_EXPERIMENT_TOOLS,
+        KB_TOOLS,
         RESEARCH_PLANNER_TOOLS,
+        SCIENTIFIC_HYPOTHESIS_TOOLS,
         SOLAR_FEATURE_TOOLS,
         skill_manager,
         tavily_search,
@@ -497,9 +509,9 @@ def _build_base_kwargs(
         "tavily_search": tavily_search,
         "skill_manager": skill_manager,
     }
-    for _t in SOLAR_FEATURE_TOOLS + B3_SCIENCE_TOOLS + RESEARCH_PLANNER_TOOLS:
+    for _t in SOLAR_FEATURE_TOOLS + SCIENTIFIC_HYPOTHESIS_TOOLS + AUTOMATIC_EXPERIMENT_TOOLS + RESEARCH_PLANNER_TOOLS + KB_TOOLS:
         tool_registry[_t.name] = _t
-    base_tools = [think_tool, skill_manager] + SOLAR_FEATURE_TOOLS + B3_SCIENCE_TOOLS + RESEARCH_PLANNER_TOOLS
+    base_tools = [think_tool, skill_manager] + SOLAR_FEATURE_TOOLS + SCIENTIFIC_HYPOTHESIS_TOOLS + AUTOMATIC_EXPERIMENT_TOOLS + RESEARCH_PLANNER_TOOLS + KB_TOOLS
 
     subs = load_subagents(
         SUBAGENTS_CONFIG,
@@ -545,8 +557,10 @@ def load_mcp_and_build_kwargs(
             ``_ensure_chat_model()`` (which would write module globals).
     """
     from .tools import (
-        B3_SCIENCE_TOOLS,
+        AUTOMATIC_EXPERIMENT_TOOLS,
+        KB_TOOLS,
         RESEARCH_PLANNER_TOOLS,
+        SCIENTIFIC_HYPOTHESIS_TOOLS,
         SOLAR_FEATURE_TOOLS,
         skill_manager,
         tavily_search,
@@ -572,9 +586,9 @@ def load_mcp_and_build_kwargs(
         "tavily_search": tavily_search,
         "skill_manager": skill_manager,
     }
-    for _t in SOLAR_FEATURE_TOOLS + B3_SCIENCE_TOOLS + RESEARCH_PLANNER_TOOLS:
+    for _t in SOLAR_FEATURE_TOOLS + SCIENTIFIC_HYPOTHESIS_TOOLS + AUTOMATIC_EXPERIMENT_TOOLS + RESEARCH_PLANNER_TOOLS + KB_TOOLS:
         tool_registry[_t.name] = _t
-    base_tools = [think_tool, skill_manager] + SOLAR_FEATURE_TOOLS + B3_SCIENCE_TOOLS + RESEARCH_PLANNER_TOOLS
+    base_tools = [think_tool, skill_manager] + SOLAR_FEATURE_TOOLS + SCIENTIFIC_HYPOTHESIS_TOOLS + AUTOMATIC_EXPERIMENT_TOOLS + RESEARCH_PLANNER_TOOLS + KB_TOOLS
 
     # Fresh tool registry — start from base tools + MCP tools
     registry = dict(tool_registry)
@@ -622,6 +636,24 @@ def load_mcp_and_build_kwargs(
 
 def _get_default_backend():
     """Build the default composite backend from current paths."""
+    workspace_dir = str(_paths_mod.WORKSPACE_ROOT)
+    set_active_workspace(workspace_dir)
+    return _build_default_composite_backend(workspace_dir)
+
+
+def _build_default_composite_backend(
+    workspace_dir: str,
+    *,
+    project_shared_dir: str | None = None,
+    root_precreated: bool = False,
+):
+    """Build one concrete backend for a resolved task workspace.
+
+    ``project_shared_dir`` is mounted explicitly at ``/project/``.  Previous
+    task runs are deliberately not mounted, so continuity is opt-in through
+    stable project assets rather than accidental visibility of old scratch
+    files.
+    """
     from deepagents.backends import CompositeBackend
 
     from .backends import (
@@ -631,8 +663,6 @@ def _get_default_backend():
     )
 
     cfg = _ensure_config()
-    workspace_dir = str(_paths_mod.WORKSPACE_ROOT)
-    set_active_workspace(workspace_dir)
     memory_dir = str(_paths_mod.MEMORIES_DIR)
     user_skills_dir = str(_paths_mod.USER_SKILLS_DIR)
     global_skills_dir = str(_paths_mod.GLOBAL_SKILLS_DIR)
@@ -644,6 +674,7 @@ def _get_default_backend():
         virtual_mode=True,
         timeout=cfg.sandbox_execute_timeout,
         dangerous=cfg.dangerous_mode,
+        ensure_root=not root_precreated,
     )
     sk_backend = MergedSkillsBackend(
         primary_dir=user_skills_dir,
@@ -654,13 +685,88 @@ def _get_default_backend():
         root_dir=memory_dir,
         virtual_mode=True,
     )
+    routes = {
+        "/skills/": sk_backend,
+        "/memories/": mem_backend,
+    }
+    if project_shared_dir:
+        routes["/project/"] = CustomSandboxBackend(
+            root_dir=project_shared_dir,
+            virtual_mode=True,
+            timeout=cfg.sandbox_execute_timeout,
+            dangerous=False,
+            ensure_root=False,
+        )
     return CompositeBackend(
         default=ws_backend,
-        routes={
-            "/skills/": sk_backend,
-            "/memories/": mem_backend,
-        },
+        routes=routes,
     )
+
+
+def _get_scoped_backend_factory():
+    """Return a ToolRuntime backend factory scoped by project/run/thread.
+
+    Existing checkpoint threads are bound to the legacy base workspace once at
+    deployment migration time.  Every subsequently-created thread receives an
+    isolated run directory.  The returned concrete backends are cached by
+    resolved workspace, so resolving the factory for every file tool remains
+    cheap and thread-safe.
+    """
+    import logging
+    import threading
+
+    from .workspaces import (
+        bootstrap_legacy_bindings,
+        get_cached_binding,
+        preload_bindings,
+        scope_thread_id,
+    )
+
+    base_workspace = str(_paths_mod.WORKSPACE_ROOT.resolve())
+    try:
+        bootstrap_legacy_bindings(
+            base_workspace,
+            _paths_mod.DATA_DIR / "sessions.db",
+        )
+    except Exception:
+        logging.getLogger(__name__).warning(
+            "Legacy workspace binding bootstrap failed; continuing with isolated "
+            "bindings for new threads.",
+            exc_info=True,
+        )
+    preload_bindings(base_workspace)
+
+    cache: dict[tuple[str, str | None], object] = {}
+    lock = threading.RLock()
+
+    def _factory(runtime):
+        config = getattr(runtime, "config", None)
+        thread_id = scope_thread_id(config if isinstance(config, dict) else None)
+        binding = (
+            get_cached_binding(thread_id, base_workspace) if thread_id else None
+        )
+        if thread_id and binding is None:
+            raise RuntimeError(
+                "Task workspace binding was not initialized before backend "
+                f"resolution (thread_id={thread_id})."
+            )
+        if binding is None:
+            key = (base_workspace, None)
+        elif binding.legacy:
+            key = (binding.workspace, None)
+        else:
+            key = (binding.workspace, binding.project_shared)
+        with lock:
+            backend = cache.get(key)
+        if backend is None:
+            backend = _build_default_composite_backend(
+                key[0], project_shared_dir=key[1], root_precreated=True
+            )
+            with lock:
+                backend = cache.setdefault(key, backend)
+        return backend
+
+    return _factory
 
 
 def _get_default_middleware(
@@ -691,10 +797,16 @@ def _get_default_middleware(
             Async sub-agent factories pass their deployed agent name here.
     """
     from .middleware import (
+        ClosedLoopOrchestrationGuardMiddleware,
         ConfigurableModelMiddleware,
         ContextOverflowMapperMiddleware,
+        ContractToolAllowlistMiddleware,
         ModelFallbackMiddleware,
+        TaskWorkspaceMiddleware,
+        TaskCancellationMiddleware,
         ToolErrorHandlerMiddleware,
+        VirtualPathCodeGuardMiddleware,
+        contract_tool_allowlist,
         create_code_interpreter_middleware,
         create_context_editing_middleware,
         create_memory_lifecycle_middleware,
@@ -755,6 +867,14 @@ def _get_default_middleware(
 
             tool_selector_model = get_chat_model(model=aux_model, provider=aux_provider)
     mw = [
+        TaskWorkspaceMiddleware(workspace_dir),
+        *([TaskCancellationMiddleware()] if for_async_subagent else []),
+        VirtualPathCodeGuardMiddleware(),
+        *(
+            [ClosedLoopOrchestrationGuardMiddleware()]
+            if not for_async_subagent
+            else []
+        ),
         ConfigurableModelMiddleware(),
         create_context_editing_middleware(model),
         ModelFallbackMiddleware(),
@@ -801,6 +921,12 @@ def _get_default_middleware(
 
         mw.append(BackgroundExecutionMiddleware())
 
+    allowed_tools = contract_tool_allowlist(memory_source_agent)
+    if allowed_tools is not None:
+        # Async specialists are root graphs, so apply the same hard boundary
+        # that inline specialist specs receive in _inject_subagent_middleware.
+        mw.append(ContractToolAllowlistMiddleware(allowed_tools))
+
     return mw
 
 
@@ -832,7 +958,7 @@ def _get_default_agent():
         from deepagents import create_deep_agent
 
         cfg = _ensure_config()
-        be = _get_default_backend()
+        be = _get_scoped_backend_factory()
         mw = _get_default_middleware()
 
         # HITL on main agent only (mirrors create_cli_agent). Use middleware,
@@ -846,6 +972,12 @@ def _get_default_agent():
                         "execute": True,
                         "run_in_background": True,
                         "schedule_task": True,
+                        # Knowledge-base decision gates (see knowledge-base plan §5.6):
+                        # promotion to canonical, plan freeze, and hypothesis freeze
+                        # all pause for human review unless auto_approve is set.
+                        "kb_promote": True,
+                        "research_planner_freeze_plan": True,
+                        "scientific_hypothesis_freeze": True,
                     }
                 )
             )
@@ -1008,6 +1140,11 @@ def create_cli_agent(
                     "execute": True,
                     "run_in_background": True,
                     "schedule_task": True,
+                    # Knowledge-base decision gates (mirrors the deploy path):
+                    # promotion to canonical, plan freeze, hypothesis freeze.
+                    "kb_promote": True,
+                    "research_planner_freeze_plan": True,
+                    "scientific_hypothesis_freeze": True,
                 }
             )
         )

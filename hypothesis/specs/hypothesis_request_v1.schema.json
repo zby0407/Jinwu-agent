@@ -1,0 +1,110 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://b3.local/specs/hypothesis_request_v1.schema.json",
+  "title": "Scientific Hypothesis Request 1.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "task_name",
+    "research_question",
+    "upstream_materials",
+    "prior_hypotheses",
+    "max_candidates"
+  ],
+  "properties": {
+    "schema_version": { "const": "scientific-hypothesis-request-v1" },
+    "task_name": { "type": "string", "minLength": 1, "maxLength": 200 },
+    "research_question": { "type": "string", "minLength": 8, "maxLength": 4000 },
+    "max_candidates": { "type": "integer", "minimum": 1, "maximum": 8 },
+    "upstream_materials": {
+      "type": "array",
+      "maxItems": 12,
+      "items": { "$ref": "#/$defs/upstreamMaterial" }
+    },
+    "prior_hypotheses": {
+      "type": "array",
+      "maxItems": 12,
+      "items": { "$ref": "#/$defs/priorHypothesis" }
+    }
+  },
+  "$defs": {
+    "safeId": {
+      "type": "string",
+      "pattern": "^[A-Za-z][A-Za-z0-9_-]{0,63}$"
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "metric": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "value_text", "definition"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1, "maxLength": 200 },
+        "value_text": { "type": "string", "minLength": 1, "maxLength": 500 },
+        "definition": { "type": "string", "minLength": 1, "maxLength": 500 }
+      }
+    },
+    "experimentSummary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "execution_completed",
+        "outcome",
+        "metrics",
+        "uncertainty_notes",
+        "record_sha256"
+      ],
+      "properties": {
+        "execution_completed": { "type": "boolean" },
+        "outcome": {
+          "enum": ["completed", "null_result", "uncertain", "technical_failure"]
+        },
+        "metrics": {
+          "type": "array",
+          "maxItems": 40,
+          "items": { "$ref": "#/$defs/metric" }
+        },
+        "uncertainty_notes": { "type": "string", "minLength": 1, "maxLength": 2000 },
+        "record_sha256": { "anyOf": [{ "$ref": "#/$defs/sha256" }, { "type": "null" }] }
+      }
+    },
+    "upstreamMaterial": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "material_kind",
+        "title",
+        "locator",
+        "content_notes",
+        "experiment_summary"
+      ],
+      "properties": {
+        "id": { "$ref": "#/$defs/safeId" },
+        "material_kind": {
+          "enum": ["research_plan", "experiment_result", "data_feature", "literature_note", "user_material"]
+        },
+        "title": { "type": "string", "minLength": 1, "maxLength": 300 },
+        "locator": { "type": "string", "minLength": 1, "maxLength": 1000 },
+        "content_notes": { "type": "string", "minLength": 1, "maxLength": 8000 },
+        "experiment_summary": {
+          "anyOf": [{ "$ref": "#/$defs/experimentSummary" }, { "type": "null" }]
+        }
+      }
+    },
+    "priorHypothesis": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "statement", "version", "notes"],
+      "properties": {
+        "id": { "$ref": "#/$defs/safeId" },
+        "statement": { "type": "string", "minLength": 1, "maxLength": 1000 },
+        "version": { "type": "integer", "minimum": 1 },
+        "notes": { "type": "string", "minLength": 1, "maxLength": 2000 }
+      }
+    }
+  }
+}

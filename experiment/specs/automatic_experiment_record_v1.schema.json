@@ -1,0 +1,130 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "automatic-experiment-record-v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "run_id",
+    "created_at",
+    "verified_at",
+    "lifecycle_phase",
+    "execution_state",
+    "outcome",
+    "outcome_reason",
+    "task_name",
+    "task",
+    "request_sha256",
+    "response_sha256",
+    "design_sha256",
+    "final_stage_id",
+    "stage_history",
+    "artifact_lineage",
+    "budget_usage",
+    "input_snapshot",
+    "attempt",
+    "attempt_history",
+    "execution_facts",
+    "worker_result",
+    "scientific_assessment",
+    "evidence_ledger",
+    "verification_checks",
+    "public_artifacts",
+    "replay",
+    "record_sha256"
+  ],
+  "properties": {
+    "schema_version": {"const": "automatic-experiment-record-v1"},
+    "run_id": {"type": "string", "minLength": 1, "maxLength": 128},
+    "created_at": {"type": "string", "format": "date-time"},
+    "verified_at": {"type": "string", "format": "date-time"},
+    "lifecycle_phase": {"const": "verification_finished"},
+    "execution_state": {"enum": ["not_started", "prepared_not_started", "started_unconfirmed", "finished_unverified", "completed", "stopped", "failed"]},
+    "outcome": {
+      "enum": [
+        "completed_interpretable",
+        "partial_result",
+        "scientific_null",
+        "high_uncertainty",
+        "input_missing",
+        "method_mismatch",
+        "technical_failure",
+        "budget_stopped",
+        "clarification_required",
+        "boundary_blocked",
+        "cancelled_by_user"
+      ]
+    },
+    "outcome_reason": {"type": "string", "minLength": 1, "maxLength": 10000},
+    "task_name": {"type": "string", "pattern": "^[A-Za-z][A-Za-z0-9_-]{0,63}$"},
+    "task": {"type": "string", "minLength": 8, "maxLength": 4000},
+    "request_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "response_sha256": {"type": ["string", "null"], "pattern": "^[0-9a-f]{64}$"},
+    "design_sha256": {"type": ["string", "null"], "pattern": "^[0-9a-f]{64}$"},
+    "final_stage_id": {"type": ["string", "null"]},
+    "stage_history": {"type": "array", "maxItems": 5, "items": {"type": "object"}},
+    "artifact_lineage": {"type": "array", "maxItems": 100, "items": {"type": "object"}},
+    "budget_usage": {"type": "object"},
+    "input_snapshot": {"type": ["object", "null"]},
+    "attempt": {"type": ["object", "null"]},
+    "attempt_history": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "attempt_id",
+          "stage_id",
+          "parent_attempt",
+          "created_at",
+          "change_reason",
+          "design_sha256",
+          "files",
+          "code_changes",
+          "execution_summary",
+          "verification_outcome",
+          "verification_reason"
+        ],
+        "properties": {
+          "attempt_id": {"type": "string", "pattern": "^attempt-[0-9]{3}$"},
+          "stage_id": {"type": ["string", "null"]},
+          "parent_attempt": {
+            "type": ["string", "null"],
+            "pattern": "^attempt-[0-9]{3}$"
+          },
+          "created_at": {"type": "string", "format": "date-time"},
+          "change_reason": {"type": "string", "minLength": 1},
+          "design_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+          "files": {"type": "array", "items": {"type": "object"}},
+          "code_changes": {"type": "array", "items": {"type": "object"}},
+          "execution_summary": {"type": ["object", "null"]},
+          "verification_outcome": {
+            "enum": [
+              "completed_interpretable",
+              "partial_result",
+              "scientific_null",
+              "high_uncertainty",
+              "input_missing",
+              "method_mismatch",
+              "technical_failure",
+              "budget_stopped",
+              "clarification_required",
+              "boundary_blocked",
+              "cancelled_by_user",
+              null
+            ]
+          },
+          "verification_reason": {"type": ["string", "null"]}
+        }
+      }
+    },
+    "execution_facts": {"type": ["object", "null"]},
+    "worker_result": {"type": ["object", "null"]},
+    "scientific_assessment": {"type": ["object", "null"]},
+    "evidence_ledger": {"type": ["object", "null"]},
+    "verification_checks": {"type": "array", "items": {"type": "object"}},
+    "public_artifacts": {"type": "array", "items": {"type": "object"}},
+    "replay": {"type": "object"},
+    "record_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+  }
+}

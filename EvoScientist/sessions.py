@@ -32,10 +32,11 @@ import atexit
 import logging
 import math
 import uuid
-from collections.abc import AsyncIterator, Awaitable, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable, Sequence
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from functools import partial
 from pathlib import Path
 from typing import Any, cast
 
@@ -1445,6 +1446,58 @@ async def _api_workspace_dir_async() -> str:
     return await asyncio.to_thread(_api_workspace_dir)
 
 
+def _publish_api_workspace_sidecar() -> None:
+    """Publish the live API process as the owner of its workspace.
+
+    The normal ``EvoSci deploy`` launcher writes this sidecar before starting
+    LangGraph.  A direct ``langgraph dev`` launch previously did not, leaving
+    the separately running WebUI unable to resolve thread workspaces even
+    though the backend and bindings were healthy.  Only publish when the
+    backend received an explicit workspace environment variable; falling back
+    to its source-tree cwd would make an accidental manual launch authoritative.
+    """
+    import os
+
+    workspace = os.environ.get("EVOSCIENTIST_WORKSPACE_DIR", "").strip()
+    if not workspace:
+        return
+    try:
+        import psutil
+
+        from .langgraph_dev.manager import (
+            _read_workspace_sidecar,
+            _write_workspace_sidecar,
+        )
+
+        # The checkpointer factory is also exercised by tests and embedded
+        # callers.  Those processes must not steal the global sidecar from an
+        # already-running LangGraph API: once the short-lived process exits,
+        # the WebUI would reject the otherwise healthy backend because the
+        # recorded PID is stale.  Only preserve owners that are both alive and
+        # recognisably LangGraph; a stale/recycled/test PID remains replaceable
+        # by a real backend starting afterwards.
+        existing = _read_workspace_sidecar()
+        existing_pid = existing.get("pid") if existing is not None else None
+        if (
+            isinstance(existing_pid, int)
+            and not isinstance(existing_pid, bool)
+            and existing_pid > 0
+            and existing_pid != os.getpid()
+        ):
+            try:
+                cmdline = psutil.Process(existing_pid).cmdline()
+            except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.Error):
+                cmdline = []
+            if any("langgraph" in arg.lower() for arg in cmdline):
+                return
+
+        _write_workspace_sidecar(Path(workspace).expanduser().resolve(), os.getpid())
+    except Exception:
+        _logger.warning(
+            "Could not publish langgraph API workspace sidecar.", exc_info=True
+        )
+
+
 class _ApiPruningCheckpointer(PruningCheckpointer):
     """``PruningCheckpointer`` that stamps CLI-compatible ownership metadata.
 
@@ -1474,12 +1527,187 @@ class _ApiPruningCheckpointer(PruningCheckpointer):
             # Run it in a thread, and only when actually needed — ``setdefault``
             # would evaluate the argument eagerly on every write even when the
             # key is already present.
-            if "workspace_dir" not in metadata:
-                metadata["workspace_dir"] = await _api_workspace_dir_async()
+            base_workspace = await _api_workspace_dir_async()
+            # Bind graph checkpoints to the same task workspace used by the
+            # filesystem backend.  ``workspace_thread_id`` lets remote async
+            # sub-agents inherit their parent's run instead of creating a
+            # second, misleading workspace.
+            binding = None
+            try:
+                from .workspaces import ensure_workspace_for_config
+
+                checkpoint_state = (
+                    checkpoint.get("channel_values")
+                    if isinstance(checkpoint, dict)
+                    else None
+                )
+                binding = await asyncio.to_thread(
+                    partial(
+                        ensure_workspace_for_config,
+                        config if isinstance(config, dict) else None,
+                        base_workspace,
+                        state=(
+                            checkpoint_state
+                            if isinstance(checkpoint_state, dict)
+                            else None
+                        ),
+                    )
+                )
+            except Exception:
+                _logger.warning(
+                    "Could not resolve task workspace while stamping checkpoint; "
+                    "falling back to the deployment workspace.",
+                    exc_info=True,
+                )
+            metadata["base_workspace_dir"] = base_workspace
+            if binding is not None:
+                metadata["workspace_dir"] = binding.workspace
+                metadata["workspace_scope_thread_id"] = binding.thread_id
+                metadata["project_id"] = binding.project_id
+                metadata["workspace_run_id"] = binding.run_id
+                metadata["workspace_legacy"] = binding.legacy
+            else:
+                metadata.setdefault("workspace_dir", base_workspace)
             metadata["updated_at"] = datetime.now(UTC).isoformat()
             if metadata.get("graph_id") == AGENT_NAME:
                 metadata.setdefault("agent_name", AGENT_NAME)
         return await super().aput(config, checkpoint, metadata, new_versions)
+
+    async def adelete_for_runs(self, run_ids: Sequence[str]) -> None:
+        """Delete checkpoints and pending writes produced by selected runs."""
+        normalized = tuple(dict.fromkeys(str(run_id) for run_id in run_ids if run_id))
+        if not normalized:
+            return
+        placeholders = ",".join("?" for _ in normalized)
+        async with self.lock, self.conn.cursor() as cur:
+            # Writes do not carry metadata, so remove them while their owning
+            # checkpoint rows still identify the run.
+            await cur.execute(
+                f"""
+                DELETE FROM writes AS pending
+                WHERE EXISTS (
+                    SELECT 1
+                    FROM checkpoints AS checkpoint
+                    WHERE checkpoint.thread_id = pending.thread_id
+                      AND checkpoint.checkpoint_ns = pending.checkpoint_ns
+                      AND checkpoint.checkpoint_id = pending.checkpoint_id
+                      AND json_extract(checkpoint.metadata, '$.run_id')
+                          IN ({placeholders})
+                )
+                """,
+                normalized,
+            )
+            await cur.execute(
+                f"""
+                DELETE FROM checkpoints
+                WHERE json_extract(metadata, '$.run_id') IN ({placeholders})
+                """,
+                normalized,
+            )
+            await self.conn.commit()
+
+    async def aprune(
+        self,
+        thread_ids: Sequence[str],
+        *,
+        strategy: str = "keep_latest",
+    ) -> None:
+        """Implement the custom-checkpointer pruning capability used by the API."""
+        normalized = tuple(
+            dict.fromkeys(str(thread_id) for thread_id in thread_ids if thread_id)
+        )
+        if not normalized:
+            return
+        if strategy not in {"keep_latest", "delete"}:
+            raise ValueError(f"Unsupported checkpoint prune strategy: {strategy}")
+        placeholders = ",".join("?" for _ in normalized)
+        async with self.lock, self.conn.cursor() as cur:
+            if strategy == "delete":
+                await cur.execute(
+                    f"DELETE FROM writes WHERE thread_id IN ({placeholders})",
+                    normalized,
+                )
+                await cur.execute(
+                    f"DELETE FROM checkpoints WHERE thread_id IN ({placeholders})",
+                    normalized,
+                )
+            else:
+                # Checkpoint UUIDs are time ordered; this matches the saver's
+                # normal DESC ordering and keeps one head per namespace.
+                await cur.execute(
+                    f"""
+                    DELETE FROM writes AS pending
+                    WHERE pending.thread_id IN ({placeholders})
+                      AND EXISTS (
+                          SELECT 1 FROM checkpoints AS checkpoint
+                          WHERE checkpoint.thread_id = pending.thread_id
+                            AND checkpoint.checkpoint_ns = pending.checkpoint_ns
+                            AND checkpoint.checkpoint_id = pending.checkpoint_id
+                            AND checkpoint.checkpoint_id <> (
+                                SELECT MAX(head.checkpoint_id)
+                                FROM checkpoints AS head
+                                WHERE head.thread_id = pending.thread_id
+                                  AND head.checkpoint_ns = pending.checkpoint_ns
+                            )
+                      )
+                    """,
+                    normalized,
+                )
+                await cur.execute(
+                    f"""
+                    DELETE FROM checkpoints AS checkpoint
+                    WHERE checkpoint.thread_id IN ({placeholders})
+                      AND checkpoint.checkpoint_id <> (
+                          SELECT MAX(head.checkpoint_id)
+                          FROM checkpoints AS head
+                          WHERE head.thread_id = checkpoint.thread_id
+                            AND head.checkpoint_ns = checkpoint.checkpoint_ns
+                      )
+                    """,
+                    normalized,
+                )
+            await self.conn.commit()
+
+    async def acopy_thread(
+        self, source_thread_id: str, target_thread_id: str
+    ) -> None:
+        """Atomically replace a target thread with a complete source copy."""
+        source = str(source_thread_id)
+        target = str(target_thread_id)
+        if not source or not target:
+            raise ValueError("source_thread_id and target_thread_id are required")
+        if source == target:
+            return
+        async with self.lock, self.conn.cursor() as cur:
+            await cur.execute("DELETE FROM writes WHERE thread_id = ?", (target,))
+            await cur.execute("DELETE FROM checkpoints WHERE thread_id = ?", (target,))
+            await cur.execute(
+                """
+                INSERT INTO checkpoints (
+                    thread_id, checkpoint_ns, checkpoint_id,
+                    parent_checkpoint_id, type, checkpoint, metadata
+                )
+                SELECT ?, checkpoint_ns, checkpoint_id,
+                       parent_checkpoint_id, type, checkpoint, metadata
+                FROM checkpoints
+                WHERE thread_id = ?
+                """,
+                (target, source),
+            )
+            await cur.execute(
+                """
+                INSERT INTO writes (
+                    thread_id, checkpoint_ns, checkpoint_id,
+                    task_id, idx, channel, type, value
+                )
+                SELECT ?, checkpoint_ns, checkpoint_id,
+                       task_id, idx, channel, type, value
+                FROM writes
+                WHERE thread_id = ?
+                """,
+                (target, source),
+            )
+            await self.conn.commit()
 
 
 async def _purge_internal_worker_threads() -> None:
@@ -1529,6 +1757,7 @@ class _RestoredThreadInfo:
     assistant_id: str | None
     graph_id: str
     workspace_dir: str
+    base_workspace_dir: str
     model: str | None
 
 
@@ -1600,6 +1829,7 @@ async def _restore_webui_threads_to_global_store() -> None:
                            MAX(json_extract(metadata, '$.assistant_id')) as assistant_id,
                            MAX(json_extract(metadata, '$.graph_id')) as graph_id,
                            MAX(json_extract(metadata, '$.workspace_dir')) as workspace_dir,
+                           MAX(json_extract(metadata, '$.base_workspace_dir')) as base_workspace_dir,
                            MAX(json_extract(metadata, '$.model')) as model,
                            MAX(json_extract(metadata, '$.agent_name')) as agent_name
                     FROM checkpoints
@@ -1621,6 +1851,7 @@ async def _restore_webui_threads_to_global_store() -> None:
                     assistant_id,
                     graph_id,
                     workspace_dir,
+                    base_workspace_dir,
                     model,
                     agent_name,
                 ) = row
@@ -1632,13 +1863,17 @@ async def _restore_webui_threads_to_global_store() -> None:
                     restored_graph_id = AGENT_NAME
                 if restored_graph_id is None:
                     continue
-                if not workspace_dir or workspace_dir != current_workspace:
+                if not workspace_dir or (
+                    workspace_dir != current_workspace
+                    and base_workspace_dir != current_workspace
+                ):
                     continue
                 sqlite_data[thread_uuid] = _RestoredThreadInfo(
                     updated_at=updated_at,
                     assistant_id=assistant_id,
                     graph_id=restored_graph_id,
                     workspace_dir=workspace_dir,
+                    base_workspace_dir=base_workspace_dir or current_workspace,
                     model=model,
                 )
 
@@ -1705,6 +1940,9 @@ async def _restore_webui_threads_to_global_store() -> None:
                 if meta.get("workspace_dir") != info.workspace_dir:
                     meta["workspace_dir"] = info.workspace_dir
                     changed = True
+                if meta.get("base_workspace_dir") != info.base_workspace_dir:
+                    meta["base_workspace_dir"] = info.base_workspace_dir
+                    changed = True
                 if info.model and meta.get("model") != info.model:
                     meta["model"] = info.model
                     changed = True
@@ -1731,6 +1969,7 @@ async def _restore_webui_threads_to_global_store() -> None:
             stub_metadata: dict[str, Any] = {
                 "graph_id": info.graph_id,
                 "workspace_dir": info.workspace_dir,
+                "base_workspace_dir": info.base_workspace_dir,
             }
             if info.assistant_id:
                 # str, not uuid.UUID — same convention as above.
@@ -1790,12 +2029,11 @@ async def create_checkpointer_for_langgraph_api() -> AsyncIterator[PruningCheckp
     WebUI threads surface in the CLI session commands and participate in
     ``_prune_after_put`` retention.
 
-    Capability note: ``adelete_thread`` is real, but ``aprune`` /
-    ``adelete_for_runs`` / ``acopy_thread`` remain ``BaseCheckpointSaver``
-    raising stubs — langgraph-api's probe reports them missing and
-    degrades (``multitask_strategy='rollback'`` cleanup raises; thread
-    copy uses the slow generic fallback).
+    The API capability surface is complete: run-specific rollback cleanup,
+    thread copying, and pruning are implemented by ``_ApiPruningCheckpointer``
+    rather than inheriting ``BaseCheckpointSaver`` raising stubs.
     """
+    await asyncio.to_thread(_publish_api_workspace_sidecar)
     keep = _resolve_keep_per_ns()
     async with _ApiPruningCheckpointer.from_conn_string_with_keep(
         str(get_db_path()), keep_per_ns=keep

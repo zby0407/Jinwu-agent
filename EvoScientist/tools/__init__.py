@@ -4,8 +4,10 @@ External imports like ``from EvoScientist.tools import tavily_search`` continue
 to work unchanged thanks to these re-exports.
 """
 
-from .b3_science import B3_SCIENCE_TOOLS
+from .automatic_experiment import AUTOMATIC_EXPERIMENT_TOOLS
+from .knowledge_base import KB_TOOLS
 from .research_planner import RESEARCH_PLANNER_TOOLS
+from .scientific_hypothesis import SCIENTIFIC_HYPOTHESIS_TOOLS
 from .search import fetch_webpage_content, tavily_search
 from .skill_manager import skill_manager
 from .solar_feature import (
@@ -24,8 +26,10 @@ SOLAR_FEATURE_TOOLS = [
 ]
 
 __all__ = [
-    "B3_SCIENCE_TOOLS",
+    "AUTOMATIC_EXPERIMENT_TOOLS",
+    "KB_TOOLS",
     "RESEARCH_PLANNER_TOOLS",
+    "SCIENTIFIC_HYPOTHESIS_TOOLS",
     "SOLAR_FEATURE_TOOLS",
     "audit_solar_data_quality",
     "dataset_statistics",

@@ -1,0 +1,78 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "literature-distill-v1",
+  "title": "Literature Distill Request 1.0",
+  "description": "Payload contract for lit_distill (plan §5.3). The agent/LLM produces the distilled content; deterministic code verifies every evidence-bearing field's quote against the cached literature text before storing a candidate entry.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["source_id", "entry_type", "title", "content"],
+  "properties": {
+    "source_id": {
+      "type": "string",
+      "pattern": "^(openalex|arxiv):\\S+$",
+      "description": "Cached literature id from lit_search, e.g. openalex:W123 or arxiv:2412.34567."
+    },
+    "entry_type": {
+      "type": "string",
+      "enum": [
+        "concept",
+        "mechanism",
+        "data_source",
+        "experiment_paradigm",
+        "hypothesis_template",
+        "finding",
+        "counterexample"
+      ]
+    },
+    "title": {"type": "string", "minLength": 1, "maxLength": 500},
+    "content": {
+      "type": "object",
+      "minProperties": 1,
+      "description": "Keys are per-type content sub-fields (see knowledge-entry-v1). Each value is either an evidence object or the string \"evidence_gap\".",
+      "additionalProperties": {
+        "oneOf": [
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["text", "quote", "location"],
+            "properties": {
+              "text": {
+                "oneOf": [
+                  {"type": "string", "minLength": 1},
+                  {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}}
+                ],
+                "description": "Distilled field body (list form only for list fields such as testable_predictions)."
+              },
+              "quote": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Verbatim passage (<=40 words) copied from the cached source text; must hit the cached text after case/whitespace normalization."
+              },
+              "location": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Where the quote sits, e.g. \"abstract\" or \"paragraph 2\"."
+              }
+            }
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["evidence_gap"],
+            "properties": {
+              "evidence_gap": {
+                "type": "string",
+                "description": "Why the source cannot support this field. Required content fields may not be gaps."
+              }
+            }
+          },
+          {"type": "string", "const": "evidence_gap"}
+        ]
+      }
+    },
+    "focus": {"type": "string", "maxLength": 1000},
+    "run_id": {"type": "string", "maxLength": 200},
+    "agent": {"type": "string", "maxLength": 200},
+    "confidence": {"type": "string", "enum": ["high", "medium", "low"], "default": "low"}
+  }
+}

@@ -7,6 +7,7 @@ import tempfile
 import unittest
 import uuid
 from datetime import UTC
+from pathlib import Path
 from unittest.mock import patch
 
 import pytest
@@ -2008,6 +2009,75 @@ class TestCreateCheckpointerForLanggraphApi(unittest.IsolatedAsyncioTestCase):
     """Tests for ``create_checkpointer_for_langgraph_api`` — the WebUI/deploy
     SQLite checkpointer factory that replaces the default ``InMemorySaver``."""
 
+    def test_direct_api_launch_publishes_workspace_sidecar(self):
+        from EvoScientist.sessions import _publish_api_workspace_sidecar
+
+        with tempfile.TemporaryDirectory() as td:
+            workspace = Path(td) / "workspace"
+            workspace.mkdir()
+            with (
+                patch.dict(
+                    os.environ,
+                    {"EVOSCIENTIST_WORKSPACE_DIR": str(workspace)},
+                ),
+                patch(
+                    "EvoScientist.langgraph_dev.manager._read_workspace_sidecar",
+                    return_value=None,
+                ),
+                patch(
+                    "EvoScientist.langgraph_dev.manager._write_workspace_sidecar"
+                ) as write_sidecar,
+            ):
+                _publish_api_workspace_sidecar()
+
+            write_sidecar.assert_called_once_with(workspace.resolve(), os.getpid())
+
+    def test_direct_api_launch_does_not_replace_live_langgraph_owner(self):
+        from EvoScientist.sessions import _publish_api_workspace_sidecar
+
+        with (
+            patch.dict(
+                os.environ,
+                {"EVOSCIENTIST_WORKSPACE_DIR": "/tmp/test-workspace"},
+            ),
+            patch(
+                "EvoScientist.langgraph_dev.manager._read_workspace_sidecar",
+                return_value={"workspace": "/real/workspace", "pid": 4242},
+            ),
+            patch("psutil.Process") as process,
+            patch(
+                "EvoScientist.langgraph_dev.manager._write_workspace_sidecar"
+            ) as write_sidecar,
+        ):
+            process.return_value.cmdline.return_value = ["python", "langgraph", "dev"]
+            _publish_api_workspace_sidecar()
+
+        write_sidecar.assert_not_called()
+
+    def test_direct_api_launch_replaces_non_langgraph_owner(self):
+        from EvoScientist.sessions import _publish_api_workspace_sidecar
+
+        with (
+            patch.dict(
+                os.environ,
+                {"EVOSCIENTIST_WORKSPACE_DIR": "/tmp/test-workspace"},
+            ),
+            patch(
+                "EvoScientist.langgraph_dev.manager._read_workspace_sidecar",
+                return_value={"workspace": "/temporary/test", "pid": 4242},
+            ),
+            patch("psutil.Process") as process,
+            patch(
+                "EvoScientist.langgraph_dev.manager._write_workspace_sidecar"
+            ) as write_sidecar,
+        ):
+            process.return_value.cmdline.return_value = ["python", "pytest"]
+            _publish_api_workspace_sidecar()
+
+        write_sidecar.assert_called_once_with(
+            Path("/tmp/test-workspace").resolve(), os.getpid()
+        )
+
     async def test_yields_pruning_checkpointer(self):
         """Factory yields a ``PruningCheckpointer`` instance."""
         from EvoScientist.sessions import (
@@ -2139,17 +2209,92 @@ class TestCreateCheckpointerForLanggraphApi(unittest.IsolatedAsyncioTestCase):
             return base is not None and sub is not None and sub is not base
 
         # Real implementations the adapter will detect and use.
-        for method in ("adelete_thread", "aget_tuple", "aput", "aput_writes"):
+        for method in (
+            "adelete_thread",
+            "adelete_for_runs",
+            "acopy_thread",
+            "aprune",
+            "aget_tuple",
+            "aput",
+            "aput_writes",
+        ):
             assert overridden(method), f"'{method}' must be a real implementation"
-        # Known degradations: still BaseCheckpointSaver raising stubs.
-        # rollback cleanup raises at runtime; thread copy uses the adapter's
-        # slow generic fallback. If these start passing, the docstring in
-        # create_checkpointer_for_langgraph_api should be updated.
-        for method in ("aprune", "adelete_for_runs", "acopy_thread"):
-            assert not overridden(method), (
-                f"'{method}' is now overridden — update the capability "
-                "docstring in create_checkpointer_for_langgraph_api"
-            )
+
+    async def test_api_checkpointer_run_cleanup_copy_and_prune(self):
+        from EvoScientist.sessions import _ApiPruningCheckpointer
+
+        with tempfile.TemporaryDirectory() as td:
+            db = os.path.join(td, "sessions.db")
+            async with _ApiPruningCheckpointer.from_conn_string_with_keep(
+                db, keep_per_ns=0
+            ) as cp:
+                await cp.setup()
+                checkpoints = [
+                    ("source", "", "001", None, "json", b"{}", '{"run_id":"run-a"}'),
+                    ("source", "", "002", "001", "json", b"{}", '{"run_id":"run-b"}'),
+                    (
+                        "source",
+                        "child",
+                        "001",
+                        None,
+                        "json",
+                        b"{}",
+                        '{"run_id":"run-a"}',
+                    ),
+                ]
+                writes = [
+                    (thread, ns, checkpoint, "task", 0, "messages", "json", b"{}")
+                    for thread, ns, checkpoint, *_rest in checkpoints
+                ]
+                await cp.conn.executemany(
+                    "INSERT INTO checkpoints VALUES (?, ?, ?, ?, ?, ?, ?)",
+                    checkpoints,
+                )
+                await cp.conn.executemany(
+                    "INSERT INTO writes VALUES (?, ?, ?, ?, ?, ?, ?, ?)", writes
+                )
+                await cp.conn.commit()
+
+                await cp.adelete_for_runs(["run-a"])
+                async with cp.conn.execute(
+                    "SELECT checkpoint_id FROM checkpoints WHERE thread_id='source'"
+                ) as cur:
+                    assert await cur.fetchall() == [("002",)]
+                async with cp.conn.execute(
+                    "SELECT checkpoint_id FROM writes WHERE thread_id='source'"
+                ) as cur:
+                    assert await cur.fetchall() == [("002",)]
+
+                await cp.acopy_thread("source", "target")
+                async with cp.conn.execute(
+                    "SELECT checkpoint_id FROM checkpoints WHERE thread_id='target'"
+                ) as cur:
+                    assert await cur.fetchall() == [("002",)]
+
+                await cp.conn.execute(
+                    "INSERT INTO checkpoints VALUES (?, ?, ?, ?, ?, ?, ?)",
+                    (
+                        "source",
+                        "",
+                        "003",
+                        "002",
+                        "json",
+                        b"{}",
+                        '{"run_id":"run-c"}',
+                    ),
+                )
+                await cp.conn.commit()
+                await cp.aprune(["source"], strategy="keep_latest")
+                async with cp.conn.execute(
+                    "SELECT checkpoint_id FROM checkpoints WHERE thread_id='source'"
+                ) as cur:
+                    assert await cur.fetchall() == [("003",)]
+
+                await cp.aprune(["target"], strategy="delete")
+                async with cp.conn.execute(
+                    "SELECT COUNT(*) FROM checkpoints WHERE thread_id='target'"
+                ) as cur:
+                    assert (await cur.fetchone())[0] == 0
 
     async def test_aput_stamps_workspace_metadata_for_graph_rows(self):
         """Graph rows get workspace metadata; only main rows get agent_name."""

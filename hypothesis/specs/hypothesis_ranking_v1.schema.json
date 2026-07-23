@@ -1,0 +1,144 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://b3.local/specs/hypothesis_ranking_v1.schema.json",
+  "title": "Scientific Hypothesis Ranking 1.0",
+  "description": "假设组合的初步排序（本侧初审，证据审查 Agent 独立复审）。每条名次必须附可追溯理由与关键证据锚点，不允许只输出排名序号。",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "rubric", "weights", "ranked", "pairwise_judgments"],
+  "properties": {
+    "schema_version": { "const": "scientific-hypothesis-ranking-v1" },
+    "rubric": {
+      "type": "array",
+      "minItems": 7,
+      "maxItems": 7,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["key", "label"],
+        "properties": {
+          "key": {
+            "enum": [
+              "data_support",
+              "model_consistency",
+              "physical_plausibility",
+              "uncertainty",
+              "counterexample_coverage",
+              "ablation_sensitivity",
+              "drift_risk"
+            ]
+          },
+          "label": { "type": "string", "minLength": 1, "maxLength": 100 }
+        }
+      }
+    },
+    "weights": {
+      "type": "object",
+      "additionalProperties": false,
+      "patternProperties": {
+        "^(data_support|model_consistency|physical_plausibility|uncertainty|counterexample_coverage|ablation_sensitivity|drift_risk)$": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 3
+        }
+      }
+    },
+    "ranked": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 8,
+      "items": { "$ref": "#/$defs/rankedEntry" }
+    },
+    "pairwise_judgments": {
+      "type": "array",
+      "maxItems": 28,
+      "items": { "$ref": "#/$defs/pairwiseJudgment" }
+    }
+  },
+  "$defs": {
+    "safeId": {
+      "type": "string",
+      "pattern": "^[A-Za-z][A-Za-z0-9_-]{0,63}$"
+    },
+    "grade": { "enum": ["strong", "moderate", "weak"] },
+    "dimensionGrades": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "data_support",
+        "model_consistency",
+        "physical_plausibility",
+        "uncertainty",
+        "counterexample_coverage",
+        "ablation_sensitivity",
+        "drift_risk"
+      ],
+      "properties": {
+        "data_support": { "$ref": "#/$defs/grade" },
+        "model_consistency": { "$ref": "#/$defs/grade" },
+        "physical_plausibility": { "$ref": "#/$defs/grade" },
+        "uncertainty": { "$ref": "#/$defs/grade" },
+        "counterexample_coverage": { "$ref": "#/$defs/grade" },
+        "ablation_sensitivity": { "$ref": "#/$defs/grade" },
+        "drift_risk": { "$ref": "#/$defs/grade" }
+      }
+    },
+    "rankedEntry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "candidate_id",
+        "rank",
+        "rationale",
+        "key_evidence_ids",
+        "dimension_grades",
+        "weakest_dimensions",
+        "confidence_note"
+      ],
+      "properties": {
+        "candidate_id": { "$ref": "#/$defs/safeId" },
+        "rank": { "type": "integer", "minimum": 1, "maximum": 8 },
+        "rationale": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2000,
+          "description": "该名次的可追溯理由；不允许只输出排名序号"
+        },
+        "key_evidence_ids": {
+          "type": "array",
+          "maxItems": 12,
+          "items": { "$ref": "#/$defs/safeId" },
+          "description": "关键证据锚点，必须指向该候选自身的已核验支持证据"
+        },
+        "dimension_grades": { "$ref": "#/$defs/dimensionGrades" },
+        "weakest_dimensions": {
+          "type": "array",
+          "maxItems": 7,
+          "items": {
+            "enum": [
+              "data_support",
+              "model_consistency",
+              "physical_plausibility",
+              "uncertainty",
+              "counterexample_coverage",
+              "ablation_sensitivity",
+              "drift_risk"
+            ]
+          }
+        },
+        "confidence_note": { "type": "string", "minLength": 1, "maxLength": 1000 }
+      }
+    },
+    "pairwiseJudgment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["left_id", "right_id", "preferred_id", "basis"],
+      "properties": {
+        "left_id": { "$ref": "#/$defs/safeId" },
+        "right_id": { "$ref": "#/$defs/safeId" },
+        "preferred_id": { "$ref": "#/$defs/safeId" },
+        "basis": { "type": "string", "minLength": 1, "maxLength": 1000 }
+      }
+    }
+  }
+}

@@ -1,6 +1,26 @@
 """Shared fixtures for EvoScientist tests."""
 
+import os
+
 import pytest
+
+
+@pytest.fixture(autouse=True)
+def _restore_environ():
+    """Restore ``os.environ`` exactly around every test.
+
+    Several code paths under test apply the user's real ``config.yaml`` into
+    the process environment (``apply_config_to_env``), and some tests call
+    env-mutating helpers (``setup_ccproxy_env``/``setup_codex_env``) directly.
+    Without a hard restore, leaked keys such as
+    ``EVOSCIENTIST_USE_RESPONSES_API=false`` silently flip the behavior of
+    unrelated tests later in the same process (e.g. ``tests/test_llm.py``
+    losing its ``reasoning`` kwarg).
+    """
+    snapshot = dict(os.environ)
+    yield
+    os.environ.clear()
+    os.environ.update(snapshot)
 
 
 @pytest.fixture(autouse=True)

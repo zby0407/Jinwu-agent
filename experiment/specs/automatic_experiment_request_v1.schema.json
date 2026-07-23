@@ -1,0 +1,145 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "automatic-experiment-request-v1",
+  "title": "Automatic Experiment Request 1.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "task_name",
+    "task",
+    "input_refs",
+    "success_criteria",
+    "method_constraints",
+    "resource_budget",
+    "run_budget",
+    "seed_policy",
+    "replay_of",
+    "user_notes"
+  ],
+  "properties": {
+    "schema_version": {"const": "automatic-experiment-request-v1"},
+    "task_name": {"type": "string", "pattern": "^[A-Za-z][A-Za-z0-9_-]{0,63}$"},
+    "task": {"type": "string", "minLength": 8, "maxLength": 4000},
+    "input_refs": {
+      "type": "array",
+      "maxItems": 50,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "path", "description", "required"],
+        "properties": {
+          "id": {"type": "string", "pattern": "^[A-Za-z][A-Za-z0-9_-]{0,63}$"},
+          "path": {"type": "string", "minLength": 1, "maxLength": 1000},
+          "description": {"type": "string", "minLength": 1, "maxLength": 1000},
+          "required": {"type": "boolean"}
+        }
+      }
+    },
+    "success_criteria": {
+      "type": "array",
+      "maxItems": 30,
+      "items": {"$ref": "#/$defs/criterion"}
+    },
+    "method_constraints": {
+      "type": "array",
+      "maxItems": 20,
+      "uniqueItems": true,
+      "items": {"type": "string", "minLength": 1, "maxLength": 1000}
+    },
+    "resource_budget": {"$ref": "#/$defs/budget"},
+    "run_budget": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["total_wall_seconds", "max_stages", "max_total_attempts"],
+      "properties": {
+        "total_wall_seconds": {"type": "integer", "minimum": 1, "maximum": 5400},
+        "max_stages": {"type": "integer", "minimum": 1, "maximum": 5},
+        "max_total_attempts": {"type": "integer", "minimum": 1, "maximum": 10}
+      }
+    },
+    "seed_policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["mode", "seeds"],
+      "properties": {
+        "mode": {"enum": ["fixed", "sequence", "user_provided"]},
+        "seeds": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 20,
+          "uniqueItems": true,
+          "items": {"type": "integer", "minimum": 0, "maximum": 2147483647}
+        }
+      }
+    },
+    "replay_of": {
+      "oneOf": [
+        {"type": "null"},
+        {"type": "string", "minLength": 1, "maxLength": 128}
+      ]
+    },
+    "user_notes": {"type": "string", "maxLength": 4000}
+  },
+  "$defs": {
+    "criterion": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "statement", "basis_kind", "basis_text", "source_refs", "artifact_refs"],
+      "properties": {
+        "id": {"type": "string", "pattern": "^[A-Za-z][A-Za-z0-9_-]{0,63}$"},
+        "statement": {"type": "string", "minLength": 1, "maxLength": 4000},
+        "basis_kind": {
+          "enum": [
+            "user_request",
+            "located_source",
+            "data_derived",
+            "method_standard",
+            "qualitative_no_fixed_threshold"
+          ]
+        },
+        "basis_text": {"type": "string", "minLength": 1, "maxLength": 4000},
+        "source_refs": {
+          "type": "array",
+          "maxItems": 20,
+          "uniqueItems": true,
+          "items": {"type": "string", "minLength": 1, "maxLength": 1000}
+        },
+        "artifact_refs": {
+          "type": "array",
+          "maxItems": 20,
+          "uniqueItems": true,
+          "items": {"type": "string", "minLength": 1, "maxLength": 1000}
+        }
+      }
+    },
+    "budget": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "wall_seconds",
+        "cpu_seconds",
+        "memory_mb",
+        "disk_mb",
+        "single_file_mb",
+        "stdout_kb",
+        "stderr_kb",
+        "max_attempts",
+        "gpu_count",
+        "gpu_memory_mb"
+      ],
+      "properties": {
+        "wall_seconds": {"type": "integer", "minimum": 1, "maximum": 3600},
+        "cpu_seconds": {"type": "integer", "minimum": 1, "maximum": 7200},
+        "memory_mb": {"type": "integer", "minimum": 1, "maximum": 8192},
+        "disk_mb": {"type": "integer", "minimum": 1, "maximum": 4096},
+        "single_file_mb": {"type": "integer", "minimum": 1, "maximum": 1024},
+        "stdout_kb": {"type": "integer", "minimum": 1, "maximum": 51200},
+        "stderr_kb": {"type": "integer", "minimum": 1, "maximum": 51200},
+        "max_attempts": {"type": "integer", "minimum": 1, "maximum": 5},
+        "gpu_count": {"type": "integer", "minimum": 0, "maximum": 8},
+        "gpu_memory_mb": {"type": "integer", "minimum": 0, "maximum": 262144}
+      }
+    }
+  }
+}

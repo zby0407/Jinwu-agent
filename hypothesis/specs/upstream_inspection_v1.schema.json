@@ -1,0 +1,112 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://b3.local/specs/upstream_inspection_v1.schema.json",
+  "title": "Scientific Hypothesis Upstream Inspection 1.0",
+  "description": "上游自动实验 Agent 产出的核验结果。未核验、缺哈希、哈希不匹配或终态非 completed_* 的输入一律 blocked，绝不降级为猜测。",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "status", "run_id"],
+  "properties": {
+    "schema_version": { "const": "scientific-hypothesis-upstream-inspection-v1" },
+    "status": { "enum": ["verified", "blocked"] },
+    "run_id": { "type": "string", "minLength": 1, "maxLength": 200 },
+    "outcome": { "type": "string", "maxLength": 100 },
+    "verified_at": { "type": "string", "maxLength": 100 },
+    "blocker_code": {
+      "enum": [
+        "run_not_found",
+        "missing_entry_result",
+        "missing_record",
+        "missing_report",
+        "missing_audit",
+        "malformed_json",
+        "missing_fields",
+        "missing_hash",
+        "unexpected_schema",
+        "run_id_mismatch",
+        "not_finalized",
+        "hash_mismatch",
+        "outcome_not_eligible"
+      ]
+    },
+    "user_message": { "type": "string", "maxLength": 2000 },
+    "integrity": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "record_sha256_match": { "type": "boolean" },
+        "report_sha256_match": { "type": "boolean" },
+        "audit_sha256_match": { "anyOf": [{ "type": "boolean" }, { "type": "null" }] },
+        "verification_checks_all_passed": {
+          "anyOf": [{ "type": "boolean" }, { "type": "null" }]
+        },
+        "outcome_eligible": { "type": "boolean" },
+        "record_path_consistent": { "type": "boolean" }
+      }
+    },
+    "evidence_summary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "outcome_reason",
+        "claim_boundary",
+        "data_scope",
+        "evidence_strength",
+        "report_excerpt"
+      ],
+      "properties": {
+        "outcome_reason": { "type": "string", "maxLength": 1000 },
+        "claim_boundary": { "type": "string", "maxLength": 2000 },
+        "data_scope": { "type": "string", "maxLength": 2000 },
+        "evidence_strength": { "type": "string", "maxLength": 2000 },
+        "report_excerpt": { "type": "string", "maxLength": 2000 }
+      }
+    },
+    "public_artifacts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["path", "kind", "sha256", "description"],
+        "properties": {
+          "path": { "type": "string", "maxLength": 500 },
+          "kind": { "type": "string", "maxLength": 50 },
+          "sha256": { "type": "string", "maxLength": 64 },
+          "description": { "type": "string", "maxLength": 500 }
+        }
+      }
+    },
+    "planning_sources": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["input_id", "path", "source_path", "sha256", "note"],
+        "properties": {
+          "input_id": { "type": "string", "maxLength": 100 },
+          "path": { "type": "string", "maxLength": 500 },
+          "source_path": { "type": "string", "maxLength": 500 },
+          "sha256": {
+            "anyOf": [
+              { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+              { "type": "null" }
+            ]
+          },
+          "note": { "type": "string", "maxLength": 300 }
+        }
+      }
+    },
+    "data_coverages": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["product", "coverage"],
+        "properties": {
+          "product": { "type": "string", "maxLength": 200 },
+          "coverage": { "type": "string", "maxLength": 500 }
+        }
+      }
+    }
+  }
+}

@@ -75,6 +75,25 @@ def run_in_background(
         name: Optional short label to recognize the process later.
     """
     cwd = str(paths.resolve_virtual_path("/"))
+    # WebUI/deployed runs opt into task scoping through ``project_id`` (remote
+    # async children use ``workspace_thread_id``).  Keep the legacy CLI path
+    # unchanged until it explicitly opts in, because its concrete backend is
+    # still built from the CLI's per-session workspace argument.
+    try:
+        config = runtime.config or {}
+        configurable = config.get("configurable", {})
+        if isinstance(configurable, dict) and (
+            "project_id" in configurable or "workspace_thread_id" in configurable
+        ):
+            from ..workspaces import ensure_workspace_for_config
+
+            binding = ensure_workspace_for_config(config, paths.WORKSPACE_ROOT)
+            if binding is not None:
+                cwd = binding.workspace
+    except Exception:
+        # Filesystem execution remains available through the backend; a
+        # background-scope lookup failure must not crash tool registration.
+        pass
     # Honor dangerous mode so background commands match `execute`'s policy
     # (real-filesystem access, no virtual-path rewriting). Read the env flag that
     # apply_config_to_env round-trips at startup (and the subprocess inherits) —

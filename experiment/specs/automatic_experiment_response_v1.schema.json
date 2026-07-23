@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "automatic-experiment-response-v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "task_name",
+    "task",
+    "response_kind",
+    "normalized_task",
+    "design_summary",
+    "clarifications",
+    "blockers",
+    "method_fit"
+  ],
+  "properties": {
+    "schema_version": {"const": "automatic-experiment-response-v1"},
+    "task_name": {"type": "string", "pattern": "^[A-Za-z][A-Za-z0-9_-]{0,63}$"},
+    "task": {"type": "string", "minLength": 8, "maxLength": 4000},
+    "response_kind": {
+      "enum": ["experiment_ready", "clarification_required", "execution_blocked"]
+    },
+    "normalized_task": {"type": "string", "minLength": 8, "maxLength": 4000},
+    "design_summary": {"type": "string", "minLength": 1, "maxLength": 4000},
+    "clarifications": {
+      "type": "array",
+      "maxItems": 3,
+      "uniqueItems": true,
+      "items": {"type": "string", "minLength": 1, "maxLength": 1000}
+    },
+    "blockers": {
+      "type": "array",
+      "maxItems": 10,
+      "uniqueItems": true,
+      "items": {"type": "string", "minLength": 1, "maxLength": 1000}
+    },
+    "method_fit": {"enum": ["suitable", "uncertain", "incompatible"]}
+  }
+}

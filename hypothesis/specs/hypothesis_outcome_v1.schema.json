@@ -1,0 +1,51 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://b3.local/specs/hypothesis_outcome_v1.schema.json",
+  "title": "Scientific Hypothesis Outcome 1.0",
+  "description": "Pi 入口一次运行的终态结果；任何终态都必须产生面向用户的 Markdown。",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "status",
+    "run_id",
+    "request_path",
+    "portfolio_path",
+    "markdown_path",
+    "user_message",
+    "user_display_markdown",
+    "request_sha256",
+    "portfolio_sha256",
+    "candidate_count",
+    "files_written",
+    "experiments_executed"
+  ],
+  "properties": {
+    "schema_version": { "const": "scientific-hypothesis-outcome-v1" },
+    "status": {
+      "enum": [
+        "frozen_and_valid",
+        "clarification_needed",
+        "hypothesis_blocked",
+        "needs_revision"
+      ]
+    },
+    "run_id": { "type": "string", "minLength": 1, "maxLength": 200 },
+    "request_path": { "type": "string", "minLength": 1 },
+    "portfolio_path": { "type": "string", "minLength": 1 },
+    "markdown_path": { "type": "string", "minLength": 1 },
+    "user_message": { "type": "string", "minLength": 1 },
+    "user_display_markdown": { "type": "string", "minLength": 1 },
+    "request_sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "portfolio_sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "candidate_count": { "type": "integer", "minimum": 1 },
+    "files_written": { "type": "integer", "minimum": 0 },
+    "experiments_executed": { "const": 0 }
+  }
+}

@@ -1,0 +1,14 @@
+# Verified WSL2/Ubuntu-E runtime. This file is an audit lock, not an installer.
+Python==3.12.3
+bubblewrap==0.9.0
+astropy==8.0.1
+h5netcdf==1.8.1
+h5py==3.16.0
+jsonschema==4.10.3
+matplotlib==3.10.6
+numpy==2.4.6
+pandas==3.0.3
+pyarrow==25.0.0
+scikit-learn==1.8.0
+scipy==1.17.1
+xarray==2026.7.0

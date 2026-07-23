@@ -1,0 +1,179 @@
+# Captured before target creation with:
+# git status --porcelain=v1 --untracked-files=all
+# Entry count: 175
+# SHA-256 of the UTF-8, LF-delimited command output: 9f43150d4c7074efea0525bf5a14530b801e796da67b2d0aa9fd722a9954eff5
+ M .pi/agents/b3-experiment.md
+ M .pi/agents/b3-hypothesis.md
+ M .pi/agents/b3-research-planner.md
+ M .pi/docs/three-agent-skills.md
+ M .pi/extensions/b3-science/child-event-stream.ts
+ M .pi/extensions/b3-science/index.ts
+ D .pi/prompts/b3-agent-run.md
+ M .pi/prompts/b3-research-loop.md
+ M .pi/skills/experiment-agent/SKILL.md
+ M .pi/skills/hypothesis-agent/SKILL.md
+ M .pi/skills/research-planner-agent/SKILL.md
+ M .pi/skills/research-planner-agent/references/工作模式与完成标准.md
+ M README.md
+ M b3/docs/10分钟演示脚本.md
+ M b3/docs/agent_contracts_and_prompt_protocol.md
+ D b3/docs/champion_release_audit.json
+ D b3/docs/champion_release_audit.md
+ D b3/docs/champion_standard.md
+ M b3/docs/model_integration_and_openapi.md
+ M b3/docs/part4_system_architecture_agent_design.md
+ M b3/docs/pi_agent_subagents_reference.md
+ M b3/docs/pi_three_agents_quickstart.md
+ M b3/docs/representative_test_cases.md
+ M b3/docs/三Agent_现状缺口与未来工作计划.md
+ M b3/docs/提交包使用与演示说明.md
+ D b3/docs/擂主评审速览.md
+ M b3/docs/最终提交审计清单.json
+ M b3/docs/最终提交审计清单.md
+ M b3/docs/第四部分_子Agent技术报告_早期概念稿.md
+ M b3/docs/第四部分_系统架构与智能体设计_工程底稿.md
+ M b3/evals/golden_cases.json
+ M b3/final_report/b3_final_technical_report.md
+ M b3/final_report/b3_final_technical_report.pdf
+ M b3/final_report/figures/fig01_cycle_peak_timeline.png
+ M b3/final_report/figures/fig02_polar_toy_model.png
+ M b3/final_report/figures/fig03_hypothesis_ranking.png
+ M b3/final_report/figures/fig04_closed_loop_architecture.png
+ M b3/outputs/b3_analysis_report.json
+ D b3/proofs/champion_pipeline_run.json
+ D b3/proofs/champion_pipeline_run.md
+ M b3/proofs/frontend_api_smoke.json
+ M b3/proofs/frontend_api_smoke.md
+ M b3/proofs/frontend_visual_qa.json
+ M b3/proofs/frontend_visual_qa.md
+ M b3/proofs/pi_science_agents_eval.json
+ M b3/proofs/pi_science_agents_eval.md
+ M b3/proofs/pi_science_agents_live_eval.json
+ M b3/proofs/pi_science_agents_live_eval.md
+ M b3/proofs/pi_science_agents_readiness.json
+ M b3/proofs/qwen_connection_check_dry_run.json
+ M b3/proofs/qwen_connection_check_dry_run.md
+ M b3/specs/experiment_manifest_v2.schema.json
+ M b3/specs/hypothesis_portfolio_v2.schema.json
+ M b3/specs/research_plan_v2.schema.json
+ M b3/test_cases/case_01_cycle26_bounded_research_run.json
+ M b3/test_cases/case_03_f107_proxy_drift_guard.json
+ M b3/test_cases/case_04_evidence_query_h1.json
+ M b3/test_cases/manifest.json
+ M b3/test_cases/sample_counting_draft.md
+ D docs/direction2a_sunspot_leizhu_standard.md
+ M docs/direction2b3_30_day_study_project_plan.md
+ M docs/direction2b3_after_counting_learning_gap.md
+ M docs/direction2b3_after_technical_draft_learning_gap.md
+ M docs/direction2b3_agent_architecture_teaching_pack.md
+ M docs/direction2b3_ai_for_science_math_physics_lean4_primer.md
+ M docs/direction2b3_counting_manuscript_upgrade_checklist.md
+ M docs/direction2b3_learning_materials_index.md
+ M docs/direction2b3_personal_ai_learning_roadmap.md
+ M docs/direction2b3_solar_dynamo_mhd_deep_dive.md
+ M docs/final_submission_playbook.md
+ M docs/jw_ssd_replacement_guide.md
+ M docs/rag_and_claim_ledger.md
+ M docs/superpowers/plans/2026-07-11-b3-pi-research-agents.md
+ M docs/superpowers/specs/2026-07-11-b3-pi-research-agents-design.md
+ D scripts/audit_leizhu_readiness.py
+ M scripts/build_demo_video.py
+ M scripts/build_pitch_deck.mjs
+ M scripts/check_qwen_connection.py
+ M scripts/finalize_official_submission.py
+ M scripts/package_submission.py
+ M scripts/red_team_submission.py
+ M scripts/verify_submission.py
+ D scripts_b3/build_champion_pipeline.py
+ M scripts_b3/build_final_submission_checklist.py
+ M scripts_b3/build_submission_release.py
+ M scripts_b3/build_submission_zip.py
+ M scripts_b3/build_three_agent_bundle.py
+ M scripts_b3/check_frontend_api_smoke.py
+ M scripts_b3/check_qwen_connection.py
+ M scripts_b3/evaluate_pi_science_agents.py
+ M scripts_b3/science_agent_cli.py
+ M scripts_b3/start_qwen_max_pi.ps1
+ D scripts_b3/verify_b3_champion_release.py
+ M scripts_b3/verify_b3_package.py
+ M scripts_b3/verify_pi_agent_skills.py
+ M scripts_b3/verify_pi_child_event_stream.mjs
+ M scripts_b3/verify_pi_extensions.py
+ M scripts_b3/verify_three_agent_bundle.py
+ M src/b3cycle/agent.py
+ M src/b3cycle/analysis.py
+ M src/b3cycle/data.py
+ M src/b3cycle/science_agents.py
+ M src/b3cycle/science_toolkit.py
+ M src/spotlab/audit.py
+ M submissions/DEMO_VIDEO_STORYBOARD.md
+ M submissions/FINAL_COMPLETION_AUDIT.md
+ M submissions/FINAL_GATE_MATRIX.json
+ M submissions/FINAL_GATE_MATRIX.md
+ M submissions/JinWu-SpotLab_pitch_deck.pptx.inspect.ndjson
+ M submissions/JinWu-SpotLab_submission_checklist.md
+ M submissions/JinWu-SpotLab_technical_report.md
+ M submissions/JinWu-SpotLab_technical_report.pdf
+ D submissions/LEIZHU_READINESS_REPORT.json
+ D submissions/LEIZHU_READINESS_REPORT.md
+ M submissions/RED_TEAM_REVIEW.json
+ M submissions/RED_TEAM_REVIEW.md
+ M submissions/b3_system_architecture/learning_package_completion_audit.md
+ M submissions/demo_video_frames/manifest.json
+ M tests/test_pi_release_integration.py
+ M tests/test_pi_science_agent_readiness.py
+ M tests/test_qwen_connection.py
+ M tests/test_release_privacy.py
+ M tests/test_science_agents.py
+ M tests/test_three_agent_bundle.py
+ M 启动B3前端与API.ps1
+ M 生成百炼Live证明并重打包.ps1
+ M 验收B3三Agent.ps1
+ M 验收B3前端与API.ps1
+?? b3/docs/quality_standard.md
+?? b3/docs/release_readiness_audit.json
+?? b3/docs/release_readiness_audit.md
+?? b3/docs/评审速览.md
+?? b3/evals/question_diversity_cases.json
+?? b3/proofs/question_diversity.json
+?? b3/proofs/question_diversity.md
+?? b3/proofs/qwen_connection_check_live.json
+?? b3/proofs/qwen_connection_check_live.md
+?? b3/proofs/submission_pipeline_run.json
+?? b3/proofs/submission_pipeline_run.md
+?? docs/10分钟演示脚本.md
+?? docs/agent_contracts_and_prompt_protocol.md
+?? docs/b3_final_technical_report.md
+?? docs/b3_final_technical_report.pdf
+?? docs/direction2a_sunspot_quality_standard.md
+?? docs/figures/fig01_cycle_peak_timeline.png
+?? docs/figures/fig02_polar_toy_model.png
+?? docs/figures/fig03_hypothesis_ranking.png
+?? docs/figures/fig04_closed_loop_architecture.png
+?? docs/materials_map.md
+?? docs/model_integration_and_openapi.md
+?? docs/part4_system_architecture_agent_design.md
+?? docs/pi_agent_subagents_reference.md
+?? docs/pi_three_agents_quickstart.md
+?? docs/quality_standard.md
+?? docs/release_readiness_audit.json
+?? docs/release_readiness_audit.md
+?? docs/representative_test_cases.md
+?? docs/requirements_alignment.md
+?? docs/三Agent_现状缺口与未来工作计划.md
+?? docs/提交包使用与演示说明.md
+?? docs/最终提交审计清单.json
+?? docs/最终提交审计清单.md
+?? docs/第四部分_系统架构与子Agent技术设计_正式稿.assets/架构图-1782035895607-3.png
+?? docs/第四部分_系统架构与子Agent技术设计_正式稿.assets/状态转移图.png
+?? docs/第四部分_系统架构与子Agent技术设计_正式稿.md
+?? docs/评审速览.md
+?? scripts/audit_submission_readiness.py
+?? scripts_b3/build_strict_submission_pipeline.py
+?? scripts_b3/verify_b3_release.py
+?? scripts_b3/verify_question_diversity.py
+?? submissions/SUBMISSION_READINESS_REPORT.json
+?? submissions/SUBMISSION_READINESS_REPORT.md
+?? tests/test_question_generalization.py
+?? 操作手册.md
+?? 最新参考材料7.11/.~2026-06-20-solar-cycle-co-scientist-design.md
