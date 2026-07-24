@@ -431,6 +431,32 @@ class TestVirtualMountResolution:
             str(builtin_dir / "find-skills" / "tool.py"),
         ]
 
+    def test_bundle_owned_builtin_skill_keeps_flat_virtual_path(
+        self, monkeypatch, tmp_path
+    ):
+        user_dir, global_dir, builtin_dir, _ = self._setup_tiers(
+            monkeypatch, tmp_path
+        )
+        skill_dir = builtin_dir / "solar" / "skills" / "solar-cycle"
+        skill_dir.mkdir(parents=True)
+        (skill_dir / "SKILL.md").write_text("name: solar-cycle")
+
+        result = convert_virtual_paths_in_command(
+            "cat /skills/solar-cycle/SKILL.md"
+        )
+        assert _split_cmd(result) == ["cat", str(skill_dir / "SKILL.md")]
+
+        merged = MergedSkillsBackend(
+            primary_dir=str(user_dir),
+            global_dir=str(global_dir),
+            secondary_dir=str(builtin_dir),
+        )
+        content = merged.read("/solar-cycle/SKILL.md")
+        assert "name: solar-cycle" in str(content)
+        root_entries = [entry["path"] for entry in merged.ls("/").entries or []]
+        assert "/solar-cycle/" in root_entries
+        assert "/solar/" not in root_entries
+
     def test_skills_path_unresolvable_falls_back_to_workspace_relative(
         self, monkeypatch, tmp_path
     ):

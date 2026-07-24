@@ -596,6 +596,24 @@ def _skills_tier_paths() -> tuple[Path, Path | None, Path]:
     return (paths.USER_SKILLS_DIR, paths.GLOBAL_SKILLS_DIR, _BUILTIN_SKILLS_DIR)
 
 
+def _builtin_skill_roots(root: Path | None = None) -> tuple[Path, ...]:
+    """Return flat built-in skill roots for legacy and bundle layouts."""
+    builtin_root = Path(root or _BUILTIN_SKILLS_DIR)
+    bundle_roots = tuple(
+        sorted(
+            (path for path in builtin_root.glob("*/skills") if path.is_dir()),
+            key=lambda path: str(path),
+        )
+    )
+    return bundle_roots or (builtin_root,)
+
+
+# Resolve the packaged bundle layout once at module import. Graph modules are
+# imported on LangGraph's worker thread; task-scoped backend factories may run
+# later on the ASGI event loop and must not call scandir there.
+_BUILTIN_SKILL_ROOTS = _builtin_skill_roots()
+
+
 def _is_windows() -> bool:
     return sys.platform == "win32"
 
@@ -659,10 +677,16 @@ def _resolve_virtual_mount_path(token: str) -> str | None:
     """
     rel = _subpath_under_mount(token, "/skills")
     if rel is not None:
-        for tier in _skills_tier_paths():
+        user_tier, global_tier, builtin_tier = _skills_tier_paths()
+        direct_tiers = (user_tier, global_tier)
+        for tier in direct_tiers:
             if tier is None:
                 continue
             candidate = Path(tier) / rel
+            if candidate.exists():
+                return _platform_quote(str(candidate))
+        for tier in _builtin_skill_roots(builtin_tier):
+            candidate = tier / rel
             if candidate.exists():
                 return _platform_quote(str(candidate))
         return _platform_quote("./skills/" + rel if rel else "./skills")
@@ -934,6 +958,7 @@ def build_autoskill_agent_backend(
                 primary_dir=str(paths.USER_SKILLS_DIR),
                 global_dir=str(paths.GLOBAL_SKILLS_DIR),
                 secondary_dir=str(_BUILTIN_SKILLS_DIR),
+                secondary_roots=tuple(str(path) for path in _BUILTIN_SKILL_ROOTS),
                 writable_primary=False,
             ),
             "/autoskill-proposals/": FilesystemBackend(
@@ -950,7 +975,7 @@ class MergedSkillsBackend(BackendProtocol):
     Priority (high → low):
     1. primary   — workspace/skills/  (project-local, writable)
     2. global    — ~/.evoscientist/skills/  (user global, read-only)
-    3. secondary — EvoScientist/skills/  (built-in, PyPI, read-only)
+    3. secondary — built-in bundle ``*/skills/`` roots (PyPI, read-only)
 
     Higher-priority skills override lower-priority skills with the same name.
     All directories share the same virtual path namespace (/skills/).
@@ -963,6 +988,7 @@ class MergedSkillsBackend(BackendProtocol):
         secondary_dir: str,
         global_dir: str | None = None,
         writable_primary: bool = True,
+        secondary_roots: tuple[str, ...] | None = None,
     ):
         primary_backend = (
             FilesystemBackend if writable_primary else ReadOnlyFilesystemBackend
@@ -973,8 +999,14 @@ class MergedSkillsBackend(BackendProtocol):
             if global_dir
             else None
         )
-        self._secondary = ReadOnlyFilesystemBackend(
-            root_dir=secondary_dir, virtual_mode=True
+        roots = (
+            tuple(Path(path) for path in secondary_roots)
+            if secondary_roots is not None
+            else _builtin_skill_roots(Path(secondary_dir))
+        )
+        self._secondaries = tuple(
+            ReadOnlyFilesystemBackend(root_dir=str(root), virtual_mode=True)
+            for root in roots
         )
 
     def _backends(self):
@@ -982,7 +1014,7 @@ class MergedSkillsBackend(BackendProtocol):
         yield self._primary
         if self._global:
             yield self._global
-        yield self._secondary
+        yield from self._secondaries
 
     # -- read: try each tier in priority order --
 
@@ -997,7 +1029,10 @@ class MergedSkillsBackend(BackendProtocol):
                     return result
             except (ValueError, FileNotFoundError, OSError):
                 pass
-        return self._secondary.read(file_path, offset, limit)
+        backends = list(self._backends())
+        if not backends:
+            return "Error: skill backend is unavailable"
+        return backends[-1].read(file_path, offset, limit)
 
     # -- ls: merge all tiers, higher priority wins on name conflicts --
 

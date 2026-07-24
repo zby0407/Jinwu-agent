@@ -15,7 +15,7 @@ Design boundary: this module deliberately REUSES the low-level
 server for *external* consumers (deep-agents-ui, agent-chat-ui, LangSmith
 Studio, SDK clients); WebUI mode is a separate, parallel launcher.
 
-The front-end is served from the local build in ``EvoScientist-WebUI/dist/``
+The front-end is served from the repository's local build in ``webui/dist/``
 rather than fetched via npx, so changes to the forked UI are reflected
 immediately after rebuilding.
 """
@@ -38,11 +38,9 @@ from rich.text import Text
 from ..stream.console import console
 
 # Local front-end build entrypoint (relative to this file).
-# webui.py is at EvoScientist/EvoScientist/deploy/webui.py, so parents[3]
-# reaches the repository root and EvoScientist-WebUI is its sibling.
-_WEBUI_DIST = (
-    Path(__file__).resolve().parents[3] / "EvoScientist-WebUI" / "dist" / "server.js"
-)
+# webui.py is at <repository>/EvoScientist/deploy/webui.py, so parents[2]
+# reaches the repository root containing the embedded webui project.
+_WEBUI_DIST = Path(__file__).resolve().parents[2] / "webui" / "dist" / "server.js"
 _DEFAULT_WEBUI_PORT = 4716
 
 
@@ -116,7 +114,7 @@ def run_webui(config: Any, workspace_dir: str | None = None) -> None:
                     "The WebUI front-end is served from the local build at\n"
                     f"[cyan]{_shorten(str(_WEBUI_DIST))}[/cyan]\n\n"
                     "Install [bold]Node.js 24 LTS[/bold], run "
-                    "[bold]npm run build[/bold] in the EvoScientist-WebUI directory, "
+                    "[bold]npm run build[/bold] in the repository's webui directory, "
                     "then re-run [bold]EvoSci[/bold] — or switch UI modes with "
                     "[bold]EvoSci config set ui_backend tui[/bold]."
                 ),
@@ -133,7 +131,7 @@ def run_webui(config: Any, workspace_dir: str | None = None) -> None:
                     "[bold]Local WebUI build not found.[/bold]\n\n"
                     f"Expected: [cyan]{_shorten(str(_WEBUI_DIST))}[/cyan]\n\n"
                     "Run [bold]npm install && npm run build[/bold] in the "
-                    "EvoScientist-WebUI directory, then re-run [bold]EvoSci[/bold]."
+                    "repository's webui directory, then re-run [bold]EvoSci[/bold]."
                 ),
                 title="[bold red]WebUI build missing[/bold red]",
                 border_style="red",

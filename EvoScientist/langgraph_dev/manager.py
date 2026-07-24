@@ -248,7 +248,8 @@ def _unlink_workspace_sidecar() -> None:
 # healthy server and reuses it. ``threading.RLock`` is process-local and
 # can't coordinate across CLI invocations.
 # Lock path lives on ``RUNTIME.lock_file``; timeout stays module-level.
-_FILE_LOCK_TIMEOUT = 120.0  # 60s cold-start health-check + buffer
+_STARTUP_TIMEOUT_SECONDS = 120.0
+_FILE_LOCK_TIMEOUT = 180.0  # startup health-check + buffer
 
 # Module-level handle to the langgraph dev subprocess we started, if any.
 # Stays None when we reused an existing process (managed by the user).
@@ -748,10 +749,10 @@ def start_langgraph_dev(
     _PROCESS = proc
     _PROCESS_WORKSPACE = workspace_dir
 
-    # langgraph dev cold-starts in ~10-15s normally; first-time npx-based MCP
-    # servers can push this to 30-60s while npm fetches packages, so the budget
-    # is generous. Subsequent runs are much faster thanks to npm cache.
-    deadline = time.monotonic() + 60
+    # langgraph dev cold-starts in ~10-15s normally. Full bundle discovery on
+    # Windows-mounted workspaces and first-time MCP setup can exceed 60s, so
+    # keep enough headroom for those supported deployments.
+    deadline = time.monotonic() + _STARTUP_TIMEOUT_SECONDS
     while time.monotonic() < deadline:
         if proc.poll() is not None:
             tail = ""
@@ -782,7 +783,8 @@ def start_langgraph_dev(
 
     stop_langgraph_dev(proc)
     raise RuntimeError(
-        f"langgraph dev did not become healthy within 60 seconds. Check {RUNTIME.log_file}"
+        "langgraph dev did not become healthy within "
+        f"{_STARTUP_TIMEOUT_SECONDS:g} seconds. Check {RUNTIME.log_file}"
     )
 
 

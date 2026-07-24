@@ -260,3 +260,35 @@ def test_async_child_run_config_inherits_parent_workspace_scope(monkeypatch):
 
     assert configurable["workspace_thread_id"] == "main-thread"
     assert configurable["project_id"] == "project-a"
+
+
+async def test_api_checkpointer_primes_workspace_before_first_graph_node(
+    tmp_path, monkeypatch
+):
+    import aiosqlite
+
+    import EvoScientist.workspaces as workspace_module
+    from EvoScientist.sessions import _ApiPruningCheckpointer
+
+    base = tmp_path / "workspace"
+    base.mkdir()
+    monkeypatch.setenv("EVOSCIENTIST_WORKSPACE_DIR", str(base))
+    monkeypatch.setenv(
+        "EVOSCIENTIST_WORKSPACE_BINDINGS_DIR", str(tmp_path / "registry")
+    )
+    workspace_module._BINDING_CACHE.clear()
+    config = {
+        "configurable": {
+            "thread_id": "api-thread",
+            "project_id": "project-a",
+        }
+    }
+
+    async with aiosqlite.connect(tmp_path / "sessions.db") as connection:
+        saver = _ApiPruningCheckpointer(connection)
+        assert await saver.aget_tuple(config) is None
+
+    binding = get_cached_binding("api-thread", base)
+    assert binding is not None
+    assert binding.thread_id == "api-thread"
+    assert binding.base_workspace == str(base.resolve())

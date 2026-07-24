@@ -20,6 +20,7 @@ from deepagents.backends.protocol import (
 
 from .. import paths as _paths_mod
 from ..backends import (
+    _BUILTIN_SKILL_ROOTS,
     CustomSandboxBackend,
     MemoryFilesystemBackend,
     MergedSkillsBackend,
@@ -81,6 +82,7 @@ class PiToolBridge:
             primary_dir=str(_paths_mod.USER_SKILLS_DIR),
             global_dir=str(_paths_mod.GLOBAL_SKILLS_DIR),
             secondary_dir=str(_BUILTIN_SKILLS_DIR),
+            secondary_roots=tuple(str(path) for path in _BUILTIN_SKILL_ROOTS),
         )
         mem_backend = MemoryFilesystemBackend(
             root_dir=str(_paths_mod.MEMORIES_DIR),
