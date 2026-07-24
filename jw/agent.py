@@ -682,6 +682,7 @@ def _build_default_composite_backend(
     from deepagents.backends import CompositeBackend
 
     from .backends import (
+        _BUILTIN_SKILL_ROOTS,
         CustomSandboxBackend,
         MemoryFilesystemBackend,
         MergedSkillsBackend,
@@ -705,6 +706,7 @@ def _build_default_composite_backend(
         primary_dir=user_skills_dir,
         global_dir=global_skills_dir,
         secondary_dir=SKILLS_DIR,
+        secondary_roots=tuple(str(path) for path in _BUILTIN_SKILL_ROOTS),
     )
     mem_backend = MemoryFilesystemBackend(
         root_dir=memory_dir,
@@ -1085,6 +1087,7 @@ def create_cli_agent(
 
     from . import paths as _paths
     from .backends import (
+        _BUILTIN_SKILL_ROOTS,
         CustomSandboxBackend,
         MemoryFilesystemBackend,
         MergedSkillsBackend,
@@ -1135,6 +1138,7 @@ def create_cli_agent(
         primary_dir=_usr_skills_dir,
         global_dir=_global_skills_dir,
         secondary_dir=SKILLS_DIR,
+        secondary_roots=tuple(str(path) for path in _BUILTIN_SKILL_ROOTS),
     )
     mem_backend = MemoryFilesystemBackend(
         root_dir=_mem_dir,

@@ -116,9 +116,16 @@ include = ["jw*"]
 
 [tool.setuptools.package-data]
 jw = [
-    "subagents/*.yaml",
+    "subagents/**/*.yaml",
+    "subagents/**/skills/**/*",
     "langgraph_dev/*.json",
-    "skills/**/*",
+]
+
+[tool.setuptools.exclude-package-data]
+jw = [
+    "**/__pycache__/*",
+    "**/*.pyc",
+    "**/*.pyo",
 ]
 
 [tool.pytest.ini_options]

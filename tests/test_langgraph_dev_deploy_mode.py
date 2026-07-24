@@ -22,6 +22,10 @@ class _PopenAbort(Exception):
     after the env dict is constructed but before health-polling runs."""
 
 
+def test_startup_timeout_allows_slow_full_bundle_cold_start():
+    assert manager._STARTUP_TIMEOUT_SECONDS >= 120
+
+
 def _patch_start_prereqs(monkeypatch, tmp_path: Path, runtime_paths) -> dict:
     """Mock everything ``start_langgraph_dev`` does before ``subprocess.Popen``
     so we can run it end-to-end up to the point where the env dict is captured.

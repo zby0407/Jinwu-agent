@@ -40,6 +40,10 @@ bridge/package-lock.json
 workspace/
 skills/
 !jw/skills/
+!jw/subagents/*/skills/
+!jw/subagents/*/skills/**
+jw/subagents/*/skills/**/__pycache__/
+jw/subagents/*/skills/**/*.py[cod]
 memory/
 !jw/memory/
 media/

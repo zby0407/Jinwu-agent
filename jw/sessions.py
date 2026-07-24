@@ -1513,6 +1513,18 @@ class _ApiPruningCheckpointer(PruningCheckpointer):
     remain outside ordinary ``/threads``, ``/resume``, and ``/delete``.
     """
 
+    async def aget_tuple(self, config: Any) -> Any:
+        """Prime the task-workspace cache before graph middleware runs."""
+        from .workspaces import ensure_workspace_for_config
+
+        base_workspace = await _api_workspace_dir_async()
+        await asyncio.to_thread(
+            ensure_workspace_for_config,
+            config if isinstance(config, dict) else None,
+            base_workspace,
+        )
+        return await super().aget_tuple(config)
+
     async def aput(
         self,
         config: Any,
