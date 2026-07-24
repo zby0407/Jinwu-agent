@@ -1,0 +1,27 @@
+# Example JW MCP configuration for pi-mcp-bridge.
+# Copy or merge this into ~/.config/jw/mcp.yaml
+
+mcp_servers:
+  pi-bridge:
+    command: pi-mcp-bridge
+    args:
+      - --verbose
+    env:
+      # Provider API key (pick the one Pi should use)
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+      # OPENAI_API_KEY: ${OPENAI_API_KEY}
+
+      # Workspace Pi should operate in. This is usually the same directory
+      # you pass to JW via --workdir.
+      PI_MCP_CWD: /path/to/your/research/workspace
+
+      # Optional: pin Pi to a specific provider/model.
+      # If omitted, Pi uses its own default or config.
+      PI_MCP_PROVIDER: anthropic
+      PI_MCP_MODEL: claude-sonnet-4-20250514
+
+      # Optional: keep Pi sessions in a known location.
+      # PI_MCP_SESSION_DIR: /path/to/pi-sessions
+
+      # Optional: disable Pi session persistence entirely.
+      # PI_MCP_NO_SESSION: "true"

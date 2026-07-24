@@ -8,7 +8,7 @@ from typing import ClassVar
 import pytest
 from langchain_core.messages import HumanMessage
 
-from EvoScientist.cli.status_bar import (
+from jw.cli.status_bar import (
     SessionStatusSnapshot,
     apply_assistant_text_to_snapshot,
     apply_user_text_to_snapshot,
@@ -20,7 +20,7 @@ from EvoScientist.cli.status_bar import (
     status_style_name,
     trim_status_text,
 )
-from EvoScientist.memory import worker_activity
+from jw.memory import worker_activity
 from tests.fakes import FakeGraphGateway, FakeThreadStore
 
 
@@ -253,11 +253,11 @@ async def test_build_session_status_snapshot_uses_fallback_window(monkeypatch):
         return 42_000
 
     monkeypatch.setattr(
-        "EvoScientist.cli.status_bar._get_default_chat_model",
+        "jw.cli.status_bar._get_default_chat_model",
         lambda: _FakeModel(),
     )
     monkeypatch.setattr(
-        "EvoScientist.cli.status_bar.count_tokens_approximately",
+        "jw.cli.status_bar.count_tokens_approximately",
         _fake_count,
     )
 
@@ -286,7 +286,7 @@ def test_apply_assistant_text_to_snapshot_updates_context(monkeypatch):
     )
 
     monkeypatch.setattr(
-        "EvoScientist.cli.status_bar.estimate_message_tokens",
+        "jw.cli.status_bar.estimate_message_tokens",
         lambda text, message_type="ai": 550,
     )
 
@@ -307,7 +307,7 @@ def test_apply_user_text_to_snapshot_updates_context(monkeypatch):
     )
 
     monkeypatch.setattr(
-        "EvoScientist.cli.status_bar.estimate_message_tokens",
+        "jw.cli.status_bar.estimate_message_tokens",
         lambda text, message_type="human": 320,
     )
 
@@ -324,7 +324,7 @@ def test_make_usage_status_snapshot_marks_usage_source(monkeypatch):
         profile: ClassVar[dict[str, object]] = {"max_input_tokens": 128_000}
 
     monkeypatch.setattr(
-        "EvoScientist.cli.status_bar._get_default_chat_model",
+        "jw.cli.status_bar._get_default_chat_model",
         lambda: _FakeModel(),
     )
 

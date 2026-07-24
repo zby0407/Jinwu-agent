@@ -1,11 +1,11 @@
-// Server-only helpers for the official EvoSkills catalog + installing skills.
+// Server-only helpers for the official JWSkills catalog + installing skills.
 //
-// Catalog source: the public EvoScientist/EvoSkills repo. We read its file tree
+// Catalog source: the public zby0407/JW-Skills repo. We read its file tree
 // once via the GitHub trees API (1 request, cached) and download individual
 // skill files from raw.githubusercontent.com (which doesn't count against the
-// API rate limit). Skills install into ~/.evoscientist/skills/<name>/ (the
-// GLOBAL tier EvoScientist reads from). We also maintain that tier's
-// .installed.yaml manifest so EvoScientist's onboard/CLI stay in sync. Zero
+// API rate limit). Skills install into ~/.jw/skills/<name>/ (the
+// GLOBAL tier JW reads from). We also maintain that tier's
+// .installed.yaml manifest so JW's onboard/CLI stay in sync. Zero
 // npm dependencies.
 
 import { homedir } from "os";
@@ -13,24 +13,24 @@ import { dirname, join, resolve, sep } from "path";
 import { promises as fs } from "fs";
 import { randomUUID } from "crypto";
 
-const REPO = "EvoScientist/EvoSkills";
+const REPO = "zby0407/JW-Skills";
 const BRANCH = "main";
 const SKILLS_PREFIX = "skills/";
 
-/** EvoScientist's global data dir — `~/.evoscientist` by default (paths.py
- *  DATA_DIR), relocatable via EVOSCIENTIST_DATA_DIR, exactly like the backend. */
+/** JW's global data dir — `~/.jw` by default (paths.py
+ *  DATA_DIR), relocatable via JW_DATA_DIR, exactly like the backend. */
 function globalDataDir(): string {
-  const env = process.env.EVOSCIENTIST_DATA_DIR;
+  const env = process.env.agent_DATA_DIR;
   if (env && env.trim()) {
     return env.startsWith("~") ? join(homedir(), env.slice(1)) : resolve(env);
   }
-  return join(homedir(), ".evoscientist");
+  return join(homedir(), ".jw");
 }
 
 /**
- * Where skills install: EvoScientist's GLOBAL skills tier
- * (`DATA_DIR/skills` = `~/.evoscientist/skills`), matching `install_skill()`'s
- * default global target. NOT `~/.config/evoscientist/skills` — that's the
+ * Where skills install: JW's GLOBAL skills tier
+ * (`DATA_DIR/skills` = `~/.jw/skills`), matching `install_skill()`'s
+ * default global target. NOT `~/.config/jw/skills` — that's the
  * pre-migration legacy location (only config.yaml/mcp.yaml still live there).
  */
 export const SKILLS_INSTALL_DIR = join(globalDataDir(), "skills");
@@ -39,7 +39,7 @@ export const SKILLS_INSTALL_DIR = join(globalDataDir(), "skills");
  *  dir first, then the legacy ~/.config path as a harmless fallback. */
 export const SKILL_DIRS = [
   SKILLS_INSTALL_DIR,
-  join(homedir(), ".config", "evoscientist", "skills"),
+  join(homedir(), ".config", "jw", "skills"),
 ];
 
 // Install guards.
@@ -49,7 +49,7 @@ const MAX_SKILL_BYTES = 25 * 1024 * 1024;
 const GITHUB_HEADERS = {
   Accept: "application/vnd.github+json",
   // GitHub rejects API requests without a User-Agent.
-  "User-Agent": "evoscientist-webui",
+  "User-Agent": "jw-webui",
 };
 
 export interface CatalogSkill {
@@ -69,10 +69,10 @@ export interface CatalogSkill {
 }
 
 /** Per-skill source recorded in .installed.yaml: the `owner/repo@path` shorthand
- *  with path = `skills/<name>`, so EvoScientist tracks each skill's provenance
+ *  with path = `skills/<name>`, so JW tracks each skill's provenance
  *  (and its commit-based update check) individually rather than as one pack. */
 function manifestSource(name: string): string {
-  return `${REPO}@${SKILLS_PREFIX}${name}`; // EvoScientist/EvoSkills@skills/<name>
+  return `${REPO}@${SKILLS_PREFIX}${name}`; // zby0407/JW-Skills@skills/<name>
 }
 
 interface TreeBlob {
@@ -81,7 +81,7 @@ interface TreeBlob {
   size?: number;
 }
 
-/** A skill name must be a single safe path segment. Matches EvoScientist's
+/** A skill name must be a single safe path segment. Matches JW's
  *  convention (`^[A-Za-z0-9][A-Za-z0-9._-]*$`) — also blocks traversal and odd
  *  manifest keys. */
 export function isValidSkillName(name: string): boolean {
@@ -232,9 +232,9 @@ function commitFromRef(ref: string): string | null {
 }
 
 // ---------------------------------------------------------------------------
-// .installed.yaml manifest (EvoScientist's per-tier skill registry)
+// .installed.yaml manifest (JW's per-tier skill registry)
 //
-// Schema: { <name>: { source: <str>, commit?: <sha> } }, written by EvoScientist
+// Schema: { <name>: { source: <str>, commit?: <sha> } }, written by JW
 // via `yaml.safe_dump(sort_keys=True)`. We read/merge/write the same shape so
 // onboard's ✓ indicator + commit-based "update available" stay consistent.
 // ---------------------------------------------------------------------------
@@ -265,7 +265,7 @@ function parseManifest(text: string): Manifest {
       }
     }
   }
-  // Drop entries without a source — matches EvoScientist's loader leniency.
+  // Drop entries without a source — matches JW's loader leniency.
   for (const k of Object.keys(out)) if (!out[k].source) delete out[k];
   return out;
 }
@@ -518,7 +518,7 @@ export async function installSkill(name: string): Promise<{ files: number }> {
     throw error;
   }
 
-  // Record provenance in .installed.yaml so EvoScientist's onboard/CLI see the
+  // Record provenance in .installed.yaml so JW's onboard/CLI see the
   // skill as installed (with the pinned commit for its update detection — the
   // SAME revision the files came from). Best-effort: a manifest failure must not
   // fail an otherwise-good install.

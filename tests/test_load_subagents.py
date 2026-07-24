@@ -1,4 +1,4 @@
-"""Tests for ``EvoScientist.utils.load_subagents``.
+"""Tests for ``JW.utils.load_subagents``.
 
 Focused on schema-validation paths that are easy to silently misuse from
 yaml — primarily the ``async:`` flag type check that prevents quoted-string
@@ -11,7 +11,7 @@ import textwrap
 
 import pytest
 
-from EvoScientist.utils import load_subagents
+from jw.utils import load_subagents
 
 
 def _write_yaml(tmp_path, name: str, body: str):

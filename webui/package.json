@@ -1,12 +1,12 @@
 {
-  "name": "@jinwu/webui",
+  "name": "@jw/webui",
   "version": "0.1.8",
-  "description": "Web UI for 金乌 (Jinwu) — an autonomous AI research assistant built on DeepAgents/LangGraph.",
+  "description": "Web UI for 金乌 (JW) — an autonomous AI research assistant built on DeepAgents/LangGraph.",
   "author": "Xi Zhang <zacharyzhang2022@gmail.com>",
   "type": "module",
   "license": "Apache-2.0",
   "keywords": [
-    "jinwu",
+    "jw",
     "金乌",
     "ai-scientist",
     "research",
@@ -17,14 +17,15 @@
   ],
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/EvoScientist/EvoScientist-WebUI.git"
+    "url": "git+https://github.com/zby0407/Jinwu-agent.git",
+    "directory": "webui"
   },
   "bugs": {
-    "url": "https://github.com/EvoScientist/EvoScientist-WebUI/issues"
+    "url": "https://github.com/zby0407/Jinwu-agent/issues"
   },
-  "homepage": "https://github.com/EvoScientist/EvoScientist-WebUI#readme",
+  "homepage": "https://github.com/zby0407/Jinwu-agent/tree/main/webui#readme",
   "bin": {
-    "jinwu-webui": "./bin/evoscientist-webui.mjs"
+    "jw-webui": "./bin/jw-webui.mjs"
   },
   "files": [
     "bin/",

@@ -1,11 +1,11 @@
-"""Tests for EvoScientist.paths — set_workspace_root and ensure_dirs."""
+"""Tests for JW.paths — set_workspace_root and ensure_dirs."""
 
 import os
 from unittest import mock
 
 import pytest
 
-from EvoScientist import paths
+from jw import paths
 
 
 @pytest.fixture(autouse=True)
@@ -39,10 +39,10 @@ class TestSetWorkspaceRoot:
 
     def test_updates_derived_dirs(self, tmp_path, monkeypatch):
         """set_workspace_root should update WORKSPACE_ROOT and all derived dirs."""
-        monkeypatch.delenv("EVOSCIENTIST_MEMORIES_DIR", raising=False)
-        monkeypatch.delenv("EVOSCIENTIST_MEMORY_DIR", raising=False)
-        monkeypatch.delenv("EVOSCIENTIST_RUNS_DIR", raising=False)
-        monkeypatch.delenv("EVOSCIENTIST_SKILLS_DIR", raising=False)
+        monkeypatch.delenv("JW_MEMORIES_DIR", raising=False)
+        monkeypatch.delenv("JW_MEMORY_DIR", raising=False)
+        monkeypatch.delenv("JW_RUNS_DIR", raising=False)
+        monkeypatch.delenv("JW_SKILLS_DIR", raising=False)
 
         new_root = tmp_path / "my_workspace"
         new_root.mkdir()
@@ -74,9 +74,9 @@ class TestSetWorkspaceRoot:
         custom_runs = tmp_path / "custom_runs"
 
         env = {
-            "EVOSCIENTIST_MEMORIES_DIR": str(custom_mem),
-            "EVOSCIENTIST_SKILLS_DIR": str(custom_skills),
-            "EVOSCIENTIST_RUNS_DIR": str(custom_runs),
+            "JW_MEMORIES_DIR": str(custom_mem),
+            "JW_SKILLS_DIR": str(custom_skills),
+            "JW_RUNS_DIR": str(custom_runs),
         }
 
         new_root = tmp_path / "ws"
@@ -114,9 +114,7 @@ class TestEnsureDirsUsesUpdatedPaths:
 
         custom_mem = tmp_path / "memories"
 
-        with mock.patch.dict(
-            os.environ, {"EVOSCIENTIST_MEMORIES_DIR": str(custom_mem)}
-        ):
+        with mock.patch.dict(os.environ, {"JW_MEMORIES_DIR": str(custom_mem)}):
             paths.set_workspace_root(new_root)
             paths.ensure_dirs()
 
@@ -149,7 +147,7 @@ class TestLegacySessionsDbMigration:
 
     def _setup(self, tmp_path, monkeypatch):
         """Redirect data dir to tmp_path/new_data and Path.home() to
-        tmp_path/fake_home so legacy resolves to tmp_path/fake_home/.config/evoscientist.
+        tmp_path/fake_home so legacy resolves to tmp_path/fake_home/.config/jw.
 
         Clears XDG_CONFIG_HOME so the legacy resolver deterministically uses
         the Path.home() fallback. Tests that want the XDG branch set the
@@ -159,7 +157,7 @@ class TestLegacySessionsDbMigration:
         data_dir = tmp_path / "new_data"
         fake_home = tmp_path / "fake_home"
         fake_home.mkdir()
-        legacy_dir = fake_home / ".config" / "evoscientist"
+        legacy_dir = fake_home / ".config" / "jw"
         monkeypatch.setattr(paths, "DATA_DIR", data_dir)
         monkeypatch.setattr(paths.Path, "home", classmethod(lambda cls: fake_home))
         return data_dir, legacy_dir
@@ -218,7 +216,7 @@ class TestLegacySessionsDbMigration:
         don't silently get skipped by the migration."""
         data_dir = tmp_path / "new_data"
         xdg = tmp_path / "xdg"
-        legacy_dir = xdg / "evoscientist"
+        legacy_dir = xdg / "jw"
         legacy_dir.mkdir(parents=True)
         (legacy_dir / "sessions.db").write_bytes(b"xdg-db")
 

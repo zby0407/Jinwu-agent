@@ -6,7 +6,7 @@ from unittest.mock import MagicMock, patch
 from langchain.agents.middleware.types import ModelRequest
 from langchain_core.tools import BaseTool, StructuredTool
 
-from EvoScientist.middleware.tool_selector import (
+from jw.middleware.tool_selector import (
     _ConditionalToolSelectorMiddleware,
     _ToolSelectionTrackerMiddleware,
     create_tool_selector_middleware,
@@ -51,11 +51,11 @@ def _patched_create():
 def _factory_patches():
     return (
         patch(
-            "EvoScientist.middleware.tool_selector.disable_thinking",
+            "jw.middleware.tool_selector.disable_thinking",
             return_value=MagicMock(),
             create=True,
         ),
-        patch("EvoScientist.EvoScientist._ensure_chat_model", return_value=MagicMock()),
+        patch("jw.agent._ensure_chat_model", return_value=MagicMock()),
         patch(
             "langchain.agents.middleware.LLMToolSelectorMiddleware",
             return_value=MagicMock(),
@@ -150,7 +150,7 @@ def test_conditional_runs_above_threshold():
 
 def test_selector_active_flag():
     """_selector_active flag is True during selection, False after."""
-    import EvoScientist.middleware.tool_selector as ts_mod
+    import jw.middleware.tool_selector as ts_mod
 
     mock_selector = MagicMock()
 
@@ -174,7 +174,7 @@ def test_selector_active_flag():
 
 def test_selector_can_disable_stream_tracking():
     """Selection can run without touching the main-agent stream/UI globals."""
-    import EvoScientist.middleware.tool_selector as ts_mod
+    import jw.middleware.tool_selector as ts_mod
 
     mock_selector = MagicMock()
 
@@ -291,7 +291,7 @@ def test_tracker_captures_tools():
     tracker.wrap_model_call(request, handler)
     handler.assert_called_once_with(request)
 
-    import EvoScientist.middleware.tool_selector as ts_mod
+    import jw.middleware.tool_selector as ts_mod
 
     assert ts_mod._current_selected_tools == ["read_file", "execute"]
 
@@ -302,11 +302,11 @@ def test_tracker_captures_tools():
 
 
 @patch(
-    "EvoScientist.middleware.create_tool_selector_middleware",
+    "jw.middleware.create_tool_selector_middleware",
     side_effect=lambda *a, **kw: _patched_create(),
 )
-@patch("EvoScientist.EvoScientist._ensure_chat_model")
-@patch("EvoScientist.EvoScientist._ensure_config")
+@patch("jw.agent._ensure_chat_model")
+@patch("jw.agent._ensure_config")
 def test_default_middleware_includes_tool_selector(mock_config, mock_model, mock_ts):
     mock_model.return_value = _mock_model()
     cfg = MagicMock()
@@ -316,7 +316,7 @@ def test_default_middleware_includes_tool_selector(mock_config, mock_model, mock
     cfg.auxiliary_provider = ""
     mock_config.return_value = cfg
 
-    from EvoScientist.EvoScientist import _get_default_middleware
+    from jw.agent import _get_default_middleware
 
     mw = _get_default_middleware()
     type_names = [type(m).__name__ for m in mw]
@@ -324,11 +324,11 @@ def test_default_middleware_includes_tool_selector(mock_config, mock_model, mock
     assert "_ToolSelectionTrackerMiddleware" in type_names
 
 
-@patch("EvoScientist.EvoScientist._ensure_chat_model")
+@patch("jw.agent._ensure_chat_model")
 def test_subagent_no_tool_selector(mock_model):
     mock_model.return_value = _mock_model()
 
-    from EvoScientist.EvoScientist import _inject_subagent_middleware
+    from jw.agent import _inject_subagent_middleware
 
     subs = [{"name": "test-agent"}]
     _inject_subagent_middleware(subs)
@@ -338,11 +338,11 @@ def test_subagent_no_tool_selector(mock_model):
 
 
 @patch(
-    "EvoScientist.middleware.create_tool_selector_middleware",
+    "jw.middleware.create_tool_selector_middleware",
     side_effect=lambda *a, **kw: _patched_create(),
 )
-@patch("EvoScientist.EvoScientist._ensure_chat_model")
-@patch("EvoScientist.EvoScientist._ensure_config")
+@patch("jw.agent._ensure_chat_model")
+@patch("jw.agent._ensure_config")
 def test_tool_selector_ordering(mock_config, mock_model, mock_ts):
     """ToolSelector should come after ToolErrorHandler and before Memory."""
     mock_model.return_value = _mock_model()
@@ -353,7 +353,7 @@ def test_tool_selector_ordering(mock_config, mock_model, mock_ts):
     cfg.auxiliary_provider = ""
     mock_config.return_value = cfg
 
-    from EvoScientist.EvoScientist import _get_default_middleware
+    from jw.agent import _get_default_middleware
 
     mw = _get_default_middleware()
     type_names = [type(m).__name__ for m in mw]
@@ -361,5 +361,5 @@ def test_tool_selector_ordering(mock_config, mock_model, mock_ts):
     ts_idx = type_names.index("_ConditionalToolSelectorMiddleware")
     tracker_idx = type_names.index("_ToolSelectionTrackerMiddleware")
     te_idx = type_names.index("ToolErrorHandlerMiddleware")
-    mem_idx = type_names.index("EvoMemoryMiddleware")
+    mem_idx = type_names.index("JWMemoryMiddleware")
     assert te_idx < ts_idx < tracker_idx < mem_idx

@@ -20,6 +20,9 @@
 
 ## Recently updated
 
+- [[finding/kb_finding_completed_interpretable-compute-one-deterministi_003|[completed_interpretable] Compute one deterministic mean and preserve a reviewable JSON artifact.]] · 2026-07-24T04:00:28+00:00
+- [[finding/kb_finding_completed_interpretable-compute-one-deterministi_002|[completed_interpretable] Compute one deterministic mean and preserve a reviewable JSON artifact.]] · 2026-07-24T03:57:56+00:00
+- [[finding/kb_finding_completed_interpretable-compute-one-deterministi_001|[completed_interpretable] Compute one deterministic mean and preserve a reviewable JSON artifact.]] · 2026-07-24T03:52:50+00:00
 - [[finding/kb_finding_completed_interpretable-24-slope_24-peak_sn-ru_001|[completed_interpretable] 实验任务：检验太阳活动周开始后前24个月的上升速度（slope_24）能否在不偷看未来的前提下预测本周峰值强度（peak_sn）。
 
 上游产物：
@@ -32,6 +35,3 @@
 - [[finding/kb_finding_completed_interpretable-compute-one-deterministi_058|[completed_interpretable] Compute one deterministic mean and preserve a reviewable JSON artifact.]] · 2026-07-23T05:19:12+00:00
 - [[finding/kb_finding_completed_interpretable-compute-one-deterministi_053|[completed_interpretable] Compute one deterministic mean and preserve a reviewable JSON artifact.]] · 2026-07-23T05:19:11+00:00
 - [[finding/kb_finding_completed_interpretable-compute-one-deterministi_054|[completed_interpretable] Compute one deterministic mean and preserve a reviewable JSON artifact.]] · 2026-07-23T05:19:11+00:00
-- [[finding/kb_finding_completed_interpretable-compute-one-deterministi_055|[completed_interpretable] Compute one deterministic mean and preserve a reviewable JSON artifact.]] · 2026-07-23T05:19:11+00:00
-- [[finding/kb_finding_completed_interpretable-compute-one-deterministi_051|[completed_interpretable] Compute one deterministic mean and preserve a reviewable JSON artifact.]] · 2026-07-23T05:19:10+00:00
-- [[finding/kb_finding_completed_interpretable-compute-one-deterministi_052|[completed_interpretable] Compute one deterministic mean and preserve a reviewable JSON artifact.]] · 2026-07-23T05:19:10+00:00

@@ -5,8 +5,8 @@ import json
 from dataclasses import dataclass
 from pathlib import Path
 
-from EvoScientist.middleware import closed_loop_orchestration as guard_module
-from EvoScientist.middleware.closed_loop_orchestration import (
+from jw.middleware import closed_loop_orchestration as guard_module
+from jw.middleware.closed_loop_orchestration import (
     ClosedLoopOrchestrationGuardMiddleware,
     closed_loop_receipts,
 )

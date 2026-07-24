@@ -1,7 +1,7 @@
 from unittest.mock import MagicMock, patch
 
-from EvoScientist.cli.agent import _load_agent
-from EvoScientist.pi_bridge.graph import PiAgentGraph
+from jw.cli.agent import _load_agent
+from jw.pi_bridge.graph import PiAgentGraph
 
 
 class TestLoadAgentEngine:
@@ -14,7 +14,7 @@ class TestLoadAgentEngine:
         cfg.pi_args = ""
         cfg.dashscope_api_key = "fake"
 
-        with patch("EvoScientist.EvoScientist.create_cli_agent") as mock_langgraph:
+        with patch("jw.agent.create_cli_agent") as mock_langgraph:
             agent = _load_agent(workspace_dir=str(tmp_path), config=cfg)
             assert isinstance(agent, PiAgentGraph)
             mock_langgraph.assert_not_called()
@@ -23,7 +23,7 @@ class TestLoadAgentEngine:
         cfg = MagicMock()
         cfg.agent_engine = "langgraph"
 
-        with patch("EvoScientist.EvoScientist.create_cli_agent") as mock_langgraph:
+        with patch("jw.agent.create_cli_agent") as mock_langgraph:
             mock_langgraph.return_value = MagicMock()
             agent = _load_agent(workspace_dir=str(tmp_path), config=cfg)
             assert agent is mock_langgraph.return_value

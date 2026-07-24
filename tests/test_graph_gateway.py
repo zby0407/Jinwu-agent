@@ -9,7 +9,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from langchain_core.messages import AIMessage, HumanMessage
 
-from EvoScientist.gateway import (
+from jw.gateway import (
     GraphTarget,
     LangGraphServerGateway,
     LangGraphServerThreadStore,
@@ -18,8 +18,8 @@ from EvoScientist.gateway import (
     RuntimeGateways,
     create_runtime_gateways,
 )
-from EvoScientist.gateway.server import _THREAD_SEARCH_LIMIT
-from EvoScientist.stream import display as display_mod
+from jw.gateway.server import _THREAD_SEARCH_LIMIT
+from jw.stream import display as display_mod
 from tests.fakes import (
     FakeGraphGateway,
     FakeLangGraphClient,
@@ -58,7 +58,7 @@ async def test_local_gateway_streams_from_injected_streamer():
         )
         return [event async for event in gateway.stream_events(request)]
 
-    with patch("EvoScientist.stream.events.stream_agent_events", new=_streamer):
+    with patch("jw.stream.events.stream_agent_events", new=_streamer):
         events = await _collect()
 
     assert events == [
@@ -188,7 +188,7 @@ async def test_local_stream_events_delegates_aclose_to_inner():
         await stream.aclose()
         assert cleanup_ran is True
 
-    with patch("EvoScientist.stream.events.stream_agent_events", new=_streamer):
+    with patch("jw.stream.events.stream_agent_events", new=_streamer):
         await _run()
 
 
@@ -201,7 +201,7 @@ def test_run_streaming_can_consume_injected_gateway():
         ]
     )
 
-    with patch("EvoScientist.stream.display.Live"):
+    with patch("jw.stream.display.Live"):
         result = display_mod._run_streaming(
             agent=agent,
             message="hello",
@@ -224,8 +224,8 @@ def test_run_streaming_can_consume_injected_gateway():
 
 
 async def test_resume_command_consumes_context_gateway():
-    from EvoScientist.commands.base import CommandContext
-    from EvoScientist.commands.implementation.session import ResumeCommand
+    from jw.commands.base import CommandContext
+    from jw.commands.implementation.session import ResumeCommand
 
     ui = MagicMock()
     ui.handle_session_resume = AsyncMock()
@@ -249,7 +249,7 @@ async def test_resume_command_consumes_context_gateway():
 
 
 def test_cmd_run_passes_local_graph_gateway(monkeypatch):
-    from EvoScientist.cli import interactive
+    from jw.cli import interactive
 
     thread_store = FakeThreadStore(generated_thread_id="generated-thread")
 
@@ -289,11 +289,11 @@ async def test_langgraph_server_thread_store_delegates_to_sdk_threads():
                 "thread_id": "abc12345",
                 "created_at": "2026-01-01T00:00:00Z",
                 "updated_at": "2026-01-02T00:00:00Z",
-                "metadata": {"graph_id": "EvoScientist", "workspace_dir": "/tmp/ws"},
+                "metadata": {"graph_id": "JW", "workspace_dir": "/tmp/ws"},
             },
             {
                 "thread_id": "worker123",
-                "metadata": {"graph_id": "evomemory-turn-worker"},
+                "metadata": {"graph_id": "jwmemory-turn-worker"},
             },
         ],
         states={
@@ -336,8 +336,8 @@ async def test_langgraph_server_thread_store_delegates_to_sdk_threads():
     assert len(threads.created) == 1
     assert threads.created[0]["thread_id"] == "server-thread"
     created_metadata = threads.created[0]["metadata"]
-    assert created_metadata["graph_id"] == "EvoScientist"
-    assert created_metadata["agent_name"] == "EvoScientist"
+    assert created_metadata["graph_id"] == "JW"
+    assert created_metadata["agent_name"] == "JW"
     assert created_metadata["workspace_dir"] == "/tmp/new-ws"
     assert created_metadata["model"] == "test-model"
     assert isinstance(created_metadata["updated_at"], str)
@@ -348,7 +348,7 @@ async def test_langgraph_server_thread_store_delegates_to_sdk_threads():
             "updated_at": "2026-01-02T00:00:00Z",
             "workspace_dir": "/tmp/ws",
             "model": None,
-            "metadata": {"graph_id": "EvoScientist", "workspace_dir": "/tmp/ws"},
+            "metadata": {"graph_id": "JW", "workspace_dir": "/tmp/ws"},
             "message_count": 2,
             "preview": "hello from server",
         },
@@ -365,7 +365,7 @@ async def test_langgraph_server_thread_store_delegates_to_sdk_threads():
     ]
     assert result["resolution"] == ("abc12345", [])
     assert result["metadata"] == {
-        "graph_id": "EvoScientist",
+        "graph_id": "JW",
         "workspace_dir": "/tmp/ws",
     }
     assert [message.type for message in result["messages"]] == ["human", "ai"]
@@ -378,7 +378,7 @@ async def test_langgraph_server_thread_store_limit_zero_pages_all_threads():
     rows = [
         {
             "thread_id": f"thread-{index}",
-            "metadata": {"graph_id": "EvoScientist"},
+            "metadata": {"graph_id": "JW"},
         }
         for index in range(_THREAD_SEARCH_LIMIT + 1)
     ]
@@ -403,7 +403,7 @@ async def test_langgraph_server_thread_store_positive_limit_uses_single_search()
         threads=[
             {
                 "thread_id": f"thread-{index}",
-                "metadata": {"graph_id": "EvoScientist"},
+                "metadata": {"graph_id": "JW"},
             }
             for index in range(3)
         ]
@@ -425,7 +425,7 @@ async def test_langgraph_server_thread_store_prefix_resolution_skips_exact_looku
         threads=[
             {
                 "thread_id": "abc12345",
-                "metadata": {"graph_id": "EvoScientist"},
+                "metadata": {"graph_id": "JW"},
             }
         ]
     )
@@ -444,14 +444,14 @@ async def test_langgraph_server_thread_store_prefix_resolution_pages_all_threads
     rows = [
         {
             "thread_id": f"thread-{index}",
-            "metadata": {"graph_id": "EvoScientist"},
+            "metadata": {"graph_id": "JW"},
         }
         for index in range(_THREAD_SEARCH_LIMIT)
     ]
     rows.append(
         {
             "thread_id": "older-thread-match",
-            "metadata": {"graph_id": "EvoScientist"},
+            "metadata": {"graph_id": "JW"},
         }
     )
     threads = FakeLangGraphThreadsClient(threads=rows)
@@ -474,7 +474,7 @@ async def test_langgraph_server_thread_store_uuid_resolution_uses_exact_lookup()
         threads=[
             {
                 "thread_id": thread_id,
-                "metadata": {"graph_id": "EvoScientist"},
+                "metadata": {"graph_id": "JW"},
             }
         ]
     )
@@ -611,7 +611,7 @@ def test_runtime_gateways_can_use_langgraph_server_backend():
 
 async def test_langgraph_server_gateway_reads_state_values():
     threads = FakeLangGraphThreadsClient(
-        threads=[{"thread_id": "abc12345", "metadata": {"graph_id": "EvoScientist"}}],
+        threads=[{"thread_id": "abc12345", "metadata": {"graph_id": "JW"}}],
         states={"abc12345": {"values": {"async_tasks": {"task-1": {}}}}},
     )
     gateway = LangGraphServerGateway(
@@ -627,7 +627,7 @@ async def test_langgraph_server_gateway_reads_state_values():
 
 async def test_langgraph_server_gateway_messages_apply_summarization_event():
     threads = FakeLangGraphThreadsClient(
-        threads=[{"thread_id": "abc12345", "metadata": {"graph_id": "EvoScientist"}}],
+        threads=[{"thread_id": "abc12345", "metadata": {"graph_id": "JW"}}],
         states={
             "abc12345": {
                 "values": {
@@ -662,7 +662,7 @@ async def test_langgraph_server_gateway_messages_apply_summarization_event():
 
 async def test_langgraph_server_gateway_updates_state_values():
     threads = FakeLangGraphThreadsClient(
-        threads=[{"thread_id": "abc12345", "metadata": {"graph_id": "EvoScientist"}}],
+        threads=[{"thread_id": "abc12345", "metadata": {"graph_id": "JW"}}],
     )
     gateway = LangGraphServerGateway(
         LangGraphServerThreadStore(
@@ -976,7 +976,7 @@ async def test_langgraph_server_gateway_streams_subagent_protocol_events():
         ],
     )
     threads = FakeLangGraphThreadsClient(
-        threads=[{"thread_id": "abc12345", "metadata": {"graph_id": "EvoScientist"}}],
+        threads=[{"thread_id": "abc12345", "metadata": {"graph_id": "JW"}}],
         states={"abc12345": {"values": {}}},
         streams={"abc12345": stream},
     )
@@ -1028,7 +1028,7 @@ async def test_langgraph_server_gateway_resumes_interrupt_with_thread_stream():
         interrupts=[{"interrupt_id": "interrupt-1"}],
     )
     threads = FakeLangGraphThreadsClient(
-        threads=[{"thread_id": "abc12345", "metadata": {"graph_id": "EvoScientist"}}],
+        threads=[{"thread_id": "abc12345", "metadata": {"graph_id": "JW"}}],
         states={"abc12345": {"values": {}}},
         streams={"abc12345": stream},
     )

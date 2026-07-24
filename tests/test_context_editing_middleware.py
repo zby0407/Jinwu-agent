@@ -4,7 +4,7 @@ from unittest.mock import MagicMock, patch
 
 from langchain.agents.middleware import ContextEditingMiddleware
 
-from EvoScientist.middleware.context_editing import compute_context_editing_trigger
+from jw.middleware.context_editing import compute_context_editing_trigger
 
 # ---------------------------------------------------------------------------
 # compute_context_editing_trigger tests
@@ -72,7 +72,7 @@ def test_compute_trigger_custom_fallback():
 
 
 def test_create_middleware_configuration():
-    from EvoScientist.middleware.context_editing import (
+    from jw.middleware.context_editing import (
         create_context_editing_middleware,
     )
 
@@ -85,9 +85,9 @@ def test_create_middleware_configuration():
     assert "think_tool" in edit.exclude_tools
 
 
-@patch("EvoScientist.EvoScientist._ensure_chat_model")
+@patch("jw.agent._ensure_chat_model")
 def test_create_middleware_model_none_fallback(mock_model):
-    from EvoScientist.middleware.context_editing import (
+    from jw.middleware.context_editing import (
         create_context_editing_middleware,
     )
 
@@ -104,11 +104,11 @@ def test_create_middleware_model_none_fallback(mock_model):
 
 
 @patch(
-    "EvoScientist.middleware.create_tool_selector_middleware",
+    "jw.middleware.create_tool_selector_middleware",
     return_value=[MagicMock(), MagicMock()],
 )
-@patch("EvoScientist.EvoScientist._ensure_chat_model")
-@patch("EvoScientist.EvoScientist._ensure_config")
+@patch("jw.agent._ensure_chat_model")
+@patch("jw.agent._ensure_config")
 def test_default_middleware_includes_context_editing(mock_config, mock_model, mock_ts):
     mock_model.return_value = MagicMock(profile={"max_input_tokens": 200_000})
     cfg = MagicMock()
@@ -118,7 +118,7 @@ def test_default_middleware_includes_context_editing(mock_config, mock_model, mo
     cfg.auxiliary_provider = ""
     mock_config.return_value = cfg
 
-    from EvoScientist.EvoScientist import _get_default_middleware
+    from jw.agent import _get_default_middleware
 
     mw = _get_default_middleware()
     # ContextEditingMiddleware is present (its absolute position depends on
@@ -126,11 +126,11 @@ def test_default_middleware_includes_context_editing(mock_config, mock_model, mo
     assert any(isinstance(m, ContextEditingMiddleware) for m in mw)
 
 
-@patch("EvoScientist.EvoScientist._ensure_chat_model")
+@patch("jw.agent._ensure_chat_model")
 def test_inject_subagent_includes_context_editing(mock_model):
     mock_model.return_value = MagicMock(profile={"max_input_tokens": 200_000})
 
-    from EvoScientist.EvoScientist import _inject_subagent_middleware
+    from jw.agent import _inject_subagent_middleware
 
     subs = [{"name": "test-agent"}]
     _inject_subagent_middleware(subs)
@@ -140,11 +140,11 @@ def test_inject_subagent_includes_context_editing(mock_model):
 
 
 @patch(
-    "EvoScientist.middleware.create_tool_selector_middleware",
+    "jw.middleware.create_tool_selector_middleware",
     return_value=[MagicMock(), MagicMock()],
 )
-@patch("EvoScientist.EvoScientist._ensure_chat_model")
-@patch("EvoScientist.EvoScientist._ensure_config")
+@patch("jw.agent._ensure_chat_model")
+@patch("jw.agent._ensure_config")
 def test_context_editing_before_overflow_mapper(mock_config, mock_model, mock_ts):
     mock_model.return_value = MagicMock(profile={"max_input_tokens": 200_000})
     cfg = MagicMock()
@@ -154,7 +154,7 @@ def test_context_editing_before_overflow_mapper(mock_config, mock_model, mock_ts
     cfg.auxiliary_provider = ""
     mock_config.return_value = cfg
 
-    from EvoScientist.EvoScientist import _get_default_middleware
+    from jw.agent import _get_default_middleware
 
     mw = _get_default_middleware()
     type_names = [type(m).__name__ for m in mw]

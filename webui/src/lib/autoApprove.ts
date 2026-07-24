@@ -7,7 +7,7 @@
 // creates a real thread id, `migrateNewThreadAutoApprove` carries the setting
 // over to that id.
 
-const STORAGE_KEY = "jinwu-auto-approve";
+const STORAGE_KEY = "jw-auto-approve";
 const NEW_THREAD_KEY = "__new__";
 
 function keyFor(threadId: string | null): string {

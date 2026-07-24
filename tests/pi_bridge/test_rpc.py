@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from EvoScientist.pi_bridge.rpc import PiRPCClient
+from jw.pi_bridge.rpc import PiRPCClient
 
 
 def _make_mock_process():

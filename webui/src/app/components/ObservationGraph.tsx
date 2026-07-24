@@ -259,7 +259,7 @@ function NodeDetailPanel({
         {/* Content */}
         <div className="px-4 py-3">
           {loadingContent ? (
-            <p className="text-xs text-muted-foreground">{"\u52a0\u8f7d\u4e2d..."}</p>
+            <p className="text-xs text-muted-foreground">Loading…</p>
           ) : contentError ? (
             <p
               role="alert"
@@ -864,9 +864,9 @@ export function ObservationGraph({
       <div className="flex items-center border-b border-border px-4 py-2">
         <span className="text-xs text-muted-foreground">
           {data
-            ? `\u8282\u70b9 ${data.nodes.length} ? \u8fde\u7ebf ${data.edges.length}`
+            ? `${data.nodes.length} nodes · ${data.edges.length} edges`
             : loading
-            ? "\u52a0\u8f7d\u4e2d..."
+            ? "Loading…"
             : ""}
         </span>
       </div>
@@ -878,10 +878,10 @@ export function ObservationGraph({
           ref={containerRef}
           className="relative min-w-0 flex-1 overflow-hidden bg-muted/20"
         >
-          {loading && <EmptyState message="\u52a0\u8f7d\u89c2\u5bdf\u4e2d..." />}
-          {!loading && error && <EmptyState message={`\u9519\u8bef: ${error}`} />}
+          {loading && <EmptyState message="Loading observations…" />}
+          {!loading && error && <EmptyState message={`Error: ${error}`} />}
           {!loading && !error && data && data.nodes.length === 0 && (
-            <EmptyState message="\u6682\u65e0\u89c2\u5bdf\u3002" />
+            <EmptyState message="No observations yet." />
           )}
           {!loading &&
             !error &&

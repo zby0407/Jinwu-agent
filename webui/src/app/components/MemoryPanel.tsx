@@ -19,9 +19,9 @@ interface MemoryPanelProps {
   initialExecId?: string | null;
 }
 
-function isMemoryTab(
-  value: unknown
-): value is "identity" | "knowledge" | "history" {
+type MemoryTab = "identity" | "knowledge" | "history";
+
+function isMemoryTab(value: unknown): value is MemoryTab {
   return value === "identity" || value === "knowledge" || value === "history";
 }
 
@@ -40,10 +40,9 @@ export function MemoryPanel({
   } | null>(null);
   const [listingLoading, setListingLoading] = useState(true);
 
-  const [activeTab, setActiveTab] = useState<
-    "identity" | "knowledge" | "history"
-  >(isMemoryTab(initialTab) ? initialTab : "identity");
-
+  const [activeTab, setActiveTab] = useState<MemoryTab>(
+    isMemoryTab(initialTab) ? initialTab : "identity"
+  );
   const [obsData, setObsData] = useState<ObsGraphData | null>(null);
   const [obsLoading, setObsLoading] = useState(false);
   const [obsError, setObsError] = useState<string | null>(null);
@@ -189,12 +188,12 @@ export function MemoryPanel({
   }, [execData, obsData]);
 
   const TABS = [
-    { id: "identity" as const, label: "\u8eab\u4efd", Icon: Fingerprint },
-    { id: "knowledge" as const, label: "\u77e5\u8bc6", Icon: Network },
-    { id: "history" as const, label: "\u5386\u53f2", Icon: History },
+    { id: "identity" as const, label: "Identity", Icon: Fingerprint },
+    { id: "knowledge" as const, label: "记忆图谱", Icon: Network },
+    { id: "history" as const, label: "History", Icon: History },
   ];
 
-  const handleTabClick = (id: "identity" | "knowledge" | "history") => {
+  const handleTabClick = (id: MemoryTab) => {
     setActiveTab(id);
     if (id !== "knowledge") setHighlightObsId(null);
   };
@@ -208,13 +207,14 @@ export function MemoryPanel({
     <div className="flex h-full flex-col overflow-hidden">
       <header className="flex flex-shrink-0 items-start justify-between gap-3 border-b border-border px-4 py-3 sm:px-5">
         <div className="min-w-0">
-          <h2 className="text-xl font-semibold sm:text-2xl">{"\u91d1\u4e4c\u8bb0\u5fc6"}</h2>
+          <h2 className="text-xl font-semibold sm:text-2xl">金乌记忆</h2>
           <p className="mt-1 text-sm leading-6 text-muted-foreground">
-            {"\u91d1\u4e4c\u7684 "}
+            金乌的{" "}
             <span className="font-medium text-[var(--brand)]">
-              {"\u81ea\u6211\u6f14\u5316\u8bb0\u5fc6\u7cfb\u7edf"}
-            </span>
-            {" \u4f1a\u6301\u7eed\u5b66\u4e60\u5e76\u4f18\u5316\u5b83\u5bf9\u4f60\u3001\u7814\u7a76\u504f\u597d\u548c\u8fc7\u5f80\u5b9e\u9a8c\u7ecf\u9a8c\u7684\u7406\u89e3\u3002"}
+              self-evolving memory system
+            </span>{" "}
+            — continuously learns and refines what it knows about you, your
+            research taste, and lessons from past experiments.
           </p>
         </div>
         <button
@@ -233,8 +233,8 @@ export function MemoryPanel({
               ? obsLoading
               : listingLoading
           }
-          aria-label={"\u5237\u65b0"}
-          title={"\u5237\u65b0"}
+          aria-label="Refresh"
+          title="Refresh"
           className="mt-0.5 flex-shrink-0 rounded-md p-2 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
         >
           <RefreshCw
@@ -253,7 +253,7 @@ export function MemoryPanel({
       <div
         className="grid flex-shrink-0 grid-cols-3 gap-1 border-b border-border px-2 pt-1 sm:flex sm:items-center sm:px-3"
         role="tablist"
-        aria-label={"\u8bb0\u5fc6\u89c6\u56fe"}
+        aria-label="Memory views"
       >
         {TABS.map(({ id, label, Icon }) => (
           <button

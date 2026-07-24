@@ -1,7 +1,12 @@
 import { promises as fs } from "fs";
-import { basename, dirname, resolve } from "path";
+import { basename, dirname, join, resolve } from "path";
+import { createHash, randomUUID } from "crypto";
 import { NextRequest, NextResponse } from "next/server";
-import { getWorkspaceDir, hasControlChar } from "@/lib/server/workspace";
+import {
+  getWorkspaceDir,
+  hasControlChar,
+  safeResolve,
+} from "@/lib/server/workspace";
 
 export const runtime = "nodejs";
 
@@ -106,23 +111,56 @@ export async function POST(request: NextRequest) {
 
     // Lands in the working directory of the currently running deployment, so the
     // agent can read the files via its workspace file tools.
-    const workspaceDir = await getWorkspaceDir();
+    const threadId = request.nextUrl.searchParams.get("threadId");
+    const workspaceDir = await getWorkspaceDir(threadId);
+    const inputDir = await safeResolve(workspaceDir, "inputs");
     const uploadedFiles: { name: string; path: string; size: number }[] = [];
+    const manifestRows: Array<{
+      name: string;
+      path: string;
+      size: number;
+      sha256: string;
+      uploaded_at: string;
+    }> = [];
     const writtenPaths: string[] = [];
     try {
       for (const { file, fileName } of validatedFiles) {
-        const savedName = await writeUniqueFile(
-          workspaceDir,
-          fileName,
-          new Uint8Array(await file.arrayBuffer())
-        );
-        writtenPaths.push(resolve(workspaceDir, savedName));
+        const content = new Uint8Array(await file.arrayBuffer());
+        const savedName = await writeUniqueFile(inputDir, fileName, content);
+        writtenPaths.push(resolve(inputDir, savedName));
         uploadedFiles.push({
           name: savedName,
-          path: `/${savedName}`,
+          path: `/inputs/${savedName}`,
           size: file.size,
         });
+        manifestRows.push({
+          name: savedName,
+          path: `inputs/${savedName}`,
+          size: file.size,
+          sha256: createHash("sha256").update(content).digest("hex"),
+          uploaded_at: new Date().toISOString(),
+        });
       }
+      const manifestPath = join(workspaceDir, "input_manifest.json");
+      const currentManifest = JSON.parse(
+        await fs.readFile(manifestPath, "utf-8")
+      ) as { schema_version?: number; thread_id?: string; inputs?: unknown[] };
+      const nextManifest = {
+        ...currentManifest,
+        inputs: [
+          ...(Array.isArray(currentManifest.inputs)
+            ? currentManifest.inputs
+            : []),
+          ...manifestRows,
+        ],
+      };
+      const tempManifest = `${manifestPath}.${process.pid}.${randomUUID()}.tmp`;
+      await fs.writeFile(
+        tempManifest,
+        JSON.stringify(nextManifest, null, 2) + "\n",
+        "utf-8"
+      );
+      await fs.rename(tempManifest, manifestPath);
     } catch (error) {
       // Roll back files already written so a partial upload doesn't linger.
       // allSettled so a cleanup failure can't mask the original error.

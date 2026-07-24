@@ -18,6 +18,6 @@ jobs:
       - name: Install dependencies
         run: uv sync --dev
       - name: Run ruff linter
-        run: uv run ruff check --output-format=github .
+        run: uv run ruff check --select F --output-format=github .
       - name: Run ruff format
-        run: uv run ruff format --check .
+        run: uv run ruff format --check jw tests

@@ -1,10 +1,10 @@
 # Literature Survey
 
-Run [**EvoScientist**](https://github.com/EvoScientist/EvoScientist) with the [`paper-navigator`](https://github.com/EvoScientist/EvoSkills/tree/main#-paper-navigator--academic-paper-discovery--reading) skill to produce a conference-grade literature survey from a topic.
+Run [**JW**](https://github.com/zby0407/Jinwu-agent) with the [`paper-navigator`](https://github.com/zby0407/JW-Skills/tree/main#-paper-navigator--academic-paper-discovery--reading) skill to produce a conference-grade literature survey from a topic.
 
 ## What it does
 
-You give EvoScientist:
+You give JW:
 
 - a research topic or venue scope (e.g. *SIGIR 2026 full papers on arXiv*)
 - an LLM provider
@@ -32,11 +32,11 @@ Both cover 68 arXiv-public papers, organized into 10 sections (abstract → them
 
 Requirements: an OpenRouter API key (this run used `gpt-4`; any capable model works).
 
-Install EvoScientist and pick a provider:
+Install JW and pick a provider:
 
 ```bash
-uv tool install EvoScientist
-EvoSci onboard
+uv tool install jw-agent
+jw onboard
 ```
 
 ![Onboard model selection](assets/model_selection.png)
@@ -44,12 +44,12 @@ EvoSci onboard
 Install the `paper-navigator` skill:
 
 ```bash
-/evoskills
+/jwskills
 ```
 
 ![Skill picker](assets/skill_selection.png)
 
-Run EvoScientist and paste the prompt:
+Run JW and paste the prompt:
 
 ```
 Use paper-navigator to write a systematic survey of SIGIR 2026 papers
@@ -71,7 +71,7 @@ This example was generated with:
 | Model | `gpt-4` |
 | Skill | `paper-navigator` (v1.1.0) |
 
-To swap providers, re-run `EvoSci onboard` or edit `~/.config/evoscientist/config.yaml`.
+To swap providers, re-run `jw onboard` or edit `~/.config/jw/config.yaml`.
 
 ## Adapting this to your own venue
 

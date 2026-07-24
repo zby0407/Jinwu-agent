@@ -6,7 +6,7 @@
 
 ## Manual testing
 
-> Must be tested against a real backend (`EvoSci deploy`, port 6174) — a green build is not enough.
+> Must be tested against a real backend (`jw deploy`, port 6174) — a green build is not enough.
 
 - [ ] `npm run lint && npm run format:check && npm run build` all green
 - [ ] Started the backend → configured the Deployment URL → chat works
@@ -24,4 +24,4 @@
 
 ---
 
-> Merging ≠ shipping: releases are handled solely by the maintainer (EvoScientist pulls the UI via `@latest`).
+> Merging ≠ shipping: releases are handled solely by the maintainer (JW pulls the UI via `@latest`).

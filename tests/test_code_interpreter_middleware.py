@@ -2,7 +2,7 @@
 
 langchain-quickjs >=0.3 reserves the ``task`` sub-agent dispatch tool as the
 top-level REPL global and raises ``ValueError`` if ``task`` appears in the
-``ptc`` allowlist. EvoScientist must therefore keep ``task`` out of the
+``ptc`` allowlist. JW must therefore keep ``task`` out of the
 allowlist (``task()`` stays reachable as the REPL global, with responseSchema).
 """
 
@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import pytest
 
-from EvoScientist.middleware.code_interpreter import (
+from jw.middleware.code_interpreter import (
     _DEFAULT_PTC_ALLOWLIST,
     create_code_interpreter_middleware,
 )

@@ -75,7 +75,8 @@ export async function GET(request: NextRequest) {
     }
     const download = request.nextUrl.searchParams.get("download") === "1";
 
-    const workspaceDir = await getWorkspaceDir();
+    const threadId = request.nextUrl.searchParams.get("threadId");
+    const workspaceDir = await getWorkspaceDir(threadId);
     // safeResolve canonicalizes + re-checks containment, so a symlink can't be
     // used to read a file outside the workspace (or a hidden/internal entry).
     const target = await safeResolve(workspaceDir, relPath);
@@ -224,7 +225,8 @@ export async function PUT(request: NextRequest) {
         { status: 400 }
       );
     }
-    const workspaceDir = await getWorkspaceDir();
+    const threadId = request.nextUrl.searchParams.get("threadId");
+    const workspaceDir = await getWorkspaceDir(threadId);
     const result = await writeWorkspaceFile(
       workspaceDir,
       relPath,
@@ -254,7 +256,8 @@ export async function DELETE(request: NextRequest) {
     if (!relPath) {
       return NextResponse.json({ error: "Missing path." }, { status: 400 });
     }
-    const workspaceDir = await getWorkspaceDir();
+    const threadId = request.nextUrl.searchParams.get("threadId");
+    const workspaceDir = await getWorkspaceDir(threadId);
     await deleteWorkspaceFile(workspaceDir, relPath);
     return NextResponse.json({ ok: true });
   } catch (error) {

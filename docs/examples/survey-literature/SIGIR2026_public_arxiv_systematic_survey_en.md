@@ -1,4 +1,4 @@
-# SIGIR 2026 Survey-EvoScientist
+# SIGIR 2026 Survey-JW
 ## A Systematic Analysis Based on 68 arXiv-Public Papers
 
 ## Abstract

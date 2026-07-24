@@ -47,7 +47,7 @@ export function ConfigDialog({
     }
     // First run (no saved config): prefill from the 金乌 backend's
     // configured port (config.yaml / env), instead of guessing the default.
-    fetch("/api/evosci-config")
+    fetch("/api/jw-config")
       .then((r) => r.json())
       .then((d) => {
         if (d?.deploymentUrl) setDeploymentUrl(d.deploymentUrl);
@@ -89,10 +89,9 @@ export function ConfigDialog({
         <DialogHeader>
           <DialogTitle>Configuration</DialogTitle>
           <DialogDescription>
-            The URL of your 金乌 deployment. By default this is your
-            local deployment (detected automatically) — or a public URL from{" "}
-            <code>EvoSci deploy</code>. Saved in your browser&apos;s local
-            storage.
+            The URL of your 金乌 deployment. By default this is your local
+            deployment (detected automatically) — or a public URL from{" "}
+            <code>jw deploy</code>. Saved in your browser&apos;s local storage.
           </DialogDescription>
         </DialogHeader>
         <div className="grid gap-4 py-4">

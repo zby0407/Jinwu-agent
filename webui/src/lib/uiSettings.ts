@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 
-const COLLAPSE_AGENT_ACTIONS_KEY = "jinwu.ui.collapseAgentActions";
+const COLLAPSE_AGENT_ACTIONS_KEY = "jw.ui.collapseAgentActions";
 
 function readCollapseAgentActions(): boolean {
   if (typeof window === "undefined") return true;

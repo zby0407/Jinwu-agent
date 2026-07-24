@@ -6,7 +6,7 @@ import pytest
 from langchain_core.messages import ToolMessage
 from langgraph.types import Command
 
-from EvoScientist.middleware.tool_error_handler import (
+from jw.middleware.tool_error_handler import (
     ToolErrorHandlerMiddleware,
     _build_error_message,
 )

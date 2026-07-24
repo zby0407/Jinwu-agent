@@ -6,7 +6,7 @@ import io
 
 from rich.console import Console
 
-from EvoScientist.cli.resume_hint import print_resume_hint
+from jw.cli.resume_hint import print_resume_hint
 
 
 def _capture(thread_id: str | None) -> str:
@@ -20,7 +20,7 @@ def test_prints_goodbye_and_hint_for_thread_id():
     output = _capture("365cf731")
     assert "Goodbye!" in output
     assert "Resume this session with:" in output
-    assert "EvoSci --resume 365cf731" in output
+    assert "jw --resume 365cf731" in output
 
 
 def test_none_thread_id_prints_only_goodbye():

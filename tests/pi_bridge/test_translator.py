@@ -1,5 +1,5 @@
-from EvoScientist.pi_bridge.translator import PiEventTranslator
-from EvoScientist.stream.emitter import StreamEventEmitter
+from jw.pi_bridge.translator import PiEventTranslator
+from jw.stream.emitter import StreamEventEmitter
 
 
 class TestPiEventTranslator:

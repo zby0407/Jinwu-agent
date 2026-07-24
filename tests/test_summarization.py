@@ -2,9 +2,9 @@
 
 from langchain_core.messages import HumanMessage
 
-from EvoScientist.stream.emitter import StreamEventEmitter
-from EvoScientist.stream.state import StreamState
-from EvoScientist.stream.summarization import _extract_summarization_text
+from jw.stream.emitter import StreamEventEmitter
+from jw.stream.state import StreamState
+from jw.stream.summarization import _extract_summarization_text
 
 # ---------------------------------------------------------------------------
 # Emitter
@@ -117,14 +117,14 @@ class TestSummarizationRichDisplay:
     """create_streaming_display() with summarization_text."""
 
     def test_no_panel_when_empty(self):
-        from EvoScientist.stream.display import create_streaming_display
+        from jw.stream.display import create_streaming_display
 
         group = create_streaming_display(summarization_text="")
         rendered = _render_group(group)
         assert "Context Summarized" not in rendered
 
     def test_panel_rendered(self):
-        from EvoScientist.stream.display import create_streaming_display
+        from jw.stream.display import create_streaming_display
 
         group = create_streaming_display(
             summarization_text="The conversation was about ML.",
@@ -134,7 +134,7 @@ class TestSummarizationRichDisplay:
         assert "Context Summarized" in rendered
 
     def test_panel_rendered_while_summarizing(self):
-        from EvoScientist.stream.display import create_streaming_display
+        from jw.stream.display import create_streaming_display
 
         group = create_streaming_display(
             summarization_text="The conversation was about ML.",
@@ -145,7 +145,7 @@ class TestSummarizationRichDisplay:
         assert "Context Summarizing..." in rendered
 
     def test_panel_rendered_start_placeholder(self):
-        from EvoScientist.stream.display import create_streaming_display
+        from jw.stream.display import create_streaming_display
 
         group = create_streaming_display(
             summarization_text="",
@@ -156,7 +156,7 @@ class TestSummarizationRichDisplay:
         assert "Context Summarizing..." in rendered
 
     def test_long_text_truncated(self):
-        from EvoScientist.stream.display import create_streaming_display
+        from jw.stream.display import create_streaming_display
 
         long_text = "x" * 500
         group = create_streaming_display(
@@ -176,7 +176,7 @@ class TestSummarizationWidget:
     """SummarizationWidget (Textual TUI)."""
 
     def test_init_collapsed(self):
-        from EvoScientist.cli.widgets.summarization_widget import SummarizationWidget
+        from jw.cli.widgets.summarization_widget import SummarizationWidget
 
         w = SummarizationWidget()
         assert w._collapsed is True
@@ -185,28 +185,28 @@ class TestSummarizationWidget:
         assert w._timer_handle is None
 
     def test_set_content(self):
-        from EvoScientist.cli.widgets.summarization_widget import SummarizationWidget
+        from jw.cli.widgets.summarization_widget import SummarizationWidget
 
         w = SummarizationWidget()
         w._content = "test content"
         assert w._content == "test content"
 
     def test_char_count_label_small(self):
-        from EvoScientist.cli.widgets.summarization_widget import SummarizationWidget
+        from jw.cli.widgets.summarization_widget import SummarizationWidget
 
         w = SummarizationWidget()
         w._content = "hello"
         assert w._char_count_label() == "5 chars"
 
     def test_char_count_label_large(self):
-        from EvoScientist.cli.widgets.summarization_widget import SummarizationWidget
+        from jw.cli.widgets.summarization_widget import SummarizationWidget
 
         w = SummarizationWidget()
         w._content = "x" * 2500
         assert w._char_count_label() == "2.5k chars"
 
     def test_append_text(self):
-        from EvoScientist.cli.widgets.summarization_widget import SummarizationWidget
+        from jw.cli.widgets.summarization_widget import SummarizationWidget
 
         w = SummarizationWidget()
         w.append_text("hello ")
@@ -215,7 +215,7 @@ class TestSummarizationWidget:
         assert w._is_active is True
 
     def test_finalize(self):
-        from EvoScientist.cli.widgets.summarization_widget import SummarizationWidget
+        from jw.cli.widgets.summarization_widget import SummarizationWidget
 
         class _Timer:
             def __init__(self) -> None:
@@ -235,7 +235,7 @@ class TestSummarizationWidget:
         assert w._timer_handle is None
 
     def test_toggle_collapsed(self):
-        from EvoScientist.cli.widgets.summarization_widget import SummarizationWidget
+        from jw.cli.widgets.summarization_widget import SummarizationWidget
 
         w = SummarizationWidget()
         assert w._collapsed is True
@@ -249,20 +249,20 @@ class TestCompactSummaryWidget:
     """CompactSummaryWidget (manual /compact result panel)."""
 
     def test_init_collapsed(self):
-        from EvoScientist.cli.widgets.compact_summary_widget import CompactSummaryWidget
+        from jw.cli.widgets.compact_summary_widget import CompactSummaryWidget
 
         w = CompactSummaryWidget("summary content")
         assert w._collapsed is True
         assert w._content == "summary content"
 
     def test_char_count_label(self):
-        from EvoScientist.cli.widgets.compact_summary_widget import CompactSummaryWidget
+        from jw.cli.widgets.compact_summary_widget import CompactSummaryWidget
 
         w = CompactSummaryWidget("hello")
         assert w._char_count_label() == "5 chars"
 
     def test_toggle_collapsed(self):
-        from EvoScientist.cli.widgets.compact_summary_widget import CompactSummaryWidget
+        from jw.cli.widgets.compact_summary_widget import CompactSummaryWidget
 
         w = CompactSummaryWidget("hello world")
         assert w._collapsed is True

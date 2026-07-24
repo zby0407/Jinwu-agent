@@ -5,7 +5,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from EvoScientist.ccproxy_manager import (
+from jw.ccproxy_manager import (
     check_ccproxy_auth,
     ensure_ccproxy,
     is_ccproxy_available,
@@ -123,7 +123,7 @@ class TestIsCcproxyRunning:
 
 
 class TestStartCcproxy:
-    @patch("EvoScientist.ccproxy_manager.is_ccproxy_running")
+    @patch("jw.ccproxy_manager.is_ccproxy_running")
     @patch("subprocess.Popen")
     def test_success(self, mock_popen, mock_running):
         proc = MagicMock()
@@ -135,8 +135,8 @@ class TestStartCcproxy:
         result = start_ccproxy(8000)
         assert result is proc
 
-    @patch("EvoScientist.ccproxy_manager.is_ccproxy_running", return_value=False)
-    @patch("EvoScientist.ccproxy_manager.time")
+    @patch("jw.ccproxy_manager.is_ccproxy_running", return_value=False)
+    @patch("jw.ccproxy_manager.time")
     @patch("subprocess.Popen")
     def test_timeout(self, mock_popen, mock_time, mock_running):
         proc = MagicMock()
@@ -161,13 +161,13 @@ class TestStartCcproxy:
 
 
 class TestEnsureCcproxy:
-    @patch("EvoScientist.ccproxy_manager.is_ccproxy_running", return_value=True)
+    @patch("jw.ccproxy_manager.is_ccproxy_running", return_value=True)
     def test_already_running(self, mock_running):
         result = ensure_ccproxy(8000)
         assert result is None
 
-    @patch("EvoScientist.ccproxy_manager.start_ccproxy")
-    @patch("EvoScientist.ccproxy_manager.is_ccproxy_running", return_value=False)
+    @patch("jw.ccproxy_manager.start_ccproxy")
+    @patch("jw.ccproxy_manager.is_ccproxy_running", return_value=False)
     def test_needs_start(self, mock_running, mock_start):
         proc = MagicMock()
         mock_start.return_value = proc
@@ -256,10 +256,10 @@ class TestMaybeStartCcproxy:
         config.openai_auth_mode = "api_key"
         assert maybe_start_ccproxy(config) is None
 
-    @patch("EvoScientist.ccproxy_manager.setup_ccproxy_env")
-    @patch("EvoScientist.ccproxy_manager.ensure_ccproxy")
-    @patch("EvoScientist.ccproxy_manager.check_ccproxy_auth", return_value=(True, "OK"))
-    @patch("EvoScientist.ccproxy_manager.is_ccproxy_available", return_value=True)
+    @patch("jw.ccproxy_manager.setup_ccproxy_env")
+    @patch("jw.ccproxy_manager.ensure_ccproxy")
+    @patch("jw.ccproxy_manager.check_ccproxy_auth", return_value=(True, "OK"))
+    @patch("jw.ccproxy_manager.is_ccproxy_available", return_value=True)
     def test_oauth_mode_starts(self, mock_avail, mock_auth, mock_ensure, mock_env):
         proc = MagicMock()
         mock_ensure.return_value = proc
@@ -272,7 +272,7 @@ class TestMaybeStartCcproxy:
         assert result is proc
         mock_env.assert_called_once()
 
-    @patch("EvoScientist.ccproxy_manager.is_ccproxy_available", return_value=False)
+    @patch("jw.ccproxy_manager.is_ccproxy_available", return_value=False)
     def test_oauth_mode_raises_no_binary(self, mock_avail):
         config = MagicMock()
         config.anthropic_auth_mode = "oauth"
@@ -281,10 +281,10 @@ class TestMaybeStartCcproxy:
             maybe_start_ccproxy(config)
 
     @patch(
-        "EvoScientist.ccproxy_manager.check_ccproxy_auth",
+        "jw.ccproxy_manager.check_ccproxy_auth",
         return_value=(False, "expired"),
     )
-    @patch("EvoScientist.ccproxy_manager.is_ccproxy_available", return_value=True)
+    @patch("jw.ccproxy_manager.is_ccproxy_available", return_value=True)
     def test_oauth_mode_raises_no_auth(self, mock_avail, mock_auth):
         config = MagicMock()
         config.anthropic_auth_mode = "oauth"
@@ -292,10 +292,10 @@ class TestMaybeStartCcproxy:
         with pytest.raises(RuntimeError, match="not authenticated"):
             maybe_start_ccproxy(config)
 
-    @patch("EvoScientist.ccproxy_manager.setup_codex_env")
-    @patch("EvoScientist.ccproxy_manager.ensure_ccproxy")
-    @patch("EvoScientist.ccproxy_manager.check_ccproxy_auth", return_value=(True, "OK"))
-    @patch("EvoScientist.ccproxy_manager.is_ccproxy_available", return_value=True)
+    @patch("jw.ccproxy_manager.setup_codex_env")
+    @patch("jw.ccproxy_manager.ensure_ccproxy")
+    @patch("jw.ccproxy_manager.check_ccproxy_auth", return_value=(True, "OK"))
+    @patch("jw.ccproxy_manager.is_ccproxy_available", return_value=True)
     def test_openai_oauth_mode_starts(
         self, mock_avail, mock_auth, mock_ensure, mock_env
     ):
@@ -311,11 +311,11 @@ class TestMaybeStartCcproxy:
         mock_auth.assert_called_once_with("codex")
         mock_env.assert_called_once()
 
-    @patch("EvoScientist.ccproxy_manager.setup_codex_env")
-    @patch("EvoScientist.ccproxy_manager.setup_ccproxy_env")
-    @patch("EvoScientist.ccproxy_manager.ensure_ccproxy")
-    @patch("EvoScientist.ccproxy_manager.check_ccproxy_auth", return_value=(True, "OK"))
-    @patch("EvoScientist.ccproxy_manager.is_ccproxy_available", return_value=True)
+    @patch("jw.ccproxy_manager.setup_codex_env")
+    @patch("jw.ccproxy_manager.setup_ccproxy_env")
+    @patch("jw.ccproxy_manager.ensure_ccproxy")
+    @patch("jw.ccproxy_manager.check_ccproxy_auth", return_value=(True, "OK"))
+    @patch("jw.ccproxy_manager.is_ccproxy_available", return_value=True)
     def test_both_oauth_starts_both(
         self, mock_avail, mock_auth, mock_ensure, mock_anthropic_env, mock_codex_env
     ):
@@ -333,8 +333,8 @@ class TestMaybeStartCcproxy:
         mock_anthropic_env.assert_called_once()
         mock_codex_env.assert_called_once()
 
-    @patch("EvoScientist.ccproxy_manager._is_editable_install", return_value=True)
-    @patch("EvoScientist.ccproxy_manager.is_ccproxy_available", return_value=False)
+    @patch("jw.ccproxy_manager._is_editable_install", return_value=True)
+    @patch("jw.ccproxy_manager.is_ccproxy_available", return_value=False)
     def test_openai_oauth_raises_no_binary_editable(self, mock_avail, mock_edit):
         config = MagicMock()
         config.anthropic_auth_mode = "api_key"
@@ -346,8 +346,8 @@ class TestMaybeStartCcproxy:
         assert "uv sync --extra oauth" in msg
         assert "pip install -e '.[oauth]'" in msg
 
-    @patch("EvoScientist.ccproxy_manager._is_editable_install", return_value=False)
-    @patch("EvoScientist.ccproxy_manager.is_ccproxy_available", return_value=False)
+    @patch("jw.ccproxy_manager._is_editable_install", return_value=False)
+    @patch("jw.ccproxy_manager.is_ccproxy_available", return_value=False)
     def test_openai_oauth_raises_no_binary_pip(self, mock_avail, mock_edit):
         config = MagicMock()
         config.anthropic_auth_mode = "api_key"
@@ -356,13 +356,13 @@ class TestMaybeStartCcproxy:
             maybe_start_ccproxy(config)
         msg = str(exc_info.value)
         assert "ccproxy is required for OAuth mode but not found" in msg
-        assert "pip install 'evoscientist[oauth]'" in msg
+        assert "pip install 'jw[oauth]'" in msg
 
     @patch(
-        "EvoScientist.ccproxy_manager.check_ccproxy_auth",
+        "jw.ccproxy_manager.check_ccproxy_auth",
         return_value=(False, "expired"),
     )
-    @patch("EvoScientist.ccproxy_manager.is_ccproxy_available", return_value=True)
+    @patch("jw.ccproxy_manager.is_ccproxy_available", return_value=True)
     def test_openai_oauth_raises_no_auth(self, mock_avail, mock_auth):
         config = MagicMock()
         config.anthropic_auth_mode = "api_key"
@@ -370,10 +370,10 @@ class TestMaybeStartCcproxy:
         with pytest.raises(RuntimeError, match="Codex OAuth not authenticated"):
             maybe_start_ccproxy(config)
 
-    @patch("EvoScientist.ccproxy_manager.setup_ccproxy_env")
-    @patch("EvoScientist.ccproxy_manager.ensure_ccproxy")
-    @patch("EvoScientist.ccproxy_manager.check_ccproxy_auth", return_value=(True, "OK"))
-    @patch("EvoScientist.ccproxy_manager.is_ccproxy_available", return_value=True)
+    @patch("jw.ccproxy_manager.setup_ccproxy_env")
+    @patch("jw.ccproxy_manager.ensure_ccproxy")
+    @patch("jw.ccproxy_manager.check_ccproxy_auth", return_value=(True, "OK"))
+    @patch("jw.ccproxy_manager.is_ccproxy_available", return_value=True)
     def test_uses_config_ccproxy_port(
         self, mock_avail, mock_auth, mock_ensure, mock_env
     ):
@@ -388,8 +388,8 @@ class TestMaybeStartCcproxy:
         maybe_start_ccproxy(config)
         mock_ensure.assert_called_once_with(7777)
 
-    @patch("EvoScientist.ccproxy_manager.check_ccproxy_auth", return_value=(True, "OK"))
-    @patch("EvoScientist.ccproxy_manager.is_ccproxy_available", return_value=True)
+    @patch("jw.ccproxy_manager.check_ccproxy_auth", return_value=(True, "OK"))
+    @patch("jw.ccproxy_manager.is_ccproxy_available", return_value=True)
     def test_invalid_port_raises(self, mock_avail, mock_auth):
         """maybe_start_ccproxy raises ValueError for out-of-range port."""
         config = MagicMock()
@@ -400,8 +400,8 @@ class TestMaybeStartCcproxy:
         with pytest.raises(ValueError, match="Invalid ccproxy port"):
             maybe_start_ccproxy(config)
 
-    @patch("EvoScientist.ccproxy_manager.check_ccproxy_auth", return_value=(True, "OK"))
-    @patch("EvoScientist.ccproxy_manager.is_ccproxy_available", return_value=True)
+    @patch("jw.ccproxy_manager.check_ccproxy_auth", return_value=(True, "OK"))
+    @patch("jw.ccproxy_manager.is_ccproxy_available", return_value=True)
     def test_port_too_large_raises(self, mock_avail, mock_auth):
         config = MagicMock()
         config.anthropic_auth_mode = "oauth"

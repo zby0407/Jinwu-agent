@@ -6,7 +6,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from EvoScientist.cli import channel as channel_cli
+from jw.cli import channel as channel_cli
 
 
 @pytest.fixture(autouse=True)
@@ -24,7 +24,7 @@ def _restore_channel_globals():
 
 
 def test_auto_start_channel_passes_send_thinking(monkeypatch):
-    from EvoScientist.commands.base import ChannelRuntime
+    from jw.commands.base import ChannelRuntime
 
     captured = {}
 

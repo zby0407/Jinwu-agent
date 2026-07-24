@@ -1,4 +1,4 @@
-// API for EvoScientist's global memory files (~/.evoscientist/memories).
+// API for JW's global memory files (~/.jw/memories).
 //   GET                 → list every memory file
 //   GET ?path=<rel>     → read one text file's content
 //   PUT  {path, content}→ create or overwrite a text file

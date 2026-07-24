@@ -26,7 +26,9 @@ import { ChatProvider } from "@/providers/ChatProvider";
 import { ChatInterface } from "@/app/components/ChatInterface";
 import { SkillsMarketplace } from "@/app/components/SkillsMarketplace";
 import { MemoryPanel } from "@/app/components/MemoryPanel";
+import { KnowledgePanel } from "@/app/components/KnowledgePanel";
 import { ScheduledTasksPanel } from "@/app/components/ScheduledTasksPanel";
+import { ThemeToggle } from "@/app/components/ThemeToggle";
 import { HealthIndicator } from "@/app/components/HealthIndicator";
 import { InspectorPanel } from "@/app/components/InspectorPanel";
 import { RealtimeActivityBridge } from "@/app/components/RealtimeActivityBridge";
@@ -182,11 +184,11 @@ function HomePageInner({
   }, [isDesktopLayout, setInspector, setSidebar, setInspectorTab]);
   const sidebarToggleLabel = view
     ? sidebar
-      ? "\u9690\u85cf\u5bfc\u822a"
-      : "\u663e\u793a\u5bfc\u822a"
+      ? "Hide navigation"
+      : "Show navigation"
     : sidebar
-    ? "\u9690\u85cf\u7814\u7a76"
-    : "\u663e\u793a\u7814\u7a76";
+    ? "Hide research"
+    : "Show research";
   const startNewChat = useCallback(() => {
     setThreadAutoApprove(null, false);
     setThreadId(null);
@@ -267,7 +269,7 @@ function HomePageInner({
           <div className="flex min-w-0 items-center gap-2 sm:gap-3">
             <div className="flex min-w-0 items-center gap-2">
               <Image
-                src="/jinwu-logo.svg"
+                src="/jw-logo.svg"
                 alt="金乌"
                 width={28}
                 height={28}
@@ -313,7 +315,7 @@ function HomePageInner({
                   variant="ghost"
                   size="icon"
                   onClick={startNewChat}
-                  aria-label="\u65b0\u5efa\u5bf9\u8bdd"
+                  aria-label="New chat"
                   className="size-8"
                 >
                   <SquarePen
@@ -331,12 +333,13 @@ function HomePageInner({
                 handleSaveConfig({ ...config, deploymentUrl: url })
               }
             />
+            <ThemeToggle />
             <Button
               variant="ghost"
               size="icon"
               onClick={toggleInspector}
-              aria-label={inspector ? "\u9690\u85cf\u53f3\u4fa7\u680f" : "\u663e\u793a\u5de5\u4f5c\u533a"}
-              title={inspector ? "\u9690\u85cf\u53f3\u4fa7\u680f" : "\u663e\u793a\u5de5\u4f5c\u533a"}
+              aria-label={inspector ? "Hide inspector" : "Show workspace"}
+              title={inspector ? "Hide inspector" : "Show workspace"}
               className="size-8"
             >
               {inspector ? (
@@ -355,8 +358,8 @@ function HomePageInner({
               variant="ghost"
               size="icon"
               onClick={() => setConfigDialogOpen(true)}
-              aria-label="\u8bbe\u7f6e"
-              title="\u8bbe\u7f6e"
+              aria-label="Settings"
+              title="Settings"
               className="size-8"
             >
               <Settings
@@ -372,7 +375,7 @@ function HomePageInner({
             <div className="absolute inset-0 z-40 flex md:hidden">
               <button
                 type="button"
-                aria-label="\u5173\u95ed\u7814\u7a76"
+                aria-label="Close research"
                 className="absolute inset-0 bg-black/40"
                 onClick={closeSidebar}
               />
@@ -397,7 +400,7 @@ function HomePageInner({
             <div className="absolute inset-0 z-40 flex justify-end md:hidden">
               <button
                 type="button"
-                aria-label="\u5173\u95ed\u53f3\u4fa7\u680f"
+                aria-label="Close inspector"
                 className="absolute inset-0 bg-black/40"
                 onClick={closeInspector}
               />
@@ -415,98 +418,99 @@ function HomePageInner({
           <RealtimeActivityProvider>
             <ResizablePanelGroup
               direction="horizontal"
-              autoSaveId="jinwu-chat"
+              autoSaveId="jw-chat"
             >
-            {sidebar && isDesktopLayout && (
-              <>
-                <ResizablePanel
-                  id="thread-history"
-                  order={1}
-                  defaultSize={23}
-                  minSize={18}
-                  className="relative min-w-[260px]"
-                >
-                  <ThreadList
-                    onNewChat={startNewChat}
-                    onThreadSelect={selectThread}
-                    onMutateReady={(fn) => setMutateThreads(() => fn)}
-                    onInterruptCountChange={setInterruptCount}
-                  />
-                </ResizablePanel>
-                <ResizableHandle />
-              </>
-            )}
+              {sidebar && isDesktopLayout && (
+                <>
+                  <ResizablePanel
+                    id="thread-history"
+                    order={1}
+                    defaultSize={23}
+                    minSize={18}
+                    className="relative min-w-[260px]"
+                  >
+                    <ThreadList
+                      onNewChat={startNewChat}
+                      onThreadSelect={selectThread}
+                      onMutateReady={(fn) => setMutateThreads(() => fn)}
+                      onInterruptCountChange={setInterruptCount}
+                    />
+                  </ResizablePanel>
+                  <ResizableHandle />
+                </>
+              )}
 
-            <ResizablePanel
-              id="chat"
-              className="relative flex flex-col"
-              order={2}
-            >
-              {/* Chat stays mounted across view switches. We hide it via
+              <ResizablePanel
+                id="chat"
+                className="relative flex flex-col"
+                order={2}
+              >
+                {/* Chat stays mounted across view switches. We hide it via
                   `display:none` (rather than unmounting) so flipping to
                   Skills/Memory and back is instant — no thread re-fetch, no
                   message-list rebuild, and any in-flight run keeps streaming
                   in the background. Cost is bounded: only the *current*
                   thread's state is held; no accumulation per switch. */}
-              <div
-                className={cn(
-                  "flex h-full min-h-0 flex-1 flex-col",
-                  view !== null && "hidden"
+                <div
+                  className={cn(
+                    "flex h-full min-h-0 flex-1 flex-col",
+                    view !== null && "hidden"
+                  )}
+                >
+                  <ChatProvider
+                    key={chatSessionRevision}
+                    activeAssistant={assistant}
+                    onHistoryRevalidate={() => mutateThreads?.()}
+                  >
+                    <ChatInterface
+                      assistant={assistant}
+                      onShowAgents={showAgentsInspector}
+                      onNotifyReady={(fn) => setNotifyMainChat(() => fn)}
+                      onNavigate={handleDashboardNav}
+                      onOpenThread={selectThread}
+                      workspaceOpen={Boolean(
+                        inspector && inspectorTab !== "agents"
+                      )}
+                    />
+                    <RealtimeActivityBridge />
+                  </ChatProvider>
+                </div>
+                {view === "skills" && <SkillsMarketplace />}
+                {view === "memory" && (
+                  <MemoryPanel
+                    initialTab={
+                      memoryTab as
+                        | "identity"
+                        | "knowledge"
+                        | "history"
+                        | null
+                        | undefined
+                    }
+                    initialObsId={memoryObs}
+                    initialExecId={memoryExec}
+                  />
                 )}
-              >
-                <ChatProvider
-                  key={chatSessionRevision}
-                  activeAssistant={assistant}
-                  onHistoryRevalidate={() => mutateThreads?.()}
-                >
-                  <ChatInterface
-                    assistant={assistant}
-                    onShowAgents={showAgentsInspector}
-                    onNotifyReady={(fn) => setNotifyMainChat(() => fn)}
-                    onNavigate={handleDashboardNav}
-                    onOpenThread={selectThread}
-                    workspaceOpen={Boolean(
-                      inspector && inspectorTab !== "agents"
-                    )}
-                  />
-                  <RealtimeActivityBridge />
-                </ChatProvider>
-              </div>
-              {view === "skills" && <SkillsMarketplace />}
-              {view === "memory" && (
-                <MemoryPanel
-                  initialTab={
-                    memoryTab as
-                      | "identity"
-                      | "knowledge"
-                      | "history"
-                      | null
-                      | undefined
-                  }
-                  initialObsId={memoryObs}
-                  initialExecId={memoryExec}
-                />
-              )}
-              {view === "schedule" && <ScheduledTasksPanel />}
-            </ResizablePanel>
+                {view === "wiki" && <KnowledgePanel />}
+                {view === "schedule" && <ScheduledTasksPanel />}
+              </ResizablePanel>
 
-            {inspector && isDesktopLayout && (
-              <>
-                <ResizableHandle />
-                <ResizablePanel
-                  id="inspector"
-                  order={3}
-                  defaultSize={26}
-                  minSize={20}
-                  className="relative min-w-[300px]"
-                >
-                  <InspectorPanel
-                    onClose={closeInspector}
-                    onReportToMainChat={notifyMainChat}
-                  />
-                </ResizablePanel>
-              </>
-            )}
+              {inspector && isDesktopLayout && (
+                <>
+                  <ResizableHandle />
+                  <ResizablePanel
+                    id="inspector"
+                    order={3}
+                    defaultSize={26}
+                    minSize={20}
+                    className="relative min-w-[300px]"
+                  >
+                    <InspectorPanel
+                      onClose={closeInspector}
+                      onReportToMainChat={notifyMainChat}
+                    />
+                  </ResizablePanel>
+                </>
+              )}
             </ResizablePanelGroup>
           </RealtimeActivityProvider>
         </div>
@@ -560,9 +564,7 @@ function HomePageContent() {
         <div className="flex h-screen items-center justify-center">
           <div className="text-center">
             <h1 className="text-2xl font-bold">欢迎来到金乌</h1>
-            <p className="mt-2 text-muted-foreground">
-              配置你的部署以开始使用
-            </p>
+            <p className="mt-2 text-muted-foreground">配置你的部署以开始使用</p>
             <Button
               onClick={() => setConfigDialogOpen(true)}
               className="mt-4"

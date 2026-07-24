@@ -6,9 +6,9 @@ from types import SimpleNamespace
 from blockbuster import BlockBuster
 from langchain_core.messages import SystemMessage
 
-import EvoScientist.middleware.memory as memory_module
-from EvoScientist import paths
-from EvoScientist.memory.observations import (
+import jw.middleware.memory as memory_module
+from jw import paths
+from jw.memory.observations import (
     MemoryScope,
     MemorySourceType,
     MemoryType,
@@ -366,7 +366,7 @@ def test_profile_memory_write_failure_uses_path_pointers(tmp_path, monkeypatch):
     monkeypatch.setattr(paths, "WORKSPACE_ROOT", workspace)
 
     monkeypatch.setattr(
-        memory_module.EvoMemoryMiddleware,
+        memory_module.JWMemoryMiddleware,
         "_write_text",
         lambda _self, _path, _content: False,
     )
@@ -447,7 +447,7 @@ def test_profile_memory_migrates_legacy_memory_once(tmp_path, monkeypatch):
     (memories / "MEMORY.md").write_text(
         "\n".join(
             [
-                "# EvoScientist Memory",
+                "# JW Memory",
                 "",
                 "## User Profile",
                 "- **Name**: Alice",
@@ -567,7 +567,7 @@ def test_profile_memory_preserves_unmapped_legacy_memory(tmp_path, monkeypatch):
     legacy_path.write_text(
         "\n".join(
             [
-                "# EvoScientist Memory",
+                "# JW Memory",
                 "",
                 "## User Profile",
                 "- **Name**: Alice",
@@ -598,7 +598,7 @@ def test_profile_memory_skips_legacy_unknown_placeholders(tmp_path, monkeypatch)
     (memories / "MEMORY.md").write_text(
         "\n".join(
             [
-                "# EvoScientist Memory",
+                "# JW Memory",
                 "",
                 "## User Profile",
                 "- **Name**: (unknown)",

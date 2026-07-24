@@ -1599,7 +1599,6 @@ def render_research_plan_markdown(plan_payload: dict[str, Any]) -> str:
     sources = {item["id"]: item for item in plan["evidence_sources"]}
     datasets = {item["id"]: item for item in plan["required_datasets"]}
     artifacts = {item["id"]: item for item in plan["research_artifacts"]}
-    steps = {item["id"]: item for item in plan["research_route"]}
     step_number = {
         item["id"]: index for index, item in enumerate(plan["research_route"], start=1)
     }

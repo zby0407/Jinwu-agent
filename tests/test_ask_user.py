@@ -13,20 +13,20 @@ class TestDataTypes:
     """Test Question, Choice, AskUserRequest construction."""
 
     def test_choice_construction(self):
-        from EvoScientist.middleware.ask_user import Choice
+        from jw.middleware.ask_user import Choice
 
         choice: Choice = {"value": "CIFAR-10"}
         assert choice["value"] == "CIFAR-10"
 
     def test_question_text_construction(self):
-        from EvoScientist.middleware.ask_user import Question
+        from jw.middleware.ask_user import Question
 
         q: Question = {"question": "Which dataset?", "type": "text"}
         assert q["question"] == "Which dataset?"
         assert q["type"] == "text"
 
     def test_question_multiple_choice_construction(self):
-        from EvoScientist.middleware.ask_user import Question
+        from jw.middleware.ask_user import Question
 
         q: Question = {
             "question": "Which dataset?",
@@ -37,7 +37,7 @@ class TestDataTypes:
         assert len(q["choices"]) == 2
 
     def test_ask_user_request_construction(self):
-        from EvoScientist.middleware.ask_user import AskUserRequest
+        from jw.middleware.ask_user import AskUserRequest
 
         req: AskUserRequest = {
             "type": "ask_user",
@@ -48,13 +48,13 @@ class TestDataTypes:
         assert req["tool_call_id"] == "tc_123"
 
     def test_ask_user_answered_construction(self):
-        from EvoScientist.middleware.ask_user import AskUserAnswered
+        from jw.middleware.ask_user import AskUserAnswered
 
         result: AskUserAnswered = {"type": "answered", "answers": ["CIFAR-10"]}
         assert result["type"] == "answered"
 
     def test_ask_user_cancelled_construction(self):
-        from EvoScientist.middleware.ask_user import AskUserCancelled
+        from jw.middleware.ask_user import AskUserCancelled
 
         result: AskUserCancelled = {"type": "cancelled"}
         assert result["type"] == "cancelled"
@@ -70,7 +70,7 @@ class TestCoerceQuestionsList:
     LLMs serializing the questions param as a JSON string instead of a list."""
 
     def test_json_string_parsed_to_list(self):
-        from EvoScientist.middleware.ask_user import _coerce_questions_list
+        from jw.middleware.ask_user import _coerce_questions_list
 
         raw = '[{"question": "Which dataset?", "type": "text"}]'
         result = _coerce_questions_list(raw)
@@ -79,14 +79,14 @@ class TestCoerceQuestionsList:
         assert result[0]["question"] == "Which dataset?"
 
     def test_list_passthrough(self):
-        from EvoScientist.middleware.ask_user import _coerce_questions_list
+        from jw.middleware.ask_user import _coerce_questions_list
 
         data = [{"question": "Q?", "type": "text"}]
         result = _coerce_questions_list(data)
         assert result is data  # same object, no copy
 
     def test_non_list_json_string_passthrough(self):
-        from EvoScientist.middleware.ask_user import _coerce_questions_list
+        from jw.middleware.ask_user import _coerce_questions_list
 
         # JSON object string should NOT be parsed (not a list)
         raw = '{"question": "Q?", "type": "text"}'
@@ -94,20 +94,20 @@ class TestCoerceQuestionsList:
         assert result == raw  # returned as-is
 
     def test_invalid_json_string_passthrough(self):
-        from EvoScientist.middleware.ask_user import _coerce_questions_list
+        from jw.middleware.ask_user import _coerce_questions_list
 
         raw = "not json at all"
         result = _coerce_questions_list(raw)
         assert result == raw
 
     def test_empty_list_json_string(self):
-        from EvoScientist.middleware.ask_user import _coerce_questions_list
+        from jw.middleware.ask_user import _coerce_questions_list
 
         result = _coerce_questions_list("[]")
         assert result == []
 
     def test_non_string_non_list_passthrough(self):
-        from EvoScientist.middleware.ask_user import _coerce_questions_list
+        from jw.middleware.ask_user import _coerce_questions_list
 
         assert _coerce_questions_list(42) == 42
         assert _coerce_questions_list(None) is None
@@ -122,31 +122,31 @@ class TestValidateQuestions:
     """Test _validate_questions()."""
 
     def test_empty_list_raises(self):
-        from EvoScientist.middleware.ask_user import _validate_questions
+        from jw.middleware.ask_user import _validate_questions
 
         with pytest.raises(ValueError, match="at least one question"):
             _validate_questions([])
 
     def test_missing_question_text_raises(self):
-        from EvoScientist.middleware.ask_user import _validate_questions
+        from jw.middleware.ask_user import _validate_questions
 
         with pytest.raises(ValueError, match="non-empty 'question' text"):
             _validate_questions([{"question": "", "type": "text"}])
 
     def test_wrong_type_raises(self):
-        from EvoScientist.middleware.ask_user import _validate_questions
+        from jw.middleware.ask_user import _validate_questions
 
         with pytest.raises(ValueError, match="unsupported"):
             _validate_questions([{"question": "Q?", "type": "radio"}])
 
     def test_multiple_choice_no_choices_raises(self):
-        from EvoScientist.middleware.ask_user import _validate_questions
+        from jw.middleware.ask_user import _validate_questions
 
         with pytest.raises(ValueError, match="non-empty 'choices' list"):
             _validate_questions([{"question": "Q?", "type": "multiple_choice"}])
 
     def test_text_with_choices_raises(self):
-        from EvoScientist.middleware.ask_user import _validate_questions
+        from jw.middleware.ask_user import _validate_questions
 
         with pytest.raises(ValueError, match="must not define 'choices'"):
             _validate_questions(
@@ -160,13 +160,13 @@ class TestValidateQuestions:
             )
 
     def test_valid_text_question(self):
-        from EvoScientist.middleware.ask_user import _validate_questions
+        from jw.middleware.ask_user import _validate_questions
 
         # Should not raise
         _validate_questions([{"question": "What dataset?", "type": "text"}])
 
     def test_valid_multiple_choice_question(self):
-        from EvoScientist.middleware.ask_user import _validate_questions
+        from jw.middleware.ask_user import _validate_questions
 
         _validate_questions(
             [
@@ -188,7 +188,7 @@ class TestParseAnswers:
     """Test _parse_answers()."""
 
     def test_answered_status(self):
-        from EvoScientist.middleware.ask_user import _parse_answers
+        from jw.middleware.ask_user import _parse_answers
 
         questions = [{"question": "Q1?", "type": "text"}]
         result = _parse_answers(
@@ -203,7 +203,7 @@ class TestParseAnswers:
         assert "A: my answer" in msgs[0].content
 
     def test_cancelled_status(self):
-        from EvoScientist.middleware.ask_user import _parse_answers
+        from jw.middleware.ask_user import _parse_answers
 
         questions = [{"question": "Q1?", "type": "text"}]
         result = _parse_answers(
@@ -215,7 +215,7 @@ class TestParseAnswers:
         assert "(cancelled)" in msgs[0].content
 
     def test_malformed_payload_non_dict(self):
-        from EvoScientist.middleware.ask_user import _parse_answers
+        from jw.middleware.ask_user import _parse_answers
 
         questions = [{"question": "Q1?", "type": "text"}]
         result = _parse_answers("not a dict", questions, "tc_1")
@@ -223,7 +223,7 @@ class TestParseAnswers:
         assert "(error:" in msgs[0].content
 
     def test_missing_answers_key(self):
-        from EvoScientist.middleware.ask_user import _parse_answers
+        from jw.middleware.ask_user import _parse_answers
 
         questions = [{"question": "Q1?", "type": "text"}]
         result = _parse_answers(
@@ -235,7 +235,7 @@ class TestParseAnswers:
         assert "(error:" in msgs[0].content
 
     def test_unknown_status(self):
-        from EvoScientist.middleware.ask_user import _parse_answers
+        from jw.middleware.ask_user import _parse_answers
 
         questions = [{"question": "Q1?", "type": "text"}]
         result = _parse_answers(
@@ -256,14 +256,14 @@ class TestAskUserMiddleware:
     """Test AskUserMiddleware initialization and tool creation."""
 
     def test_init_creates_tool(self):
-        from EvoScientist.middleware.ask_user import AskUserMiddleware
+        from jw.middleware.ask_user import AskUserMiddleware
 
         mw = AskUserMiddleware()
         assert len(mw.tools) == 1
         assert mw.tools[0].name == "ask_user"
 
     def test_system_prompt_set(self):
-        from EvoScientist.middleware.ask_user import (
+        from jw.middleware.ask_user import (
             ASK_USER_SYSTEM_PROMPT,
             AskUserMiddleware,
         )
@@ -272,23 +272,23 @@ class TestAskUserMiddleware:
         assert mw.system_prompt == ASK_USER_SYSTEM_PROMPT
 
     def test_custom_prompt(self):
-        from EvoScientist.middleware.ask_user import AskUserMiddleware
+        from jw.middleware.ask_user import AskUserMiddleware
 
         mw = AskUserMiddleware(system_prompt="custom prompt")
         assert mw.system_prompt == "custom prompt"
 
     def test_system_prompt_mentions_resource_estimation(self):
-        from EvoScientist.middleware.ask_user import ASK_USER_SYSTEM_PROMPT
+        from jw.middleware.ask_user import ASK_USER_SYSTEM_PROMPT
 
         assert "estimation" in ASK_USER_SYSTEM_PROMPT.lower()
 
     def test_system_prompt_mentions_timeout(self):
-        from EvoScientist.middleware.ask_user import ASK_USER_SYSTEM_PROMPT
+        from jw.middleware.ask_user import ASK_USER_SYSTEM_PROMPT
 
         assert "timeout" in ASK_USER_SYSTEM_PROMPT.lower()
 
     def test_tool_description_mentions_resource(self):
-        from EvoScientist.middleware.ask_user import ASK_USER_TOOL_DESCRIPTION
+        from jw.middleware.ask_user import ASK_USER_TOOL_DESCRIPTION
 
         assert "resource" in ASK_USER_TOOL_DESCRIPTION.lower()
 
@@ -302,7 +302,7 @@ class TestStreamEmitter:
     """Test ask_user_interrupt event creation."""
 
     def test_ask_user_interrupt_event_structure(self):
-        from EvoScientist.stream.emitter import StreamEventEmitter
+        from jw.stream.emitter import StreamEventEmitter
 
         emitter = StreamEventEmitter()
         event = emitter.ask_user_interrupt(
@@ -317,7 +317,7 @@ class TestStreamEmitter:
         assert len(event.data["questions"]) == 1
 
     def test_ask_user_interrupt_default_tool_call_id(self):
-        from EvoScientist.stream.emitter import StreamEventEmitter
+        from jw.stream.emitter import StreamEventEmitter
 
         emitter = StreamEventEmitter()
         event = emitter.ask_user_interrupt("ns1", [])
@@ -333,13 +333,13 @@ class TestStreamState:
     """Test StreamState handling of ask_user events."""
 
     def test_pending_ask_user_starts_none(self):
-        from EvoScientist.stream.state import StreamState
+        from jw.stream.state import StreamState
 
         state = StreamState()
         assert state.pending_ask_user is None
 
     def test_handle_ask_user_sets_pending(self):
-        from EvoScientist.stream.state import StreamState
+        from jw.stream.state import StreamState
 
         state = StreamState()
         event = {
@@ -354,7 +354,7 @@ class TestStreamState:
         assert state.pending_ask_user["tool_call_id"] == "tc_1"
 
     def test_ask_user_does_not_affect_pending_interrupt(self):
-        from EvoScientist.stream.state import StreamState
+        from jw.stream.state import StreamState
 
         state = StreamState()
         event = {
@@ -377,33 +377,33 @@ class TestConfig:
     """Test enable_ask_user config field."""
 
     def test_default_is_true(self):
-        from EvoScientist.config.settings import EvoScientistConfig
+        from jw.config.settings import JWConfig
 
-        cfg = EvoScientistConfig()
+        cfg = JWConfig()
         assert cfg.enable_ask_user is True
 
     def test_set_to_false(self):
-        from EvoScientist.config.settings import EvoScientistConfig
+        from jw.config.settings import JWConfig
 
-        cfg = EvoScientistConfig(enable_ask_user=False)
+        cfg = JWConfig(enable_ask_user=False)
         assert cfg.enable_ask_user is False
 
     def test_auto_mode_default_is_false(self):
-        from EvoScientist.config.settings import EvoScientistConfig
+        from jw.config.settings import JWConfig
 
-        cfg = EvoScientistConfig()
+        cfg = JWConfig()
         assert cfg.auto_mode is False
 
     def test_auto_mode_set_to_true(self):
-        from EvoScientist.config.settings import EvoScientistConfig
+        from jw.config.settings import JWConfig
 
-        cfg = EvoScientistConfig(auto_mode=True)
+        cfg = JWConfig(auto_mode=True)
         assert cfg.auto_mode is True
 
 
-@patch("EvoScientist.middleware.create_tool_selector_middleware", return_value=[])
-@patch("EvoScientist.EvoScientist._ensure_chat_model")
-@patch("EvoScientist.EvoScientist._ensure_config")
+@patch("jw.middleware.create_tool_selector_middleware", return_value=[])
+@patch("jw.agent._ensure_chat_model")
+@patch("jw.agent._ensure_config")
 def test_auto_approve_still_includes_ask_user_middleware(
     mock_config, mock_model, mock_tool_selector
 ):
@@ -416,15 +416,15 @@ def test_auto_approve_still_includes_ask_user_middleware(
     mock_config.return_value = cfg
     mock_model.return_value = MagicMock(profile={"max_input_tokens": 200_000})
 
-    from EvoScientist.EvoScientist import _get_default_middleware
+    from jw.agent import _get_default_middleware
 
     type_names = [type(m).__name__ for m in _get_default_middleware()]
     assert "AskUserMiddleware" in type_names
 
 
-@patch("EvoScientist.middleware.create_tool_selector_middleware", return_value=[])
-@patch("EvoScientist.EvoScientist._ensure_chat_model")
-@patch("EvoScientist.EvoScientist._ensure_config")
+@patch("jw.middleware.create_tool_selector_middleware", return_value=[])
+@patch("jw.agent._ensure_chat_model")
+@patch("jw.agent._ensure_config")
 def test_auto_mode_disables_ask_user_middleware(
     mock_config, mock_model, mock_tool_selector
 ):
@@ -437,15 +437,15 @@ def test_auto_mode_disables_ask_user_middleware(
     mock_config.return_value = cfg
     mock_model.return_value = MagicMock(profile={"max_input_tokens": 200_000})
 
-    from EvoScientist.EvoScientist import _get_default_middleware
+    from jw.agent import _get_default_middleware
 
     type_names = [type(m).__name__ for m in _get_default_middleware()]
     assert "AskUserMiddleware" not in type_names
 
 
-@patch("EvoScientist.middleware.create_tool_selector_middleware", return_value=[])
-@patch("EvoScientist.EvoScientist._ensure_chat_model")
-@patch("EvoScientist.EvoScientist._ensure_config")
+@patch("jw.middleware.create_tool_selector_middleware", return_value=[])
+@patch("jw.agent._ensure_chat_model")
+@patch("jw.agent._ensure_config")
 def test_for_async_subagent_omits_ask_user_middleware(
     mock_config, mock_model, mock_tool_selector
 ):
@@ -467,7 +467,7 @@ def test_for_async_subagent_omits_ask_user_middleware(
     mock_config.return_value = cfg
     mock_model.return_value = MagicMock(profile={"max_input_tokens": 200_000})
 
-    from EvoScientist.EvoScientist import _get_default_middleware
+    from jw.agent import _get_default_middleware
 
     # Sanity: with the default flag, ask_user IS present.
     default_names = [type(m).__name__ for m in _get_default_middleware()]
@@ -495,7 +495,7 @@ class TestRichCLIPrompt:
     def test_text_question_returns_answered(self):
         from unittest.mock import MagicMock
 
-        from EvoScientist.stream.display import _resolve_ask_user_prompt
+        from jw.stream.display import _resolve_ask_user_prompt
 
         data = {
             "questions": [{"question": "What dataset?", "type": "text"}],
@@ -511,7 +511,7 @@ class TestRichCLIPrompt:
     def test_keyboard_interrupt_returns_cancelled(self):
         from unittest.mock import MagicMock
 
-        from EvoScientist.stream.display import _resolve_ask_user_prompt
+        from jw.stream.display import _resolve_ask_user_prompt
 
         data = {
             "questions": [{"question": "What?", "type": "text"}],
@@ -525,7 +525,7 @@ class TestRichCLIPrompt:
         assert result["status"] == "cancelled"
 
     def test_empty_questions_returns_empty(self):
-        from EvoScientist.stream.display import _resolve_ask_user_prompt
+        from jw.stream.display import _resolve_ask_user_prompt
 
         data = {"questions": [], "tool_call_id": "tc_1"}
         result = _resolve_ask_user_prompt(data)
@@ -535,7 +535,7 @@ class TestRichCLIPrompt:
     def test_multiple_choice_selection(self):
         from unittest.mock import MagicMock
 
-        from EvoScientist.stream.display import _resolve_ask_user_prompt
+        from jw.stream.display import _resolve_ask_user_prompt
 
         data = {
             "questions": [
@@ -557,7 +557,7 @@ class TestRichCLIPrompt:
     def test_multiple_choice_other_option(self):
         from unittest.mock import MagicMock
 
-        from EvoScientist.stream.display import _resolve_ask_user_prompt
+        from jw.stream.display import _resolve_ask_user_prompt
 
         data = {
             "questions": [
@@ -591,7 +591,7 @@ class TestAskUserWidget:
     """Test AskUserWidget basic construction."""
 
     def test_widget_instantiation(self):
-        from EvoScientist.cli.widgets.ask_user_widget import AskUserWidget
+        from jw.cli.widgets.ask_user_widget import AskUserWidget
 
         questions = [{"question": "Q?", "type": "text"}]
         w = AskUserWidget(questions)
@@ -599,13 +599,13 @@ class TestAskUserWidget:
         assert w._answers == []
 
     def test_answered_message_class_exists(self):
-        from EvoScientist.cli.widgets.ask_user_widget import AskUserWidget
+        from jw.cli.widgets.ask_user_widget import AskUserWidget
 
         msg = AskUserWidget.Answered(["answer1"])
         assert msg.answers == ["answer1"]
 
     def test_cancelled_message_class_exists(self):
-        from EvoScientist.cli.widgets.ask_user_widget import AskUserWidget
+        from jw.cli.widgets.ask_user_widget import AskUserWidget
 
         msg = AskUserWidget.Cancelled()
         assert isinstance(msg, AskUserWidget.Cancelled)
@@ -620,26 +620,26 @@ class TestMiddlewareExports:
     """Test that ask_user types are exported from middleware package."""
 
     def test_ask_user_middleware_exported(self):
-        from EvoScientist.middleware import AskUserMiddleware
+        from jw.middleware import AskUserMiddleware
 
         assert AskUserMiddleware is not None
 
     def test_ask_user_request_exported(self):
-        from EvoScientist.middleware import AskUserRequest
+        from jw.middleware import AskUserRequest
 
         assert AskUserRequest is not None
 
     def test_question_exported(self):
-        from EvoScientist.middleware import Question
+        from jw.middleware import Question
 
         assert Question is not None
 
     def test_choice_exported(self):
-        from EvoScientist.middleware import Choice
+        from jw.middleware import Choice
 
         assert Choice is not None
 
     def test_widget_result_exported(self):
-        from EvoScientist.middleware import AskUserWidgetResult
+        from jw.middleware import AskUserWidgetResult
 
         assert AskUserWidgetResult is not None

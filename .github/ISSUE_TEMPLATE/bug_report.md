@@ -1,6 +1,6 @@
 ---
 name: Bug report
-about: Report a bug to help us improve EvoScientist
+about: Report a bug to help us improve JW
 title: ''
 labels: bug
 assignees: ''
@@ -13,7 +13,7 @@ A clear and concise description of what the bug is.
 
 **To Reproduce**
 Steps to reproduce the behavior:
-1. Run `EvoSci ...`
+1. Run `jw ...`
 2. Provide input '...'
 3. See error
 
@@ -31,7 +31,7 @@ If applicable, paste the relevant terminal output or traceback.
  - OS: [e.g. Ubuntu 22.04, macOS 14.3, Windows 11]
  - Python version: [e.g. 3.11.8]
  - Terminal: [e.g. iTerm2, Alacritty, Windows Terminal]
- - EvoScientist version: [e.g. 0.0.2 — run `EvoSci --version`]
+ - JW version: [e.g. 0.0.2 — run `jw --version`]
  - LLM provider: [e.g. Anthropic, OpenAI, Ollama]
 
 **Additional context**

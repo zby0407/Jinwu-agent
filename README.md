@@ -1,774 +1,85 @@
-<div align="center">
-    <picture>
-      <source media="(prefers-color-scheme: light)" srcset="https://raw.githubusercontent.com/EvoScientist/EvoScientist/main/.github/assets/logo-dark.svg">
-      <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/EvoScientist/EvoScientist/main/.github/assets/logo-light.svg">
-      <img alt="EvoScientist Logo" src="https://raw.githubusercontent.com/EvoScientist/EvoScientist/main/.github/assets/logo-dark.svg" width="80%">
-    </picture>
-</div>
+# 金乌（JW）
 
-<div align="center">
-<a href="https://pypi.org/project/EvoScientist/"><picture>
-  <source media="(prefers-color-scheme: light)" srcset="https://raw.githubusercontent.com/EvoScientist/EvoScientist/main/.github/assets/badge-pypi-light.svg">
-  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/EvoScientist/EvoScientist/main/.github/assets/badge-pypi-dark.svg">
-  <img alt="PyPI v0.2.2" src="https://raw.githubusercontent.com/EvoScientist/EvoScientist/main/.github/assets/badge-pypi-light.svg" height="28">
-</picture></a><a href="https://EvoScientist.github.io/"><picture>
-  <source media="(prefers-color-scheme: light)" srcset="https://raw.githubusercontent.com/EvoScientist/EvoScientist/main/.github/assets/badge-website-light.svg">
-  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/EvoScientist/EvoScientist/main/.github/assets/badge-website-dark.svg">
-  <img alt="Website" src="https://raw.githubusercontent.com/EvoScientist/EvoScientist/main/.github/assets/badge-website-light.svg" height="28">
-</picture></a><a href="https://github.com/langchain-ai/deepagents"><picture>
-  <source media="(prefers-color-scheme: light)" srcset="https://raw.githubusercontent.com/EvoScientist/EvoScientist/main/.github/assets/badge-framework-light.svg">
-  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/EvoScientist/EvoScientist/main/.github/assets/badge-framework-dark.svg">
-  <img alt="Framework DeepAgents" src="https://raw.githubusercontent.com/EvoScientist/EvoScientist/main/.github/assets/badge-framework-light.svg" height="28">
-</picture></a><a href="https://github.com/EvoScientist/EvoScientist/blob/main/LICENSE"><picture>
-  <source media="(prefers-color-scheme: light)" srcset="https://raw.githubusercontent.com/EvoScientist/EvoScientist/main/.github/assets/badge-license-light.svg">
-  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/EvoScientist/EvoScientist/main/.github/assets/badge-license-dark.svg">
-  <img alt="License Apache 2.0" src="https://raw.githubusercontent.com/EvoScientist/EvoScientist/main/.github/assets/badge-license-light.svg" height="28">
-</picture></a>
-</div>
+金乌是一个面向端到端科研工作的自主智能体。它把研究规划、资料检索、代码执行、数据分析、假设管理、实验编排、长期记忆和报告写作放在同一套工作流中，并提供 CLI、TUI 与浏览器 WebUI。
 
----
+## 项目结构
 
-<div align="center">
-<a href="https://github.com/EvoScientist/EvoScientist"><img src="https://readme-typing-svg.demolab.com?font=Sans-Serif&pause=1000&color=64B5F6&center=true&vCenter=true&width=435&lines=Towards+Self-Evolving+AI+Scientists;Harness+Vibe+Research" alt="Typing SVG" /></a>
-</div>
+```text
+.
+├── jw/                 # Python 主程序与智能体运行时
+├── webui/              # Next.js WebUI（与后端共用本仓库）
+├── tests/              # 后端测试
+├── src/                # 独立科研工作流模块
+├── planner/            # 研究规划器
+├── hypothesis/         # 科学假设工作流
+├── experiment/         # 自动实验工作流
+├── knowledge_base/     # 知识库
+└── pi-mcp-bridge/      # Pi Agent MCP 桥接
+```
 
-<div align="center">
+项目根目录是唯一 Git 仓库，`webui/` 不包含独立的 Git 元数据。
 
-**English | [简体中文](./README.zh-CN.md)**
+## 环境要求
 
-</div>
+- Python 3.11–3.13
+- [uv](https://docs.astral.sh/uv/)
+- Node.js 20+（仅 WebUI 开发或构建需要）
 
-**EvoScientist aims to harness vibe research by enabling self-evolving AI scientists that autonomously explore, generate insights, and iteratively improve.
-It is designed to be opinionated and ready to use out of the box, offering a living research system that grows alongside evolving agent skills, toolsets, and memory bases.
-Moving beyond traditional human-in-the-loop systems, EvoScientist adopts a human-on-the-loop paradigm, where AI acts as a research buddy that co-evolves with human researchers and internalizes scholarly taste and scientific judgment.**
-
-<h3>🏆 Awards & Recognition</h3>
-
-<table>
-  <tr>
-      <td align="center" valign="top" width="33%">
-      <img src="https://raw.githubusercontent.com/EvoScientist/EvoScientist/main/.github/assets/ICAIS_awards.JPG" height="180" alt="ICAIS 2025 Awards"/>
-      <br />
-      <sub><b>Best Paper & Appraisal Award</b></sub>
-    </td>
-    <td align="center" valign="top" width="33%">
-      <img src="https://raw.githubusercontent.com/EvoScientist/EvoScientist/main/.github/assets/ICAIS_best_paper.png" height="180" alt="Best Paper"/>
-      <br />
-      <sub><b>AI-Generated Best Paper</b></sub>
-    </td>
-    <td align="center" valign="top" width="33%">
-      <img src="https://raw.githubusercontent.com/EvoScientist/EvoScientist/main/.github/assets/deepresearch_bench_2.png" height="180" alt="DeepResearch Bench II #1"/>
-      <br />
-      <sub><b>#1 on DeepResearch Bench II</b></sub>
-    </td>
-  </tr>
-</table>
-
-<br />
-
-<table>
-  <tr>
-    <td align="center" valign="top" width="33%">
-      <img src="https://raw.githubusercontent.com/EvoScientist/EvoScientist/main/.github/assets/DeepResearch_Bench.png" height="180" alt="DeepResearch Bench #1"/>
-      <br />
-      <sub><b>#1 on DeepResearch Bench</b></sub>
-    </td>
-    <td align="center" valign="top" width="33%">
-      <img src="https://raw.githubusercontent.com/EvoScientist/EvoScientist/main/.github/assets/asta_bench_code.png" height="180" alt="AstaBench Code & Execution #1"/>
-      <br />
-      <sub><b>#1 on AstaBench Code & Execution</b></sub>
-    </td>
-    <td align="center" valign="top" width="33%">
-      <img src="https://raw.githubusercontent.com/EvoScientist/EvoScientist/main/.github/assets/asta_bench_data.png" height="180" alt="AstaBench Data Analysis #1"/>
-      <br />
-      <sub><b>#1 on AstaBench Data Analysis</b></sub>
-    </td>
-  </tr>
-</table>
-
-<h3>⚡ Unified Control, Different Surfaces</h3>
-
-<table>
-  <tr>
-    <th><p align="center">🌐 Desktop WebUI</p></th>
-  </tr>
-  <tr>
-    <td align="center">
-      <video src="https://github.com/user-attachments/assets/b977f2d5-488a-428d-9c02-b6b27c1521f8" autoplay loop muted playsinline width="100%">
-        <a href="https://github.com/user-attachments/assets/b977f2d5-488a-428d-9c02-b6b27c1521f8">View WebUI demo</a>
-      </video>
-    </td>
-  </tr>
-</table>
-
-<table>
-  <tr>
-    <th width="75%"><p align="center">🖥️ CLI / TUI</p></th>
-    <th width="25%"><p align="center">📱 Mobile</p></th>
-  </tr>
-  <tr>
-    <td align="center">
-      <video src="https://github.com/user-attachments/assets/a40ba429-bb07-4663-b5b1-77aed1a833b9" autoplay loop muted playsinline width="100%">
-        <a href="https://github.com/user-attachments/assets/a40ba429-bb07-4663-b5b1-77aed1a833b9">View demo video</a>
-      </video>
-    </td>
-    <td align="center">
-      <video src="https://github.com/user-attachments/assets/4919e6f4-e434-46c9-98c7-35d7482868a6" width="100%" autoplay loop muted playsinline>
-        <a href="https://github.com/user-attachments/assets/4919e6f4-e434-46c9-98c7-35d7482868a6">View mobile demo</a>
-      </video>
-    </td>
-  </tr>
-</table>
-
-## ✨ Features
-- **🤖 Multi-Agent Team** — 6 sub-agents (plan, research, code, debug, analyze, write) working in concert.
-- **🧠 Self-Evolving Memory** — Auto-distilled each turn, self-linking into a knowledge graph that grows across sessions.
-- **🛠️ AutoSkills** — Distills recurring patterns from its own memory into reusable skills on a schedule — proposed for your review via `/autoskills`.
-- **🌐 Multi-Provider** — Anthropic, OpenAI, Google, MiniMax, NVIDIA — one config to switch.
-- **📱 Multi-Channel** — CLI as the hub; Telegram, Slack, Feishu, WeChat, and more — one agent session.
-- **🖥️ Desktop WebUI** — Workspace-panel web app, one terminal via `--ui webui`.
-- **🔬 Scientific Workflow** — Intake → plan → execute → evaluate → write → verify.
-- **⏰ Scheduled Tasks** — Automate recurring research on a cron-style schedule — it runs on its own and reports back.
-- **🔄 Code Generation Modes** — More Effort (iterative refinement), continuously improving code quality.
-- **⚡ Adaptive Tools** — Per-turn tool selection keeps only relevant tools visible, reducing noise.
-- **✂️ Context Editing** — Dynamic system prompt rewriting based on conversation state.
-- **🔌 MCP & Skills** — Plug in MCP servers or install skills from GitHub on the fly.
-
-> [!TIP]
-> Looking for ready-to-use research skills? Check out [**EvoSkills**](https://github.com/EvoScientist/EvoSkills) — powered by [**EvoScientist**](https://github.com/EvoScientist/EvoScientist)'s engine and installable skills, the entire end-to-end research lifecycle is covered out of the box. [**EvoSkills**](https://github.com/EvoScientist/EvoSkills) are also compatible with other CLI coding agents.
-
-## 🔥 News
-- **[03 Jun 2026]** 🥈 Ranked #2 overall — and 🥇 #1 among `GPT-5.4`-based agents — on [ResearchClawBench](https://github.com/InternScience/ResearchClawBench) (Agent Mode)! [**Leaderboard**](https://internscience.github.io/ResearchClawBench-Home/) 👈
-- **[18 Apr 2026]** 🥇 Ranked #1 on [DeepResearch Bench](https://deepresearch-bench.github.io/) at submission time! [**Leaderboard**](https://huggingface.co/spaces/muset-ai/DeepResearch-Bench-Leaderboard) 👈
-- **[13 Apr 2026]** 🥇 Reclaimed #1 on [DeepResearch Bench II](https://agentresearchlab.com/benchmarks/deepresearch-bench-ii/index.html#leaderboard) at submission time! [**Leaderboard**](https://agentresearchlab.com/benchmarks/deepresearch-bench-ii/index.html#leaderboard) 👈
-- **[26 Mar 2026]** 🥇 Ranked #1 on [AstaBench Data Analysis](https://allenai-asta-bench-leaderboard.hf.space/home) at submission time! [**Leaderboard**](https://allenai-asta-bench-leaderboard.hf.space/data-analysis) 👈
-- **[25 Mar 2026]** 🥇 Ranked #1 on [AstaBench Code & Execution](https://allenai-asta-bench-leaderboard.hf.space/home) at submission time! [**Leaderboard**](https://allenai-asta-bench-leaderboard.hf.space/code-execution) 👈
-- **[13 Mar 2026]** 🚀 [**EvoScientist**](https://github.com/EvoScientist/EvoScientist) officially debuts!
-- **[11 Mar 2026]** ⛳ Technical Report is live! [**Check it out**](https://arxiv.org/abs/2603.08127) 👈
-- **[06 Mar 2026]** 🥇 Ranked #1 on [DeepResearch Bench II](https://agentresearchlab.com/benchmarks/deepresearch-bench-ii/index.html#leaderboard) at submission time! [**Leaderboard**](https://agentresearchlab.com/benchmarks/deepresearch-bench-ii/index.html#leaderboard) 👈
-- **[24 Nov 2025]** 🏆 6/6 accepted at [ICAIS 2025](https://icais.ai/) AI Scientist Track — Best Paper & AI Reviewer's Appraisal Award! [**Details**](https://airaxiv.com/papers/?q=zacharyzhang2022%40gmail.com) 👈
-
-<details>
-<summary>📦 Release Highlights — version changelog</summary>
-
-- **[11 Jul 2026]** **[v0.2.2](https://github.com/EvoScientist/EvoScientist/releases/tag/v0.2.2)** — New models selectable in onboarding and `/model`: GPT-5.6 (sol, terra, luna) for OpenAI and OpenRouter, plus Grok 4.5 and Tencent Hunyuan HY3 on OpenRouter; tighter config-file permissions and a reworked onboarding OAuth flow for auxiliary models.
-- **[05 Jul 2026]** **[v0.2.1](https://github.com/EvoScientist/EvoScientist/releases/tag/v0.2.1)** — AutoSkills: EvoMemory drafts reusable skills from its own observation clusters for you to review via `/autoskills`; a new `--output-format stream-json` for headless / SDK clients; richer slash-command completions; Windows UTF-8 config reads; a TUI welcome-banner fix; langchain-openrouter 0.2.5.
-- **[26 Jun 2026]** **[v0.2.0](https://github.com/EvoScientist/EvoScientist/releases/tag/v0.2.0)** — Scheduled tasks: cron-style recurring runs via `/schedule` or natural language, run unattended with shell-access gating; self-linking memory that connects observations into a knowledge graph (complements / contradicts / supersedes); a read-only `GET /api/models` endpoint for the WebUI model picker.
-- **[23 Jun 2026]** **[v0.1.9](https://github.com/EvoScientist/EvoScientist/releases/tag/v0.1.9)** — Hotfix for fresh installs: the first message crashed with `The subagent `task` tool cannot be exposed via `ptc`` after deepagents 0.6.11 / langchain-quickjs 0.3 reserved `task` as the REPL global. Removed `task` from the code-interpreter PTC allowlist (`task()` stays available as the REPL global; async dispatch stays in PTC) and pinned `deepagents[quickjs]~=0.6.11`.
-- **[22 Jun 2026]** **[v0.1.8](https://github.com/EvoScientist/EvoScientist/releases/tag/v0.1.8)** — LangGraph gateway layer: UI-agnostic graph & thread access shared across CLI / TUI / serve / channel; OpenRouter Anthropic prompt caching now **on by default** (opt out with `openrouter_anthropic_prompt_cache=false`); slash-command Enter now submits correctly when a command name prefixes another; pre-commit ruff bump.
-- **[16 Jun 2026]** **[v0.1.7](https://github.com/EvoScientist/EvoScientist/releases/tag/v0.1.7)** — Memory retrieval: agents run a per-task preflight over stored observations (`search_observations` ranked keyword search + `read_memory`); multi-stage slash-command completions with subcommand awareness; Windows reliability fixes (async MCP tool execution + graph-state recovery after interruptions, `cmd.exe` path quoting); quoted virtual-path handling; deepagents 0.6.10.
-- **[11 Jun 2026]** **[v0.1.6](https://github.com/EvoScientist/EvoScientist/releases/tag/v0.1.6)** — Session persistence fix: WebUI / `langgraph dev` threads survive restarts (SQLite checkpointer + scoped thread restore), memory-worker checkpoint cleanup (delete-on-completion + startup purge), short thread IDs in `/threads` and resume hints.
-- **[11 Jun 2026]** **[v0.1.5](https://github.com/EvoScientist/EvoScientist/releases/tag/v0.1.5)** — Dangerous mode (real-filesystem access with safety checks), LangGraph streaming v3 pipeline, opt-in Anthropic prompt caching via OpenRouter, claude-fable-5, free-scrolling TUI, Windows CI support, public Cloudflare tunnel for `EvoSci deploy` (`--tunnel`).
-- **[07 Jun 2026]** **[v0.1.4](https://github.com/EvoScientist/EvoScientist/releases/tag/v0.1.4)** — Auxiliary model for background tasks & tool selection, observation-memory lifecycle, Qwen3.7-Max/Plus (DashScope), UI-backend selection, plus an OpenRouter multi-turn reasoning fix.
-- **[03 Jun 2026]** **[v0.1.3](https://github.com/EvoScientist/EvoScientist/releases/tag/v0.1.3)** — Multimodal handling (image + PDF/doc flatten/hoisting, text-only model fallback), runtime-context middleware, memory middleware → profile files with stream timeline narration, textual CJK-input fix.
-- **[02 Jun 2026]** **[v0.1.2](https://github.com/EvoScientist/EvoScientist/releases/tag/v0.1.2)** — Browser WebUI mode, `EvoSci deploy` standalone LangGraph server, default model → claude-sonnet-4-6, MiniMax M3, plus sandbox-timeout and async-notifier channel-routing fixes.
-- **[19 May 2026]** **[v0.1.1](https://github.com/EvoScientist/EvoScientist/releases/tag/v0.1.1)** — deepagents 0.6.2 DeltaChannel upgrade, tier-aware skill mounts, status & elapsed-time bar, QQ inline buttons.
-- **[08 May 2026]** **[v0.1.0](https://github.com/EvoScientist/EvoScientist/releases/tag/v0.1.0)** — Async sub-agents (langgraph dev), official Docker image, personal WeChat, sessions-DB compaction.
-- **[26 Apr 2026]** **[v0.0.9](https://github.com/EvoScientist/EvoScientist/releases/tag/v0.0.9)** — Faster startup, in-session model switching, unified slash commands, DeepSeek V4 thinking fix.
-- **[21 Apr 2026]** **[v0.0.8](https://github.com/EvoScientist/EvoScientist/releases/tag/v0.0.8)** — Unified data directory, status bar, enhanced ask-user & auto-mode.
-- **[10 Apr 2026]** **[v0.0.7](https://github.com/EvoScientist/EvoScientist/releases/tag/v0.0.7)** — Global skills directory, Moonshot/Kimi providers, ccproxy fixes, channel improvements.
-- **[03 Apr 2026]** **[v0.0.6](https://github.com/EvoScientist/EvoScientist/releases/tag/v0.0.6)** — Dynamic context management, OpenRouter reasoning, More Effort mode, GLM-5.1.
-- **[27 Mar 2026]** **[v0.0.5](https://github.com/EvoScientist/EvoScientist/releases/tag/v0.0.5)** — Context-retry middleware, OpenAI relay config, Feishu event-loop fix, `/compact`.
-- **[24 Mar 2026]** **[v0.0.4](https://github.com/EvoScientist/EvoScientist/releases/tag/v0.0.4)** — `@file` mentions, resume history, Feishu WebSocket, LaTeX setup.
-- **[20 Mar 2026]** **[v0.0.3](https://github.com/EvoScientist/EvoScientist/releases/tag/v0.0.3)** — Voice input (STT), MiniMax/DeepSeek providers, MCP & skill browsers.
-- **[17 Mar 2026]** **[v0.0.2](https://github.com/EvoScientist/EvoScientist/releases/tag/v0.0.2)** — OAuth sign-in, human-in-the-loop & `ask_user`, headless serve mode.
-- **[13 Mar 2026]** **[v0.0.1](https://github.com/EvoScientist/EvoScientist/releases/tag/v0.0.1)** — First public release of the self-evolving AI Scientist.
-
-</details>
-
-## 📖 Table of Contents
-
-- [📦 Installation](#-installation)
-- [🔑 Configuration](#-configuration)
-- [⚡ Quick Start](#-quick-start)
-- [⏰ Scheduled Tasks](#-scheduled-tasks)
-- [🍪 Examples & Recipes](#-examples--recipes)
-- [🔌 MCP Integration](#-mcp-integration)
-- [📱 Channels](#-channels)
-- [📚 Acknowledgments](#-acknowledgments)
-- [🎯 Roadmap](#-ᯓ-roadmap)
-- [🌍 Project Roles](#-project-roles)
-- [🤝 Contributing](#-contributing)
-- [📝 Citation](#-citation)
-
-## 📦 Installation
-
-> [!TIP]
-> Requires **Python 3.11+** (**< 3.14**). We recommend [**uv**](https://docs.astral.sh/uv/) or **conda** for dependency management and virtual environments. Prefer to skip a local Python install entirely? Jump to [🐳 Docker](#-docker).
-
-<details>
-<summary> 🪛 Install uv (if you don't have it)</summary>
+## 快速开始
 
 ```bash
-curl -LsSf https://astral.sh/uv/install.sh | sh
+uv sync
+uv run jw onboard
+uv run jw
 ```
 
-</details>
-
-### Quick Install
+启动浏览器界面：
 
 ```bash
-uv tool install EvoScientist
+uv run jw --ui webui
 ```
 
-> [!NOTE]
-> To update an existing installation to the latest version, use `uv tool upgrade`:
-> ```bash
-> uv tool upgrade EvoScientist
-> ```
+配置默认保存在 `~/.config/jw/config.yaml`，运行数据保存在 `~/.jw/`。也可以复制 `.env.example` 并通过环境变量提供模型密钥。
 
-Or install into the current environment instead:
+## 开发
+
+后端检查：
 
 ```bash
-uv pip install EvoScientist
+uv run ruff check --select F .
+uv run ruff format --check jw tests
+uv run pytest
 ```
 
-### Latest from GitHub
-
-To get the latest patches before a [PyPI](https://pypi.org/project/EvoScientist/) release:
+WebUI：
 
 ```bash
-uv pip install git+https://github.com/EvoScientist/EvoScientist.git
+cd webui
+npm install
+npm run dev
 ```
 
-### Development Install
+生产构建：
 
 ```bash
-git clone https://github.com/EvoScientist/EvoScientist.git
-cd EvoScientist
-uv sync --dev
+cd webui
+npm run build
 ```
 
-enable pre-commit hooks:
-```bash
-uv run pre-commit install
-```
-
-<details>
-<summary> Using conda</summary>
+## Docker
 
 ```bash
-conda create -n EvoSci python=3.11 -y
-conda activate EvoSci
-pip install -e ".[dev]"
+docker compose build
+docker compose run --rm jw
 ```
 
-</details>
+## 文档
 
-<details>
-<summary> Using PyPi</summary>
+- [贡献指南](./CONTRIBUTING.md)
+- [项目文档](./docs/)
+- [WebUI 说明](./webui/README.md)
+- [中文说明](./README.zh-CN.md)
 
-```bash
-pip install EvoScientist          # quick install
-pip install -e ".[dev]"           # development install
-```
+## License
 
-</details>
-
-<details>
-<summary> Optional: Channel dependencies</summary>
-
-Messaging channel integrations require extra dependencies. Install only what you need:
-
-```bash
-uv pip install "EvoScientist[telegram]"     # Telegram
-uv pip install "EvoScientist[discord]"      # Discord
-uv pip install "EvoScientist[slack]"        # Slack
-uv pip install "EvoScientist[wechat]"       # WeChat
-uv pip install "EvoScientist[qq]"           # QQ
-uv pip install "EvoScientist[feishu]"       # Feishu
-uv pip install "EvoScientist[all-channels]" # everything
-```
-
-</details>
-
-<details>
-<summary> Upgrade to the latest code base </summary>
-
-```bash
-git pull && uv sync --dev
-```
-
-</details>
-
-### 🐳 Docker
-
-A pre-built image is published to [GitHub Container Registry](https://github.com/EvoScientist/EvoScientist/pkgs/container/evoscientist) with everything `evosci onboard` would otherwise install for you:
-
-- Python 3.11, EvoScientist, and the cross-platform messaging channels (i.e., `EvoScientist[all-channels]`)
-- **`uv`** — used by the MCP registry to install Python MCP servers on demand
-- **Node.js 24 LTS + `npx`** — required by the majority of MCP servers
-
-The **iMessage** channel isn't usable from the container — it requires the `imsg` CLI talking to macOS's Messages.app, which is host-OS-specific. Run EvoScientist directly on macOS if you need iMessage.
-
-Running EvoScientist in a container also **sandboxes the agent's shell access** — file edits and shell commands stay confined to volumes you explicitly mount.
-
-```bash
-docker run -it --rm \
-  --env-file .env \
-  -v "$(pwd)/workspace:/workspace" \
-  -v evosci-data:/home/evosci/.evoscientist \
-  ghcr.io/evoscientist/evoscientist:latest
-```
-
-What the mounts are for:
-
-| Mount | Purpose |
-| --- | --- |
-| `--env-file .env` | API keys (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, …) |
-| `./workspace:/workspace` | The agent's working directory |
-| `evosci-data:/home/evosci/.evoscientist` | Persistent app state: sessions DB, global skills, memories, and `config.yaml`/`mcp.yaml` |
-
-> [!IMPORTANT]
-> The image runs as a non-root user (`evosci`, UID `1000`). For the `./workspace` bind mount, the host directory must be writable by that UID. If your host user ID differs, either `chown -R 1000:1000 ./workspace` once, or pass `--user "$(id -u):$(id -g)"` on every `docker run` so the container takes on your UID.
-
-Or use `docker compose` (a starter [`docker-compose.yml`](./docker-compose.yml) is included):
-
-```bash
-docker compose run --rm evoscientist
-```
-
-To build the image locally instead of pulling:
-
-```bash
-docker build -t evoscientist:dev .
-```
-
-> [!NOTE]
-> Not bundled — install on demand by deriving from the image:
-> - **`stt`** (speech-to-text via `faster-whisper`) and **`oauth`** (`ccproxy-api`)
-> - **TinyTeX / LaTeX** (`pdflatex`, `latexmk`) for paper-writing skills
->
-> ```dockerfile
-> FROM ghcr.io/evoscientist/evoscientist:latest
->
-> # Python extras
-> USER root
-> RUN uv pip install --python /opt/venv/bin/python "EvoScientist[stt,oauth]"
-> USER evosci
->
-> # TinyTeX
-> # The official install method is `curl | sh`; if you'd rather not
-> # pipe an unpinned remote script into a shell, fetch a specific TinyTeX
-> # release tarball from https://github.com/rstudio/tinytex-releases, verify
-> # its checksum, and extract to /home/evosci/.TinyTeX instead.
-> RUN curl -sL https://yihui.org/tinytex/install-bin-unix.sh | sh \
->  && /home/evosci/.TinyTeX/bin/*/tlmgr install latexmk
-> ```
-
-<p align="right"><a href="#top">🔝Back to top</a></p>
-
-## 🔑 Configuration
-
-The easiest way to configure API keys is the interactive wizard:
-
-```bash
-EvoSci onboard
-```
-
-> [!TIP]
-> It walks you through provider selection, key validation, model choice, and workspace mode.
-> Supports OAuth sign-in for CLI coding agent subscribers — no API key needed.
-
-![onboard](https://raw.githubusercontent.com/EvoScientist/EvoScientist/main/.github/assets/EvoScientist_onboard.png)
-
-<details>
-<summary> 📟 Manual configuration via environment variables </summary>
-
-Set at least one LLM provider key and (optionally) a search key:
-
-```bash
-# Pick one LLM provider
-export ANTHROPIC_API_KEY="sk-..."   # Claude  — console.anthropic.com
-export OPENAI_API_KEY="sk-..."      # GPT    — platform.openai.com
-export GOOGLE_API_KEY="AI..."       # Gemini  — aistudio.google.com/api-keys
-export MINIMAX_API_KEY="sk-..."     # MiniMax — platform.minimaxi.com (China, default) or platform.minimax.io (Global)
-export MINIMAX_BASE_URL="https://api.minimax.io/anthropic"  # only needed for Global keys (default: https://api.minimaxi.com/anthropic)
-export NVIDIA_API_KEY="nvapi-..."   # NIM    — build.nvidia.com
-
-# Web search (optional)
-export TAVILY_API_KEY="tvly-..."    # app.tavily.com
-```
-
-Or use `EvoSci config set` to persist keys in `~/.config/evoscientist/config.yaml`.
-
-Alternatively, copy the example `.env` file for project-level configuration:
-
-```bash
-cp .env.example .env  # then fill in your keys
-```
-
-> ⚠️ Never commit `.env` files with real keys. It is already in `.gitignore`.
-
-</details>
-
-<p align="right"><a href="#top">🔝Back to top</a></p>
-
-## ⚡ Quick Start
-
-```bash
-EvoSci  # or EvoScientist — interactive mode (TUI by default)
-```
-
-![demo](https://raw.githubusercontent.com/EvoScientist/EvoScientist/main/.github/assets/EvoScientist_cli.png)
-
-> Run `EvoSci -h` for all CLI options.
-
-![cli help](https://raw.githubusercontent.com/EvoScientist/EvoScientist/main/.github/assets/EvoScientist_cli_help.png)
-
-> [!TIP]
-> Prefer a browser? Run `EvoSci --ui webui` for the web workspace UI. Need to copy long outputs? Use `--ui cli` for classic mode where native terminal copy works freely. On macOS, [iTerm2](https://iterm2.com/) users can also hold `⌥ Option` while dragging to select, then `⌘+C`.
-
-<details>
-<summary>Common examples</summary>
-
-```bash
-EvoSci                            # interactive mode (TUI by default)
-EvoSci -p "your question"        # single-shot mode
-EvoSci --workdir /path/to/project # open in a specific directory
-EvoSci -m run                     # isolated per-session workspace
-EvoSci --ui cli                   # classic CLI (lightweight)
-EvoSci --ui webui                 # browser workspace UI (needs Node/npx)
-EvoSci serve                      # headless mode — channels only, no interactive prompt
-EvoSci deploy                     # standalone LangGraph server for external UIs / SDK clients
-EvoSci -p "query" --output-format stream-json --auto-mode  # JSONL event stream on stdout (for programmatic clients)
-```
-
-`--output-format stream-json` makes a single-shot (`-p`) run emit its native events as line-delimited JSON on stdout (one object per line), with all human output on stderr — the integration surface for headless clients (e.g. an agent runtime). See [docs/guides/stream-json.md](docs/guides/stream-json.md) for the event schema.
-
-</details>
-
-<details>
-<summary>Desktop WebUI</summary>
-
-Set the UI backend to `webui` and a fresh `EvoSci` session launches a deploy-style LangGraph server **and** the [`@evoscientist/webui`](https://www.npmjs.com/package/@evoscientist/webui) front-end in one terminal — no second process to manage:
-
-```bash
-EvoSci config set ui_backend webui   # persist; or one-off with `EvoSci --ui webui`
-EvoSci                               # opens http://localhost:4716
-EvoSci config set webui_port 4800    # change the front-end port (must differ from the langgraph dev port)
-```
-
-Requires **Node.js 24 LTS** (for `npx`); the first launch downloads `@evoscientist/webui` and needs network. Note: the WebUI does not show your CLI/TUI chat history, and `-p` / `--resume` fall back to the classic CLI.
-
-</details>
-
-<details>
-<summary>Action Approval</summary>
-
-By default, shell commands (`execute` tool) require human approval before running. To skip approval prompts:
-
-```bash
-# Per-session: auto-approve via CLI flag
-EvoSci --auto-approve
-EvoSci -p "query" --auto-approve
-
-# Persistent: set in config (applies to all future sessions)
-EvoSci config set auto_approve true
-
-# Or allow only specific command prefixes
-EvoSci config set shell_allow_list "python,pip,pytest,ruff,git"
-```
-
-During a session you can also reply **3** (Approve all) at any approval prompt to auto-approve for the rest of that session.
-
-> [!CAUTION]
-> **Dangerous mode** lifts the workspace sandbox entirely — the agent can read, write, and delete files **anywhere on the real filesystem** (privileged commands like `sudo`/`rm -rf /` are still blocked). It implies `--auto-approve` (no prompts). Use only when you fully trust the task.
->
-> ```bash
-> EvoSci --dangerous                       # per-session
-> EvoSci config set dangerous_mode true    # persistent
-> ```
-
-</details>
-
-<details>
-<summary>Agent Questions</summary>
-
-The agent can proactively ask you questions when it needs clarification (e.g., dataset choice, experiment direction). This is enabled by default. To disable:
-
-```bash
-# Persistent: set in config
-EvoSci config set enable_ask_user false
-
-# Re-enable
-EvoSci config set enable_ask_user true
-```
-
-</details>
-
-<details>
-<summary>In-session commands</summary>
-
-| Command | Description |
-| ------- | ----------- |
-| `/current` | Show current session info |
-| `/threads` | List recent sessions |
-| `/resume` | Resume a previous session |
-| `/delete` | Delete a saved session |
-| `/new` | Start a new session |
-| `/clear` | Clear chat history |
-| `/skills` | List installed skills |
-| `/install-skill <src>` | Add a skill from path or GitHub |
-| `/uninstall-skill <name>` | Remove an installed skill |
-| `/mcp` | Manage MCP servers |
-| `/channel` | Configure messaging channels |
-| `/help` | Show available commands |
-| `/exit` | Quit |
-
-</details>
-
-<details>
-<summary>Script Inference</summary>
-
-```python
-from EvoScientist import EvoScientist_agent
-from langchain_core.messages import HumanMessage
-from EvoScientist.utils import format_messages
-
-thread = {"configurable": {"thread_id": "1"}}
-last_len = 0
-
-for state in EvoScientist_agent.stream(
-    {"messages": [HumanMessage(content="Hi?")]},
-    config=thread,
-    stream_mode="values",
-):
-    msgs = state["messages"]
-    if len(msgs) > last_len:
-        format_messages(msgs[last_len:])
-        last_len = len(msgs)
-```
-
-</details>
-
-<p align="right"><a href="#top">🔝Back to top</a></p>
-
-## ⏰ Scheduled Tasks
-
-Automate recurring research tasks with cron-style schedules.
-
-```bash
-# Add a schedule (cron expression required for /schedule add)
-/schedule add "0 9 * * 1-5" "Summarise the latest ML papers from arXiv with the paper-navigator skill, and save the summary to /memories/daily-papers.md"
-/schedule add "*/10 * * * *" "Check my running experiment's status and append the result to experiment_log.json"
-
-# Manage schedules
-/schedule list           # list active schedules
-/schedule remove <id>    # delete a schedule
-/schedule run <id>       # fire a schedule immediately
-/schedule pause <id>     # pause without deleting
-/schedule resume <id>    # resume a paused schedule
-```
-
-Note: `/schedule add` requires a cron expression (5 fields, e.g. `*/10 * * * *`). To schedule with natural language ("every 10 minutes"), just ask in chat — the agent translates it via the `schedule_task` tool.
-
-Output goes wherever the task's prompt tells it to write — there is no enforced output directory, so make the prompt specific about file locations. Run `/schedule list` to review schedules; the agent is also made aware of the active schedules via a `<scheduled_tasks>` context block, so you can just ask it what's scheduled.
-
-> **Cost note:** each scheduled run consumes LLM tokens. Delete unused schedules with `/schedule remove` to avoid accumulating charges.
-
-<p align="right"><a href="#top">🔝Back to top</a></p>
-
-## 🍪 Examples & Recipes
-
-A curated collection of official examples, advanced usage patterns, and community-contributed recipes to help you get the most out of EvoScientist.
-
-👉 **[Browse all examples & recipes](https://github.com/EvoScientist/EvoScientist/tree/main/docs#-examples--recipes)**
-
-<p align="right"><a href="#top">🔝Back to top</a></p>
-
-## 🔌 MCP Integration
-
-Add external tools via [MCP](https://modelcontextprotocol.io/) servers with a single command:
-
-```bash
-# Usage
-EvoSci mcp add <name> <command> [-- args...]
-
-# Example
-EvoSci mcp add sequential-thinking npx -- -y @modelcontextprotocol/server-sequential-thinking
-```
-
-> [!TIP]
-> For command options, config fields, tool routing, wildcard filtering, and troubleshooting, see the **[MCP Integration Guide](https://github.com/EvoScientist/EvoScientist/tree/main/EvoScientist/mcp#model-context-protocol-integration)**.
-
-<p align="right"><a href="#top">🔝Back to top</a></p>
-
-## 📱 Channels
-
-Connect messaging platforms so they share the same agent session as the CLI:
-
-```bash
-# Usage
-EvoSci channel setup <channel>
-
-# Example
-EvoSci channel setup telegram
-```
-
-Multiple channels can run concurrently — comma-separate names in the config:
-
-```yaml
-channel_enabled: "telegram,slack,feishu,qq"
-```
-
-The channel can also be started interactively with `/channel` in the CLI session.
-
-> [!TIP]
-> For per-channel setup guides, capability matrix, architecture details, and troubleshooting, see the **[Channel Integration Guide](https://github.com/EvoScientist/EvoScientist/tree/main/EvoScientist/channels#channels)**.
-
-<p align="right"><a href="#top">🔝Back to top</a></p>
-
-## 📚 Acknowledgments
-
-This project builds upon the following outstanding open-source works:
-
-- [**LangChain**](https://github.com/langchain-ai/langchain) — A framework for building agents and LLM-powered applications.
-- [**DeepAgents**](https://github.com/langchain-ai/deepagents) — The batteries-included agent harness.
-
-We thank the authors for their valuable contributions to the open-source community.
-
-<p align="right"><a href="#top">🔝Back to top</a></p>
-
-## 🎯 ᯓ➤ Roadmap
-
-Coming soon:
-- [x] 🖥️ Full-screen TUI and classic CLI interfaces
-- [x] 📻 EvoMemory v1.0 shipped
-- [x] ⚒️ 200+ predefined skills built in
-- [x] 🧩 Built-in research-lifecycle skills shipped
-- [x] 👋 Human-in-the-loop action approval
-- [x] 🦾 Agent-initiated human clarification
-- [x] 📑 Technical report on the way
-- [x] 🔐 OAuth sign-in (CLI coding agent subscribers)
-- [x] 📺 Web app with workspace UI
-- [x] ⏰ Scheduled tasks (cron-style, via `/schedule`)
-- [ ] 📹 Demo and tutorial in the works
-- [ ] 📊 Benchmark suite to be released
-
-Stay tuned — more features are on the way!
-
-<p align="right"><a href="#top">🔝Back to top</a></p>
-
-## 🌍 Project Roles
-
-#### Core Contributors
-
-<table>
-  <tbody>
-    <tr>
-      <td align="center">
-        <a href="https://x-izhang.github.io/">
-          <img src="https://x-izhang.github.io/author/xi-zhang/avatar.jpg"
-               width="100" height="100"
-               style="object-fit: cover; border-radius: 20%;" alt="Xi Zhang"/>
-          <br />
-          <sub><b>Xi Zhang</b></sub>
-        </a>
-      </td>
-      <td align="center">
-        <a href="https://youganglyu.github.io/">
-          <img src="https://youganglyu.github.io/images/profile.png"
-               width="100" height="100"
-               style="object-fit: cover; border-radius: 20%;" alt="Yougang Lyu"/>
-          <br />
-          <sub><b>Yougang Lyu</b></sub>
-        </a>
-      </td>
-      <td align="center">
-        <a href="https://din0s.me/">
-          <img src="https://din0s.me/images/pk.jpg"
-               width="100" height="100"
-               style="object-fit: cover; border-radius: 20%;" alt="Dinos Papakostas"/>
-          <br />
-          <sub><b>Dinos Papakostas</b></sub>
-        </a>
-      </td>
-      <td align="center">
-        <a href="https://go0day.github.io/">
-          <img src="https://go0day.github.io/authors/admin/avatar_hu_ee1051aceae96124.png"
-               width="100" height="100"
-               style="object-fit: cover; border-radius: 20%;" alt="Yuyue Zhao"/>
-          <br />
-          <sub><b>Yuyue Zhao</b></sub>
-        </a>
-      </td>
-      <td align="center">
-        <a href="https://muxincg2004.github.io/">
-          <img src="https://muxincg2004.github.io/resume_avatar.jpg"
-               width="100" height="100"
-               style="object-fit: cover; border-radius: 20%;" alt="Ziheng Zhang"/>
-          <br />
-          <sub><b>Ziheng Zhang</b></sub>
-        </a>
-      </td>
-      <td align="center">
-        <a href="https://xiaohuiyan.github.io/">
-          <img src="https://xiaohuiyan.github.io/img/me.jpg"
-               width="100" height="100"
-               style="object-fit: cover; border-radius: 20%;" alt="Xiaohui Yan"/>
-          <br />
-          <sub><b>Xiaohui Yan</b></sub>
-        </a>
-      </td>
-    </tr>
-  </tbody>
-</table>
-
-#### Contributors
-
-Jan Piotrowski, Wiktor Cupiał, Jakub Kaliski, Jakub Filipiuk, Xinhao Yi, Shuyu Guo, Andreas Sauter, Wenxiang Hu, Jacopo Urbani, Zaiqiao Meng, Jun Luo, Lun Zhou
-
-> <a href="https://xiaoyi.huawei.com/chat/research"><img src="https://raw.githubusercontent.com/EvoScientist/EvoScientist/main/.github/assets/xiaoyi-deepresearch.webp" height="16" alt="Xiaoyi DeepResearch" align="center" /></a> [*Xiaoyi DeepResearch*](https://xiaoyi.huawei.com/chat/research) *Team* and the wider open-source community contribute to this project.
-
-For any inquiries or collaboration opportunities, please contact: [**EvoScientist.ai@gmail.com**](mailto:evoscientist.ai@gmail.com)
-
-<p align="right"><a href="#top">🔝Back to top</a></p>
-
-## 🤝 Contributing
-
-<img align="right" alt="EvoScientist Team" src="https://raw.githubusercontent.com/EvoScientist/EvoScientist/main/.github/assets/EvoScientist_team.png" width="20%" />
-
-We welcome contributions from developers, researchers, and AI coding agents at all levels. Our [Contributing Guidelines](./CONTRIBUTING.md) are designed for both humans and AI agents — covering architecture, patterns, extension guides, and code standards to help you contribute safely and effectively.
-
-### 👥 Community Contributors
-
-⚗️ Join the EvoScientist community to discuss AI-driven research, share experiment results, and help shape the future of automated scientific discovery.
-
-- [Discord](https://discord.gg/AZ9ZMXkunY) — Ask questions, share findings, and collaborate with researchers and developers in real-time.
-- [WeChat](https://github.com/EvoScientist/EvoScientist/blob/main/.github/assets/cn_info.md) — Connect with our Chinese-speaking research community.
-
-  <img src="https://raw.githubusercontent.com/EvoScientist/EvoScientist/main/.github/assets/wechat_group.jpeg" alt="WeChat QR Code" width="200"/>
-
-Every contribution brings us one step closer to a future where AI accelerates scientific breakthroughs for all of humanity.
-
-<a href="https://github.com/EvoScientist/EvoScientist/graphs/contributors">
-  <img src="https://contrib.rocks/image?repo=EvoScientist/EvoScientist" />
-</a>
-
-<!-- ### 📈 Star History
-
-[![Star History Chart](https://api.star-history.com/svg?repos=EvoScientist/EvoScientist&type=date&legend=bottom-right)](https://www.star-history.com/?repos=EvoScientist%2FEvoScientist&type=date&legend=bottom-right) -->
-
-<p align="right"><a href="#top">🔝Back to top</a></p>
-
-## 📝 Citation
-
-If you find our paper and code useful in your research and applications, please cite using this BibTeX:
-
-```bibtex
-@article{evoscientist2026, 
-  title={EvoScientist: Towards Multi-Agent Evolving AI Scientists for End-to-End Scientific Discovery}, 
-  author={Yougang Lyu and Xi Zhang and Xinhao Yi and Yuyue Zhao and Shuyu Guo and Wenxiang Hu and Jan Piotrowski and Jakub Kaliski and Jacopo Urbani and Zaiqiao Meng and Lun Zhou and Xiaohui Yan}, 
-  journal={arXiv preprint arXiv:2603.08127}, 
-  year={2026} 
-}
-```
-
-<p align="right"><a href="#top">🔝Back to top</a></p>
-
-## 📜 License
-
-This project is licensed under the Apache License 2.0 - see the [LICENSE](./LICENSE) file for details.
-
-<p align="right"><a href="#top">🔝Back to top</a></p>
+Apache License 2.0，详见 [LICENSE](./LICENSE)。

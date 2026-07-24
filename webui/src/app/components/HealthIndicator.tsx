@@ -91,7 +91,7 @@ async function probeInfo(base: string): Promise<boolean> {
  * ("page opens but never replies"). Click to re-check on demand.
  *
  * Stale-URL recovery: when the saved deployment URL is unreachable, it re-probes
- * the backend's currently-detected port via `/api/evosci-config`. If a DIFFERENT,
+ * the backend's currently-detected port via `/api/jw-config`. If a DIFFERENT,
  * reachable URL is found (the classic "backend moved ports" case), it
  * surfaces a one-click "Reconnect" so the user doesn't have to hand-edit the URL
  * in Settings. Polling pauses while the tab is hidden and resumes on return.
@@ -110,14 +110,14 @@ export function HealthIndicator({
   const mountedRef = useRef(true);
   const controllerRef = useRef<AbortController | null>(null);
 
-  // When the saved URL is dead, ask our own /api/evosci-config what port the
+  // When the saved URL is dead, ask our own /api/jw-config what port the
   // backend is actually configured on, then verify that alternate is reachable
   // before offering it. requestId ties the result to the check that spawned it.
   const findAlternate = useCallback(
     async (requestId: number) => {
       const current = normalizeUrl(deploymentUrl);
       try {
-        const res = await fetch("/api/evosci-config", { cache: "no-store" });
+        const res = await fetch("/api/jw-config", { cache: "no-store" });
         const data = (await res.json().catch(() => null)) as {
           deploymentUrl?: string;
         } | null;

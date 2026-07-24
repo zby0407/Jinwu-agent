@@ -6,7 +6,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from EvoScientist.stream import display as display_mod
+from jw.stream import display as display_mod
 from tests.fakes import FakeGraphGateway
 
 

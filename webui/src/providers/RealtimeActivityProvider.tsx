@@ -30,7 +30,11 @@ const RealtimeActivityContext = createContext<{
   setState: React.Dispatch<React.SetStateAction<RealtimeActivityState>>;
 } | null>(null);
 
-export function RealtimeActivityProvider({ children }: { children: ReactNode }) {
+export function RealtimeActivityProvider({
+  children,
+}: {
+  children: ReactNode;
+}) {
   const [state, setState] = useState<RealtimeActivityState>({
     isLoading: false,
     hasInterrupt: false,

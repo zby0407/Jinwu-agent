@@ -89,7 +89,7 @@ export const MarkdownContent = React.memo<MarkdownContentProps>(
               }
               // Inline code that names a workspace or memory file becomes a
               // click-to-open link. ChatInterface (or any ancestor) listens
-              // for `evosci:open-file` and routes to the right dialog.
+              // for `jw:open-file` and routes to the right dialog.
               const link = !isBlock ? detectFileLink(code) : null;
               if (link) {
                 return (

@@ -5,8 +5,8 @@ import time
 
 import pytest
 
-from EvoScientist import background as bg
-from EvoScientist.middleware.background import (
+from jw import background as bg
+from jw.middleware.background import (
     BackgroundExecutionMiddleware,
     check_process,
     list_processes,
@@ -41,7 +41,7 @@ def _wait_until(predicate, timeout=4.0, interval=0.05):
 
 @pytest.fixture(autouse=True)
 def _clean_registry():
-    from EvoScientist.cli import async_notifier
+    from jw.cli import async_notifier
 
     bg._PROCESSES.clear()
     async_notifier.drain_notifications(None)
@@ -87,7 +87,7 @@ def test_run_rejects_dangerous_command_without_launching(monkeypatch):
 
 def test_run_launches_valid_command(tmp_path, monkeypatch):
     # Pin the workspace cwd to a temp dir so the launch is isolated.
-    monkeypatch.setattr("EvoScientist.paths.resolve_virtual_path", lambda _vp: tmp_path)
+    monkeypatch.setattr("jw.paths.resolve_virtual_path", lambda _vp: tmp_path)
     out = run_in_background.invoke({"command": "echo ok", "name": "demo"})
     assert "Started background process" in out
     assert "check_process" in out
@@ -96,7 +96,7 @@ def test_run_launches_valid_command(tmp_path, monkeypatch):
 
 def test_run_applies_virtual_path_rewriting(tmp_path, monkeypatch):
     """run_in_background must rewrite virtual paths like execute (shared preprocessing)."""
-    monkeypatch.setattr("EvoScientist.paths.resolve_virtual_path", lambda _vp: tmp_path)
+    monkeypatch.setattr("jw.paths.resolve_virtual_path", lambda _vp: tmp_path)
     captured = {}
 
     def _spy(command, cwd, name=None, *, origin_thread_id=None, on_exit=None):
@@ -113,14 +113,14 @@ def _force_dangerous(monkeypatch, value=True):
     """Make run_in_background see dangerous mode via the env flag it reads.
 
     monkeypatch.setenv tracks the change and restores it on teardown, so this
-    cannot leak EVOSCIENTIST_DANGEROUS_MODE into other tests.
+    cannot leak JW_DANGEROUS_MODE into other tests.
     """
-    monkeypatch.setenv("EVOSCIENTIST_DANGEROUS_MODE", "true" if value else "false")
+    monkeypatch.setenv("JW_DANGEROUS_MODE", "true" if value else "false")
 
 
 def test_run_dangerous_allows_real_path_no_rewrite(tmp_path, monkeypatch):
     """In dangerous mode, background commands keep real absolute paths (parity with execute)."""
-    monkeypatch.setattr("EvoScientist.paths.resolve_virtual_path", lambda _vp: tmp_path)
+    monkeypatch.setattr("jw.paths.resolve_virtual_path", lambda _vp: tmp_path)
     _force_dangerous(monkeypatch)
     captured = {}
 
@@ -140,7 +140,7 @@ def test_run_dangerous_allows_real_path_no_rewrite(tmp_path, monkeypatch):
 
 def test_run_dangerous_still_blocks_privileged_command(tmp_path, monkeypatch):
     """Dangerous mode must NOT relax the privileged-command blocklist."""
-    monkeypatch.setattr("EvoScientist.paths.resolve_virtual_path", lambda _vp: tmp_path)
+    monkeypatch.setattr("jw.paths.resolve_virtual_path", lambda _vp: tmp_path)
     _force_dangerous(monkeypatch)
     launched = {"called": False}
 
@@ -156,9 +156,9 @@ def test_run_dangerous_still_blocks_privileged_command(tmp_path, monkeypatch):
 
 def test_run_enqueues_completion_notification(tmp_path, monkeypatch):
     """A finished background process enqueues a shell completion notification."""
-    from EvoScientist.cli import async_notifier
+    from jw.cli import async_notifier
 
-    monkeypatch.setattr("EvoScientist.paths.resolve_virtual_path", lambda _vp: tmp_path)
+    monkeypatch.setattr("jw.paths.resolve_virtual_path", lambda _vp: tmp_path)
     run_in_background.invoke({"command": _true_cmd(), "name": "quick"})
     # drain consumes, so accumulate across polls until the watcher's on_exit enqueues.
     notifs = []
@@ -175,7 +175,7 @@ def test_origin_thread_id_reads_runtime_config():
     """thread_id is read from runtime.config['configurable'] (graph-injected)."""
     from types import SimpleNamespace
 
-    from EvoScientist.middleware.background import _origin_thread_id
+    from jw.middleware.background import _origin_thread_id
 
     runtime = SimpleNamespace(config={"configurable": {"thread_id": "T-7"}})
     assert _origin_thread_id(runtime) == "T-7"
@@ -184,8 +184,8 @@ def test_origin_thread_id_reads_runtime_config():
 
 def test_notify_done_routes_to_origin_thread(tmp_path):
     """_notify_done enqueues the completion notification to the launching thread."""
-    from EvoScientist.cli import async_notifier
-    from EvoScientist.middleware.background import _notify_done
+    from jw.cli import async_notifier
+    from jw.middleware.background import _notify_done
 
     pid = bg.launch(_true_cmd(), str(tmp_path))  # no on_exit -> no auto-notify here
     assert _wait_until(lambda: bg._PROCESSES[pid].finished_ts is not None)
@@ -196,9 +196,9 @@ def test_notify_done_routes_to_origin_thread(tmp_path):
 
 def test_stopped_process_suppresses_notification(tmp_path, monkeypatch):
     """A user-stopped process must NOT emit a completion notification."""
-    from EvoScientist.cli import async_notifier
+    from jw.cli import async_notifier
 
-    monkeypatch.setattr("EvoScientist.paths.resolve_virtual_path", lambda _vp: tmp_path)
+    monkeypatch.setattr("jw.paths.resolve_virtual_path", lambda _vp: tmp_path)
     run_in_background.invoke({"command": _sleep_cmd(600)})
     (pid,) = list(bg._PROCESSES.keys())
     stop_process.invoke({"process_id": pid})
@@ -211,7 +211,7 @@ def test_stopped_process_suppresses_notification(tmp_path, monkeypatch):
 
 def test_checked_after_exit_dedups_notification(tmp_path):
     """Agent checking a finished process suppresses its completion notification."""
-    from EvoScientist.cli.async_notifier import (
+    from jw.cli.async_notifier import (
         AsyncTaskNotification,
         dedup_notifications,
     )
@@ -232,7 +232,7 @@ def test_checked_after_exit_dedups_notification(tmp_path):
 
 def test_not_checked_after_exit_keeps_notification(tmp_path):
     """A finished process the agent never checked still notifies."""
-    from EvoScientist.cli.async_notifier import (
+    from jw.cli.async_notifier import (
         AsyncTaskNotification,
         dedup_notifications,
     )
@@ -254,7 +254,7 @@ def test_not_checked_after_exit_keeps_notification(tmp_path):
 
 def test_shell_notification_renders_own_background_frame():
     """Shell notifications render under '✦ Background ✦', not 'Agent Teams'."""
-    from EvoScientist.cli.async_notifier import (
+    from jw.cli.async_notifier import (
         AsyncTaskNotification,
         format_notification_lines,
     )
@@ -277,7 +277,7 @@ def test_shell_notification_renders_own_background_frame():
 
 def test_mixed_notifications_render_two_frames():
     """A mixed batch shows both an Agent Teams frame and a Background frame."""
-    from EvoScientist.cli.async_notifier import (
+    from jw.cli.async_notifier import (
         AsyncTaskNotification,
         format_notification_lines,
     )
@@ -291,7 +291,7 @@ def test_mixed_notifications_render_two_frames():
 
 def test_shell_notification_hints_check_process():
     """format_batch_message points shell processes to check_process, not check_async_task."""
-    from EvoScientist.cli.async_notifier import (
+    from jw.cli.async_notifier import (
         AsyncTaskNotification,
         format_batch_message,
     )
@@ -309,7 +309,7 @@ def test_shell_notification_hints_check_process():
 
 
 def test_check_and_list_route_to_manager(tmp_path, monkeypatch):
-    monkeypatch.setattr("EvoScientist.paths.resolve_virtual_path", lambda _vp: tmp_path)
+    monkeypatch.setattr("jw.paths.resolve_virtual_path", lambda _vp: tmp_path)
     run_in_background.invoke({"command": _sleep_cmd(1)})
     (pid,) = bg._PROCESSES.keys()
     assert pid in check_process.invoke({"process_id": pid})

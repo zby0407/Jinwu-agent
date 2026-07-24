@@ -4,7 +4,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from EvoScientist.commands.base import ChannelRuntime, CommandContext
+from jw.commands.base import ChannelRuntime, CommandContext
 
 pytest.importorskip("textual")
 
@@ -43,8 +43,8 @@ class _StubApp:
 
 
 async def test_sync_tui_command_completion_adopts_agent_swap(monkeypatch):
-    import EvoScientist.cli.tui_interactive as tui_mod
-    from EvoScientist import EvoScientist as evosci_mod
+    import jw.cli.tui_interactive as tui_mod
+    from jw import agent as jw_mod
 
     app = _StubApp()
     ctx = CommandContext(
@@ -55,7 +55,7 @@ async def test_sync_tui_command_completion_adopts_agent_swap(monkeypatch):
     cmd = SimpleNamespace(name="/model")
 
     monkeypatch.setattr(
-        evosci_mod,
+        jw_mod,
         "_ensure_config",
         lambda: SimpleNamespace(model="gpt-5.5", provider="openai"),
     )
@@ -72,7 +72,7 @@ async def test_sync_tui_command_completion_adopts_agent_swap(monkeypatch):
 
 
 async def test_sync_tui_command_completion_refreshes_without_agent_swap(monkeypatch):
-    import EvoScientist.cli.tui_interactive as tui_mod
+    import jw.cli.tui_interactive as tui_mod
 
     app = _StubApp()
     ctx = CommandContext(
@@ -97,7 +97,7 @@ async def test_sync_tui_rebinds_runtime_on_thread_rotation_without_agent_swap(
     """Regression: ``/new`` and ``/resume`` rotate ``app._conversation_tid``
     without swapping the agent.  The runtime must still pick up the new
     thread id so the bus contract stays consistent with serve mode."""
-    import EvoScientist.cli.tui_interactive as tui_mod
+    import jw.cli.tui_interactive as tui_mod
 
     app = _StubApp()
     app._conversation_tid = "rotated-thread"

@@ -23,6 +23,7 @@ import { Button } from "@/components/ui/button";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import { oneDark } from "react-syntax-highlighter/dist/esm/styles/prism";
 import { MarkdownContent } from "@/app/components/MarkdownContent";
+import { useQueryState } from "nuqs";
 
 const LANGUAGE_MAP: Record<string, string> = {
   js: "javascript",
@@ -79,9 +80,14 @@ const TEXT_EXTS = new Set([
 // never pull tens of MB into the browser just to render it.
 const MAX_INLINE_TEXT_BYTES = 2 * 1024 * 1024;
 
-export function workspaceFileUrl(path: string, download = false): string {
+export function workspaceFileUrl(
+  path: string,
+  download = false,
+  threadId?: string | null
+): string {
   const qs = new URLSearchParams({ path });
   if (download) qs.set("download", "1");
+  if (threadId) qs.set("threadId", threadId);
   return `/api/workspace/file?${qs.toString()}`;
 }
 
@@ -103,6 +109,7 @@ export const WorkspaceFileDialog = React.memo<{
   /** Called after a successful save or delete so the listing can refresh. */
   onChanged?: () => void;
 }>(({ path, size, onClose, onChanged }) => {
+  const [threadId] = useQueryState("threadId");
   const [content, setContent] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -148,7 +155,7 @@ export const WorkspaceFileDialog = React.memo<{
     setError(null);
     setEditing(false);
     setActionError(null);
-    fetch(workspaceFileUrl(path))
+    fetch(workspaceFileUrl(path, false, threadId))
       .then(async (res) => {
         if (!res.ok) {
           const body = await res.json().catch(() => null);
@@ -168,7 +175,7 @@ export const WorkspaceFileDialog = React.memo<{
     return () => {
       cancelled = true;
     };
-  }, [path, kind, tooBigForText]);
+  }, [path, kind, tooBigForText, threadId]);
 
   if (!path) return null;
 
@@ -199,7 +206,7 @@ export const WorkspaceFileDialog = React.memo<{
     setSaving(true);
     setActionError(null);
     try {
-      const res = await fetch(workspaceFileUrl(path), {
+      const res = await fetch(workspaceFileUrl(path, false, threadId), {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ content: draft }),
@@ -223,7 +230,9 @@ export const WorkspaceFileDialog = React.memo<{
     setDeleting(true);
     setActionError(null);
     try {
-      const res = await fetch(workspaceFileUrl(path), { method: "DELETE" });
+      const res = await fetch(workspaceFileUrl(path, false, threadId), {
+        method: "DELETE",
+      });
       if (!res.ok) {
         const data = await res.json().catch(() => null);
         throw new Error(data?.error || "Failed to delete.");
@@ -339,7 +348,7 @@ export const WorkspaceFileDialog = React.memo<{
                     asChild
                   >
                     <a
-                      href={workspaceFileUrl(path, true)}
+                      href={workspaceFileUrl(path, true, threadId)}
                       download={name}
                     >
                       <Download
@@ -400,7 +409,7 @@ export const WorkspaceFileDialog = React.memo<{
               <ScrollArea className="h-full rounded-md bg-[var(--color-surface)]">
                 <div className="flex items-center justify-center p-4">
                   <img
-                    src={workspaceFileUrl(path)}
+                    src={workspaceFileUrl(path, false, threadId)}
                     alt={name}
                     className="max-h-full max-w-full object-contain"
                   />
@@ -408,7 +417,7 @@ export const WorkspaceFileDialog = React.memo<{
               </ScrollArea>
             ) : kind === "pdf" ? (
               <iframe
-                src={workspaceFileUrl(path)}
+                src={workspaceFileUrl(path, false, threadId)}
                 title={name}
                 className="h-full w-full rounded-md border border-border"
               />
@@ -425,7 +434,7 @@ export const WorkspaceFileDialog = React.memo<{
                   asChild
                 >
                   <a
-                    href={workspaceFileUrl(path, true)}
+                    href={workspaceFileUrl(path, true, threadId)}
                     download={name}
                   >
                     <Download

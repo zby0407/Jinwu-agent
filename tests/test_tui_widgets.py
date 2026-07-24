@@ -23,8 +23,8 @@ class TestLoadingWidget:
     """LoadingWidget construction and attributes."""
 
     def test_construction(self):
-        from EvoScientist.cli.widgets.loading_widget import LoadingWidget
-        from EvoScientist.cli.widgets.timed_status_widget import TimedStatusWidget
+        from jw.cli.widgets.loading_widget import LoadingWidget
+        from jw.cli.widgets.timed_status_widget import TimedStatusWidget
 
         w = LoadingWidget()
         assert isinstance(w, TimedStatusWidget)
@@ -33,12 +33,12 @@ class TestLoadingWidget:
         assert w._timer_handle is None
 
     def test_spinner_frames_not_empty(self):
-        from EvoScientist.cli.widgets.loading_widget import _SPINNER_FRAMES
+        from jw.cli.widgets.loading_widget import _SPINNER_FRAMES
 
         assert len(_SPINNER_FRAMES) > 0
 
     def test_tick_advances_spinner_and_elapsed(self):
-        from EvoScientist.cli.widgets.loading_widget import LoadingWidget
+        from jw.cli.widgets.loading_widget import LoadingWidget
 
         w = LoadingWidget()
         w._tick()
@@ -46,7 +46,7 @@ class TestLoadingWidget:
         assert w._elapsed == 0.1
 
     async def test_cleanup_stops_timer_and_removes(self):
-        from EvoScientist.cli.widgets.loading_widget import LoadingWidget
+        from jw.cli.widgets.loading_widget import LoadingWidget
 
         class _Timer:
             def __init__(self) -> None:
@@ -72,7 +72,7 @@ class TestCompactingWidget(unittest.TestCase):
     """CompactingWidget construction and cleanup."""
 
     def test_construction(self):
-        from EvoScientist.cli.widgets.compacting_widget import CompactingWidget
+        from jw.cli.widgets.compacting_widget import CompactingWidget
 
         w = CompactingWidget()
         assert w._elapsed == 0.0
@@ -84,7 +84,7 @@ class TestThinkingWidget(unittest.TestCase):
     """ThinkingWidget construction, append, finalize."""
 
     def test_construction_visible(self):
-        from EvoScientist.cli.widgets.thinking_widget import ThinkingWidget
+        from jw.cli.widgets.thinking_widget import ThinkingWidget
 
         w = ThinkingWidget(show_thinking=True)
         assert w._is_active is True
@@ -92,13 +92,13 @@ class TestThinkingWidget(unittest.TestCase):
         assert w.display is True
 
     def test_construction_hidden(self):
-        from EvoScientist.cli.widgets.thinking_widget import ThinkingWidget
+        from jw.cli.widgets.thinking_widget import ThinkingWidget
 
         w = ThinkingWidget(show_thinking=False)
         assert w.display is False
 
     def test_append_text_accumulates(self):
-        from EvoScientist.cli.widgets.thinking_widget import ThinkingWidget
+        from jw.cli.widgets.thinking_widget import ThinkingWidget
 
         w = ThinkingWidget(show_thinking=True)
         w._content = ""  # direct access for unit test
@@ -108,7 +108,7 @@ class TestThinkingWidget(unittest.TestCase):
         assert w._content == "hello world"
 
     def test_finalize_sets_inactive(self):
-        from EvoScientist.cli.widgets.thinking_widget import ThinkingWidget
+        from jw.cli.widgets.thinking_widget import ThinkingWidget
 
         w = ThinkingWidget(show_thinking=True)
         w._is_active = True
@@ -121,7 +121,7 @@ class TestSummarizationStateMachine(unittest.TestCase):
     """Summary panel lifecycle decisions in the TUI event loop."""
 
     def test_summary_continuation_events_do_not_finalize(self):
-        from EvoScientist.cli.tui_interactive import (
+        from jw.cli.tui_interactive import (
             _should_finalize_active_summarization,
         )
 
@@ -129,7 +129,7 @@ class TestSummarizationStateMachine(unittest.TestCase):
             assert _should_finalize_active_summarization(event_type) is False
 
     def test_non_summary_events_finalize_active_summary(self):
-        from EvoScientist.cli.tui_interactive import (
+        from jw.cli.tui_interactive import (
             _should_finalize_active_summarization,
         )
 
@@ -155,7 +155,7 @@ class TestStoppedResponseText(unittest.TestCase):
     """Stopped-response text normalization."""
 
     def test_trims_before_appending_marker(self):
-        from EvoScientist.stream.display import build_stopped_response_text
+        from jw.stream.display import build_stopped_response_text
 
         current, final_text = build_stopped_response_text("partial answer  \n")
 
@@ -163,7 +163,7 @@ class TestStoppedResponseText(unittest.TestCase):
         assert final_text == "partial answer\n[Stopped.]"
 
     def test_does_not_duplicate_marker(self):
-        from EvoScientist.stream.display import build_stopped_response_text
+        from jw.stream.display import build_stopped_response_text
 
         current, final_text = build_stopped_response_text("partial\n[Stopped.]")
 
@@ -171,7 +171,7 @@ class TestStoppedResponseText(unittest.TestCase):
         assert final_text == "partial\n[Stopped.]"
 
     def test_strips_trailing_placeholder_ellipsis(self):
-        from EvoScientist.cli.tui_interactive import (
+        from jw.cli.tui_interactive import (
             _strip_trailing_placeholder_ellipsis,
         )
 
@@ -190,13 +190,13 @@ class TestAssistantMessage(unittest.TestCase):
     """AssistantMessage construction."""
 
     def test_empty_construction(self):
-        from EvoScientist.cli.widgets.assistant_message import AssistantMessage
+        from jw.cli.widgets.assistant_message import AssistantMessage
 
         w = AssistantMessage()
         assert w._content == ""
 
     def test_initial_content(self):
-        from EvoScientist.cli.widgets.assistant_message import AssistantMessage
+        from jw.cli.widgets.assistant_message import AssistantMessage
 
         w = AssistantMessage("hello world")
         assert w._content == "hello world"
@@ -207,7 +207,7 @@ class TestToolCallWidget(unittest.TestCase):
     """ToolCallWidget construction and state transitions."""
 
     def test_construction(self):
-        from EvoScientist.cli.widgets.tool_call_widget import ToolCallWidget
+        from jw.cli.widgets.tool_call_widget import ToolCallWidget
 
         w = ToolCallWidget("read_file", {"path": "/foo.py"}, "abc-123")
         assert w._tool_name == "read_file"
@@ -216,14 +216,14 @@ class TestToolCallWidget(unittest.TestCase):
         assert w._status == "running"
 
     def test_tool_id_property(self):
-        from EvoScientist.cli.widgets.tool_call_widget import ToolCallWidget
+        from jw.cli.widgets.tool_call_widget import ToolCallWidget
 
         w = ToolCallWidget("grep", {"pattern": "foo"}, "xyz")
         assert w.tool_id == "xyz"
         assert w.tool_name == "grep"
 
     def test_status_transitions(self):
-        from EvoScientist.cli.widgets.tool_call_widget import ToolCallWidget
+        from jw.cli.widgets.tool_call_widget import ToolCallWidget
 
         w = ToolCallWidget("execute", {"command": "ls"})
         assert w._status == "running"
@@ -236,7 +236,7 @@ class TestToolCallWidget(unittest.TestCase):
         assert w._status == "interrupted"
 
     def test_memory_tool_header_uses_result_inference(self):
-        from EvoScientist.cli.widgets.tool_call_widget import ToolCallWidget
+        from jw.cli.widgets.tool_call_widget import ToolCallWidget
 
         w = ToolCallWidget("edit_file", {}, "mem-1")
         w._result_content = "Successfully replaced 1 instance(s) of the string in '/memories/profile/USER_PROFILE.md'"
@@ -256,7 +256,7 @@ class TestToolCallWidget(unittest.TestCase):
         assert "Updating memory" in header.updated.plain
 
     def test_result_summary_truncation(self):
-        from EvoScientist.cli.widgets.tool_call_widget import ToolCallWidget
+        from jw.cli.widgets.tool_call_widget import ToolCallWidget
 
         w = ToolCallWidget("execute", {})
         w._result_content = "a" * 100
@@ -264,21 +264,21 @@ class TestToolCallWidget(unittest.TestCase):
         assert len(summary) <= 61  # 57 + "…"
 
     def test_result_summary_empty(self):
-        from EvoScientist.cli.widgets.tool_call_widget import ToolCallWidget
+        from jw.cli.widgets.tool_call_widget import ToolCallWidget
 
         w = ToolCallWidget("execute", {})
         w._result_content = ""
         assert w._result_summary() == "done"
 
     def test_should_collapse_short(self):
-        from EvoScientist.cli.widgets.tool_call_widget import ToolCallWidget
+        from jw.cli.widgets.tool_call_widget import ToolCallWidget
 
         w = ToolCallWidget("read_file", {})
         w._result_content = "line1\nline2\nline3"
         assert w._should_collapse() is False
 
     def test_should_collapse_long(self):
-        from EvoScientist.cli.widgets.tool_call_widget import ToolCallWidget
+        from jw.cli.widgets.tool_call_widget import ToolCallWidget
 
         w = ToolCallWidget("read_file", {})
         w._result_content = "\n".join(f"line{i}" for i in range(20))
@@ -290,7 +290,7 @@ class TestSubAgentWidget(unittest.TestCase):
     """SubAgentWidget construction and name display."""
 
     def test_construction(self):
-        from EvoScientist.cli.widgets.subagent_widget import SubAgentWidget
+        from jw.cli.widgets.subagent_widget import SubAgentWidget
 
         w = SubAgentWidget("research-agent", "Search literature")
         assert w._sa_name == "research-agent"
@@ -299,13 +299,13 @@ class TestSubAgentWidget(unittest.TestCase):
         assert w._tool_count == 0
 
     def test_sa_name_property(self):
-        from EvoScientist.cli.widgets.subagent_widget import SubAgentWidget
+        from jw.cli.widgets.subagent_widget import SubAgentWidget
 
         w = SubAgentWidget("code-agent")
         assert w.sa_name == "code-agent"
 
     def test_display_name_with_description(self):
-        from EvoScientist.cli.widgets.subagent_widget import SubAgentWidget
+        from jw.cli.widgets.subagent_widget import SubAgentWidget
 
         w = SubAgentWidget("research-agent", "Search for relevant papers")
         name = w._display_name()
@@ -313,7 +313,7 @@ class TestSubAgentWidget(unittest.TestCase):
         assert "Search for relevant papers" in name
 
     def test_display_name_truncation(self):
-        from EvoScientist.cli.widgets.subagent_widget import SubAgentWidget
+        from jw.cli.widgets.subagent_widget import SubAgentWidget
 
         long_desc = "A" * 100
         w = SubAgentWidget("agent", long_desc)
@@ -321,7 +321,7 @@ class TestSubAgentWidget(unittest.TestCase):
         assert len(name) < 100  # Should be truncated
 
     def test_finalize(self):
-        from EvoScientist.cli.widgets.subagent_widget import SubAgentWidget
+        from jw.cli.widgets.subagent_widget import SubAgentWidget
 
         w = SubAgentWidget("agent")
         w._is_active = True
@@ -329,7 +329,7 @@ class TestSubAgentWidget(unittest.TestCase):
         assert w._is_active is False
 
     def test_update_name(self):
-        from EvoScientist.cli.widgets.subagent_widget import SubAgentWidget
+        from jw.cli.widgets.subagent_widget import SubAgentWidget
 
         w = SubAgentWidget("sub-agent")
         assert w._sa_name == "sub-agent"
@@ -342,7 +342,7 @@ class TestSubAgentWidget(unittest.TestCase):
         assert "Plan the experiment" in w._display_name()
 
     def test_update_name_preserves_description(self):
-        from EvoScientist.cli.widgets.subagent_widget import SubAgentWidget
+        from jw.cli.widgets.subagent_widget import SubAgentWidget
 
         w = SubAgentWidget("sub-agent", "existing desc")
         w.update_name("research-agent")
@@ -351,7 +351,7 @@ class TestSubAgentWidget(unittest.TestCase):
         assert w._description == "existing desc"
 
     def test_update_name_overwrites_description(self):
-        from EvoScientist.cli.widgets.subagent_widget import SubAgentWidget
+        from jw.cli.widgets.subagent_widget import SubAgentWidget
 
         w = SubAgentWidget("sub-agent", "old desc")
         w.update_name("code-agent", "new desc")
@@ -359,8 +359,8 @@ class TestSubAgentWidget(unittest.TestCase):
 
     def test_tool_widgets_dict_keyed_by_id(self):
         """_tool_widgets dict should be keyed by tool_id for dedup."""
-        from EvoScientist.cli.widgets.subagent_widget import SubAgentWidget
-        from EvoScientist.cli.widgets.tool_call_widget import ToolCallWidget
+        from jw.cli.widgets.subagent_widget import SubAgentWidget
+        from jw.cli.widgets.tool_call_widget import ToolCallWidget
 
         sa = SubAgentWidget("research-agent")
         # Simulate pre-populating a tool widget (as add_tool_call would)
@@ -375,8 +375,8 @@ class TestSubAgentWidget(unittest.TestCase):
         don't leave orphans that get marked ``interrupted`` at finalize time.
         Also, repeat deliveries must not inflate ``_completed_ids``.
         """
-        from EvoScientist.cli.widgets.subagent_widget import SubAgentWidget
-        from EvoScientist.cli.widgets.tool_call_widget import ToolCallWidget
+        from jw.cli.widgets.subagent_widget import SubAgentWidget
+        from jw.cli.widgets.tool_call_widget import ToolCallWidget
 
         class _FakeToolWidget(ToolCallWidget):
             def set_success(self, content):
@@ -419,13 +419,13 @@ class TestTodoWidget(unittest.TestCase):
     """TodoWidget construction."""
 
     def test_construction_empty(self):
-        from EvoScientist.cli.widgets.todo_widget import TodoWidget
+        from jw.cli.widgets.todo_widget import TodoWidget
 
         w = TodoWidget()
         assert w._items == []
 
     def test_construction_with_items(self):
-        from EvoScientist.cli.widgets.todo_widget import TodoWidget
+        from jw.cli.widgets.todo_widget import TodoWidget
 
         items = [
             {"content": "Search papers", "status": "done"},
@@ -436,7 +436,7 @@ class TestTodoWidget(unittest.TestCase):
         assert len(w._items) == 3
 
     def test_update_items(self):
-        from EvoScientist.cli.widgets.todo_widget import TodoWidget
+        from jw.cli.widgets.todo_widget import TodoWidget
 
         w = TodoWidget()
         items = [{"content": "task1", "status": "todo"}]
@@ -449,7 +449,7 @@ class TestUserMessage(unittest.TestCase):
     """UserMessage construction."""
 
     def test_construction(self):
-        from EvoScientist.cli.widgets.user_message import UserMessage
+        from jw.cli.widgets.user_message import UserMessage
 
         w = UserMessage("hello world")
         # Should create without error
@@ -461,13 +461,13 @@ class TestSystemMessage(unittest.TestCase):
     """SystemMessage construction."""
 
     def test_construction_default_style(self):
-        from EvoScientist.cli.widgets.system_message import SystemMessage
+        from jw.cli.widgets.system_message import SystemMessage
 
         w = SystemMessage("info text")
         assert w is not None
 
     def test_construction_custom_style(self):
-        from EvoScientist.cli.widgets.system_message import SystemMessage
+        from jw.cli.widgets.system_message import SystemMessage
 
         w = SystemMessage("error!", msg_style="red")
         assert w is not None
@@ -478,15 +478,15 @@ class TestIsFinalResponse(unittest.TestCase):
     """Test _is_final_response helper."""
 
     def test_empty_state_is_final(self):
-        from EvoScientist.cli.tui_interactive import _is_final_response
-        from EvoScientist.stream.state import StreamState
+        from jw.cli.tui_interactive import _is_final_response
+        from jw.stream.state import StreamState
 
         state = StreamState()
         assert _is_final_response(state) is True
 
     def test_pending_tools_not_final(self):
-        from EvoScientist.cli.tui_interactive import _is_final_response
-        from EvoScientist.stream.state import StreamState
+        from jw.cli.tui_interactive import _is_final_response
+        from jw.stream.state import StreamState
 
         state = StreamState()
         state.tool_calls = [{"name": "read_file", "args": {}}]
@@ -494,8 +494,8 @@ class TestIsFinalResponse(unittest.TestCase):
         assert _is_final_response(state) is False
 
     def test_all_tools_done_is_final(self):
-        from EvoScientist.cli.tui_interactive import _is_final_response
-        from EvoScientist.stream.state import StreamState
+        from jw.cli.tui_interactive import _is_final_response
+        from jw.stream.state import StreamState
 
         state = StreamState()
         state.tool_calls = [{"name": "read_file", "args": {}}]
@@ -503,8 +503,8 @@ class TestIsFinalResponse(unittest.TestCase):
         assert _is_final_response(state) is True
 
     def test_active_subagent_not_final(self):
-        from EvoScientist.cli.tui_interactive import _is_final_response
-        from EvoScientist.stream.state import StreamState, SubAgentState
+        from jw.cli.tui_interactive import _is_final_response
+        from jw.stream.state import StreamState, SubAgentState
 
         state = StreamState()
         sa = SubAgentState("research-agent")
@@ -513,8 +513,8 @@ class TestIsFinalResponse(unittest.TestCase):
         assert _is_final_response(state) is False
 
     def test_completed_subagent_is_final(self):
-        from EvoScientist.cli.tui_interactive import _is_final_response
-        from EvoScientist.stream.state import StreamState, SubAgentState
+        from jw.cli.tui_interactive import _is_final_response
+        from jw.stream.state import StreamState, SubAgentState
 
         state = StreamState()
         sa = SubAgentState("research-agent")
@@ -523,8 +523,8 @@ class TestIsFinalResponse(unittest.TestCase):
         assert _is_final_response(state) is True
 
     def test_processing_not_final(self):
-        from EvoScientist.cli.tui_interactive import _is_final_response
-        from EvoScientist.stream.state import StreamState
+        from jw.cli.tui_interactive import _is_final_response
+        from jw.stream.state import StreamState
 
         state = StreamState()
         state.is_processing = True
@@ -536,7 +536,7 @@ class TestToolCallWidgetIcons(unittest.TestCase):
     """ToolCallWidget uses correct status icons (✓/✗/●)."""
 
     def test_success_icon(self):
-        from EvoScientist.cli.widgets.tool_call_widget import ToolCallWidget
+        from jw.cli.widgets.tool_call_widget import ToolCallWidget
 
         w = ToolCallWidget("read_file", {"path": "/f"}, "id1")
         # After success, status should be "success"
@@ -544,20 +544,20 @@ class TestToolCallWidgetIcons(unittest.TestCase):
         assert w._status == "success"
 
     def test_error_icon(self):
-        from EvoScientist.cli.widgets.tool_call_widget import ToolCallWidget
+        from jw.cli.widgets.tool_call_widget import ToolCallWidget
 
         w = ToolCallWidget("execute", {"command": "bad"}, "id2")
         w._status = "error"
         assert w._status == "error"
 
     def test_running_icon(self):
-        from EvoScientist.cli.widgets.tool_call_widget import ToolCallWidget
+        from jw.cli.widgets.tool_call_widget import ToolCallWidget
 
         w = ToolCallWidget("grep", {}, "id3")
         assert w._status == "running"
 
     def test_interrupted_icon(self):
-        from EvoScientist.cli.widgets.tool_call_widget import ToolCallWidget
+        from jw.cli.widgets.tool_call_widget import ToolCallWidget
 
         w = ToolCallWidget("execute", {"command": "long"}, "id4")
         w._status = "interrupted"
@@ -595,7 +595,7 @@ class TestWidgetImports(unittest.TestCase):
     """Verify all widgets are importable from the package."""
 
     def test_all_imports(self):
-        from EvoScientist.cli.widgets import (
+        from jw.cli.widgets import (
             AssistantMessage,
             LoadingWidget,
             SubAgentWidget,
@@ -625,19 +625,19 @@ class TestClipboardPaste(unittest.TestCase):
 
     def test_get_clipboard_text_import(self):
         """get_clipboard_text should be importable."""
-        from EvoScientist.cli.clipboard import get_clipboard_text
+        from jw.cli.clipboard import get_clipboard_text
 
         assert callable(get_clipboard_text)
 
     def test_paste_native_import(self):
         """_paste_native should be importable."""
-        from EvoScientist.cli.clipboard import _paste_native
+        from jw.cli.clipboard import _paste_native
 
         assert callable(_paste_native)
 
     def test_paste_native_returns_string_or_none(self):
         """_paste_native should return str or None."""
-        from EvoScientist.cli.clipboard import _paste_native
+        from jw.cli.clipboard import _paste_native
 
         result = _paste_native()
         assert result is None or isinstance(result, str)
@@ -653,7 +653,7 @@ class TestClipboardPaste(unittest.TestCase):
             # Re-import to pick up the mock
             import importlib
 
-            from EvoScientist.cli import clipboard
+            from jw.cli import clipboard
 
             importlib.reload(clipboard)
 
@@ -669,7 +669,7 @@ class TestClipboardPaste(unittest.TestCase):
         with patch.dict("sys.modules", {"pyperclip": None}):
             import importlib
 
-            from EvoScientist.cli import clipboard
+            from jw.cli import clipboard
 
             importlib.reload(clipboard)
 
@@ -682,7 +682,7 @@ class TestClipboardPaste(unittest.TestCase):
 class TestCompletionLogic(unittest.TestCase):
     """Unit tests for slash-command completion and TAB-key handling.
 
-    The completion methods live on EvoTextualInteractiveApp but require a
+    The completion methods live on JWTextualInteractiveApp but require a
     running Textual pilot to instantiate normally.  We use a lightweight
     stub that reimplements only the state fields and wires query_one() to
     return fake widget objects, letting us exercise the pure logic without
@@ -729,7 +729,7 @@ class TestCompletionLogic(unittest.TestCase):
             """Minimal stub that shares the real completion method bodies."""
 
             def __init__(self):
-                from EvoScientist.commands._completion_engine import CompletionCandidate
+                from jw.commands._completion_engine import CompletionCandidate
 
                 self._comp_items = []
                 for item in comp_items or []:
@@ -940,7 +940,7 @@ class TestCompletionLogic(unittest.TestCase):
     # ------------------------------------------------------------------
 
     def test_engine_slash_shows_top_level_commands(self):
-        from EvoScientist.commands._completion_engine import compute_completions
+        from jw.commands._completion_engine import compute_completions
 
         result = compute_completions("/re", 3)
         assert result.kind == "commands"
@@ -948,19 +948,19 @@ class TestCompletionLogic(unittest.TestCase):
         assert all(c.text.startswith("/re") for c in result.candidates)
 
     def test_engine_exact_match_no_space_hides(self):
-        from EvoScientist.commands._completion_engine import compute_completions
+        from jw.commands._completion_engine import compute_completions
 
         result = compute_completions("/help", 5)
         assert result.kind == "empty"
 
     def test_engine_non_slash_returns_empty(self):
-        from EvoScientist.commands._completion_engine import compute_completions
+        from jw.commands._completion_engine import compute_completions
 
         result = compute_completions("hello", 5)
         assert result.kind == "empty"
 
     def test_engine_trailing_space_shows_subcommands(self):
-        from EvoScientist.commands._completion_engine import compute_completions
+        from jw.commands._completion_engine import compute_completions
 
         result = compute_completions("/mcp ", 5)
         assert result.kind == "subcommands"
@@ -969,7 +969,7 @@ class TestCompletionLogic(unittest.TestCase):
         assert "add" in names
 
     def test_engine_subcommand_prefix_filters(self):
-        from EvoScientist.commands._completion_engine import compute_completions
+        from jw.commands._completion_engine import compute_completions
 
         result = compute_completions("/mcp lis", 8)
         assert result.kind == "subcommands"
@@ -981,7 +981,7 @@ class TestCompletionLogic(unittest.TestCase):
         trailing space), the engine should hide — Tab shouldn't re-insert
         the same subcommand. Mirrors the top-level exact-match rule.
         """
-        from EvoScientist.commands._completion_engine import compute_completions
+        from jw.commands._completion_engine import compute_completions
 
         result = compute_completions("/mcp list", 9)
         assert result.kind == "empty"
@@ -993,26 +993,26 @@ class TestCompletionLogic(unittest.TestCase):
         guard Tab oscillates between adding and removing the trailing
         whitespace.
         """
-        from EvoScientist.commands._completion_engine import compute_completions
+        from jw.commands._completion_engine import compute_completions
 
         result = compute_completions("/mcp list ", 10)
         assert result.kind == "empty"
         assert result.candidates == []
 
     def test_engine_three_parts_hides(self):
-        from EvoScientist.commands._completion_engine import compute_completions
+        from jw.commands._completion_engine import compute_completions
 
         result = compute_completions("/mcp list a", 11)
         assert result.kind == "empty"
 
     def test_engine_non_subcommand_cmd_hides(self):
-        from EvoScientist.commands._completion_engine import compute_completions
+        from jw.commands._completion_engine import compute_completions
 
         result = compute_completions("/help ", 6)
         assert result.kind == "empty"
 
     def test_engine_subcommand_replace_range(self):
-        from EvoScientist.commands._completion_engine import compute_completions
+        from jw.commands._completion_engine import compute_completions
 
         result = compute_completions("/mcp lis", 8)
         assert result.candidates[0].replace_start == 5
@@ -1024,7 +1024,7 @@ class TestCompletionLogic(unittest.TestCase):
         must exclude the trailing space — otherwise the apply step
         would produce a double space (``/mcp add  ``).
         """
-        from EvoScientist.commands._completion_engine import compute_completions
+        from jw.commands._completion_engine import compute_completions
 
         text = "/mcp a "
         result = compute_completions(text, len(text))  # cursor at end
@@ -1039,7 +1039,7 @@ class TestCompletionLogic(unittest.TestCase):
         not produce ``/mcp add  `` (double space). The TUI uses
         ``_comp_base + candidate.text + " "`` which avoids double spaces.
         """
-        from EvoScientist.commands._completion_engine import compute_completions
+        from jw.commands._completion_engine import compute_completions
 
         text = "/mcp a "
         result = compute_completions(text, len(text))
@@ -1050,7 +1050,7 @@ class TestCompletionLogic(unittest.TestCase):
         assert new_value == f"/mcp {c.text} "
 
     def test_engine_trailing_space_replace_range(self):
-        from EvoScientist.commands._completion_engine import compute_completions
+        from jw.commands._completion_engine import compute_completions
 
         result = compute_completions("/mcp ", 5)
         assert result.candidates[0].replace_start == 5
@@ -1107,7 +1107,7 @@ class TestModelPickerWidgetOllama(unittest.TestCase):
         """
         from unittest.mock import MagicMock
 
-        from EvoScientist.cli.widgets.model_picker import (
+        from jw.cli.widgets.model_picker import (
             _CUSTOM_OLLAMA_ID,
             ModelPickerWidget,
         )
@@ -1131,7 +1131,7 @@ class TestModelPickerWidgetOllama(unittest.TestCase):
         return w
 
     def _sentinel_index(self, widget):
-        from EvoScientist.cli.widgets.model_picker import _CUSTOM_OLLAMA_ID
+        from jw.cli.widgets.model_picker import _CUSTOM_OLLAMA_ID
 
         for i, item in enumerate(widget._items):
             if item["type"] == "model" and item.get("model_id") == _CUSTOM_OLLAMA_ID:
@@ -1146,7 +1146,7 @@ class TestModelPickerWidgetOllama(unittest.TestCase):
 
     def test_selecting_regular_row_posts_picked(self):
         """Baseline: non-sentinel selection still works."""
-        from EvoScientist.cli.widgets.model_picker import ModelPickerWidget
+        from jw.cli.widgets.model_picker import ModelPickerWidget
 
         w = self._make_widget()
         # Find the claude row
@@ -1179,7 +1179,7 @@ class TestModelPickerWidgetOllama(unittest.TestCase):
         w.post_message.assert_not_called()
 
     def test_enter_with_typed_name_posts_picked(self):
-        from EvoScientist.cli.widgets.model_picker import ModelPickerWidget
+        from jw.cli.widgets.model_picker import ModelPickerWidget
 
         w = self._make_widget()
         w._mode = "input"
@@ -1216,7 +1216,7 @@ class TestModelPickerWidgetOllama(unittest.TestCase):
         assert w._mode == "input"
 
     def test_esc_in_input_mode_returns_to_list(self):
-        from EvoScientist.cli.widgets.model_picker import ModelPickerWidget
+        from jw.cli.widgets.model_picker import ModelPickerWidget
 
         w = self._make_widget()
         w._mode = "input"
@@ -1237,7 +1237,7 @@ class TestModelPickerWidgetOllama(unittest.TestCase):
         assert cancelled == []
 
     def test_esc_in_list_mode_cancels(self):
-        from EvoScientist.cli.widgets.model_picker import ModelPickerWidget
+        from jw.cli.widgets.model_picker import ModelPickerWidget
 
         w = self._make_widget()
         w._mode = "list"
@@ -1296,7 +1296,7 @@ class TestModelPickerWidgetOllama(unittest.TestCase):
     def test_duplicate_sentinels_collapsed(self):
         """Defense-in-depth: even if callers pass two sentinel rows (state
         reuse, stale merges), only one "Custom Ollama model..." renders."""
-        from EvoScientist.cli.widgets.model_picker import (
+        from jw.cli.widgets.model_picker import (
             _CUSTOM_OLLAMA_ID,
             _build_items,
         )
@@ -1318,7 +1318,7 @@ class TestModelPickerWidgetOllama(unittest.TestCase):
     def test_sentinel_survives_filter(self):
         """The Custom Ollama row is the user's escape hatch — filtering
         must never hide it."""
-        from EvoScientist.cli.widgets.model_picker import (
+        from jw.cli.widgets.model_picker import (
             _CUSTOM_OLLAMA_ID,
             _build_items,
         )
@@ -1342,7 +1342,7 @@ class TestModelPickerWidgetOllama(unittest.TestCase):
         be handled the same way as action_select in input mode."""
         from unittest.mock import MagicMock
 
-        from EvoScientist.cli.widgets.model_picker import ModelPickerWidget
+        from jw.cli.widgets.model_picker import ModelPickerWidget
 
         w = self._make_widget()
         w._mode = "input"

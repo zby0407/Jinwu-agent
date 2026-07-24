@@ -39,6 +39,14 @@ export type StateType = {
   ui?: any;
 };
 
+// Keep empty fallbacks referentially stable.  Recreating [] / {} in the hook's
+// return value makes bridge effects see a "new" value on every provider render.
+// During reconnect (before LangGraph has hydrated values) that can feed a
+// provider setState back into this hook indefinitely and trigger React #185.
+const EMPTY_TODOS: TodoItem[] = [];
+const EMPTY_FILES: Record<string, string> = {};
+const EMPTY_ASYNC_TASKS: Record<string, unknown> = {};
+
 /**
  * Sanitize a raw interrupt pulled from `client.threads.getState` before it is
  * surfaced to the UI. The live SDK normalizes `stream.interrupt`, but the raw
@@ -161,6 +169,15 @@ function formatStreamError(error: unknown): string {
   return "Run failed.";
 }
 
+function hasHttpStatus(error: unknown, status: number): boolean {
+  return (
+    !!error &&
+    typeof error === "object" &&
+    "status" in error &&
+    (error as { status?: unknown }).status === status
+  );
+}
+
 export function useChat({
   activeAssistant,
   onHistoryRevalidate,
@@ -197,6 +214,10 @@ export function useChat({
     onFinish: onHistoryRevalidate,
     onError: (error) => {
       onHistoryRevalidate?.();
+      // A missing in-memory dev thread is recoverable on the next submit (see
+      // sendMessage below). Do not show a fatal-looking toast while the
+      // composer is already unlocking for that recovery path.
+      if (hasHttpStatus(error, 404)) return;
       toast.error(formatStreamError(error));
     },
     onCreated: onHistoryRevalidate,
@@ -209,10 +230,16 @@ export function useChat({
       const steps = extractSubAgentSteps(data);
       if (steps.length === 0) return;
       const key = ns.join("|");
-      setSubAgentActivity((prev) => ({
-        ...prev,
-        [key]: [...(prev[key] ?? []), ...steps],
-      }));
+      // Defer out of the SDK store's synchronous notify cycle. Calling
+      // setState inline here re-enters the store update and trips React
+      // error #185 (maximum update depth exceeded), which kills the live
+      // stream mid-run and leaves the UI looking idle while the run continues.
+      queueMicrotask(() => {
+        setSubAgentActivity((prev) => ({
+          ...prev,
+          [key]: [...(prev[key] ?? []), ...steps],
+        }));
+      });
     },
     experimental_thread: thread,
   });
@@ -245,12 +272,16 @@ export function useChat({
     null
   );
   const [fetchedThreadId, setFetchedThreadId] = useState<string | null>(null);
+  // `useStream` can reconnect to a busy thread with isLoading=false even though
+  // the persisted checkpoint still has work in `next`. Mirror that server fact
+  // so a refresh cannot unlock the composer while the original run is active.
+  const [serverPending, setServerPending] = useState(false);
   const recoveryRunRef = useRef(0);
 
   // Per-thread model override. When set, gets folded into
   // `configurable.model` on every `stream.submit` — the backend's
   // `configurable_model` middleware
-  // (EvoScientist/middleware/configurable_model.py) is what actually swaps
+  // (jw/middleware/configurable_model.py) is what actually swaps
   // the chat model per request.
   //
   // The persistence dance gets a wrinkle for fresh chats: the thread row
@@ -339,18 +370,20 @@ export function useChat({
     },
     [threadId]
   );
+  const streamInterruptKey = interruptValueKey(stream.interrupt);
   useEffect(() => {
     if (!threadId) {
       setFetchedInterrupt(undefined);
       setFetchedMessages(null);
       setFetchedThreadId(null);
       setResolvedInterruptKey(null);
+      setServerPending(false);
       return;
     }
     if (stream.isLoading) {
       recoveryRunRef.current += 1;
       setFetchedInterrupt(undefined);
-      setResolvedInterruptKey(null);
+      setServerPending(false);
       return;
     }
     // The live stream count at the moment it settled. If the server's persisted
@@ -387,6 +420,7 @@ export function useChat({
         const msgs = threadRecord.values?.messages;
         const pending = latestTaskInterrupt(state.tasks);
         const stillPending = Array.isArray(state.next) && state.next.length > 0;
+        setServerPending(stillPending);
         const safePending = normalizePendingInterrupt(pending);
         if (safePending && hasActionableInterrupt(safePending)) {
           // Tool-approval interrupt reached — surface it and its matching message
@@ -414,7 +448,7 @@ export function useChat({
           // live interrupt's identity so the getter suppresses ONLY that one
           // (composer unlocks after approving) — a new interrupt still shows.
           setFetchedInterrupt(undefined);
-          setResolvedInterruptKey(interruptValueKey(stream.interrupt));
+          setResolvedInterruptKey(streamInterruptKey);
           if (Array.isArray(msgs)) {
             setFetchedThreadId(threadId);
             setFetchedMessages(msgs);
@@ -426,7 +460,16 @@ export function useChat({
         if (stillPending && tries < MAX_TRIES && !cancelled) {
           timer = setTimeout(attempt, 1000);
         }
-      } catch {
+      } catch (error) {
+        // `langgraph dev` keeps threads in memory. After a backend restart the
+        // browser can still have a valid-looking local task URL while the
+        // corresponding server thread is gone. Retrying that permanent 404
+        // makes the composer appear busy for the full recovery window.
+        if (hasHttpStatus(error, 404)) {
+          setServerPending(false);
+          setFetchedInterrupt(undefined);
+          return;
+        }
         if (
           !cancelled &&
           recoveryRunRef.current === recoveryRunId &&
@@ -444,7 +487,7 @@ export function useChat({
     // Precise deps on purpose: re-running on the whole `stream` object (new each
     // render) would loop the getState fetch.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [threadId, stream.interrupt, stream.isLoading, client]);
+  }, [threadId, streamInterruptKey, stream.isLoading, client]);
 
   // Show the live interrupt unless it's the exact one the server told us was
   // resolved (then fall through to the fetched one, usually undefined → composer
@@ -498,6 +541,13 @@ export function useChat({
     const baseConfigurable =
       (base as { configurable?: Record<string, unknown> }).configurable ?? {};
     const configurable: Record<string, unknown> = { ...baseConfigurable };
+    // All WebUI research tasks participate in the task-workspace registry.
+    // A future project picker can replace this value without changing the
+    // thread/run binding contract.
+    configurable.project_id =
+      typeof configurable.project_id === "string" && configurable.project_id
+        ? configurable.project_id
+        : "default";
     if (modelOverride) {
       configurable.model = modelOverride.model;
       if (modelOverride.model_provider) {
@@ -519,23 +569,60 @@ export function useChat({
       setResolvedInterruptKey(null);
       recoveryRunRef.current += 1;
       const newMessage: Message = { id: uuidv4(), type: "human", content };
-      stream.submit(
-        { messages: [newMessage] },
-        {
-          optimisticValues: (prev) => ({
-            messages: [...(prev.messages ?? []), newMessage],
-          }),
-          config: buildRunConfig(),
-          streamSubgraphs: true,
-          streamMode: ["updates"],
-          streamResumable: true,
-          onDisconnect: "continue",
+      setServerPending(true);
+      void (async () => {
+        if (threadId) {
+          try {
+            await client.threads.get(threadId);
+          } catch (error) {
+            if (!hasHttpStatus(error, 404)) throw error;
+
+            // Recreate only the missing server-side shell. Restore the visible
+            // conversation, but deliberately do NOT restore async_tasks or
+            // other execution state: those belong to the dead backend process
+            // and reviving them can relaunch stale background sub-agents.
+            await client.threads.create({
+              threadId,
+              graphId: activeAssistant?.graph_id,
+              metadata: { project_id: "default" },
+              ifExists: "do_nothing",
+            });
+            if (stream.messages.length > 0) {
+              await client.threads.updateState(threadId, {
+                values: { messages: stream.messages },
+              });
+            }
+          }
         }
-      );
+
+        stream.submit(
+          { messages: [newMessage] },
+          {
+            optimisticValues: (prev) => ({
+              messages: [...(prev.messages ?? []), newMessage],
+            }),
+            config: buildRunConfig(),
+            streamSubgraphs: true,
+            streamMode: ["updates"],
+            streamResumable: true,
+            onDisconnect: "continue",
+          }
+        );
+      })().catch((error) => {
+        setServerPending(false);
+        toast.error(formatStreamError(error));
+      });
       // Update thread list immediately when sending a message
       onHistoryRevalidate?.();
     },
-    [stream, buildRunConfig, onHistoryRevalidate]
+    [
+      stream,
+      buildRunConfig,
+      onHistoryRevalidate,
+      threadId,
+      client,
+      activeAssistant?.graph_id,
+    ]
   );
 
   const setFiles = useCallback(
@@ -556,7 +643,11 @@ export function useChat({
       setFetchedInterrupt(undefined);
       setFetchedMessages(null);
       setFetchedThreadId(null);
-      setResolvedInterruptKey(null);
+      // Mark the interrupt being resumed as resolved immediately. The SDK can
+      // keep that same object in `stream.interrupt` while the continuation run
+      // is already active; clearing this key resurrects a stale approval card
+      // ("Approving…") until the next full refresh.
+      setResolvedInterruptKey(interruptValueKey(interrupt));
       recoveryRunRef.current += 1;
       stream.submit(null, {
         command: { resume: value },
@@ -569,26 +660,36 @@ export function useChat({
       // Update thread list when resuming from interrupt
       onHistoryRevalidate?.();
     },
-    [stream, buildRunConfig, onHistoryRevalidate]
+    [stream, buildRunConfig, onHistoryRevalidate, interrupt]
   );
 
   const stopStream = useCallback(() => {
     stream.stop();
-  }, [stream]);
+    if (threadId) {
+      void fetch("/api/task-stop", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ threadId }),
+      }).catch(() => {
+        // The SDK cancellation above still stops the parent graph. This route
+        // additionally propagates the stop to contract sub-agents/sandboxes.
+      });
+    }
+  }, [stream, threadId]);
 
   return {
     stream,
-    todos: stream.values.todos ?? [],
-    files: stream.values.files ?? {},
+    todos: stream.values.todos ?? EMPTY_TODOS,
+    files: stream.values.files ?? EMPTY_FILES,
     email: stream.values.email,
-    asyncTasks: stream.values.async_tasks ?? {},
+    asyncTasks: stream.values.async_tasks ?? EMPTY_ASYNC_TASKS,
     summarizationEvent: parseSummarizationEvent(
       stream.values._summarization_event
     ),
     ui: stream.values.ui,
     setFiles,
     messages,
-    isLoading: stream.isLoading,
+    isLoading: stream.isLoading || serverPending,
     isThreadLoading: stream.isThreadLoading,
     interrupt,
     sendMessage,

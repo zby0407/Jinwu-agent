@@ -85,10 +85,10 @@ function StatsBar({ items }: { items: TimelineItem[] }) {
   const obsToday = today.filter((i) => i.kind === "observation").length;
 
   const stats = [
-    { n: projectCount, label: "\u9879\u76ee" },
-    { n: items.length, label: "\u603b\u8ba1" },
-    { n: runsToday, label: "\u4eca\u65e5\u8fd0\u884c" },
-    { n: obsToday, label: "\u4eca\u65e5\u89c2\u5bdf" },
+    { n: projectCount, label: "Projects" },
+    { n: items.length, label: "Total" },
+    { n: runsToday, label: "Runs Today" },
+    { n: obsToday, label: "Obs Today" },
   ];
 
   return (
@@ -230,10 +230,10 @@ function EntryCard({
                           onNavigateToObs(id);
                         }}
                         className="border-[var(--brand)]/40 rounded border bg-background px-2 py-0.5 font-mono text-[11px] text-[var(--brand)] transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                        title={`\u5728\u77e5\u8bc6\u56fe\u8c31\u4e2d\u8df3\u8f6c\u5230 ${id}`}
-                        aria-label={`\u5728\u77e5\u8bc6\u56fe\u8c31\u4e2d\u8df3\u8f6c\u5230\u89c2\u5bdf ${id}`}
+                        title={`Jump to ${id} in Knowledge graph`}
+                        aria-label={`Jump to observation ${id} in Knowledge graph`}
                       >
-                        {id.slice(0, 14)}...…
+                        {id.slice(0, 14)}…
                       </button>
                     ))}
                   </div>
@@ -264,8 +264,8 @@ function ObsCard({
       <button
         type="button"
         onClick={() => onNavigateToObs(obs.id)}
-        title={"\u5728\u77e5\u8bc6\u56fe\u8c31\u4e2d\u67e5\u770b"}
-        aria-label={`\u5728\u77e5\u8bc6\u56fe\u8c31\u4e2d\u67e5\u770b\u89c2\u5bdf\uff1a${obs.summary}`}
+        title="View in Knowledge graph"
+        aria-label={`View observation in Knowledge graph: ${obs.summary}`}
         className="hover:border-[var(--brand)]/40 mb-2 min-w-0 flex-1 cursor-pointer overflow-hidden rounded-lg border border-dashed border-border bg-[var(--color-surface)] px-3 py-2.5 text-left transition-colors hover:bg-accent/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
       >
         <div className="flex items-center gap-2">
@@ -304,7 +304,7 @@ export function HistoryTab({
           className="size-4 animate-spin"
           aria-hidden="true"
         />
-        {"\u52a0\u8f7d\u5386\u53f2\u4e2d..."}…
+        Loading history…
       </div>
     );
   }
@@ -321,7 +321,7 @@ export function HistoryTab({
             className="size-3.5"
             aria-hidden="true"
           />
-          {"\u91cd\u8bd5"}
+          Retry
         </button>
       </div>
     );
@@ -329,7 +329,7 @@ export function HistoryTab({
   if (!items || items.length === 0) {
     return (
       <div className="flex flex-1 items-center justify-center text-sm text-muted-foreground">
-        {"\u6682\u65e0\u6d3b\u52a8\u3002"}
+        No activity yet.
       </div>
     );
   }

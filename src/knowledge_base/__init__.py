@@ -6,7 +6,7 @@ the lifecycle state machine (``contracts``), business logic (``service``),
 CJK-aware FTS5 preparation (``fts``), markdown export/import (``export``),
 and the OpenAlex/arXiv literature pipeline with the distill quote-grounding
 contract (``literature``). The LangChain tool wrappers live in
-``EvoScientist/tools/knowledge_base.py``.
+``jw/tools/knowledge_base.py``.
 """
 
 from .contracts import (

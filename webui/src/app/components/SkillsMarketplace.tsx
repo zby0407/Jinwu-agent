@@ -5,6 +5,7 @@ import {
   Loader2,
   Puzzle,
   RotateCw,
+  Store,
   Trash2,
   Download,
   ArrowUpCircle,
@@ -30,10 +31,27 @@ interface SkillCard {
   dir: string;
 }
 
+interface CatalogSkill {
+  name: string;
+  title: string;
+  description: string;
+  fileCount: number;
+  installed: boolean;
+  latestVersion?: string;
+  installedVersion?: string;
+  updateAvailable: boolean;
+}
+
 export function SkillsMarketplace() {
   const [other, setOther] = useState<SkillCard[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  // The official JWSkills catalog stays hidden behind the header button and
+  // is fetched lazily the first time the user opens it.
+  const [catalogOpen, setCatalogOpen] = useState(false);
+  const [catalog, setCatalog] = useState<CatalogSkill[] | null>(null);
+  const [catalogLoading, setCatalogLoading] = useState(false);
+  const [catalogError, setCatalogError] = useState<string | null>(null);
   // Per-skill in-flight action, keyed by skill name.
   const [busy, setBusy] = useState<
     Record<string, "install" | "uninstall" | "update">
@@ -66,8 +84,77 @@ export function SkillsMarketplace() {
     load();
   }, [load]);
 
+  const loadCatalog = useCallback(async (refresh = false) => {
+    setCatalogLoading(true);
+    setCatalogError(null);
+    try {
+      const res = await fetch(
+        `/api/skills/catalog${refresh ? "?refresh=1" : ""}`
+      );
+      const d = await res.json();
+      if (!res.ok) throw new Error(d.error || "Failed to load catalog");
+      setCatalog((d.skills ?? []) as CatalogSkill[]);
+    } catch (e) {
+      setCatalog(null);
+      setCatalogError(
+        e instanceof Error ? e.message : "Failed to load the official catalog."
+      );
+    }
+    setCatalogLoading(false);
+  }, []);
+
+  const toggleCatalog = () => {
+    const opening = !catalogOpen;
+    setCatalogOpen(opening);
+    if (opening && catalog === null && !catalogLoading) {
+      void loadCatalog();
+    }
+  };
+
   // Install and update hit the same endpoint (it overwrites + re-records the
   // manifest commit); the mode only changes the busy label and success state.
+  const install = async (
+    name: string,
+    mode: "install" | "update" = "install"
+  ) => {
+    setBusy((b) => ({ ...b, [name]: mode }));
+    setError(null);
+    try {
+      const res = await fetch("/api/skills/install", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name }),
+      });
+      const d = await res.json();
+      if (!res.ok) throw new Error(d.error || "Failed to install");
+      setCatalog((prev) =>
+        prev
+          ? prev.map((s) =>
+              s.name === name
+                ? {
+                    ...s,
+                    installed: true,
+                    installedVersion: d.version ?? s.latestVersion,
+                    updateAvailable: false,
+                  }
+                : s
+            )
+          : prev
+      );
+      await load();
+    } catch (e) {
+      setCatalogError(
+        e instanceof Error ? e.message : "Failed to install the skill."
+      );
+    } finally {
+      setBusy((b) => {
+        const next = { ...b };
+        delete next[name];
+        return next;
+      });
+    }
+  };
+
   const uninstall = async (name: string) => {
     setBusy((b) => ({ ...b, [name]: "uninstall" }));
     setError(null);
@@ -80,6 +167,15 @@ export function SkillsMarketplace() {
         throw new Error(d.error || "Failed to uninstall");
       }
       setOther((prev) => prev.filter((s) => s.name !== name));
+      setCatalog((prev) =>
+        prev
+          ? prev.map((s) =>
+              s.name === name
+                ? { ...s, installed: false, installedVersion: undefined }
+                : s
+            )
+          : prev
+      );
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to uninstall");
     } finally {
@@ -110,18 +206,38 @@ export function SkillsMarketplace() {
               Manage locally installed skills.
             </p>
           </div>
-          <button
-            type="button"
-            onClick={() => load(true)}
-            disabled={loading}
-            aria-label="Refresh"
-            className="rounded-md p-2 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
-          >
-            <RotateCw
-              className={loading ? "size-4 animate-spin" : "size-4"}
-              aria-hidden="true"
-            />
-          </button>
+          <div className="flex items-center gap-1">
+            <button
+              type="button"
+              onClick={toggleCatalog}
+              aria-pressed={catalogOpen}
+              aria-label="Official catalog"
+              title="Official catalog"
+              className={`inline-flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs font-medium transition-colors focus-visible:ring-2 focus-visible:ring-ring ${
+                catalogOpen
+                  ? "bg-accent text-foreground"
+                  : "text-muted-foreground hover:bg-accent hover:text-foreground"
+              }`}
+            >
+              <Store
+                className="size-4"
+                aria-hidden="true"
+              />
+              Official catalog
+            </button>
+            <button
+              type="button"
+              onClick={() => load(true)}
+              disabled={loading}
+              aria-label="Refresh"
+              className="rounded-md p-2 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
+            >
+              <RotateCw
+                className={loading ? "size-4 animate-spin" : "size-4"}
+                aria-hidden="true"
+              />
+            </button>
+          </div>
         </header>
 
         {error && (
@@ -131,6 +247,67 @@ export function SkillsMarketplace() {
           >
             {error}
           </p>
+        )}
+
+        {catalogOpen && (
+          <section className="mb-6">
+            <h3 className="mb-2.5 text-xs font-semibold uppercase tracking-wider text-tertiary">
+              Official catalog
+            </h3>
+            {catalogError && (
+              <p
+                role="alert"
+                className="mb-3 text-sm text-destructive"
+              >
+                {catalogError}
+              </p>
+            )}
+            {catalogLoading ? (
+              <div
+                className="flex items-center gap-2 text-sm text-muted-foreground"
+                aria-live="polite"
+              >
+                <Loader2
+                  className="size-4 animate-spin"
+                  aria-hidden="true"
+                />
+                Loading catalog…
+              </div>
+            ) : catalog && catalog.length > 0 ? (
+              <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
+                {catalog.map((s) => (
+                  <SkillTile
+                    key={s.name}
+                    title={s.title}
+                    description={s.description}
+                    meta={`${s.fileCount} files`}
+                    installed={s.installed}
+                    installedVersion={s.installedVersion}
+                    latestVersion={s.latestVersion}
+                    updateAvailable={s.updateAvailable}
+                    busy={busy[s.name]}
+                    onOpen={() =>
+                      setDetail({
+                        name: s.name,
+                        title: s.title,
+                        description: s.description,
+                        installed: s.installed,
+                      })
+                    }
+                    onInstall={() => install(s.name)}
+                    onUpdate={() => install(s.name, "update")}
+                    onUninstall={() =>
+                      setUninstallTarget({ name: s.name, title: s.title })
+                    }
+                  />
+                ))}
+              </div>
+            ) : catalog ? (
+              <p className="text-sm text-muted-foreground">
+                The official catalog is empty.
+              </p>
+            ) : null}
+          </section>
         )}
 
         {loading ? (

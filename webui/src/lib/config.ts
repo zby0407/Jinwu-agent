@@ -7,9 +7,9 @@ export interface DeploymentConfig {
 // The UI always talks to the 金乌 main agent. writing-agent and
 // data-analysis-agent are internal sub-agents and are intentionally not
 // user-selectable, so the assistant is fixed rather than configurable.
-export const DEFAULT_ASSISTANT_ID = "EvoScientist";
+export const DEFAULT_ASSISTANT_ID = "JW";
 
-const CONFIG_KEY = "jinwu-config";
+const CONFIG_KEY = "jw-config";
 
 export function getConfig(): DeploymentConfig | null {
   if (typeof window === "undefined") return null;
