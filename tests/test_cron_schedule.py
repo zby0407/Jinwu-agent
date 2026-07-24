@@ -90,7 +90,7 @@ def test_scheduler_yaml_loads_as_async():
     import EvoScientist
 
     subagents_dir = Path(EvoScientist.__file__).parent / "subagents"
-    yaml_path = subagents_dir / "scheduler.yaml"
+    yaml_path = subagents_dir / "core" / "scheduler.yaml"
     assert yaml_path.exists(), f"Missing {yaml_path}"
     data = yaml.safe_load(yaml_path.read_text(encoding="utf-8"))
     assert "scheduler" in data, "Top-level key must be 'scheduler'"
@@ -135,7 +135,9 @@ def test_scheduler_graph_id_matches_registration():
         f"SCHEDULER_GRAPH_ID={crons.SCHEDULER_GRAPH_ID!r} not found in langgraph.json graphs"
     )
     spec = yaml.safe_load(
-        (root / "subagents" / "scheduler.yaml").read_text(encoding="utf-8")
+        (root / "subagents" / "core" / "scheduler.yaml").read_text(
+            encoding="utf-8"
+        )
     )
     assert crons.SCHEDULER_GRAPH_ID in spec, (
         f"SCHEDULER_GRAPH_ID={crons.SCHEDULER_GRAPH_ID!r} is not the top-level key in scheduler.yaml"

@@ -131,7 +131,11 @@ def test_automatic_experiment_run_is_created_inside_task_workspace(
     repository_runs = (
         Path(experiment_tools._PROJECT_ROOT) / "experiment" / "runs"
     )
-    before = {path.name for path in repository_runs.iterdir()}
+    before = (
+        {path.name for path in repository_runs.iterdir()}
+        if repository_runs.is_dir()
+        else set()
+    )
 
     outcome = json.loads(
         experiment_tools.automatic_experiment_bind_request.invoke(
@@ -143,4 +147,9 @@ def test_automatic_experiment_run_is_created_inside_task_workspace(
     task_run = Path(binding.workspace) / "experiment" / "runs" / run_id
     assert (task_run / "request.json").is_file()
     assert (task_run / "state.json").is_file()
-    assert {path.name for path in repository_runs.iterdir()} == before
+    after = (
+        {path.name for path in repository_runs.iterdir()}
+        if repository_runs.is_dir()
+        else set()
+    )
+    assert after == before

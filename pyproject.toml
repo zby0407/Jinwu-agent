@@ -119,9 +119,9 @@ include = ["EvoScientist*"]
 
 [tool.setuptools.package-data]
 EvoScientist = [
-    "subagents/*.yaml",
+    "subagents/**/*.yaml",
+    "subagents/**/skills/**/*",
     "langgraph_dev/*.json",
-    "skills/**/*",
 ]
 
 [tool.pytest.ini_options]
