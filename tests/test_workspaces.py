@@ -104,7 +104,7 @@ def test_persisted_binding_can_be_preloaded_after_process_restart(
 async def test_cached_binding_lookup_does_not_block_the_event_loop(
     tmp_path, monkeypatch
 ):
-    import EvoScientist.workspaces as workspace_module
+    import jw.workspaces as workspace_module
 
     monkeypatch.setenv(
         "EVOSCIENTIST_WORKSPACE_BINDINGS_DIR", str(tmp_path / "registry")
