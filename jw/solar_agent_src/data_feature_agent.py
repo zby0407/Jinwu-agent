@@ -78,7 +78,9 @@ def load_catalog() -> pd.DataFrame:
     }
     missing = required.difference(catalog.columns)
     if missing:
-        raise ValueError(f"data_catalog.csv is missing required columns: {sorted(missing)}")
+        raise ValueError(
+            f"data_catalog.csv is missing required columns: {sorted(missing)}"
+        )
     return catalog
 
 
@@ -89,7 +91,9 @@ def path_info(path: Path) -> dict[str, Any]:
     }
     if path.exists():
         info["bytes"] = path.stat().st_size
-        info["modified_utc"] = datetime.fromtimestamp(path.stat().st_mtime, tz=timezone.utc).isoformat()
+        info["modified_utc"] = datetime.fromtimestamp(
+            path.stat().st_mtime, tz=timezone.utc
+        ).isoformat()
     return info
 
 
@@ -155,7 +159,8 @@ def read_quality_highlights() -> dict[str, Any]:
             item["signal"] for item in report["evidence_tiers"]["primary_evidence"]
         ],
         "auxiliary_evidence": [
-            item["signal"] for item in report["evidence_tiers"]["mechanism_or_auxiliary_evidence"]
+            item["signal"]
+            for item in report["evidence_tiers"]["mechanism_or_auxiliary_evidence"]
         ],
         "incomplete_cycles": report["cycle_table_quality"]["incomplete_cycles"],
         "all_source_overlap": report["master_table_quality"]["all_sources_overlap"],
@@ -173,7 +178,9 @@ def build_agent_output(
 ) -> dict[str, Any]:
     outputs = {
         "interim": {
-            "monthly_total_sunspot": table_summary(INTERIM_DIR / "silso_sn_m_tot_v2_interim.csv", "date_month"),
+            "monthly_total_sunspot": table_summary(
+                INTERIM_DIR / "silso_sn_m_tot_v2_interim.csv", "date_month"
+            ),
             "monthly_hemispheric_sunspot": table_summary(
                 INTERIM_DIR / "silso_sn_m_hem_v2_interim.csv", "date_month"
             ),
@@ -183,31 +190,43 @@ def build_agent_output(
             "solar_cycle_metadata": table_summary(
                 INTERIM_DIR / "solar_cycle_metadata_clean.csv", "date_month"
             ),
-            "monthly_f107": table_summary(INTERIM_DIR / "f107_daily_flux_interim.csv", "date_month"),
+            "monthly_f107": table_summary(
+                INTERIM_DIR / "f107_daily_flux_interim.csv", "date_month"
+            ),
             "monthly_wso_polar_field": table_summary(
                 INTERIM_DIR / "wso_polar_field_interim.csv", "date_month"
             ),
-            "goes_xrs_events": table_summary(INTERIM_DIR / "goes_xrs_events_interim.csv", "event_date"),
+            "goes_xrs_events": table_summary(
+                INTERIM_DIR / "goes_xrs_events_interim.csv", "event_date"
+            ),
         },
         "processed": {
             "clean_monthly_timeseries": table_summary(
                 PROCESSED_DIR / "clean_monthly_timeseries.csv", "date_month"
             ),
             "cycle_features": table_summary(PROCESSED_DIR / "cycle_features.csv"),
-            "cycle_flare_features": table_summary(PROCESSED_DIR / "cycle_flare_features.csv"),
+            "cycle_flare_features": table_summary(
+                PROCESSED_DIR / "cycle_flare_features.csv"
+            ),
             "goes_xrs_monthly_features": table_summary(
                 PROCESSED_DIR / "goes_xrs_monthly_features.csv", "date_month"
             ),
             "wso_polar_monthly_features": table_summary(
                 PROCESSED_DIR / "wso_polar_monthly_features.csv", "date_month"
             ),
-            "cycle_hale_wso_features": table_summary(PROCESSED_DIR / "cycle_hale_wso_features.csv"),
+            "cycle_hale_wso_features": table_summary(
+                PROCESSED_DIR / "cycle_hale_wso_features.csv"
+            ),
             "cycle_hale_wso_sensitivity": table_summary(
                 PROCESSED_DIR / "cycle_hale_wso_sensitivity.csv"
             ),
             "feature_registry": path_info(PROCESSED_DIR / "feature_registry.json"),
-            "data_lineage_manifest": path_info(PROCESSED_DIR / "data_lineage_manifest.json"),
-            "data_quality_report": path_info(PROCESSED_DIR / "data_quality_report.json"),
+            "data_lineage_manifest": path_info(
+                PROCESSED_DIR / "data_lineage_manifest.json"
+            ),
+            "data_quality_report": path_info(
+                PROCESSED_DIR / "data_quality_report.json"
+            ),
             "drift_report": path_info(PROCESSED_DIR / "drift_report.json"),
         },
     }
@@ -267,8 +286,12 @@ def main() -> None:
     stages = [
         run_stage("interim_monthly", builders["interim_monthly"]),
         run_stage("solar_cycle_metadata", builders["solar_cycle_metadata"]),
-        run_stage("goes_xrs_flare_features_monthly", builders["goes_xrs_monthly_features"]),
-        run_stage("processed_monthly_timeseries", builders["processed_monthly_timeseries"]),
+        run_stage(
+            "goes_xrs_flare_features_monthly", builders["goes_xrs_monthly_features"]
+        ),
+        run_stage(
+            "processed_monthly_timeseries", builders["processed_monthly_timeseries"]
+        ),
         run_stage("goes_xrs_flare_features_cycle", builders["goes_xrs_cycle_features"]),
         run_stage("cycle_features", builders["cycle_features"]),
         run_stage("wso_hale_features", builders["wso_hale_features"]),
@@ -279,9 +302,17 @@ def main() -> None:
     ]
 
     output = build_agent_output(catalog_path, catalog, catalog_checks, stages)
-    AGENT_OUTPUT_PATH.write_text(json.dumps(output, ensure_ascii=False, indent=2), encoding="utf-8")
+    AGENT_OUTPUT_PATH.write_text(
+        json.dumps(output, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
     print(f"saved {AGENT_OUTPUT_PATH}")
-    print(json.dumps({"status": "ok", "agent_output": str(AGENT_OUTPUT_PATH)}, ensure_ascii=False, indent=2))
+    print(
+        json.dumps(
+            {"status": "ok", "agent_output": str(AGENT_OUTPUT_PATH)},
+            ensure_ascii=False,
+            indent=2,
+        )
+    )
 
 
 if __name__ == "__main__":

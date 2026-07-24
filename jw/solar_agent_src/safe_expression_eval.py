@@ -38,7 +38,9 @@ ALLOWED_FUNCTIONS: set[str] = {
 }
 
 # Column name: allow quoted strings, simple identifiers, or numeric literals.
-COLUMN_NAME_PATTERN = re.compile(r"[\"']([^\"']+?)[\"']|([a-zA-Z_][a-zA-Z0-9_]*)|([+-]?\d+(?:\.\d+)?)")
+COLUMN_NAME_PATTERN = re.compile(
+    r"[\"']([^\"']+?)[\"']|([a-zA-Z_][a-zA-Z0-9_]*)|([+-]?\d+(?:\.\d+)?)"
+)
 FUNCTION_CALL_PATTERN = re.compile(r"^\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*\((.*)\)\s*$")
 
 
@@ -95,17 +97,23 @@ def _validate_arguments(func_name: str, args: list[str], df: pd.DataFrame) -> No
             raise ValueError("corr requires two column arguments")
         for col in args:
             if col not in df.columns:
-                raise ValueError(f"Column not found: {col}. Available columns: {list(df.columns)}")
+                raise ValueError(
+                    f"Column not found: {col}. Available columns: {list(df.columns)}"
+                )
             if not pd.api.types.is_numeric_dtype(df[col]):
                 raise ValueError(f"Column is not numeric: {col}")
         return
 
     if func_name == "quantile":
         if len(args) != 2:
-            raise ValueError("quantile requires exactly two arguments: column and quantile value")
+            raise ValueError(
+                "quantile requires exactly two arguments: column and quantile value"
+            )
         col, q = args[0], args[1]
         if col not in df.columns:
-            raise ValueError(f"Column not found: {col}. Available columns: {list(df.columns)}")
+            raise ValueError(
+                f"Column not found: {col}. Available columns: {list(df.columns)}"
+            )
         if not pd.api.types.is_numeric_dtype(df[col]):
             raise ValueError(f"Column is not numeric: {col}")
         try:
@@ -113,7 +121,9 @@ def _validate_arguments(func_name: str, args: list[str], df: pd.DataFrame) -> No
             if not 0 <= q_float <= 1:
                 raise ValueError
         except ValueError as exc:
-            raise ValueError("quantile second argument must be a number between 0 and 1") from exc
+            raise ValueError(
+                "quantile second argument must be a number between 0 and 1"
+            ) from exc
         return
 
     # Single-column functions.
@@ -123,7 +133,9 @@ def _validate_arguments(func_name: str, args: list[str], df: pd.DataFrame) -> No
         raise ValueError(f"{func_name} accepts only one column argument")
     col = args[0]
     if col not in df.columns:
-        raise ValueError(f"Column not found: {col}. Available columns: {list(df.columns)}")
+        raise ValueError(
+            f"Column not found: {col}. Available columns: {list(df.columns)}"
+        )
 
 
 def _memory_usage_mb(df: pd.DataFrame) -> float:
@@ -220,7 +232,9 @@ print(json.dumps(result, ensure_ascii=False))
 """
 
 
-def safe_eval(expression: str, df: pd.DataFrame, timeout: float = TIMEOUT_SECONDS) -> Any:
+def safe_eval(
+    expression: str, df: pd.DataFrame, timeout: float = TIMEOUT_SECONDS
+) -> Any:
     """Safely evaluate a predefined statistical function expression against a DataFrame.
 
     Security measures:
@@ -276,7 +290,9 @@ def safe_eval(expression: str, df: pd.DataFrame, timeout: float = TIMEOUT_SECOND
         return _serialize_result(data)
 
 
-def run(expression: str, session: Any, timeout: float = TIMEOUT_SECONDS) -> dict[str, Any]:
+def run(
+    expression: str, session: Any, timeout: float = TIMEOUT_SECONDS
+) -> dict[str, Any]:
     from chat_session import ChatSession
 
     if not isinstance(session, ChatSession):

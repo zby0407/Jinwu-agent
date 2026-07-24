@@ -76,18 +76,35 @@ def main() -> None:
             end_date = group["date_month"].max()
             is_complete = bool(end_date < max_observed_month)
 
-        cycle_length_months = month_diff(start_date, end_date) + 1 if pd.notna(end_date) else np.nan
-        rise_time_months = month_diff(start_date, peak_date) if pd.notna(peak_date) else np.nan
+        cycle_length_months = (
+            month_diff(start_date, end_date) + 1 if pd.notna(end_date) else np.nan
+        )
+        rise_time_months = (
+            month_diff(start_date, peak_date) if pd.notna(peak_date) else np.nan
+        )
         decline_time_months = (
-            month_diff(peak_date, end_date) if pd.notna(peak_date) and pd.notna(end_date) else np.nan
+            month_diff(peak_date, end_date)
+            if pd.notna(peak_date) and pd.notna(end_date)
+            else np.nan
         )
 
-        rising = group[group["date_month"].le(peak_date)] if pd.notna(peak_date) else group.iloc[0:0]
-        declining = group[group["date_month"].ge(peak_date)] if pd.notna(peak_date) else group.iloc[0:0]
+        rising = (
+            group[group["date_month"].le(peak_date)]
+            if pd.notna(peak_date)
+            else group.iloc[0:0]
+        )
+        declining = (
+            group[group["date_month"].ge(peak_date)]
+            if pd.notna(peak_date)
+            else group.iloc[0:0]
+        )
 
         precursor_start = start_date - pd.DateOffset(months=36)
         precursor_end = start_date - pd.DateOffset(months=1)
-        precursor = df[(df["date_month"].ge(precursor_start)) & (df["date_month"].le(precursor_end))]
+        precursor = df[
+            (df["date_month"].ge(precursor_start))
+            & (df["date_month"].le(precursor_end))
+        ]
 
         f107_slope = linear_slope(group["sunspot_number"], group["f107_monthly_mean"])
 
@@ -107,21 +124,35 @@ def main() -> None:
             if group["official_cycle_max_sn"].notna().any()
             else np.nan,
             "min_sunspot_number": group["sunspot_number"].min(skipna=True),
-            "peak_sunspot_number_monthly_raw_max": group["sunspot_number"].max(skipna=True),
+            "peak_sunspot_number_monthly_raw_max": group["sunspot_number"].max(
+                skipna=True
+            ),
             "peak_sunspot_number": group["sunspot_number"].max(skipna=True),
             "mean_sunspot_number": group["sunspot_number"].mean(skipna=True),
             "integral_sunspot": group["sunspot_number"].sum(skipna=True),
-            "rise_slope": linear_slope(rising["months_from_cycle_start"], rising["sunspot_number"]),
-            "decline_slope": linear_slope(declining["months_from_cycle_start"], declining["sunspot_number"]),
+            "rise_slope": linear_slope(
+                rising["months_from_cycle_start"], rising["sunspot_number"]
+            ),
+            "decline_slope": linear_slope(
+                declining["months_from_cycle_start"], declining["sunspot_number"]
+            ),
             "f107_mean": group["f107_monthly_mean"].mean(skipna=True),
             "f107_max": group["f107_monthly_mean"].max(skipna=True),
-            "f107_sunspot_corr": corr(group["sunspot_number"], group["f107_monthly_mean"]),
+            "f107_sunspot_corr": corr(
+                group["sunspot_number"], group["f107_monthly_mean"]
+            ),
             "f107_sunspot_slope": f107_slope,
-            "f107_sunspot_residual_std": residual_std(group["sunspot_number"], group["f107_monthly_mean"]),
+            "f107_sunspot_residual_std": residual_std(
+                group["sunspot_number"], group["f107_monthly_mean"]
+            ),
             "north_sunspot_mean": group["north_sunspot_number"].mean(skipna=True),
             "south_sunspot_mean": group["south_sunspot_number"].mean(skipna=True),
-            "hemispheric_asymmetry_mean": group["hemispheric_asymmetry"].mean(skipna=True),
-            "hemispheric_asymmetry_max_abs": group["hemispheric_asymmetry"].abs().max(skipna=True),
+            "hemispheric_asymmetry_mean": group["hemispheric_asymmetry"].mean(
+                skipna=True
+            ),
+            "hemispheric_asymmetry_max_abs": group["hemispheric_asymmetry"]
+            .abs()
+            .max(skipna=True),
             "polar_precursor_mean": precursor["polar_mean_signed"].mean(skipna=True),
             "polar_precursor_abs_mean": precursor["polar_mean_abs"].mean(skipna=True),
             "polar_north_mean": group["polar_north"].mean(skipna=True),
@@ -152,13 +183,20 @@ def main() -> None:
         for col in flare_cols:
             features[col] = np.nan
     features["next_cycle_peak_sunspot"] = features["peak_sunspot_number"].shift(-1)
-    features["next_cycle_strength_class"] = strength_class(features["next_cycle_peak_sunspot"])
+    features["next_cycle_strength_class"] = strength_class(
+        features["next_cycle_peak_sunspot"]
+    )
 
     date_cols = ["start_date", "peak_date", "end_date"]
     for col in date_cols:
         features[col] = pd.to_datetime(features[col]).dt.strftime("%Y-%m-%d")
 
-    integer_cols = ["cycle_no", "cycle_length_months", "rise_time_months", "decline_time_months"]
+    integer_cols = [
+        "cycle_no",
+        "cycle_length_months",
+        "rise_time_months",
+        "decline_time_months",
+    ]
     for col in integer_cols:
         features[col] = features[col].astype("Int64")
 
@@ -214,8 +252,14 @@ def main() -> None:
     PROCESSED_DIR.mkdir(parents=True, exist_ok=True)
     features.to_csv(OUTPUT_PATH, index=False, encoding="utf-8")
     print(f"saved {OUTPUT_PATH}")
-    print(f"rows={len(features)} cycles={features['cycle_no'].min()}..{features['cycle_no'].max()}")
-    print(features[["cycle_no", "start_date", "peak_date", "end_date", "is_complete"]].tail().to_string(index=False))
+    print(
+        f"rows={len(features)} cycles={features['cycle_no'].min()}..{features['cycle_no'].max()}"
+    )
+    print(
+        features[["cycle_no", "start_date", "peak_date", "end_date", "is_complete"]]
+        .tail()
+        .to_string(index=False)
+    )
 
 
 if __name__ == "__main__":

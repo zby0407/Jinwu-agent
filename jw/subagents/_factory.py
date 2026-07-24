@@ -72,7 +72,13 @@ def build_async_subagent_graph(name: str) -> Any:
         "tavily_search": tavily_search,
         "skill_manager": skill_manager,
     }
-    for _t in SOLAR_FEATURE_TOOLS + SCIENTIFIC_HYPOTHESIS_TOOLS + AUTOMATIC_EXPERIMENT_TOOLS + RESEARCH_PLANNER_TOOLS + KB_TOOLS:
+    for _t in (
+        SOLAR_FEATURE_TOOLS
+        + SCIENTIFIC_HYPOTHESIS_TOOLS
+        + AUTOMATIC_EXPERIMENT_TOOLS
+        + RESEARCH_PLANNER_TOOLS
+        + KB_TOOLS
+    ):
         tool_registry[_t.name] = _t
 
     # Use the official loader so resolved tools, prompt_refs, and skills are

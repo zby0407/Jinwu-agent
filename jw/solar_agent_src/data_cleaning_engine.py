@@ -24,8 +24,14 @@ COLUMN_SEMANTIC_PATTERNS: dict[str, list[str]] = {
     "date": ["date", "date_month", "datetime", "timestamp", "time"],
     "f107": ["f107", "f107_adj", "f107_obs", "f107_monthly", "f107_daily"],
     "hemisphere": [
-        "hemisphere", "hemispheric", "north_sunspot", "south_sunspot",
-        "north_sn", "south_sn", "north_sunspot_number", "south_sunspot_number",
+        "hemisphere",
+        "hemispheric",
+        "north_sunspot",
+        "south_sunspot",
+        "north_sn",
+        "south_sn",
+        "north_sunspot_number",
+        "south_sunspot_number",
     ],
     "sunspot": ["sunspot", "sn", "spot_number", "silso", "sunspot_number"],
     "polar": ["polar", "polar_north", "polar_south", "polar_mean", "polar_field"],
@@ -81,9 +87,13 @@ def _load_user_coverage_rules() -> dict[str, dict[str, str]]:
         return {}
 
 
-def get_coverage_rules(session_overrides: dict[str, dict[str, str]] | None = None) -> dict[str, dict[str, str]]:
+def get_coverage_rules(
+    session_overrides: dict[str, dict[str, str]] | None = None,
+) -> dict[str, dict[str, str]]:
     """Return merged coverage rules: defaults < user file < session overrides."""
-    rules: dict[str, dict[str, str]] = {k: dict(v) for k, v in DEFAULT_SOLAR_COVERAGE.items()}
+    rules: dict[str, dict[str, str]] = {
+        k: dict(v) for k, v in DEFAULT_SOLAR_COVERAGE.items()
+    }
     user_rules = _load_user_coverage_rules()
     for key, values in user_rules.items():
         rules.setdefault(key, {}).update(values)
@@ -93,7 +103,9 @@ def get_coverage_rules(session_overrides: dict[str, dict[str, str]] | None = Non
     return rules
 
 
-def _detect_date_column(df: pd.DataFrame, semantics: dict[str, list[str]]) -> str | None:
+def _detect_date_column(
+    df: pd.DataFrame, semantics: dict[str, list[str]]
+) -> str | None:
     for col in semantics.get("date", []):
         if col in df.columns:
             return col
@@ -130,15 +142,17 @@ def _check_coverage(
         mask = dates.notna() & (dates < start)
         count = int(mask.sum())
         if count > 0:
-            findings.append({
-                "type": f"before_{key}_coverage",
-                "severity": "warning",
-                "columns": cols,
-                "affected_rows": count,
-                "message": f"{count} rows have {key} columns before {start_str} ({key} coverage start)",
-                "suggested_action": "flag_only",
-                "physical_reason": f"{key} data is not available before {start_str}",
-            })
+            findings.append(
+                {
+                    "type": f"before_{key}_coverage",
+                    "severity": "warning",
+                    "columns": cols,
+                    "affected_rows": count,
+                    "message": f"{count} rows have {key} columns before {start_str} ({key} coverage start)",
+                    "suggested_action": "flag_only",
+                    "physical_reason": f"{key} data is not available before {start_str}",
+                }
+            )
 
     def _outside_range(cols: list[str], key: str, start_str: str, end_str: str) -> None:
         if not cols or not start_str or not end_str:
@@ -148,15 +162,17 @@ def _check_coverage(
         mask = dates.notna() & ((dates < start) | (dates > end))
         count = int(mask.sum())
         if count > 0:
-            findings.append({
-                "type": f"outside_{key}_coverage",
-                "severity": "warning",
-                "columns": cols,
-                "affected_rows": count,
-                "message": f"{count} rows have {key} columns outside {start_str} ~ {end_str}",
-                "suggested_action": "flag_only",
-                "physical_reason": f"{key} coverage is limited to {start_str} ~ {end_str}",
-            })
+            findings.append(
+                {
+                    "type": f"outside_{key}_coverage",
+                    "severity": "warning",
+                    "columns": cols,
+                    "affected_rows": count,
+                    "message": f"{count} rows have {key} columns outside {start_str} ~ {end_str}",
+                    "suggested_action": "flag_only",
+                    "physical_reason": f"{key} coverage is limited to {start_str} ~ {end_str}",
+                }
+            )
 
     def _external_calibrated_period(cols: list[str]) -> None:
         if not cols:
@@ -166,15 +182,17 @@ def _check_coverage(
         mask = dates.notna() & (dates >= start) & (dates <= end)
         count = int(mask.sum())
         if count > 0:
-            findings.append({
-                "type": "hemisphere_external_calibrated_period",
-                "severity": "info",
-                "columns": cols,
-                "affected_rows": count,
-                "message": f"{count} rows fall in 1940-1991 hemisphere external-calibrated-observation period",
-                "suggested_action": "label_source_type",
-                "physical_reason": "Pre-1992 hemispheric data are RGO/NOAA external calibrated observations, not official SILSO",
-            })
+            findings.append(
+                {
+                    "type": "hemisphere_external_calibrated_period",
+                    "severity": "info",
+                    "columns": cols,
+                    "affected_rows": count,
+                    "message": f"{count} rows fall in 1940-1991 hemisphere external-calibrated-observation period",
+                    "suggested_action": "label_source_type",
+                    "physical_reason": "Pre-1992 hemispheric data are RGO/NOAA external calibrated observations, not official SILSO",
+                }
+            )
 
     # F10.7
     f107_cols = semantics.get("f107", [])
@@ -201,39 +219,53 @@ def _check_coverage(
     return findings
 
 
-def _check_provisional(df: pd.DataFrame, semantics: dict[str, list[str]]) -> list[dict[str, Any]]:
+def _check_provisional(
+    df: pd.DataFrame, semantics: dict[str, list[str]]
+) -> list[dict[str, Any]]:
     findings: list[dict[str, Any]] = []
-    provisional_cols = [c for c in df.columns if "provisional" in _normalized(c) or "definitive" in _normalized(c)]
+    provisional_cols = [
+        c
+        for c in df.columns
+        if "provisional" in _normalized(c) or "definitive" in _normalized(c)
+    ]
     sunspot_cols = semantics.get("sunspot", [])
     if provisional_cols and sunspot_cols:
         # If there is a definitive/provisional flag column, check it
         for col in provisional_cols:
             if "definitive" in _normalized(col):
-                is_provisional = df[col].astype(str).str.lower().eq("0") | df[col].astype(str).str.lower().eq("false")
+                is_provisional = df[col].astype(str).str.lower().eq("0") | df[
+                    col
+                ].astype(str).str.lower().eq("false")
                 count = int(is_provisional.sum())
                 if count > 0:
-                    findings.append({
-                        "type": "provisional_sunspot_months",
-                        "severity": "info",
-                        "columns": sunspot_cols,
-                        "affected_rows": count,
-                        "message": f"{count} sunspot rows are marked provisional (definitive=0)",
-                        "suggested_action": "flag_provisional",
-                        "physical_reason": "Latest SILSO months are provisional and may be revised",
-                    })
+                    findings.append(
+                        {
+                            "type": "provisional_sunspot_months",
+                            "severity": "info",
+                            "columns": sunspot_cols,
+                            "affected_rows": count,
+                            "message": f"{count} sunspot rows are marked provisional (definitive=0)",
+                            "suggested_action": "flag_provisional",
+                            "physical_reason": "Latest SILSO months are provisional and may be revised",
+                        }
+                    )
             elif "provisional" in _normalized(col):
-                is_provisional = df[col].astype(str).str.lower().eq("true") | df[col].astype(str).str.lower().eq("1")
+                is_provisional = df[col].astype(str).str.lower().eq("true") | df[
+                    col
+                ].astype(str).str.lower().eq("1")
                 count = int(is_provisional.sum())
                 if count > 0:
-                    findings.append({
-                        "type": "provisional_sunspot_months",
-                        "severity": "info",
-                        "columns": sunspot_cols,
-                        "affected_rows": count,
-                        "message": f"{count} sunspot rows are marked provisional",
-                        "suggested_action": "flag_provisional",
-                        "physical_reason": "Latest SILSO months are provisional and may be revised",
-                    })
+                    findings.append(
+                        {
+                            "type": "provisional_sunspot_months",
+                            "severity": "info",
+                            "columns": sunspot_cols,
+                            "affected_rows": count,
+                            "message": f"{count} sunspot rows are marked provisional",
+                            "suggested_action": "flag_provisional",
+                            "physical_reason": "Latest SILSO months are provisional and may be revised",
+                        }
+                    )
     return findings
 
 
@@ -241,15 +273,17 @@ def _check_label_leakage(semantics: dict[str, list[str]]) -> list[dict[str, Any]
     findings: list[dict[str, Any]] = []
     label_cols = semantics.get("cycle_label", [])
     if label_cols:
-        findings.append({
-            "type": "label_leakage_risk",
-            "severity": "critical",
-            "columns": label_cols,
-            "affected_rows": None,
-            "message": f"Label columns detected: {', '.join(label_cols)}. These are supervised targets and must not be used as model inputs.",
-            "suggested_action": "exclude_from_input_features",
-            "physical_reason": "Using future-cycle labels as inputs creates target leakage",
-        })
+        findings.append(
+            {
+                "type": "label_leakage_risk",
+                "severity": "critical",
+                "columns": label_cols,
+                "affected_rows": None,
+                "message": f"Label columns detected: {', '.join(label_cols)}. These are supervised targets and must not be used as model inputs.",
+                "suggested_action": "exclude_from_input_features",
+                "physical_reason": "Using future-cycle labels as inputs creates target leakage",
+            }
+        )
     return findings
 
 
@@ -267,34 +301,40 @@ def _check_logical_dates(df: pd.DataFrame) -> list[dict[str, Any]]:
         end = pd.to_datetime(df[end_col], errors="coerce")
         invalid = (start.notna() & end.notna() & (end < start)).sum()
         if invalid > 0:
-            findings.append({
-                "type": "logical_constraint_violation",
-                "severity": "critical",
-                "columns": [start_col, end_col],
-                "affected_rows": int(invalid),
-                "message": f"{invalid} rows have {description} ({end_col} < {start_col})",
-                "suggested_action": "verify_date_columns",
-                "physical_reason": "Solar cycle dates must satisfy start <= peak <= end",
-            })
+            findings.append(
+                {
+                    "type": "logical_constraint_violation",
+                    "severity": "critical",
+                    "columns": [start_col, end_col],
+                    "affected_rows": int(invalid),
+                    "message": f"{invalid} rows have {description} ({end_col} < {start_col})",
+                    "suggested_action": "verify_date_columns",
+                    "physical_reason": "Solar cycle dates must satisfy start <= peak <= end",
+                }
+            )
     return findings
 
 
-def _check_illegal_dates(df: pd.DataFrame, date_col: str | None) -> list[dict[str, Any]]:
+def _check_illegal_dates(
+    df: pd.DataFrame, date_col: str | None
+) -> list[dict[str, Any]]:
     findings: list[dict[str, Any]] = []
     if not date_col:
         return findings
     parsed = pd.to_datetime(df[date_col], errors="coerce")
     illegal = int(parsed.isna().sum() - df[date_col].isna().sum())
     if illegal > 0:
-        findings.append({
-            "type": "illegal_dates",
-            "severity": "warning",
-            "columns": [date_col],
-            "affected_rows": illegal,
-            "message": f"{illegal} values in '{date_col}' could not be parsed as dates",
-            "suggested_action": "parse_or_exclude_invalid_dates",
-            "physical_reason": "Date parsing errors prevent time-based analysis",
-        })
+        findings.append(
+            {
+                "type": "illegal_dates",
+                "severity": "warning",
+                "columns": [date_col],
+                "affected_rows": illegal,
+                "message": f"{illegal} values in '{date_col}' could not be parsed as dates",
+                "suggested_action": "parse_or_exclude_invalid_dates",
+                "physical_reason": "Date parsing errors prevent time-based analysis",
+            }
+        )
     return findings
 
 
@@ -310,15 +350,17 @@ def _check_infinite_values(df: pd.DataFrame) -> list[dict[str, Any]]:
             inf_cols.append(col)
             total += count
     if total > 0:
-        findings.append({
-            "type": "infinite_values",
-            "severity": "warning",
-            "columns": inf_cols,
-            "affected_rows": total,
-            "message": f"{total} infinite values found in columns {inf_cols}",
-            "suggested_action": "replace_inf_with_nan",
-            "physical_reason": "Infinite values are computational artifacts, not physical measurements",
-        })
+        findings.append(
+            {
+                "type": "infinite_values",
+                "severity": "warning",
+                "columns": inf_cols,
+                "affected_rows": total,
+                "message": f"{total} infinite values found in columns {inf_cols}",
+                "suggested_action": "replace_inf_with_nan",
+                "physical_reason": "Infinite values are computational artifacts, not physical measurements",
+            }
+        )
     return findings
 
 
@@ -326,28 +368,32 @@ def _check_duplicates(df: pd.DataFrame, date_col: str | None) -> list[dict[str, 
     findings: list[dict[str, Any]] = []
     dup_rows = int(df.duplicated().sum())
     if dup_rows > 0:
-        findings.append({
-            "type": "duplicate_rows",
-            "severity": "warning",
-            "columns": list(df.columns),
-            "affected_rows": dup_rows,
-            "message": f"{dup_rows} exact duplicate rows found",
-            "suggested_action": "remove_exact_duplicates",
-            "physical_reason": "Duplicate rows are redundant and can distort aggregation",
-        })
+        findings.append(
+            {
+                "type": "duplicate_rows",
+                "severity": "warning",
+                "columns": list(df.columns),
+                "affected_rows": dup_rows,
+                "message": f"{dup_rows} exact duplicate rows found",
+                "suggested_action": "remove_exact_duplicates",
+                "physical_reason": "Duplicate rows are redundant and can distort aggregation",
+            }
+        )
     if date_col:
         dates = pd.to_datetime(df[date_col], errors="coerce")
         dup_ts = int(dates.duplicated().sum())
         if dup_ts > 0:
-            findings.append({
-                "type": "duplicate_timestamp",
-                "severity": "warning",
-                "columns": [date_col],
-                "affected_rows": dup_ts,
-                "message": f"{dup_ts} duplicate timestamps found in '{date_col}'",
-                "suggested_action": "aggregate_or_keep_latest",
-                "physical_reason": "Duplicate timestamps can create bias in time-series analysis",
-            })
+            findings.append(
+                {
+                    "type": "duplicate_timestamp",
+                    "severity": "warning",
+                    "columns": [date_col],
+                    "affected_rows": dup_ts,
+                    "message": f"{dup_ts} duplicate timestamps found in '{date_col}'",
+                    "suggested_action": "aggregate_or_keep_latest",
+                    "physical_reason": "Duplicate timestamps can create bias in time-series analysis",
+                }
+            )
     return findings
 
 
@@ -358,27 +404,33 @@ def _check_constant_columns(df: pd.DataFrame) -> list[dict[str, Any]]:
         if non_null.empty:
             continue
         if non_null.nunique() == 1:
-            findings.append({
-                "type": "constant_column",
-                "severity": "info",
-                "columns": [col],
-                "affected_rows": int(len(df)),
-                "message": f"Column '{col}' is constant",
-                "suggested_action": "review_for_metadata",
-                "physical_reason": "Constant columns provide no information but may be metadata flags",
-            })
+            findings.append(
+                {
+                    "type": "constant_column",
+                    "severity": "info",
+                    "columns": [col],
+                    "affected_rows": int(len(df)),
+                    "message": f"Column '{col}' is constant",
+                    "suggested_action": "review_for_metadata",
+                    "physical_reason": "Constant columns provide no information but may be metadata flags",
+                }
+            )
     return findings
 
 
-def _propose_safe_actions(df: pd.DataFrame, findings: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def _propose_safe_actions(
+    df: pd.DataFrame, findings: list[dict[str, Any]]
+) -> list[dict[str, Any]]:
     actions: list[dict[str, Any]] = []
     dup_rows = int(df.duplicated().sum())
-    actions.append({
-        "action": "remove_exact_duplicates",
-        "applies": dup_rows > 0,
-        "affected_rows": dup_rows,
-        "description": "Drop exact duplicate rows",
-    })
+    actions.append(
+        {
+            "action": "remove_exact_duplicates",
+            "applies": dup_rows > 0,
+            "affected_rows": dup_rows,
+            "description": "Drop exact duplicate rows",
+        }
+    )
 
     inf_total = 0
     inf_cols = []
@@ -388,21 +440,29 @@ def _propose_safe_actions(df: pd.DataFrame, findings: list[dict[str, Any]]) -> l
             if count > 0:
                 inf_total += count
                 inf_cols.append(col)
-    actions.append({
-        "action": "replace_inf_with_nan",
-        "applies": inf_total > 0,
-        "affected_cells": inf_total,
-        "columns": inf_cols,
-        "description": "Replace infinite values with NaN",
-    })
+    actions.append(
+        {
+            "action": "replace_inf_with_nan",
+            "applies": inf_total > 0,
+            "affected_cells": inf_total,
+            "columns": inf_cols,
+            "description": "Replace infinite values with NaN",
+        }
+    )
 
-    constant_cols = [c for c in df.columns if df[c].dropna().nunique() == 1 and not df[c].dropna().empty]
-    actions.append({
-        "action": "review_constant_columns",
-        "applies": len(constant_cols) > 0,
-        "affected_columns": constant_cols,
-        "description": "Review constant columns for metadata usefulness",
-    })
+    constant_cols = [
+        c
+        for c in df.columns
+        if df[c].dropna().nunique() == 1 and not df[c].dropna().empty
+    ]
+    actions.append(
+        {
+            "action": "review_constant_columns",
+            "applies": len(constant_cols) > 0,
+            "affected_columns": constant_cols,
+            "description": "Review constant columns for metadata usefulness",
+        }
+    )
 
     return actions
 
@@ -450,12 +510,16 @@ def generate_report(
 
     severity_counts = {"critical": 0, "warning": 0, "info": 0}
     for finding in findings:
-        severity_counts[finding["severity"]] = severity_counts.get(finding["severity"], 0) + 1
+        severity_counts[finding["severity"]] = (
+            severity_counts.get(finding["severity"], 0) + 1
+        )
 
     return {
         "status": "ok",
         "safe_actions_available": sum(1 for a in safe_actions if a["applies"]),
-        "domain_warnings": sum(1 for f in findings if f["severity"] in {"warning", "critical"}),
+        "domain_warnings": sum(
+            1 for f in findings if f["severity"] in {"warning", "critical"}
+        ),
         "do_not_alter_rules": len(do_not_alter),
         "findings": findings,
         "safe_actions": safe_actions,
@@ -477,7 +541,9 @@ def apply_cleaning(df: pd.DataFrame, report: dict[str, Any]) -> pd.DataFrame:
             cleaned = cleaned.drop_duplicates().reset_index(drop=True)
         elif name == "replace_inf_with_nan":
             for col in action.get("columns", []):
-                if col in cleaned.columns and pd.api.types.is_numeric_dtype(cleaned[col]):
+                if col in cleaned.columns and pd.api.types.is_numeric_dtype(
+                    cleaned[col]
+                ):
                     cleaned[col] = cleaned[col].replace([np.inf, -np.inf], np.nan)
         elif name == "review_constant_columns":
             # Do not drop; only report. Keeping the column preserves metadata.
@@ -524,11 +590,16 @@ def run(
             existing = {}
         existing["cleaning"] = report
         quality_report_path.parent.mkdir(parents=True, exist_ok=True)
-        quality_report_path.write_text(json.dumps(existing, ensure_ascii=False, indent=2), encoding="utf-8")
-        report["quality_report_path"] = str(quality_report_path.relative_to(ROOT)).replace("\\", "/")
+        quality_report_path.write_text(
+            json.dumps(existing, ensure_ascii=False, indent=2), encoding="utf-8"
+        )
+        report["quality_report_path"] = str(
+            quality_report_path.relative_to(ROOT)
+        ).replace("\\", "/")
         text_path = quality_report_path.with_suffix(".txt")
         text_path.write_text(
-            data_quality_report_text.render_data_quality_report_text(existing), encoding="utf-8"
+            data_quality_report_text.render_data_quality_report_text(existing),
+            encoding="utf-8",
         )
         report["text_path"] = str(text_path.relative_to(ROOT)).replace("\\", "/")
 
@@ -540,13 +611,20 @@ def run(
             save_dir.mkdir(parents=True, exist_ok=True)
             cleaned_path = save_dir / cleaned_filename
             cleaned.to_csv(cleaned_path, index=False, encoding="utf-8")
-            report["cleaned_file_path"] = str(cleaned_path.relative_to(ROOT)).replace("\\", "/")
-            report["applied_actions"] = [a["action"] for a in report.get("safe_actions", []) if a.get("applies")]
+            report["cleaned_file_path"] = str(cleaned_path.relative_to(ROOT)).replace(
+                "\\", "/"
+            )
+            report["applied_actions"] = [
+                a["action"] for a in report.get("safe_actions", []) if a.get("applies")
+            ]
 
             # Auto-load cleaned_v1.csv as the current dataset.
             from piagent_tools import load_dataset_for_chat
             from piagent_schemas import PiAgentRequest
 
-            load_dataset_for_chat(PiAgentRequest(task="load_dataset", upload_path=str(cleaned_path)), session)
+            load_dataset_for_chat(
+                PiAgentRequest(task="load_dataset", upload_path=str(cleaned_path)),
+                session,
+            )
 
     return report

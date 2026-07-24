@@ -73,7 +73,9 @@ def file_record(path: Path, category: str) -> dict[str, Any]:
         "path": rel,
         "category": category,
         "bytes": path.stat().st_size,
-        "modified_utc": datetime.fromtimestamp(path.stat().st_mtime, tz=timezone.utc).isoformat(),
+        "modified_utc": datetime.fromtimestamp(
+            path.stat().st_mtime, tz=timezone.utc
+        ).isoformat(),
         "sha256": sha256_path(path),
     }
     if path.suffix.lower() == ".csv":
@@ -82,7 +84,9 @@ def file_record(path: Path, category: str) -> dict[str, Any]:
     if script:
         script_path = ROOT / script
         record["generated_by_script"] = script
-        record["generated_by_script_sha256"] = sha256_path(script_path) if script_path.exists() else None
+        record["generated_by_script_sha256"] = (
+            sha256_path(script_path) if script_path.exists() else None
+        )
     return record
 
 
@@ -110,7 +114,9 @@ def main() -> None:
         "root": str(ROOT),
         "files": collect_files(),
     }
-    OUTPUT_PATH.write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
+    OUTPUT_PATH.write_text(
+        json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
     print(f"saved {OUTPUT_PATH}")
     print(f"files={len(manifest['files'])}")
 

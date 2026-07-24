@@ -15,6 +15,7 @@ SILSO_URL = "https://www.sidc.be/silso/DATA/SN_m_tot_V2.0.csv"
 # The pipeline treats F10.7 as optional; we keep the URL for environments that can reach it.
 F10_URL = "https://www.ngdc.noaa.gov/stp/space-weather/solar-data/solar-indices/flux/f10-7-cm-flux/lists/listf10_7a.txt"
 
+
 def _skill_dir() -> Path:
     """Directory containing this script and the bundled sample data."""
     return Path(__file__).resolve().parent.parent
@@ -103,7 +104,9 @@ def main() -> None:
     if download(F10_URL, f10_dest):
         print(f"Downloaded F10.7 -> {f10_dest}")
     else:
-        print("F10.7 not fetched (network/SSL issue); sunspot-only features will still work")
+        print(
+            "F10.7 not fetched (network/SSL issue); sunspot-only features will still work"
+        )
 
 
 if __name__ == "__main__":

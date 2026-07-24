@@ -74,6 +74,7 @@ def _resolve_subagent_dirs(
         pass
     return [SUBAGENTS_CONFIG]
 
+
 # =============================================================================
 # Lazy state — initialized on first use, not at import time
 # =============================================================================
@@ -534,9 +535,22 @@ def _build_base_kwargs(
         "tavily_search": tavily_search,
         "skill_manager": skill_manager,
     }
-    for _t in SOLAR_FEATURE_TOOLS + SCIENTIFIC_HYPOTHESIS_TOOLS + AUTOMATIC_EXPERIMENT_TOOLS + RESEARCH_PLANNER_TOOLS + KB_TOOLS:
+    for _t in (
+        SOLAR_FEATURE_TOOLS
+        + SCIENTIFIC_HYPOTHESIS_TOOLS
+        + AUTOMATIC_EXPERIMENT_TOOLS
+        + RESEARCH_PLANNER_TOOLS
+        + KB_TOOLS
+    ):
         tool_registry[_t.name] = _t
-    base_tools = [think_tool, skill_manager] + SOLAR_FEATURE_TOOLS + SCIENTIFIC_HYPOTHESIS_TOOLS + AUTOMATIC_EXPERIMENT_TOOLS + RESEARCH_PLANNER_TOOLS + KB_TOOLS
+    base_tools = (
+        [think_tool, skill_manager]
+        + SOLAR_FEATURE_TOOLS
+        + SCIENTIFIC_HYPOTHESIS_TOOLS
+        + AUTOMATIC_EXPERIMENT_TOOLS
+        + RESEARCH_PLANNER_TOOLS
+        + KB_TOOLS
+    )
 
     subs = load_subagents(
         _resolve_subagent_dirs(),
@@ -611,9 +625,22 @@ def load_mcp_and_build_kwargs(
         "tavily_search": tavily_search,
         "skill_manager": skill_manager,
     }
-    for _t in SOLAR_FEATURE_TOOLS + SCIENTIFIC_HYPOTHESIS_TOOLS + AUTOMATIC_EXPERIMENT_TOOLS + RESEARCH_PLANNER_TOOLS + KB_TOOLS:
+    for _t in (
+        SOLAR_FEATURE_TOOLS
+        + SCIENTIFIC_HYPOTHESIS_TOOLS
+        + AUTOMATIC_EXPERIMENT_TOOLS
+        + RESEARCH_PLANNER_TOOLS
+        + KB_TOOLS
+    ):
         tool_registry[_t.name] = _t
-    base_tools = [think_tool, skill_manager] + SOLAR_FEATURE_TOOLS + SCIENTIFIC_HYPOTHESIS_TOOLS + AUTOMATIC_EXPERIMENT_TOOLS + RESEARCH_PLANNER_TOOLS + KB_TOOLS
+    base_tools = (
+        [think_tool, skill_manager]
+        + SOLAR_FEATURE_TOOLS
+        + SCIENTIFIC_HYPOTHESIS_TOOLS
+        + AUTOMATIC_EXPERIMENT_TOOLS
+        + RESEARCH_PLANNER_TOOLS
+        + KB_TOOLS
+    )
 
     # Fresh tool registry — start from base tools + MCP tools
     registry = dict(tool_registry)
@@ -769,9 +796,7 @@ def _get_scoped_backend_factory():
     def _factory(runtime):
         config = getattr(runtime, "config", None)
         thread_id = scope_thread_id(config if isinstance(config, dict) else None)
-        binding = (
-            get_cached_binding(thread_id, base_workspace) if thread_id else None
-        )
+        binding = get_cached_binding(thread_id, base_workspace) if thread_id else None
         if thread_id and binding is None:
             raise RuntimeError(
                 "Task workspace binding was not initialized before backend "
@@ -897,11 +922,7 @@ def _get_default_middleware(
         TaskWorkspaceMiddleware(workspace_dir),
         *([TaskCancellationMiddleware()] if for_async_subagent else []),
         VirtualPathCodeGuardMiddleware(),
-        *(
-            [ClosedLoopOrchestrationGuardMiddleware()]
-            if not for_async_subagent
-            else []
-        ),
+        *([ClosedLoopOrchestrationGuardMiddleware()] if not for_async_subagent else []),
         ConfigurableModelMiddleware(),
         create_context_editing_middleware(model),
         ModelFallbackMiddleware(),

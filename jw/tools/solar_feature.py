@@ -30,6 +30,7 @@ if str(_SOLAR_AGENT_SRC) not in sys.path:
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _to_json(data: dict) -> str:
     """Serialize a result dict to a JSON string, tolerating non-standard types."""
     return json.dumps(data, ensure_ascii=False, default=str)
@@ -37,17 +38,20 @@ def _to_json(data: dict) -> str:
 
 def _error_json(tool_name: str, exc: Exception) -> str:
     """Build a JSON error envelope so the agent can parse failures uniformly."""
-    return _to_json({
-        "status": "error",
-        "tool": tool_name,
-        "error_type": type(exc).__name__,
-        "error_message": str(exc),
-    })
+    return _to_json(
+        {
+            "status": "error",
+            "tool": tool_name,
+            "error_type": type(exc).__name__,
+            "error_message": str(exc),
+        }
+    )
 
 
 # ---------------------------------------------------------------------------
 # Tools
 # ---------------------------------------------------------------------------
+
 
 @tool(parse_docstring=True)
 def audit_solar_data_quality(csv_path: str) -> str:
@@ -197,8 +201,7 @@ def dataset_statistics(csv_path: str, columns: str = "") -> str:
         if columns.strip():
             col_names = {c.strip() for c in columns.split(",") if c.strip()}
             result["columns"] = [
-                c for c in result.get("columns", [])
-                if c.get("column") in col_names
+                c for c in result.get("columns", []) if c.get("column") in col_names
             ]
 
         return _to_json(result)

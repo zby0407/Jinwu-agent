@@ -16,8 +16,6 @@ if str(SRC) not in sys.path:
 
 from scientific_hypothesis.contracts import (  # noqa: E402
     ContractError,
-    REQUEST_VERSION,
-    validate_hypothesis_request,
     validate_hypothesis_response,
 )
 from scientific_hypothesis.harness import (  # noqa: E402

@@ -9,12 +9,33 @@ from piagent_schemas import PiAgentRequest
 
 
 STAT_KEYWORDS: dict[str, set[str]] = {
-    "describe": {"描述", "describe", "概况", "summary", "概览", "info", "什么样", "如何"},
+    "describe": {
+        "描述",
+        "describe",
+        "概况",
+        "summary",
+        "概览",
+        "info",
+        "什么样",
+        "如何",
+    },
     "head": {"head", "前", "开头", "preview", "前几行"},
     "tail": {"tail", "后", "结尾", "最后", "后几行"},
     "column_stats": {
-        "均值", "平均", "mean", "中位数", "median", "标准差", "std", "统计", "stats",
-        "describe column", "分布", "最大值", "最小值", "极值",
+        "均值",
+        "平均",
+        "mean",
+        "中位数",
+        "median",
+        "标准差",
+        "std",
+        "统计",
+        "stats",
+        "describe column",
+        "分布",
+        "最大值",
+        "最小值",
+        "极值",
     },
     "corr": {"相关", "correlation", "corr", "关系", "关联", "相关系数"},
     "drift": {"漂移", "drift", "稳定性", "跨周期", "跨时间", "随时间变化"},
@@ -25,12 +46,17 @@ STAT_KEYWORDS: dict[str, set[str]] = {
     "quality": {"质量", "quality", "检查", "问题", "缺失", "异常", "重复"},
     "clean": {"clean", "清洗", "清洗建议", "cleaning", "数据清洗"},
     "apply_cleaning": {"apply_cleaning", "执行清洗", "确认清洗"},
-    "generate_features": {"features", "generate_features", "特征", "生成特征", "特征工程"},
+    "generate_features": {
+        "features",
+        "generate_features",
+        "特征",
+        "生成特征",
+        "特征工程",
+    },
     "experiment_handoff": {"handoff", "experiment_handoff", "交接", "实验交接"},
     "strategy_recommendation": {"recommend", "strategy", "推荐", "策略", "实验设计"},
     "ask": {"为什么", "解释", "说明", "分析", "如何看待", "告诉我", "?", "？"},
 }
-
 
 
 INTENT_REQUIRES_COLUMNS: dict[str, tuple[int, str]] = {
@@ -52,7 +78,6 @@ INTENT_REQUIRES_COLUMNS: dict[str, tuple[int, str]] = {
     "strategy_recommendation": (0, "strategy_recommendation"),
     "ask": (0, "ask_agent"),
 }
-
 
 
 @dataclass
@@ -124,7 +149,9 @@ def _contains_any(text: str, keywords: set[str]) -> bool:
     return any(kw.lower() in lowered for kw in keywords)
 
 
-def _score_intent(user_input: str, df_columns: set[str]) -> tuple[str, list[str], float, str | None]:
+def _score_intent(
+    user_input: str, df_columns: set[str]
+) -> tuple[str, list[str], float, str | None]:
     """Return (intent, matched_columns, confidence, missing_param)."""
     columns = _extract_columns(user_input, df_columns)
     matched_cols = list(columns)
@@ -152,7 +179,12 @@ def _score_intent(user_input: str, df_columns: set[str]) -> tuple[str, list[str]
 
     required_cols, _ = INTENT_REQUIRES_COLUMNS[best_intent]
     if required_cols == 0:
-        return best_intent, matched_cols, min(0.99, base_score + 0.05 * len(matched_cols)), None
+        return (
+            best_intent,
+            matched_cols,
+            min(0.99, base_score + 0.05 * len(matched_cols)),
+            None,
+        )
 
     if len(matched_cols) >= required_cols:
         confidence = min(0.99, base_score + 0.1 * required_cols)
@@ -164,7 +196,9 @@ def _score_intent(user_input: str, df_columns: set[str]) -> tuple[str, list[str]
     return best_intent, matched_cols, confidence, "missing_columns"
 
 
-def _build_clarification_question(intent: str, columns: list[str], df_columns: list[str]) -> str:
+def _build_clarification_question(
+    intent: str, columns: list[str], df_columns: list[str]
+) -> str:
     if intent == "corr":
         if len(columns) == 0:
             return "你想计算哪两个字段的相关性？"
@@ -192,12 +226,20 @@ def _build_piagent_request(intent: str, columns: list[str]) -> PiAgentRequest:
     if intent == "tail":
         return PiAgentRequest(task="dataset_stats", action="tail")
     if intent == "column_stats":
-        return PiAgentRequest(task="dataset_stats", action="column_stats", column=columns[0] if columns else None)
+        return PiAgentRequest(
+            task="dataset_stats",
+            action="column_stats",
+            column=columns[0] if columns else None,
+        )
     if intent in {"corr", "drift"}:
         col_arg = " ".join(columns[:2]) if columns else ""
         return PiAgentRequest(task="dataset_stats", action=intent, column=col_arg)
     if intent == "value_counts":
-        return PiAgentRequest(task="dataset_stats", action="value_counts", column=columns[0] if columns else None)
+        return PiAgentRequest(
+            task="dataset_stats",
+            action="value_counts",
+            column=columns[0] if columns else None,
+        )
     if intent == "groupby":
         col_arg = f"{columns[0]} mean" if columns else ""
         return PiAgentRequest(task="dataset_stats", action="groupby", column=col_arg)
@@ -228,7 +270,11 @@ def _parse_slash_command(user_input: str) -> Intent:
     args = parts[1:] if len(parts) > 1 else []
 
     if command == "/help":
-        return Intent(intent="help", confidence=1.0, piagent_request=PiAgentRequest(task="chat", action="help"))
+        return Intent(
+            intent="help",
+            confidence=1.0,
+            piagent_request=PiAgentRequest(task="chat", action="help"),
+        )
 
     if command == "/load":
         if not args:
@@ -241,7 +287,9 @@ def _parse_slash_command(user_input: str) -> Intent:
         return Intent(
             intent="load_dataset",
             confidence=1.0,
-            piagent_request=PiAgentRequest(task="load_dataset", upload_path=" ".join(args)),
+            piagent_request=PiAgentRequest(
+                task="load_dataset", upload_path=" ".join(args)
+            ),
         )
 
     if command in {"/align", "/merge"}:
@@ -262,7 +310,11 @@ def _parse_slash_command(user_input: str) -> Intent:
         )
 
     if command == "/describe":
-        return Intent(intent="describe", confidence=1.0, piagent_request=PiAgentRequest(task="dataset_stats", action="describe"))
+        return Intent(
+            intent="describe",
+            confidence=1.0,
+            piagent_request=PiAgentRequest(task="dataset_stats", action="describe"),
+        )
 
     if command == "/head":
         return Intent(
@@ -288,7 +340,9 @@ def _parse_slash_command(user_input: str) -> Intent:
             columns=[args[0]] if args else [],
             confidence=1.0,
             piagent_request=PiAgentRequest(
-                task="dataset_stats", action="column_stats", column=args[0] if args else None
+                task="dataset_stats",
+                action="column_stats",
+                column=args[0] if args else None,
             ),
         )
 
@@ -565,7 +619,9 @@ def route_intent(user_input: str, session: ChatSession | None = None) -> Intent:
             columns=columns,
             confidence=confidence,
             missing_param=missing_param,
-            clarification_question=_build_clarification_question(intent, columns, df_column_list),
+            clarification_question=_build_clarification_question(
+                intent, columns, df_column_list
+            ),
         )
 
     if intent == "ask":

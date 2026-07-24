@@ -29,6 +29,7 @@ def _build_drift_report_from_dataframes(
 
     if "cycle_no" not in master.columns and "cycle_number" not in master.columns:
         from build_interim_monthly import add_cycle_columns, read_cycles
+
         cycles_meta = read_cycles()
         master = add_cycle_columns(master, cycles_meta)
     if "cycle_no" not in master.columns and "cycle_number" in master.columns:
@@ -92,7 +93,9 @@ def _build_drift_report_from_dataframes(
         pair = cycle_features[["next_cycle_peak_sunspot"]].copy()
         if "cycle_length_months" in cycle_features.columns:
             pair["prev_cycle_length_months"] = prev["cycle_length_months"]
-            pair = pair.dropna(subset=["prev_cycle_length_months", "next_cycle_peak_sunspot"])
+            pair = pair.dropna(
+                subset=["prev_cycle_length_months", "next_cycle_peak_sunspot"]
+            )
             if not pair.empty:
                 indicators.append(
                     _residual_drift_indicator(
@@ -109,7 +112,9 @@ def _build_drift_report_from_dataframes(
         if "peak_sunspot_number" in cycle_features.columns:
             pair2 = cycle_features[["next_cycle_peak_sunspot"]].copy()
             pair2["prev_peak_sunspot_number"] = prev["peak_sunspot_number"]
-            pair2 = pair2.dropna(subset=["prev_peak_sunspot_number", "next_cycle_peak_sunspot"])
+            pair2 = pair2.dropna(
+                subset=["prev_peak_sunspot_number", "next_cycle_peak_sunspot"]
+            )
             if not pair2.empty:
                 indicators.append(
                     _residual_drift_indicator(
@@ -125,11 +130,17 @@ def _build_drift_report_from_dataframes(
                 )
 
     # 4. Polar precursor vs next cycle peak
-    if polar_cols and not cycle_features.empty and "next_cycle_peak_sunspot" in cycle_features.columns:
+    if (
+        polar_cols
+        and not cycle_features.empty
+        and "next_cycle_peak_sunspot" in cycle_features.columns
+    ):
         for polar_col in polar_cols:
             precursor_col = f"{polar_col}_precursor_mean"
             if precursor_col in cycle_features.columns:
-                sub = cycle_features[["next_cycle_peak_sunspot", precursor_col]].dropna()
+                sub = cycle_features[
+                    ["next_cycle_peak_sunspot", precursor_col]
+                ].dropna()
                 if not sub.empty:
                     indicators.append(
                         _residual_drift_indicator(
@@ -145,7 +156,12 @@ def _build_drift_report_from_dataframes(
                     )
 
     # 5. Hemispheric asymmetry vs peak
-    if hemisphere_cols and sunspot_col and not cycle_features.empty and "peak_sunspot_number" in cycle_features.columns:
+    if (
+        hemisphere_cols
+        and sunspot_col
+        and not cycle_features.empty
+        and "peak_sunspot_number" in cycle_features.columns
+    ):
         for hem_col in hemisphere_cols:
             asym_col = f"{hem_col}_mean"
             if asym_col in cycle_features.columns:
@@ -169,20 +185,27 @@ def _build_drift_report_from_dataframes(
     significant_ids = [
         ind["id"]
         for ind in indicators
-        if any(c.get("drift_flag") == "significant_drift" for c in ind.get("cycles", []))
+        if any(
+            c.get("drift_flag") == "significant_drift" for c in ind.get("cycles", [])
+        )
     ]
     if "f107_sunspot_relation" in significant_ids:
         recommendations.append("降低依赖 F10.7 作为单一输入的模型置信度。")
     if "rise_slope_vs_peak" in significant_ids:
         recommendations.append("降低基于 Waldmeier 效应的峰值预测置信度。")
-    if any(i in significant_ids for i in ["previous_cycle_length_vs_next_peak", "previous_peak_vs_next_peak"]):
+    if any(
+        i in significant_ids
+        for i in ["previous_cycle_length_vs_next_peak", "previous_peak_vs_next_peak"]
+    ):
         recommendations.append("降低基于相邻周期记忆效应的预测置信度。")
     if any(i.startswith("polar_precursor_") for i in significant_ids):
         recommendations.append("降低基于极区前兆假设的预测置信度。")
     if any(i.startswith("hemispheric_asymmetry_") for i in significant_ids):
         recommendations.append("谨慎解释半球不对称与周期峰值的关系。")
     if not recommendations:
-        recommendations.append("当前上传数据未检测到显著漂移，但仍需关注数据覆盖和辅助代理局限。")
+        recommendations.append(
+            "当前上传数据未检测到显著漂移，但仍需关注数据覆盖和辅助代理局限。"
+        )
 
     return {
         "generated_utc": datetime.now(timezone.utc).isoformat(),
@@ -200,9 +223,13 @@ def run(
     window: int = 4,
 ) -> dict[str, Any]:
     """Build and save drift report for uploaded data."""
-    report = _build_drift_report_from_dataframes(master, cycle_features, semantic_map, window=window)
+    report = _build_drift_report_from_dataframes(
+        master, cycle_features, semantic_map, window=window
+    )
     if output_path is not None:
         output_path.parent.mkdir(parents=True, exist_ok=True)
-        output_path.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
+        output_path.write_text(
+            json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8"
+        )
         report["path"] = str(output_path.relative_to(ROOT)).replace("\\", "/")
     return report

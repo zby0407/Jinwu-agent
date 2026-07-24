@@ -47,7 +47,9 @@ class ChatSession:
 
     def save(self) -> None:
         self.session_path.parent.mkdir(parents=True, exist_ok=True)
-        self.session_path.write_text(json.dumps(self._data, ensure_ascii=False, indent=2), encoding="utf-8")
+        self.session_path.write_text(
+            json.dumps(self._data, ensure_ascii=False, indent=2), encoding="utf-8"
+        )
 
     @property
     def session_id(self) -> str:
@@ -85,7 +87,9 @@ class ChatSession:
     def get_uploaded_datasets(self) -> list[dict[str, Any]]:
         return list(self._data.get("uploaded_datasets", []))
 
-    def set_llm_recognition(self, stored_path: str, recognition: dict[str, Any]) -> None:
+    def set_llm_recognition(
+        self, stored_path: str, recognition: dict[str, Any]
+    ) -> None:
         self._data.setdefault("llm_recognitions", {})[stored_path] = recognition
         self.save()
 
@@ -168,7 +172,12 @@ class ChatSession:
         if len(parts) >= 3 and parts[0] == "data" and parts[1] == "uploads":
             return Path(parts[2]).stem
         # data/processed/uploads/<id>/source.csv -> <id>
-        if len(parts) >= 4 and parts[0] == "data" and parts[1] == "processed" and parts[2] == "uploads":
+        if (
+            len(parts) >= 4
+            and parts[0] == "data"
+            and parts[1] == "processed"
+            and parts[2] == "uploads"
+        ):
             return Path(parts[3]).stem
         # Project internal files or ad-hoc files: use the table name as dataset_id
         return Path(stored_path).stem
@@ -192,7 +201,14 @@ class ChatSession:
         dataset_id = self.get_dataset_id()
         if not dataset_id:
             return None
-        return ROOT / "data" / "processed" / "uploads" / dataset_id / "upload_feature_registry.json"
+        return (
+            ROOT
+            / "data"
+            / "processed"
+            / "uploads"
+            / dataset_id
+            / "upload_feature_registry.json"
+        )
 
     def get_dataset_id(self) -> str | None:
         inspection = self.get_inspection_summary()
@@ -214,11 +230,15 @@ class ChatSession:
                 pass
         return None
 
-    def save_upload_registry(self, registry: dict[str, Any], path: Path | None = None) -> None:
+    def save_upload_registry(
+        self, registry: dict[str, Any], path: Path | None = None
+    ) -> None:
         path = path or self.get_upload_registry_path()
         if path:
             path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_text(json.dumps(registry, ensure_ascii=False, indent=2), encoding="utf-8")
+            path.write_text(
+                json.dumps(registry, ensure_ascii=False, indent=2), encoding="utf-8"
+            )
 
     def get_history(self) -> list[dict[str, Any]]:
         return list(self._data.get("chat_history", []))
@@ -311,7 +331,10 @@ class ChatSession:
         self.save()
 
     def get_cleaning_coverage_overrides(self) -> dict[str, dict[str, str]]:
-        return {k: dict(v) for k, v in self._data.get("cleaning_coverage_overrides", {}).items()}
+        return {
+            k: dict(v)
+            for k, v in self._data.get("cleaning_coverage_overrides", {}).items()
+        }
 
     def set_cleaning_coverage_override(self, key: str, values: dict[str, str]) -> None:
         self._data.setdefault("cleaning_coverage_overrides", {})[key] = values

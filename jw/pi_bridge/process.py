@@ -40,7 +40,7 @@ class PiProcessManager:
     ) -> None:
         self.config = config
         self.workspace_dir = workspace_dir
-        self.pi_cli = pi_cli or self._find_pi_cli()
+        self.pi_cli = pi_cli
         self.session_dir = self._resolve_session_dir(session_dir, data_dir)
         self._tool_bridge = tool_bridge
         self._processes: dict[str, asyncio.subprocess.Process] = {}
@@ -57,6 +57,12 @@ class PiProcessManager:
         if not pi:
             raise RuntimeError("pi executable not found on PATH")
         return Path(pi).resolve()
+
+    def _resolve_pi_cli(self) -> Path:
+        """Resolve the pi executable only when a process is about to start."""
+        if self.pi_cli is None:
+            self.pi_cli = self._find_pi_cli()
+        return self.pi_cli
 
     def _resolve_session_dir(
         self, session_dir: Path | None, data_dir: Path | None
@@ -101,7 +107,7 @@ class PiProcessManager:
         provider, model = self._resolve_provider_and_model()
         cmd = [
             "node",
-            str(self.pi_cli),
+            str(self._resolve_pi_cli()),
             "--mode",
             "rpc",
             "--provider",
@@ -176,6 +182,7 @@ class PiProcessManager:
                     proc.returncode,
                 )
 
+            self._resolve_pi_cli()
             await self._maybe_evict_lru()
             self._ensure_idle_watcher()
             self.session_dir.mkdir(parents=True, exist_ok=True)

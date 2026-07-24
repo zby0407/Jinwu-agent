@@ -181,9 +181,7 @@ class AutoSkillsCommand(Command):
 
         title = "JWMemory AutoSkill Proposals"
         if status:
-            title = (
-                f"JWMemory AutoSkill Proposals {self._status_label(status).title()}"
-            )
+            title = f"JWMemory AutoSkill Proposals {self._status_label(status).title()}"
         table = Table(title=title, show_header=True)
         table.add_column("ID", style="cyan")
         table.add_column("Action", style="magenta")

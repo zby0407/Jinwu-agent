@@ -176,9 +176,7 @@ class TestResolveHitlApproval:
             mock_cfg = MagicMock()
             mock_cfg.auto_approve = True
             mock_cfg.shell_allow_list = ""
-            with patch(
-                "jw.config.settings.load_config", return_value=mock_cfg
-            ):
+            with patch("jw.config.settings.load_config", return_value=mock_cfg):
                 result = _resolve_hitl_approval(
                     {
                         "action_requests": [
@@ -200,9 +198,7 @@ class TestResolveHitlApproval:
             mock_cfg = MagicMock()
             mock_cfg.auto_approve = False
             mock_cfg.shell_allow_list = ""
-            with patch(
-                "jw.config.settings.load_config", return_value=mock_cfg
-            ):
+            with patch("jw.config.settings.load_config", return_value=mock_cfg):
                 result = _resolve_hitl_approval(
                     {
                         "action_requests": [
@@ -224,9 +220,7 @@ class TestResolveHitlApproval:
             mock_cfg = MagicMock()
             mock_cfg.auto_approve = False
             mock_cfg.shell_allow_list = "ls,cat,python"
-            with patch(
-                "jw.config.settings.load_config", return_value=mock_cfg
-            ):
+            with patch("jw.config.settings.load_config", return_value=mock_cfg):
                 result = _resolve_hitl_approval(
                     {
                         "action_requests": [
@@ -248,12 +242,8 @@ class TestResolveHitlApproval:
             mock_cfg = MagicMock()
             mock_cfg.auto_approve = False
             mock_cfg.shell_allow_list = "ls,cat"
-            with patch(
-                "jw.config.settings.load_config", return_value=mock_cfg
-            ):
-                with patch(
-                    "jw.stream.display._prompt_hitl_approval"
-                ) as mock_prompt:
+            with patch("jw.config.settings.load_config", return_value=mock_cfg):
+                with patch("jw.stream.display._prompt_hitl_approval") as mock_prompt:
                     mock_prompt.return_value = [{"type": "approve"}]
                     result = _resolve_hitl_approval(
                         {
@@ -278,12 +268,8 @@ class TestResolveHitlApproval:
             mock_cfg = MagicMock()
             mock_cfg.auto_approve = False
             mock_cfg.shell_allow_list = "ls,cat"
-            with patch(
-                "jw.config.settings.load_config", return_value=mock_cfg
-            ):
-                with patch(
-                    "jw.stream.display._prompt_hitl_approval"
-                ) as mock_prompt:
+            with patch("jw.config.settings.load_config", return_value=mock_cfg):
+                with patch("jw.stream.display._prompt_hitl_approval") as mock_prompt:
                     mock_prompt.return_value = [{"type": "approve"}]
                     result = _resolve_hitl_approval(
                         {
@@ -311,9 +297,7 @@ class TestResolveHitlApproval:
             mock_cfg = MagicMock()
             mock_cfg.auto_approve = False
             mock_cfg.shell_allow_list = "python"
-            with patch(
-                "jw.config.settings.load_config", return_value=mock_cfg
-            ):
+            with patch("jw.config.settings.load_config", return_value=mock_cfg):
                 result = _resolve_hitl_approval(
                     {
                         "action_requests": [
@@ -624,9 +608,7 @@ class TestResolveHitlApprovalWithPromptFn:
             mock_cfg.shell_allow_list = ""
             custom_decisions = [{"type": "approve"}]
             mock_fn = MagicMock(return_value=custom_decisions)
-            with patch(
-                "jw.config.settings.load_config", return_value=mock_cfg
-            ):
+            with patch("jw.config.settings.load_config", return_value=mock_cfg):
                 result = _resolve_hitl_approval(
                     {
                         "action_requests": [
@@ -650,9 +632,7 @@ class TestResolveHitlApprovalWithPromptFn:
             mock_cfg = MagicMock()
             mock_cfg.auto_approve = True
             mock_fn = MagicMock()
-            with patch(
-                "jw.config.settings.load_config", return_value=mock_cfg
-            ):
+            with patch("jw.config.settings.load_config", return_value=mock_cfg):
                 result = _resolve_hitl_approval(
                     {
                         "action_requests": [
@@ -677,9 +657,7 @@ class TestResolveHitlApprovalWithPromptFn:
             mock_cfg.auto_approve = False
             mock_cfg.shell_allow_list = ""
             mock_fn = MagicMock()
-            with patch(
-                "jw.config.settings.load_config", return_value=mock_cfg
-            ):
+            with patch("jw.config.settings.load_config", return_value=mock_cfg):
                 result = _resolve_hitl_approval(
                     {"action_requests": [{"name": "write_file", "args": {}}]},
                     prompt_fn=mock_fn,

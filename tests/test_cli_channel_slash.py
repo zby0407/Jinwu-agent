@@ -26,9 +26,7 @@ def dispatch_channel_slash_command(*args, **kwargs):
     return _dispatch_channel_slash_command(*args, **kwargs)
 
 
-def _make_msg(
-    content: str = "/jwskills core", msg_id: str = "msg-1"
-) -> ChannelMessage:
+def _make_msg(content: str = "/jwskills core", msg_id: str = "msg-1") -> ChannelMessage:
     return ChannelMessage(
         msg_id=msg_id,
         content=content,

@@ -59,7 +59,9 @@ def experiment_backtest(features: pd.DataFrame) -> dict:
         "description": "Leave-one-cycle-out Ridge regression on cycle morphology",
         "mae": float(mean_absolute_error(y_true, y_pred)),
         "rmse": float(np.sqrt(mean_squared_error(y_true, y_pred))),
-        "predictions": [{"true": t, "predicted": p} for t, p in zip(y_true, y_pred, strict=False)],
+        "predictions": [
+            {"true": t, "predicted": p} for t, p in zip(y_true, y_pred, strict=False)
+        ],
         "warnings": ["Small sample; confidence low"] if len(features) < 10 else [],
     }
 
@@ -89,7 +91,9 @@ def experiment_ablation(features: pd.DataFrame) -> dict:
         deltas[f] = {"rmse": rmse, "delta": float(rmse - base_rmse)}
 
     warnings = [
-        f"Model heavily depends on {f}" for f, d in deltas.items() if d["delta"] > base_rmse * 0.3
+        f"Model heavily depends on {f}"
+        for f, d in deltas.items()
+        if d["delta"] > base_rmse * 0.3
     ]
     return {
         "experiment": "ablation",
@@ -138,7 +142,9 @@ EXPERIMENTS = {
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Run solar-cycle diagnostic experiments")
+    parser = argparse.ArgumentParser(
+        description="Run solar-cycle diagnostic experiments"
+    )
     parser.add_argument("--features", required=True, help="Cycle features CSV")
     parser.add_argument("--output-dir", default="./artifacts", help="Output directory")
     parser.add_argument(

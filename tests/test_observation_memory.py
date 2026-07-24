@@ -1561,9 +1561,7 @@ def test_turn_compaction_hides_task_call_and_keeps_orchestrator_response():
             ],
         ),
         ToolMessage("raw subagent result body", tool_call_id="task-1"),
-        AIMessage(
-            "final orchestrator text with summarized finding", name="JW"
-        ),
+        AIMessage("final orchestrator text with summarized finding", name="JW"),
     ]
 
     compact = source_context._compact_turn_messages(
@@ -1814,9 +1812,7 @@ def test_memory_worker_run_payload_use_server_thread_id_and_source_metadata(
     configurable = kwargs["config"]["configurable"]
     assert configurable["thread_id"] == "worker-thread"
     assert {
-        key: value
-        for key, value in configurable.items()
-        if key.startswith("jwmemory_")
+        key: value for key, value in configurable.items() if key.startswith("jwmemory_")
     } == {
         "jwmemory_source_session_id": "thread-1",
         "jwmemory_source_agent": "writing-agent",
@@ -2270,9 +2266,7 @@ def test_structured_memory_worker_disables_thinking(monkeypatch, tmp_path):
 
     class FakeAgent:
         def with_config(self, config):
-            assert config == {
-                "recursion_limit": _factory.MEMORY_AGENT_RECURSION_LIMIT
-            }
+            assert config == {"recursion_limit": _factory.MEMORY_AGENT_RECURSION_LIMIT}
             return self
 
     captured = {}

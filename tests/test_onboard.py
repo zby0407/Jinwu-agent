@@ -474,16 +474,12 @@ class TestStepOAuthAuthMode:
         confirm_question.ask.return_value = True
 
         with (
-            patch(
-                "jw.ccproxy_manager.is_ccproxy_available", return_value=True
-            ),
+            patch("jw.ccproxy_manager.is_ccproxy_available", return_value=True),
             patch(
                 "jw.ccproxy_manager.check_ccproxy_auth",
                 return_value=(False, "not authenticated"),
             ) as mock_check_auth,
-            patch(
-                "jw.config.onboard.prompter.install_navigation_keys"
-            ) as mock_nav,
+            patch("jw.config.onboard.prompter.install_navigation_keys") as mock_nav,
             patch(
                 "jw.config.onboard.steps.questionary.select",
                 return_value=select_question,
@@ -492,9 +488,7 @@ class TestStepOAuthAuthMode:
                 "jw.config.onboard.steps.questionary.confirm",
                 return_value=confirm_question,
             ) as mock_confirm,
-            patch(
-                "jw.config.onboard.steps._prompt_ccproxy_port"
-            ) as mock_port,
+            patch("jw.config.onboard.steps._prompt_ccproxy_port") as mock_port,
             patch("jw.config.onboard.steps._run_ccproxy_login") as mock_login,
         ):
             result = getattr(onboard_steps, step_name)(config)
@@ -789,9 +783,7 @@ class TestSetupImessage:
 
         with (
             patch("jw.config.onboard.helpers.validate_imessage") as mock_val,
-            patch(
-                "jw.config.onboard.helpers._install_imsg", return_value=True
-            ),
+            patch("jw.config.onboard.helpers._install_imsg", return_value=True),
             patch("jw.config.onboard.helpers.questionary") as mock_q,
             patch("jw.config.onboard.helpers.console"),
         ):
@@ -917,9 +909,7 @@ class TestStepSkills:
         with (
             patch("jw.paths.GLOBAL_SKILLS_DIR", global_dir),
             patch("jw.paths.USER_SKILLS_DIR", empty_user),
-            patch(
-                "jw.config.onboard.steps._checkbox_ask", side_effect=_capture
-            ),
+            patch("jw.config.onboard.steps._checkbox_ask", side_effect=_capture),
             patch("jw.config.onboard.steps.console"),
             # _capture returns [] (empty selection), which would otherwise
             # reach the real _ensure_npx — see test_returns_empty_when_none_selected.
@@ -973,9 +963,7 @@ class TestStepSkills:
                 "jw.tools.skills_manager.resolve_remote_head",
                 return_value="bbb222",
             ),
-            patch(
-                "jw.config.onboard.steps._checkbox_ask", side_effect=_capture
-            ),
+            patch("jw.config.onboard.steps._checkbox_ask", side_effect=_capture),
             patch("jw.config.onboard.steps.console"),
             # _capture returns [] (empty selection), which would otherwise
             # reach the real _ensure_npx — see test_returns_empty_when_none_selected.
@@ -1020,9 +1008,7 @@ class TestStepSkills:
                 "jw.tools.skills_manager.resolve_remote_head",
                 return_value=None,
             ),
-            patch(
-                "jw.config.onboard.steps._checkbox_ask", side_effect=_capture
-            ),
+            patch("jw.config.onboard.steps._checkbox_ask", side_effect=_capture),
             patch("jw.config.onboard.steps.console"),
             # _capture returns [] (empty selection), which would otherwise
             # reach the real _ensure_npx — see test_returns_empty_when_none_selected.
@@ -1480,9 +1466,7 @@ class TestRunOnboard:
             patch("jw.config.onboard.wizard.console"),
             patch("jw.config.onboard.steps.console"),
             patch("jw.config.onboard.helpers.console"),
-            patch(
-                "jw.ccproxy_manager.is_ccproxy_available", return_value=True
-            ),
+            patch("jw.ccproxy_manager.is_ccproxy_available", return_value=True),
         ):
             mock_load.return_value = JWConfig(
                 provider="openai",
@@ -1526,9 +1510,7 @@ class TestRunOnboard:
             patch("jw.config.onboard.wizard.console"),
             patch("jw.config.onboard.steps.console"),
             patch("jw.config.onboard.helpers.console"),
-            patch(
-                "jw.ccproxy_manager.is_ccproxy_available", return_value=True
-            ),
+            patch("jw.ccproxy_manager.is_ccproxy_available", return_value=True),
             patch(
                 "jw.ccproxy_manager.check_ccproxy_auth",
                 return_value=(False, "not authenticated"),
@@ -1731,9 +1713,7 @@ class TestRunOnboard:
         )
 
         mock_q = MagicMock()
-        with patch(
-            "jw.config.settings.get_config_path", return_value=config_file
-        ):
+        with patch("jw.config.settings.get_config_path", return_value=config_file):
             save_config(existing)
             # Append a comment that ``save_config`` would strip on
             # re-serialization. The test then proves revert restored the
@@ -1875,9 +1855,7 @@ class TestRunOnboard:
             ),
             patch("jw.config.onboard.wizard.save_config"),
             patch("jw.config.onboard.wizard.console"),
-            patch(
-                "jw.config.onboard.validators.validate_tavily_key"
-            ) as mock_validate,
+            patch("jw.config.onboard.validators.validate_tavily_key") as mock_validate,
         ):
             mock_q.confirm.return_value.ask.side_effect = [True]  # Save? = Yes
             run_onboard(
@@ -2253,9 +2231,7 @@ class TestStepTinytex:
                     "tlmgr": True,
                 },
             ),
-            patch(
-                "jw.config.onboard.steps._print_latex_status"
-            ) as mock_status,
+            patch("jw.config.onboard.steps._print_latex_status") as mock_status,
             patch("jw.config.onboard.steps.console"),
         ):
             mock_q.select.return_value.ask.return_value = True
@@ -2277,9 +2253,7 @@ class TestStepTinytex:
                 },
             ),
             patch("jw.config.onboard.steps._print_latex_status"),
-            patch(
-                "jw.config.onboard.steps._auto_install_latexmk"
-            ) as mock_auto,
+            patch("jw.config.onboard.steps._auto_install_latexmk") as mock_auto,
             patch("jw.config.onboard.steps.console"),
         ):
             mock_q.select.return_value.ask.return_value = True

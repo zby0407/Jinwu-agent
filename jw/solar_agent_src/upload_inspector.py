@@ -104,9 +104,16 @@ def _parse_time_series(series: pd.Series, name: str) -> tuple[pd.Series, str | N
                     parsed_non_null = pd.to_datetime(text, format="%Y", errors="coerce")
                     temporal_kind = "year"
                 else:
-                    parsed_non_null = pd.Series(pd.NaT, index=text.index, dtype="datetime64[ns]")
-            elif text.str.fullmatch(r"\d{4}:\d{2}:\d{2}_\d{2}h:\d{2}m:\d{2}s").mean() >= 0.9:
-                parsed_non_null = pd.to_datetime(text, format="%Y:%m:%d_%Hh:%Mm:%Ss", errors="coerce")
+                    parsed_non_null = pd.Series(
+                        pd.NaT, index=text.index, dtype="datetime64[ns]"
+                    )
+            elif (
+                text.str.fullmatch(r"\d{4}:\d{2}:\d{2}_\d{2}h:\d{2}m:\d{2}s").mean()
+                >= 0.9
+            ):
+                parsed_non_null = pd.to_datetime(
+                    text, format="%Y:%m:%d_%Hh:%Mm:%Ss", errors="coerce"
+                )
                 temporal_kind = "datetime"
             elif text.str.fullmatch(r"\d{6}").mean() >= 0.9:
                 parsed_non_null = pd.to_datetime(text, format="%Y%m", errors="coerce")
@@ -118,7 +125,11 @@ def _parse_time_series(series: pd.Series, name: str) -> tuple[pd.Series, str | N
                 return pd.Series(pd.NaT, index=series.index), None
             else:
                 parsed_non_null = pd.to_datetime(text, errors="coerce")
-                temporal_kind = "datetime" if text.str.contains(r"\d:\d", regex=True).any() else "date"
+                temporal_kind = (
+                    "datetime"
+                    if text.str.contains(r"\d:\d", regex=True).any()
+                    else "date"
+                )
     except (ValueError, AssertionError, TypeError):
         parsed_non_null = pd.Series(pd.NaT, index=text.index, dtype="datetime64[ns]")
 
@@ -175,7 +186,10 @@ def _infer_field(series: pd.Series, name: str) -> dict[str, Any]:
         inferred_type = "number"
     else:
         lowered = non_null.astype(str).str.strip().str.lower()
-        if len(lowered) and lowered.isin({"true", "false", "yes", "no", "0", "1"}).mean() >= 0.95:
+        if (
+            len(lowered)
+            and lowered.isin({"true", "false", "yes", "no", "0", "1"}).mean() >= 0.95
+        ):
             inferred_type = "boolean"
         else:
             parsed, _ = _parse_time_series(series, name)
@@ -198,10 +212,14 @@ def _infer_field(series: pd.Series, name: str) -> dict[str, Any]:
 def _find_year_month_composite(frame: pd.DataFrame) -> dict[str, Any] | None:
     normalized = {column: _normalized_name(column) for column in frame.columns}
     year_columns = [
-        column for column, name in normalized.items() if name in {"year", "yyyy", "yr", "年", "年份"}
+        column
+        for column, name in normalized.items()
+        if name in {"year", "yyyy", "yr", "年", "年份"}
     ]
     month_columns = [
-        column for column, name in normalized.items() if name in {"month", "mm", "mon", "月", "月份"}
+        column
+        for column, name in normalized.items()
+        if name in {"month", "mm", "mon", "月", "月份"}
     ]
     best: dict[str, Any] | None = None
     for year_column in year_columns:
@@ -217,7 +235,11 @@ def _find_year_month_composite(frame: pd.DataFrame) -> dict[str, Any] | None:
             if ratio < 0.8:
                 continue
             dates = pd.to_datetime(
-                {"year": year[valid_values].astype(int), "month": month[valid_values].astype(int), "day": 1},
+                {
+                    "year": year[valid_values].astype(int),
+                    "month": month[valid_values].astype(int),
+                    "day": 1,
+                },
                 errors="coerce",
             )
             candidate = {
@@ -236,13 +258,19 @@ def _find_year_month_composite(frame: pd.DataFrame) -> dict[str, Any] | None:
 def inspect_csv(path: Path, max_rows: int | None = None) -> dict[str, Any]:
     encoding = _detect_encoding(path)
     delimiter = _detect_delimiter(path, encoding)
-    frame = pd.read_csv(path, encoding=encoding, sep=delimiter, nrows=max_rows, low_memory=False)
+    frame = pd.read_csv(
+        path, encoding=encoding, sep=delimiter, nrows=max_rows, low_memory=False
+    )
     if not len(frame.columns):
         raise ValueError("CSV has no columns")
     frame.columns = [str(column).strip() for column in frame.columns]
     if pd.Index(frame.columns).duplicated().any():
-        duplicates = pd.Index(frame.columns)[pd.Index(frame.columns).duplicated()].tolist()
-        raise ValueError(f"CSV contains duplicate column names after trimming: {duplicates}")
+        duplicates = pd.Index(frame.columns)[
+            pd.Index(frame.columns).duplicated()
+        ].tolist()
+        raise ValueError(
+            f"CSV contains duplicate column names after trimming: {duplicates}"
+        )
     fields = [_infer_field(frame[column], column) for column in frame.columns]
     candidates = [
         candidate
@@ -251,7 +279,11 @@ def inspect_csv(path: Path, max_rows: int | None = None) -> dict[str, Any]:
     ]
     candidates.sort(key=lambda item: item["score"], reverse=True)
     composite = _find_year_month_composite(frame)
-    primary = candidates[0]["column"] if candidates and candidates[0]["score"] >= 0.75 else None
+    primary = (
+        candidates[0]["column"]
+        if candidates and candidates[0]["score"] >= 0.75
+        else None
+    )
     primary_columns = [primary] if primary else []
     if composite and (not candidates or composite["score"] >= candidates[0]["score"]):
         primary = None
@@ -260,7 +292,9 @@ def inspect_csv(path: Path, max_rows: int | None = None) -> dict[str, Any]:
     if not primary_columns:
         warnings.append("No high-confidence primary time column was detected.")
     if len(candidates) > 1 and candidates[0]["score"] - candidates[1]["score"] < 0.05:
-        warnings.append("Multiple time columns have similar confidence; user confirmation is recommended.")
+        warnings.append(
+            "Multiple time columns have similar confidence; user confirmation is recommended."
+        )
 
     return {
         "format": "csv",
@@ -321,7 +355,9 @@ def inspect_uploaded_file(
     report_dir = UPLOAD_REPORT_DIR / upload_id
     report_dir.mkdir(parents=True, exist_ok=True)
     report_path = report_dir / "inspection.json"
-    report_path.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
+    report_path.write_text(
+        json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
     report["report_path"] = str(report_path.relative_to(ROOT)).replace("\\", "/")
     return report
 
@@ -348,12 +384,27 @@ def normalize_time_to_month(
     if cols and len(cols) > 1:
         normalized = {column: _normalized_name(column) for column in out.columns}
         year_col = next(
-            (c for c in cols if _normalized_name(c) in {"year", "yyyy", "yr", "年", "年份"}), None
+            (
+                c
+                for c in cols
+                if _normalized_name(c) in {"year", "yyyy", "yr", "年", "年份"}
+            ),
+            None,
         )
         month_col = next(
-            (c for c in cols if _normalized_name(c) in {"month", "mm", "mon", "月", "月份"}), None
+            (
+                c
+                for c in cols
+                if _normalized_name(c) in {"month", "mm", "mon", "月", "月份"}
+            ),
+            None,
         )
-        if year_col and month_col and year_col in out.columns and month_col in out.columns:
+        if (
+            year_col
+            and month_col
+            and year_col in out.columns
+            and month_col in out.columns
+        ):
             cols = [year_col, month_col]
         else:
             # Pick the first column that parses as a date.
@@ -381,12 +432,24 @@ def normalize_time_to_month(
             parsed, _ = _parse_time_series(out[date_col], date_col)
             parse_ratio = parsed.notna().sum() / max(out[date_col].notna().sum(), 1)
             if parse_ratio < 0.5:
-                normalized = {column: _normalized_name(column) for column in out.columns}
+                normalized = {
+                    column: _normalized_name(column) for column in out.columns
+                }
                 year_col = next(
-                    (c for c, n in normalized.items() if n in {"year", "yyyy", "yr", "年", "年份"}), None
+                    (
+                        c
+                        for c, n in normalized.items()
+                        if n in {"year", "yyyy", "yr", "年", "年份"}
+                    ),
+                    None,
                 )
                 month_col = next(
-                    (c for c, n in normalized.items() if n in {"month", "mm", "mon", "月", "月份"}), None
+                    (
+                        c
+                        for c, n in normalized.items()
+                        if n in {"month", "mm", "mon", "月", "月份"}
+                    ),
+                    None,
                 )
                 if year_col and month_col:
                     cols = [year_col, month_col]
@@ -400,10 +463,20 @@ def normalize_time_to_month(
     if not cols:
         normalized = {column: _normalized_name(column) for column in out.columns}
         year_col = next(
-            (c for c, n in normalized.items() if n in {"year", "yyyy", "yr", "年", "年份"}), None
+            (
+                c
+                for c, n in normalized.items()
+                if n in {"year", "yyyy", "yr", "年", "年份"}
+            ),
+            None,
         )
         month_col = next(
-            (c for c, n in normalized.items() if n in {"month", "mm", "mon", "月", "月份"}), None
+            (
+                c
+                for c, n in normalized.items()
+                if n in {"month", "mm", "mon", "月", "月份"}
+            ),
+            None,
         )
         if year_col and month_col:
             cols = [year_col, month_col]
@@ -426,7 +499,11 @@ def normalize_time_to_month(
         valid = year.between(1000, 9999) & month.between(1, 12)
         out["date_month"] = pd.NaT
         out.loc[valid, "date_month"] = pd.to_datetime(
-            {"year": year[valid].astype(int), "month": month[valid].astype(int), "day": 1},
+            {
+                "year": year[valid].astype(int),
+                "month": month[valid].astype(int),
+                "day": 1,
+            },
             errors="coerce",
         )
         out = out.drop(columns=list(cols))

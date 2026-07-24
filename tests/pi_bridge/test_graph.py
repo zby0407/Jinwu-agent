@@ -1,9 +1,11 @@
 import asyncio
+from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
 from jw.pi_bridge.graph import PiAgentGraph
+from jw.pi_bridge.process import PiProcessManager
 
 
 class TestPiAgentGraph:
@@ -21,9 +23,23 @@ class TestPiAgentGraph:
         cfg.dashscope_api_key = "fake-key"
         return cfg
 
+    @pytest.fixture
+    def process_manager(self, mock_config, tmp_path):
+        return PiProcessManager(
+            mock_config,
+            pi_cli=Path("/fake/pi.js"),
+            session_dir=tmp_path / "sessions",
+        )
+
     @pytest.mark.asyncio
-    async def test_astream_events_yields_translated_events(self, mock_config, tmp_path):
-        graph = PiAgentGraph(mock_config, workspace_dir=str(tmp_path))
+    async def test_astream_events_yields_translated_events(
+        self, mock_config, process_manager, tmp_path
+    ):
+        graph = PiAgentGraph(
+            mock_config,
+            workspace_dir=str(tmp_path),
+            process_manager=process_manager,
+        )
 
         fake_proc = MagicMock()
         fake_proc.returncode = None
@@ -71,9 +87,13 @@ class TestPiAgentGraph:
 
     @pytest.mark.asyncio
     async def test_aget_state_returns_messages_from_session(
-        self, mock_config, tmp_path
+        self, mock_config, process_manager, tmp_path
     ):
-        graph = PiAgentGraph(mock_config, workspace_dir=str(tmp_path))
+        graph = PiAgentGraph(
+            mock_config,
+            workspace_dir=str(tmp_path),
+            process_manager=process_manager,
+        )
         session_dir = graph._process_manager.session_dir
         session_dir.mkdir(parents=True, exist_ok=True)
         session_file = session_dir / "2026-07-13T00-00-00-000Z_t1.jsonl"
@@ -148,9 +168,13 @@ class TestPiAgentGraph:
 
     @pytest.mark.asyncio
     async def test_concurrent_astream_events_for_same_thread_are_serialized(
-        self, mock_config, tmp_path
+        self, mock_config, process_manager, tmp_path
     ):
-        graph = PiAgentGraph(mock_config, workspace_dir=str(tmp_path))
+        graph = PiAgentGraph(
+            mock_config,
+            workspace_dir=str(tmp_path),
+            process_manager=process_manager,
+        )
 
         fake_proc = MagicMock()
         fake_proc.returncode = None

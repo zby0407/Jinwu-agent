@@ -144,8 +144,7 @@ def resolve_bundle_dirs(
         unknown = enabled - set(manifests)
         if unknown:
             raise ValueError(
-                f"Unknown bundles {sorted(unknown)}; "
-                f"available: {sorted(manifests)}"
+                f"Unknown bundles {sorted(unknown)}; available: {sorted(manifests)}"
             )
 
     # Expand dependencies (transitive).

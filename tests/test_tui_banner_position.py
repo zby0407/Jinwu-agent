@@ -66,9 +66,7 @@ def _capture_app(monkeypatch) -> object:
         def __init__(self, *_a, **_k):
             pass
 
-    monkeypatch.setattr(
-        "jw.cli.history_suggester.HistorySuggester", _FakeSuggester
-    )
+    monkeypatch.setattr("jw.cli.history_suggester.HistorySuggester", _FakeSuggester)
 
     monkeypatch.setattr(
         "jw.cli.tui_interactive._auto_start_channel",

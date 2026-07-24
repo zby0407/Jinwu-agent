@@ -126,7 +126,9 @@ def _request_from_model_object(value: dict[str, Any]) -> dict[str, Any]:
     input_refs: list[dict[str, Any]] = []
     for index, row in enumerate(compact_inputs, start=1):
         if not isinstance(row, dict):
-            raise ValueError(f"structured experiment inputs[{index - 1}] must be an object")
+            raise ValueError(
+                f"structured experiment inputs[{index - 1}] must be an object"
+            )
         input_refs.append(
             {
                 "id": str(row.get("id") or f"input_{index:02d}"),

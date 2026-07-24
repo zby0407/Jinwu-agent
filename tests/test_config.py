@@ -411,9 +411,7 @@ class TestGetSetValues:
         self, temp_config_dir, clean_env
     ):
         """Observation writer mode accepts only the supported product controls."""
-        save_config(
-            JWConfig(memory_observation_writer=MemoryObservationWriter.ALL)
-        )
+        save_config(JWConfig(memory_observation_writer=MemoryObservationWriter.ALL))
 
         assert set_config_value("memory_observation_writer", "worker") is True
         assert get_config_value("memory_observation_writer") == "worker"
@@ -612,21 +610,10 @@ class TestPriorityChain:
     def test_sandbox_execute_timeout_invalid_falls_back(self):
         """Non-positive / non-int values fall back to the default (would
         otherwise crash CustomSandboxBackend construction at startup)."""
-        assert (
-            JWConfig(sandbox_execute_timeout=0).sandbox_execute_timeout == 300
-        )
-        assert (
-            JWConfig(sandbox_execute_timeout=-5).sandbox_execute_timeout
-            == 300
-        )
-        assert (
-            JWConfig(sandbox_execute_timeout="abc").sandbox_execute_timeout
-            == 300
-        )
-        assert (
-            JWConfig(sandbox_execute_timeout=True).sandbox_execute_timeout
-            == 300
-        )
+        assert JWConfig(sandbox_execute_timeout=0).sandbox_execute_timeout == 300
+        assert JWConfig(sandbox_execute_timeout=-5).sandbox_execute_timeout == 300
+        assert JWConfig(sandbox_execute_timeout="abc").sandbox_execute_timeout == 300
+        assert JWConfig(sandbox_execute_timeout=True).sandbox_execute_timeout == 300
 
     def test_set_sandbox_execute_timeout_rejects_invalid(
         self, temp_config_dir, clean_env
@@ -727,15 +714,11 @@ class TestApplyConfigToEnv:
         self, clean_env, monkeypatch
     ):
         """Test OpenRouter Anthropic prompt cache opt-out config is applied to env."""
-        monkeypatch.delenv(
-            "JW_OPENROUTER_ANTHROPIC_PROMPT_CACHE", raising=False
-        )
+        monkeypatch.delenv("JW_OPENROUTER_ANTHROPIC_PROMPT_CACHE", raising=False)
         config = JWConfig(openrouter_anthropic_prompt_cache=False)
         apply_config_to_env(config)
 
-        assert os.environ.get("JW_OPENROUTER_ANTHROPIC_PROMPT_CACHE") == (
-            "false"
-        )
+        assert os.environ.get("JW_OPENROUTER_ANTHROPIC_PROMPT_CACHE") == ("false")
 
     def test_dangerous_mode_round_trips_to_env(self, clean_env, monkeypatch):
         """dangerous_mode set via CLI override must survive a fresh re-read.

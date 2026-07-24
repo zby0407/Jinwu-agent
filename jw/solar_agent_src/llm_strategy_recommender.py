@@ -27,7 +27,11 @@ def _build_rule_based_recommendation(
 ) -> dict[str, Any]:
     """Generate a conservative, rule-based recommendation when LLM is unavailable."""
     fields = registry.get("fields", [])
-    input_features = [f for f in fields if f.get("role") == "input_feature" and f.get("allowed_as_model_input")]
+    input_features = [
+        f
+        for f in fields
+        if f.get("role") == "input_feature" and f.get("allowed_as_model_input")
+    ]
     top_features = [f["field"] for f in input_features[:10]]
 
     cleaning = quality_report.get("cleaning", {})
@@ -37,11 +41,17 @@ def _build_rule_based_recommendation(
         if ftype == "label_leakage_risk":
             risks.append("Label leakage risk: exclude next_cycle_* from inputs")
         elif ftype == "before_f107_coverage":
-            risks.append(f"F10.7 coverage begins {SOLAR_COVERAGE['f107']['start']}; earlier rows lack proxy")
+            risks.append(
+                f"F10.7 coverage begins {SOLAR_COVERAGE['f107']['start']}; earlier rows lack proxy"
+            )
         elif ftype == "before_polar_coverage":
-            risks.append(f"Polar field coverage begins {SOLAR_COVERAGE['polar']['start']}; earlier rows lack proxy")
+            risks.append(
+                f"Polar field coverage begins {SOLAR_COVERAGE['polar']['start']}; earlier rows lack proxy"
+            )
         elif ftype == "outside_goes_xrs_coverage":
-            risks.append(f"GOES XRS limited to {SOLAR_COVERAGE['goes_xrs']['start']} ~ {SOLAR_COVERAGE['goes_xrs']['end']}")
+            risks.append(
+                f"GOES XRS limited to {SOLAR_COVERAGE['goes_xrs']['start']} ~ {SOLAR_COVERAGE['goes_xrs']['end']}"
+            )
 
     return {
         "top_features": top_features,
@@ -79,9 +89,17 @@ def _build_rule_based_recommendation(
 
 
 def _build_llm_prompt(registry: dict[str, Any], quality_report: dict[str, Any]) -> str:
-    input_features = [f for f in registry.get("fields", []) if f.get("role") == "input_feature" and f.get("allowed_as_model_input")]
+    input_features = [
+        f
+        for f in registry.get("fields", [])
+        if f.get("role") == "input_feature" and f.get("allowed_as_model_input")
+    ]
     labels = [f for f in registry.get("fields", []) if f.get("role") == "label"]
-    forbidden = [f for f in registry.get("fields", []) if f.get("allowed_as_model_input") is False]
+    forbidden = [
+        f
+        for f in registry.get("fields", [])
+        if f.get("allowed_as_model_input") is False
+    ]
     cleaning = quality_report.get("cleaning", {})
 
     return dedent(
@@ -184,7 +202,9 @@ def run(session: Any) -> dict[str, Any]:
 
     report_dir.mkdir(parents=True, exist_ok=True)
     json_path = report_dir / "strategy_recommendation.json"
-    json_path.write_text(json.dumps(recommendation, ensure_ascii=False, indent=2), encoding="utf-8")
+    json_path.write_text(
+        json.dumps(recommendation, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
 
     markdown_path = report_dir / "strategy_recommendation.md"
     markdown = _render_markdown(recommendation)

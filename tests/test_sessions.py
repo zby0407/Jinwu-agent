@@ -2045,9 +2045,7 @@ class TestCreateCheckpointerForLanggraphApi(unittest.IsolatedAsyncioTestCase):
                 return_value={"workspace": "/real/workspace", "pid": 4242},
             ),
             patch("psutil.Process") as process,
-            patch(
-                "jw.langgraph_dev.manager._write_workspace_sidecar"
-            ) as write_sidecar,
+            patch("jw.langgraph_dev.manager._write_workspace_sidecar") as write_sidecar,
         ):
             process.return_value.cmdline.return_value = ["python", "langgraph", "dev"]
             _publish_api_workspace_sidecar()
@@ -2067,9 +2065,7 @@ class TestCreateCheckpointerForLanggraphApi(unittest.IsolatedAsyncioTestCase):
                 return_value={"workspace": "/temporary/test", "pid": 4242},
             ),
             patch("psutil.Process") as process,
-            patch(
-                "jw.langgraph_dev.manager._write_workspace_sidecar"
-            ) as write_sidecar,
+            patch("jw.langgraph_dev.manager._write_workspace_sidecar") as write_sidecar,
         ):
             process.return_value.cmdline.return_value = ["python", "pytest"]
             _publish_api_workspace_sidecar()
@@ -2623,9 +2619,7 @@ class TestRestoreWebuiThreadsToGlobalStore(unittest.IsolatedAsyncioTestCase):
             _uuid_mod.UUID(mine),
             _uuid_mod.UUID(subagent),
         }
-        assert restored[_uuid_mod.UUID(mine)]["metadata"].get("graph_id") == (
-            "JW"
-        )
+        assert restored[_uuid_mod.UUID(mine)]["metadata"].get("graph_id") == ("JW")
         assert restored[_uuid_mod.UUID(mine)]["metadata"].get("workspace_dir") == (
             self._WS
         )

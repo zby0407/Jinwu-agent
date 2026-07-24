@@ -489,9 +489,7 @@ class TestResolveRemoteHead:
                 "stderr": "",
             },
         )()
-        with patch(
-            "jw.tools.skills_manager.subprocess.run", return_value=proc
-        ):
+        with patch("jw.tools.skills_manager.subprocess.run", return_value=proc):
             sha = resolve_remote_head("owner/repo@skill")
         assert sha == "deadbeef0000000000000000000000000000abcd"
 
@@ -767,9 +765,7 @@ class TestFetchRemoteSkillIndex:
 
             shutil.copytree(tmp_path / "repo", dest)
 
-        with patch(
-            "jw.tools.skills_manager._clone_repo", side_effect=fake_clone
-        ):
+        with patch("jw.tools.skills_manager._clone_repo", side_effect=fake_clone):
             # Clear cache to ensure fresh fetch
             from jw.tools.skills_manager import _REMOTE_INDEX_CACHE
 
@@ -809,9 +805,7 @@ class TestFetchRemoteSkillIndex:
 
             shutil.copytree(tmp_path / "repo", dest)
 
-        with patch(
-            "jw.tools.skills_manager._clone_repo", side_effect=fake_clone
-        ):
+        with patch("jw.tools.skills_manager._clone_repo", side_effect=fake_clone):
             from jw.tools.skills_manager import _REMOTE_INDEX_CACHE
 
             _REMOTE_INDEX_CACHE.clear()

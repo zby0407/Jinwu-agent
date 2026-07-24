@@ -46,7 +46,8 @@ uv run jw --ui webui
 后端检查：
 
 ```bash
-uv run ruff check jw tests --select F
+uv run ruff check --select F .
+uv run ruff format --check jw tests
 uv run pytest
 ```
 

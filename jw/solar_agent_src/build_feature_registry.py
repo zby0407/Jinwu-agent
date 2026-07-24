@@ -25,7 +25,16 @@ TABLES = {
     "cycle_hale_wso_sensitivity": PROCESSED_DIR / "cycle_hale_wso_sensitivity.csv",
 }
 
-ID_FIELDS = {"date_month", "year", "month", "cycle_no", "event_id", "source_file", "source_year", "raw_line_no"}
+ID_FIELDS = {
+    "date_month",
+    "year",
+    "month",
+    "cycle_no",
+    "event_id",
+    "source_file",
+    "source_year",
+    "raw_line_no",
+}
 LABEL_FIELDS = {"next_cycle_peak_sunspot", "next_cycle_strength_class"}
 QUALITY_SUFFIXES = ("quality_flag", "coverage_status", "warning", "evidence_tier")
 FILTER_FIELDS = {
@@ -61,8 +70,12 @@ def table_summary(path: Path) -> dict[str, Any]:
     summary: dict[str, Any] = {"rows": int(len(df)), "columns": list(df.columns)}
     if "date_month" in df.columns:
         dates = pd.to_datetime(df["date_month"], errors="coerce")
-        summary["date_start"] = dates.min().strftime("%Y-%m-%d") if dates.notna().any() else None
-        summary["date_end"] = dates.max().strftime("%Y-%m-%d") if dates.notna().any() else None
+        summary["date_start"] = (
+            dates.min().strftime("%Y-%m-%d") if dates.notna().any() else None
+        )
+        summary["date_end"] = (
+            dates.max().strftime("%Y-%m-%d") if dates.notna().any() else None
+        )
     if "cycle_no" in df.columns:
         cycles = pd.to_numeric(df["cycle_no"], errors="coerce")
         summary["cycle_start"] = int(cycles.min()) if cycles.notna().any() else None
@@ -71,13 +84,36 @@ def table_summary(path: Path) -> dict[str, Any]:
 
 
 def evidence_tier(field: str) -> str:
-    if field.startswith(("sunspot", "cycle_", "months_", "official_cycle", "peak_sunspot", "min_sunspot")):
+    if field.startswith(
+        (
+            "sunspot",
+            "cycle_",
+            "months_",
+            "official_cycle",
+            "peak_sunspot",
+            "min_sunspot",
+        )
+    ):
         return "primary"
-    if field.startswith(("f107", "polar", "hale", "north_reversal", "south_reversal", "reversal_")):
+    if field.startswith(
+        ("f107", "polar", "hale", "north_reversal", "south_reversal", "reversal_")
+    ):
         return "auxiliary_mechanism_proxy"
-    if field.startswith(("flare", "m_x", "xray", "active_region", "limb", "position", "hemisphere_unknown")):
+    if field.startswith(
+        (
+            "flare",
+            "m_x",
+            "xray",
+            "active_region",
+            "limb",
+            "position",
+            "hemisphere_unknown",
+        )
+    ):
         return "auxiliary_event_proxy"
-    if field.startswith(("north_sunspot", "south_sunspot", "hemispheric", "hemisphere_")):
+    if field.startswith(
+        ("north_sunspot", "south_sunspot", "hemispheric", "hemisphere_")
+    ):
         return "auxiliary_spatial_observation"
     return "metadata"
 
@@ -105,7 +141,12 @@ def leakage_risk(field: str, role: str) -> str:
         return "forbidden_as_input"
     if field in {"cycle_no", "date_month", "year", "month"}:
         return "use_only_for_grouping_or_time_split"
-    if field in {"months_to_cycle_peak", "cycle_phase", "cycle_phase_windowed", "is_peak_window_13m"}:
+    if field in {
+        "months_to_cycle_peak",
+        "cycle_phase",
+        "cycle_phase_windowed",
+        "is_peak_window_13m",
+    }:
         return "high_if_predicting_before_peak"
     if field.endswith("_quality_flag") or field.endswith("_coverage_status"):
         return "low_use_for_filtering_not_signal"
@@ -174,7 +215,9 @@ def build_registry() -> dict[str, Any]:
 def main() -> None:
     PROCESSED_DIR.mkdir(parents=True, exist_ok=True)
     registry = build_registry()
-    OUTPUT_PATH.write_text(json.dumps(registry, ensure_ascii=False, indent=2), encoding="utf-8")
+    OUTPUT_PATH.write_text(
+        json.dumps(registry, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
     print(f"saved {OUTPUT_PATH}")
     print(f"fields={len(registry['fields'])} tables={len(registry['tables'])}")
 

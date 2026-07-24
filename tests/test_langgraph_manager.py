@@ -601,9 +601,7 @@ class TestStartLanggraphDevCapturesLogOffset:
             captured["offset"] = manager._LOG_OFFSET_AT_START
             raise FileNotFoundError("stop before real spawn")
 
-        monkeypatch.setattr(
-            "jw.langgraph_dev.manager.subprocess.Popen", _fake_popen
-        )
+        monkeypatch.setattr("jw.langgraph_dev.manager.subprocess.Popen", _fake_popen)
         try:
             manager.start_langgraph_dev(workspace_dir=tmp_path)
         except FileNotFoundError:
@@ -624,9 +622,7 @@ class TestStartLanggraphDevCapturesLogOffset:
             captured["offset"] = manager._LOG_OFFSET_AT_START
             raise FileNotFoundError("stop before real spawn")
 
-        monkeypatch.setattr(
-            "jw.langgraph_dev.manager.subprocess.Popen", _fake_popen
-        )
+        monkeypatch.setattr("jw.langgraph_dev.manager.subprocess.Popen", _fake_popen)
         try:
             manager.start_langgraph_dev(workspace_dir=tmp_path)
         except FileNotFoundError:

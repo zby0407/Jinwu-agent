@@ -54,7 +54,9 @@ def _extract_json(text: str) -> dict[str, Any]:
     raise LLMJsonError("No JSON object found in LLM response")
 
 
-def _call_llm_for_split_recognition(header: str, sample_rows: list[str]) -> dict[str, Any]:
+def _call_llm_for_split_recognition(
+    header: str, sample_rows: list[str]
+) -> dict[str, Any]:
     from bailian_llm import BailianLLMError, call_bailian
 
     system = (
@@ -155,7 +157,9 @@ def detect_multifield_single_column(df: pd.DataFrame) -> dict[str, Any] | None:
         if valid_counts.empty:
             continue
 
-        mode_count = int(valid_counts.mode().iloc[0]) if not valid_counts.mode().empty else 1
+        mode_count = (
+            int(valid_counts.mode().iloc[0]) if not valid_counts.mode().empty else 1
+        )
         if mode_count <= 1:
             continue
 
@@ -217,7 +221,9 @@ def llm_recognize_split(
         try:
             llm_result = _call_llm_for_split_recognition(header, sample_rows)
             delimiter = _normalize_delimiter_alias(llm_result.get("delimiter"))
-            first_row_is_header = _normalize_bool(llm_result.get("first_row_is_header", False))
+            first_row_is_header = _normalize_bool(
+                llm_result.get("first_row_is_header", False)
+            )
             column_names = llm_result.get("column_names") or []
             time_column = llm_result.get("time_column")
             notes = llm_result.get("notes")
@@ -241,7 +247,9 @@ def llm_recognize_split(
             column_names = derived
         elif len(derived) == len(column_names) and all(c.strip() for c in derived):
             # Keep LLM names unless the header clearly matches the data.
-            column_names = [d if d.strip() else c for d, c in zip(derived, column_names)]
+            column_names = [
+                d if d.strip() else c for d, c in zip(derived, column_names)
+            ]
 
     if not column_names:
         column_names = [f"field_{i + 1}" for i in range(detection["field_count"])]
@@ -308,7 +316,9 @@ WSO_VALUE_SUFFIX_PATTERNS: list[re.Pattern[str]] = [
 ]
 
 
-def _extract_numeric_from_suffixed_values(df: pd.DataFrame, min_ratio: float = 0.9) -> pd.DataFrame:
+def _extract_numeric_from_suffixed_values(
+    df: pd.DataFrame, min_ratio: float = 0.9
+) -> pd.DataFrame:
     """Strip WSO-style suffixes (N/S/Avg and their filtered variants) from string columns.
 
     Only converts a column if at least ``min_ratio`` of its non-null values match
@@ -411,7 +421,9 @@ def apply_split(
     try:
         df = pd.read_csv(full_path, header=None, names=["raw_column"], encoding="utf-8")
     except UnicodeDecodeError:
-        df = pd.read_csv(full_path, header=None, names=["raw_column"], encoding="gb18030")
+        df = pd.read_csv(
+            full_path, header=None, names=["raw_column"], encoding="gb18030"
+        )
     df.columns = [str(c).strip() for c in df.columns]
 
     # If the original file had a real header row, drop it from the data.
@@ -480,11 +492,14 @@ def apply_split(
         if quality_report.get("report_path"):
             report_path = ROOT / quality_report["report_path"]
             report_path.write_text(
-                json.dumps(quality_report, ensure_ascii=False, indent=2), encoding="utf-8"
+                json.dumps(quality_report, ensure_ascii=False, indent=2),
+                encoding="utf-8",
             )
             text_path = report_path.with_suffix(".txt")
             text_path.write_text(
-                data_quality_report_text.render_data_quality_report_text(quality_report),
+                data_quality_report_text.render_data_quality_report_text(
+                    quality_report
+                ),
                 encoding="utf-8",
             )
         result["quality_report"] = {

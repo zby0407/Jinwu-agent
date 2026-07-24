@@ -88,9 +88,7 @@ class TestMCPCommandDispatch:
         from jw.commands.implementation.mcp import MCPCommand
 
         ctx, _ui = _ctx()
-        with patch(
-            "jw.commands.implementation.mcp_install.InstallMCPCommand"
-        ) as klass:
+        with patch("jw.commands.implementation.mcp_install.InstallMCPCommand") as klass:
             instance = MagicMock()
             instance.execute = MagicMock(return_value=None)
 

@@ -73,12 +73,20 @@ class PiAgentRequest:
 
     def validate(self) -> None:
         if self.task not in VALID_TASKS:
-            raise ValueError(f"Unsupported PiAgent task: {self.task}. Valid tasks: {sorted(VALID_TASKS)}")
+            raise ValueError(
+                f"Unsupported PiAgent task: {self.task}. Valid tasks: {sorted(VALID_TASKS)}"
+            )
         if not self.data_scope:
             raise ValueError("data_scope must not be empty")
-        if self.task == "ask_agent" and not self.approval_id and not (self.question and self.question.strip()):
+        if (
+            self.task == "ask_agent"
+            and not self.approval_id
+            and not (self.question and self.question.strip())
+        ):
             raise ValueError("ask_agent requires a non-empty question or approval_id")
-        if self.task in ("inspect_upload", "load_dataset") and not (self.upload_path and self.upload_path.strip()):
+        if self.task in ("inspect_upload", "load_dataset") and not (
+            self.upload_path and self.upload_path.strip()
+        ):
             raise ValueError(f"{self.task} requires a non-empty upload_path")
         if self.task == "dataset_query" and not (self.query and self.query.strip()):
             raise ValueError("dataset_query requires a non-empty query")
@@ -115,13 +123,19 @@ RECOMMENDED_EXPERIMENT_SPLITS = [
     },
     {
         "id": "f107_era_proxy",
-        "recommended_tables": ["data/processed/clean_monthly_timeseries.csv", "data/processed/cycle_features.csv"],
+        "recommended_tables": [
+            "data/processed/clean_monthly_timeseries.csv",
+            "data/processed/cycle_features.csv",
+        ],
         "use_for": "Modern-era F10.7 relationship and drift diagnostics.",
         "caution": "Does not support all-cycle claims before F10.7 coverage.",
     },
     {
         "id": "hemispheric_1940plus",
-        "recommended_tables": ["data/processed/clean_monthly_timeseries.csv", "data/processed/cycle_features.csv"],
+        "recommended_tables": [
+            "data/processed/clean_monthly_timeseries.csv",
+            "data/processed/cycle_features.csv",
+        ],
         "use_for": "North-south asymmetry diagnostics from 1940 onward.",
         "caution": "1940-1991 is real external calibrated observation, not SILSO official hemispheric product.",
     },

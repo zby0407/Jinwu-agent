@@ -112,9 +112,7 @@ def test_langgraph_json_registers_scheduler():
     manifest = json.loads(
         (root / "langgraph_dev" / "langgraph.json").read_text(encoding="utf-8")
     )
-    assert manifest["graphs"]["scheduler"] == (
-        "jw.langgraph_dev.graphs:scheduler"
-    )
+    assert manifest["graphs"]["scheduler"] == ("jw.langgraph_dev.graphs:scheduler")
 
 
 def test_scheduler_graph_id_matches_registration():
@@ -135,9 +133,7 @@ def test_scheduler_graph_id_matches_registration():
         f"SCHEDULER_GRAPH_ID={crons.SCHEDULER_GRAPH_ID!r} not found in langgraph.json graphs"
     )
     spec = yaml.safe_load(
-        (root / "subagents" / "core" / "scheduler.yaml").read_text(
-            encoding="utf-8"
-        )
+        (root / "subagents" / "core" / "scheduler.yaml").read_text(encoding="utf-8")
     )
     assert crons.SCHEDULER_GRAPH_ID in spec, (
         f"SCHEDULER_GRAPH_ID={crons.SCHEDULER_GRAPH_ID!r} is not the top-level key in scheduler.yaml"

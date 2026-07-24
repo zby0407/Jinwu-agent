@@ -67,7 +67,9 @@ def _resample_to_month(df: pd.DataFrame, col_semantics: dict[str, str]) -> pd.Da
     return grouped
 
 
-def _normalize_and_resample(summary: dict[str, Any]) -> tuple[pd.DataFrame, dict[str, str]]:
+def _normalize_and_resample(
+    summary: dict[str, Any],
+) -> tuple[pd.DataFrame, dict[str, str]]:
     df = _read_uploaded_dataset(summary)
     time_columns = summary.get("primary_time_columns") or []
     if not time_columns and summary.get("primary_time_column"):
@@ -97,7 +99,9 @@ def _rename_conflicting_columns(datasets: list[dict[str, Any]]) -> None:
                 rename[c] = f"{c}_{ds['source_id']}"
         if rename:
             ds["df"] = df.rename(columns=rename)
-            ds["col_semantics"] = {rename.get(k, k): v for k, v in ds["col_semantics"].items()}
+            ds["col_semantics"] = {
+                rename.get(k, k): v for k, v in ds["col_semantics"].items()
+            }
 
 
 def _merge_sources(datasets: list[dict[str, Any]]) -> pd.DataFrame:
@@ -114,15 +118,20 @@ def _merge_sources(datasets: list[dict[str, Any]]) -> pd.DataFrame:
     return merged
 
 
-def _build_coverage_flags(merged: pd.DataFrame, datasets: list[dict[str, Any]]) -> pd.DataFrame:
+def _build_coverage_flags(
+    merged: pd.DataFrame, datasets: list[dict[str, Any]]
+) -> pd.DataFrame:
     out = merged.copy()
     for ds in datasets:
         source_id = ds["source_id"]
         source_cols = [c for c in ds["df"].columns if c != "date_month"]
         flag_col = f"is_{source_id}_available"
         out[flag_col] = out[source_cols].notna().any(axis=1) if source_cols else False
-    available_cols = [c for c in out.columns if c.startswith("is_") and c.endswith("_available")]
+    available_cols = [
+        c for c in out.columns if c.startswith("is_") and c.endswith("_available")
+    ]
     if available_cols:
+
         def _flag(row: pd.Series) -> str:
             present = [c[3:-10] for c in available_cols if row[c]]
             if len(present) == len(available_cols):
@@ -130,11 +139,14 @@ def _build_coverage_flags(merged: pd.DataFrame, datasets: list[dict[str, Any]]) 
             if present:
                 return "partial:" + "|".join(present)
             return "none"
+
         out["data_coverage_flag"] = out[available_cols].apply(_flag, axis=1)
     return out
 
 
-def _build_quality_warnings(merged: pd.DataFrame, datasets: list[dict[str, Any]]) -> list[str]:
+def _build_quality_warnings(
+    merged: pd.DataFrame, datasets: list[dict[str, Any]]
+) -> list[str]:
     warnings: list[str] = []
     if merged.empty:
         warnings.append("对齐结果为空")
@@ -144,7 +156,9 @@ def _build_quality_warnings(merged: pd.DataFrame, datasets: list[dict[str, Any]]
         if not df.empty:
             start = df["date_month"].min()
             end = df["date_month"].max()
-            warnings.append(f"source {ds['source_id']}: {start.strftime('%Y-%m')} ~ {end.strftime('%Y-%m')}")
+            warnings.append(
+                f"source {ds['source_id']}: {start.strftime('%Y-%m')} ~ {end.strftime('%Y-%m')}"
+            )
     non_date = merged.drop(columns=["date_month"], errors="ignore")
     missing = non_date.isna().all(axis=1)
     if missing.any():
@@ -167,7 +181,9 @@ def run(session: ChatSession, join: str = "outer") -> dict[str, Any]:
         df, col_semantics = _normalize_and_resample(summary)
         if df.empty:
             raise ValueError(f"source {source_id} 归一化后为空")
-        datasets.append({"source_id": source_id, "df": df, "col_semantics": col_semantics})
+        datasets.append(
+            {"source_id": source_id, "df": df, "col_semantics": col_semantics}
+        )
 
     _rename_conflicting_columns(datasets)
     merged = _merge_sources(datasets)
@@ -197,13 +213,17 @@ def run(session: ChatSession, join: str = "outer") -> dict[str, Any]:
         ],
         "aligned_rows": int(len(merged)),
         "date_range": {
-            "start": merged["date_month"].min().isoformat() if not merged.empty else None,
+            "start": merged["date_month"].min().isoformat()
+            if not merged.empty
+            else None,
             "end": merged["date_month"].max().isoformat() if not merged.empty else None,
         },
         "warnings": warnings,
         "aligned_path": str(aligned_path.relative_to(ROOT)).replace("\\", "/"),
     }
-    report_path.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
+    report_path.write_text(
+        json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
 
     wrapped = {
         "source_file": {
@@ -225,7 +245,9 @@ def run(session: ChatSession, join: str = "outer") -> dict[str, Any]:
         },
         "report_path": str(report_path.relative_to(ROOT)).replace("\\", "/"),
     }
-    session.set_aligned_dataset(str(aligned_path.relative_to(ROOT)).replace("\\", "/"), wrapped)
+    session.set_aligned_dataset(
+        str(aligned_path.relative_to(ROOT)).replace("\\", "/"), wrapped
+    )
 
     return {
         "status": "ok",

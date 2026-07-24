@@ -74,11 +74,15 @@ def main() -> None:
         ]
     ]
     metadata["cycle_no"] = metadata["cycle_no"].astype("Int64")
-    metadata["months_from_cycle_start"] = metadata["months_from_cycle_start"].astype("Int64")
+    metadata["months_from_cycle_start"] = metadata["months_from_cycle_start"].astype(
+        "Int64"
+    )
     metadata["months_to_cycle_peak"] = metadata["months_to_cycle_peak"].astype("Int64")
     metadata.to_csv(OUTPUT_PATH, index=False, encoding="utf-8")
     print(f"saved {OUTPUT_PATH}")
-    print(f"rows={len(metadata)} range={metadata['date_month'].min()}..{metadata['date_month'].max()}")
+    print(
+        f"rows={len(metadata)} range={metadata['date_month'].min()}..{metadata['date_month'].max()}"
+    )
     print(metadata["cycle_phase"].value_counts().to_string())
     print(metadata["cycle_phase_windowed"].value_counts().to_string())
 

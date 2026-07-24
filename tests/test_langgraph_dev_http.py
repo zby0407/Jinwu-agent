@@ -16,12 +16,8 @@ client = TestClient(app)
 
 
 def test_get_models_returns_entries_and_default():
-    mock_cfg = JWConfig(
-        model="claude-sonnet-4-6", provider="custom-anthropic"
-    )
-    with patch(
-        "jw.langgraph_dev.http.get_effective_config", return_value=mock_cfg
-    ):
+    mock_cfg = JWConfig(model="claude-sonnet-4-6", provider="custom-anthropic")
+    with patch("jw.langgraph_dev.http.get_effective_config", return_value=mock_cfg):
         resp = client.get("/api/models")
     assert resp.status_code == 200
     body = resp.json()
@@ -59,9 +55,7 @@ def test_entries_preserve_registry_order():
         for n, m, p in list_models_by_provider()
     ]
     mock_cfg = JWConfig()
-    with patch(
-        "jw.langgraph_dev.http.get_effective_config", return_value=mock_cfg
-    ):
+    with patch("jw.langgraph_dev.http.get_effective_config", return_value=mock_cfg):
         resp = client.get("/api/models")
     assert resp.json()["entries"] == expected
 
@@ -72,9 +66,7 @@ def test_default_passes_through_arbitrary_config_pair():
     picker labels it as the active selection regardless.
     """
     mock_cfg = JWConfig(model="some-retired-name", provider="some-provider")
-    with patch(
-        "jw.langgraph_dev.http.get_effective_config", return_value=mock_cfg
-    ):
+    with patch("jw.langgraph_dev.http.get_effective_config", return_value=mock_cfg):
         resp = client.get("/api/models")
     assert resp.json()["default"] == {
         "name": "some-retired-name",
@@ -132,9 +124,7 @@ def test_ollama_discovery_skipped_when_base_url_absent():
     matches the ``/model`` picker's gating. The probe function should never
     be called in that case.
     """
-    mock_cfg = JWConfig(
-        model="claude-sonnet-4-6", provider="custom-anthropic"
-    )
+    mock_cfg = JWConfig(model="claude-sonnet-4-6", provider="custom-anthropic")
     calls: list[str | None] = []
 
     async def spy_discover(base_url, *, timeout):

@@ -771,9 +771,7 @@ _ENV_MAPPINGS = {
     "auxiliary_provider": "JW_AUXILIARY_PROVIDER",
     "auxiliary_model": "JW_AUXILIARY_MODEL",
     "reasoning_effort": "JW_REASONING_EFFORT",
-    "openrouter_anthropic_prompt_cache": (
-        "JW_OPENROUTER_ANTHROPIC_PROMPT_CACHE"
-    ),
+    "openrouter_anthropic_prompt_cache": ("JW_OPENROUTER_ANTHROPIC_PROMPT_CACHE"),
     "dangerous_mode": "JW_DANGEROUS_MODE",
     "channel_debug_tracing": "JW_CHANNEL_DEBUG_TRACING",
     "ccproxy_port": "JW_CCPROXY_PORT",
@@ -828,9 +826,7 @@ def get_effective_config(
     for config_key, env_key in _ENV_MAPPINGS.items():
         env_value = os.environ.get(env_key)
         if env_value:
-            field_info = next(
-                f for f in fields(JWConfig) if f.name == config_key
-            )
+            field_info = next(f for f in fields(JWConfig) if f.name == config_key)
             try:
                 data[config_key] = _coerce_value(
                     env_value,
@@ -919,7 +915,5 @@ def apply_config_to_env(config: JWConfig) -> None:
         os.environ["JW_DANGEROUS_MODE"] = "true"
     else:
         os.environ.pop("JW_DANGEROUS_MODE", None)
-    if config.use_responses_api and not os.environ.get(
-        "JW_USE_RESPONSES_API"
-    ):
+    if config.use_responses_api and not os.environ.get("JW_USE_RESPONSES_API"):
         os.environ["JW_USE_RESPONSES_API"] = config.use_responses_api

@@ -64,7 +64,9 @@ def read_rgo_noaa_monthly() -> pd.DataFrame:
             if parsed is None:
                 continue
             latitude = parsed["latitude"]
-            hemisphere = "north" if latitude > 0 else "south" if latitude < 0 else "equator"
+            hemisphere = (
+                "north" if latitude > 0 else "south" if latitude < 0 else "equator"
+            )
             rows.append({**parsed, "hemisphere": hemisphere})
 
     if not rows:
@@ -118,9 +120,13 @@ def read_silso() -> tuple[pd.DataFrame, pd.DataFrame]:
     return total, hemispheric
 
 
-def build_merged_rows(total: pd.DataFrame, hemispheric: pd.DataFrame, rgo_monthly: pd.DataFrame) -> pd.DataFrame:
+def build_merged_rows(
+    total: pd.DataFrame, hemispheric: pd.DataFrame, rgo_monthly: pd.DataFrame
+) -> pd.DataFrame:
     pre_silso = total[(total["year"] >= 1940) & (total["year"] < 1992)].copy()
-    pre_silso = pre_silso.merge(rgo_monthly, on=["year", "month"], how="left", validate="one_to_one")
+    pre_silso = pre_silso.merge(
+        rgo_monthly, on=["year", "month"], how="left", validate="one_to_one"
+    )
     missing_share = pre_silso["north_area_share"].isna()
     if missing_share.any():
         missing = pre_silso.loc[missing_share, ["year", "month"]].to_dict("records")
@@ -153,7 +159,9 @@ def build_merged_rows(total: pd.DataFrame, hemispheric: pd.DataFrame, rgo_monthl
     return merged[SILSO_HEM_COLS]
 
 
-def calibration_diagnostics(hemispheric: pd.DataFrame, rgo_monthly: pd.DataFrame) -> dict[str, object]:
+def calibration_diagnostics(
+    hemispheric: pd.DataFrame, rgo_monthly: pd.DataFrame
+) -> dict[str, object]:
     overlap = hemispheric.merge(rgo_monthly, on=["year", "month"], how="inner")
     overlap = overlap[
         (overlap["year"] >= 1992)
@@ -182,7 +190,12 @@ def calibration_diagnostics(hemispheric: pd.DataFrame, rgo_monthly: pd.DataFrame
                 "start": f"{int(overlap['year'].min()):04d}-{int(overlap['month'].min()):02d}",
                 "end": f"{int(overlap['year'].max()):04d}-{int(overlap['month'].max()):02d}",
             },
-            "north_share_correlation": round(float(overlap["north_area_share"].corr(overlap["official_north_share"])), 4),
+            "north_share_correlation": round(
+                float(
+                    overlap["north_area_share"].corr(overlap["official_north_share"])
+                ),
+                4,
+            ),
             "north_sunspot_mae": round(float(north_error.abs().mean()), 4),
             "north_sunspot_rmse": round(float(np.sqrt((north_error**2).mean())), 4),
         },
@@ -215,13 +228,24 @@ def main() -> None:
 
     diff = (merged["total_sn"] - (merged["north_sn"] + merged["south_sn"])).round(1)
     repair_mask = diff.ne(0)
-    merged.loc[repair_mask, "south_sn"] = (merged.loc[repair_mask, "south_sn"] + diff.loc[repair_mask]).round(1)
-    final_diff = (merged["total_sn"] - (merged["north_sn"] + merged["south_sn"])).round(1)
+    merged.loc[repair_mask, "south_sn"] = (
+        merged.loc[repair_mask, "south_sn"] + diff.loc[repair_mask]
+    ).round(1)
+    final_diff = (merged["total_sn"] - (merged["north_sn"] + merged["south_sn"])).round(
+        1
+    )
     if final_diff.abs().max() > 0:
-        raise ValueError("north_sn + south_sn does not match total_sn after rounding repair")
+        raise ValueError(
+            "north_sn + south_sn does not match total_sn after rounding repair"
+        )
 
-    HEM_PATH.write_text("\n".join(format_row(row) for _, row in merged.iterrows()) + "\n", encoding="utf-8")
-    DIAGNOSTICS_PATH.write_text(json.dumps(diagnostics, ensure_ascii=False, indent=2), encoding="utf-8")
+    HEM_PATH.write_text(
+        "\n".join(format_row(row) for _, row in merged.iterrows()) + "\n",
+        encoding="utf-8",
+    )
+    DIAGNOSTICS_PATH.write_text(
+        json.dumps(diagnostics, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
 
     print(f"saved {HEM_PATH}")
     print(f"saved {DIAGNOSTICS_PATH}")

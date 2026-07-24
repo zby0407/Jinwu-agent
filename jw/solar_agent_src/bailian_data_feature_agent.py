@@ -74,10 +74,15 @@ def _normalize_tool_call(call: Any) -> dict[str, Any]:
 def normalize_assistant_message(message: Any) -> dict[str, Any]:
     if isinstance(message, dict):
         content = message.get("content")
-        tool_calls = [_normalize_tool_call(call) for call in message.get("tool_calls") or []]
+        tool_calls = [
+            _normalize_tool_call(call) for call in message.get("tool_calls") or []
+        ]
     else:
         content = getattr(message, "content", None)
-        tool_calls = [_normalize_tool_call(call) for call in getattr(message, "tool_calls", None) or []]
+        tool_calls = [
+            _normalize_tool_call(call)
+            for call in getattr(message, "tool_calls", None) or []
+        ]
     result: dict[str, Any] = {"role": "assistant", "content": content}
     if tool_calls:
         result["tool_calls"] = tool_calls
@@ -99,7 +104,9 @@ def _parse_arguments(call: dict[str, Any]) -> dict[str, Any]:
 
 
 def _signature(name: str, arguments: dict[str, Any]) -> str:
-    canonical = json.dumps({"name": name, "arguments": arguments}, ensure_ascii=False, sort_keys=True)
+    canonical = json.dumps(
+        {"name": name, "arguments": arguments}, ensure_ascii=False, sort_keys=True
+    )
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
@@ -109,7 +116,8 @@ class BailianDataFeatureAgent:
     def __init__(
         self,
         *,
-        completion_fn: Callable[[list[dict[str, Any]], list[dict[str, Any]]], Any] | None = None,
+        completion_fn: Callable[[list[dict[str, Any]], list[dict[str, Any]]], Any]
+        | None = None,
         session_dir: Path = DEFAULT_SESSION_DIR,
         session: ChatSession | None = None,
         skill_registry: SkillRegistry | None = None,
@@ -129,7 +137,9 @@ class BailianDataFeatureAgent:
 
         actual_id = session_id or f"agent_{uuid.uuid4().hex[:16]}"
         if not SESSION_ID_PATTERN.fullmatch(actual_id):
-            raise ValueError("session_id must contain only letters, digits, underscore, or hyphen")
+            raise ValueError(
+                "session_id must contain only letters, digits, underscore, or hyphen"
+            )
         path = self.session_dir / f"{actual_id}.json"
         session = ChatSession(path)
         if not path.exists():
@@ -209,7 +219,9 @@ class BailianDataFeatureAgent:
         for item in trace:
             result = item.get("result") or {}
             artifacts.extend(str(path) for path in result.get("artifacts", []) if path)
-            collected_warnings.extend(str(value) for value in result.get("warnings", []) if value)
+            collected_warnings.extend(
+                str(value) for value in result.get("warnings", []) if value
+            )
         return AgentResponse(
             status=status,
             session_id=session.session_id,
@@ -273,7 +285,9 @@ class BailianDataFeatureAgent:
                 "warnings": [],
                 "error": {"type": type(exc).__name__, "message": str(exc)},
             }
-            self._append_tool_result(session, call, name or "unknown", arguments, result, approved=approved)
+            self._append_tool_result(
+                session, call, name or "unknown", arguments, result, approved=approved
+            )
             return None
 
         signature = _signature(name, arguments)
@@ -282,7 +296,10 @@ class BailianDataFeatureAgent:
             return self._response(
                 session,
                 "failed",
-                error={"type": "RepeatedToolCall", "message": f"Repeated tool call blocked: {name}"},
+                error={
+                    "type": "RepeatedToolCall",
+                    "message": f"Repeated tool call blocked: {name}",
+                },
             )
         signatures.append(signature)
         session.set_agent_state("turn_signatures", signatures)
@@ -305,7 +322,9 @@ class BailianDataFeatureAgent:
                 }
         else:
             result = self.tools.execute(name, arguments, session)
-        self._append_tool_result(session, call, name, arguments, result, approved=approved)
+        self._append_tool_result(
+            session, call, name, arguments, result, approved=approved
+        )
         return None
 
     def _pending_for(
@@ -390,12 +409,18 @@ class BailianDataFeatureAgent:
             return self._response(
                 session,
                 "failed",
-                error={"type": "EmptyModelResponse", "message": "Bailian returned neither content nor tool calls"},
+                error={
+                    "type": "EmptyModelResponse",
+                    "message": "Bailian returned neither content nor tool calls",
+                },
             )
         return self._response(
             session,
             "failed",
-            error={"type": "MaxRoundsExceeded", "message": f"Agent exceeded {MAX_MODEL_ROUNDS} model rounds"},
+            error={
+                "type": "MaxRoundsExceeded",
+                "message": f"Agent exceeded {MAX_MODEL_ROUNDS} model rounds",
+            },
         )
 
     def _resume_approval(self, session: ChatSession, approval_id: str) -> AgentResponse:
@@ -404,7 +429,10 @@ class BailianDataFeatureAgent:
             return self._response(
                 session,
                 "failed",
-                error={"type": "InvalidApproval", "message": "Approval ID is unknown, consumed, or does not match this session"},
+                error={
+                    "type": "InvalidApproval",
+                    "message": "Approval ID is unknown, consumed, or does not match this session",
+                },
             )
         try:
             expires = datetime.fromisoformat(str(pending["expires_utc"]))
@@ -413,7 +441,10 @@ class BailianDataFeatureAgent:
             return self._response(
                 session,
                 "failed",
-                error={"type": type(exc).__name__, "message": "Pending approval metadata is invalid"},
+                error={
+                    "type": type(exc).__name__,
+                    "message": "Pending approval metadata is invalid",
+                },
             )
         if datetime.now(timezone.utc) >= expires:
             session.clear_pending_action()
@@ -425,7 +456,9 @@ class BailianDataFeatureAgent:
         call = pending["call"]
         remaining = list(pending.get("remaining_calls") or [])
         session.clear_pending_action()  # consume before executing to prevent replay
-        response = self._process_calls(session, [call, *remaining], first_is_approved=True)
+        response = self._process_calls(
+            session, [call, *remaining], first_is_approved=True
+        )
         return response or self._continue(session)
 
     def reject(self, session_id: str, approval_id: str) -> AgentResponse:
@@ -435,7 +468,10 @@ class BailianDataFeatureAgent:
             return self._response(
                 session,
                 "failed",
-                error={"type": "InvalidApproval", "message": "Approval ID is unknown or does not match this session"},
+                error={
+                    "type": "InvalidApproval",
+                    "message": "Approval ID is unknown or does not match this session",
+                },
             )
         calls = [pending["call"], *list(pending.get("remaining_calls") or [])]
         session.clear_pending_action()
@@ -451,9 +487,14 @@ class BailianDataFeatureAgent:
                 "summary": {},
                 "artifacts": [],
                 "warnings": ["User rejected this action."],
-                "error": {"type": "ApprovalRejected", "message": "User rejected this action"},
+                "error": {
+                    "type": "ApprovalRejected",
+                    "message": "User rejected this action",
+                },
             }
-            self._append_tool_result(session, call, name, arguments, result, approved=False)
+            self._append_tool_result(
+                session, call, name, arguments, result, approved=False
+            )
         return self._continue(session)
 
     def run(
@@ -468,18 +509,28 @@ class BailianDataFeatureAgent:
                 return self._response(
                     session,
                     "failed",
-                    error={"type": "InvalidRequest", "message": "Do not provide a new question while approving an action"},
+                    error={
+                        "type": "InvalidRequest",
+                        "message": "Do not provide a new question while approving an action",
+                    },
                 )
             return self._resume_approval(session, approval_id)
         if session.get_pending_action():
             pending = session.get_pending_action() or {}
-            public = {"approval_id": pending.get("approval_id"), "expires_utc": pending.get("expires_utc"), **pending.get("preview", {})}
+            public = {
+                "approval_id": pending.get("approval_id"),
+                "expires_utc": pending.get("expires_utc"),
+                **pending.get("preview", {}),
+            }
             return self._response(session, "approval_required", pending=public)
         if not question or not question.strip():
             return self._response(
                 session,
                 "failed",
-                error={"type": "InvalidRequest", "message": "question must not be empty"},
+                error={
+                    "type": "InvalidRequest",
+                    "message": "question must not be empty",
+                },
             )
 
         session.set_agent_state("turn_trace_start", len(session.get_tool_trace()))

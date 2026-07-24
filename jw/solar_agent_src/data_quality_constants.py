@@ -63,6 +63,11 @@ LABEL_FIELDS = [
 
 # Recommended wording for downstream agents
 RECOMMENDED_WORDING = {
-    "allowed": ["supports", "is consistent with", "suggests", "provides proxy evidence"],
+    "allowed": [
+        "supports",
+        "is consistent with",
+        "suggests",
+        "provides proxy evidence",
+    ],
     "avoid": ["proves", "determines", "guarantees", "definitive causal proof"],
 }

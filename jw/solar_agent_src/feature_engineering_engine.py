@@ -42,7 +42,9 @@ def _normalize_date_column(df: pd.DataFrame, date_col: str | None) -> pd.DataFra
     return out
 
 
-def _numeric_signal_columns(df: pd.DataFrame, semantics: dict[str, list[str]]) -> list[str]:
+def _numeric_signal_columns(
+    df: pd.DataFrame, semantics: dict[str, list[str]]
+) -> list[str]:
     """Return numeric columns that are meaningful solar signals."""
     semantic_groups = ["sunspot", "f107", "polar", "hale", "hemisphere", "flare"]
     cols: set[str] = set()
@@ -78,9 +80,13 @@ def _generate_rolling_features(df: pd.DataFrame, cols: list[str]) -> pd.DataFram
     out = df.copy()
     for col in cols:
         for window in ROLLING_WINDOWS:
-            out[f"{col}_mean_{window}m"] = out[col].shift(1).rolling(window=window, min_periods=1).mean()
+            out[f"{col}_mean_{window}m"] = (
+                out[col].shift(1).rolling(window=window, min_periods=1).mean()
+            )
             if window == 12:
-                out[f"{col}_std_{window}m"] = out[col].shift(1).rolling(window=window, min_periods=1).std()
+                out[f"{col}_std_{window}m"] = (
+                    out[col].shift(1).rolling(window=window, min_periods=1).std()
+                )
     return out
 
 
@@ -100,7 +106,9 @@ def _generate_diff_features(df: pd.DataFrame, cols: list[str]) -> pd.DataFrame:
     return out
 
 
-def _generate_cycle_features(df: pd.DataFrame, cycles: pd.DataFrame | None) -> pd.DataFrame:
+def _generate_cycle_features(
+    df: pd.DataFrame, cycles: pd.DataFrame | None
+) -> pd.DataFrame:
     """Attach solar cycle metadata and phase using existing build_interim_monthly logic."""
     if cycles is None or "date_month" not in df.columns:
         return df
@@ -117,7 +125,9 @@ def _generate_cycle_features(df: pd.DataFrame, cycles: pd.DataFrame | None) -> p
     return out
 
 
-def _generate_cross_signal_features(df: pd.DataFrame, semantics: dict[str, list[str]]) -> pd.DataFrame:
+def _generate_cross_signal_features(
+    df: pd.DataFrame, semantics: dict[str, list[str]]
+) -> pd.DataFrame:
     """Generate cross-signal features such as hemisphere asymmetry and f107-sunspot correlation."""
     out = df.copy()
     sunspot_cols = semantics.get("sunspot", [])
@@ -127,7 +137,10 @@ def _generate_cross_signal_features(df: pd.DataFrame, semantics: dict[str, list[
     # Hemisphere asymmetry: requires north, south, and a total/denominator.
     north = next((c for c in hemisphere_cols if "north" in c.lower()), None)
     south = next((c for c in hemisphere_cols if "south" in c.lower()), None)
-    total = next((c for c in sunspot_cols if "total" in c.lower() or c in {"sunspot_number"}), None)
+    total = next(
+        (c for c in sunspot_cols if "total" in c.lower() or c in {"sunspot_number"}),
+        None,
+    )
     if north and south and total and total in out.columns:
         out["hemispheric_asymmetry"] = np.where(
             out[total].ne(0),
@@ -136,8 +149,14 @@ def _generate_cross_signal_features(df: pd.DataFrame, semantics: dict[str, list[
         )
 
     # Rolling correlation between f107 and sunspot if both exist.
-    f107 = next((c for c in f107_cols if "adjusted" in c.lower() or "mean" in c.lower()), f107_cols[0] if f107_cols else None)
-    sunspot = next((c for c in sunspot_cols if c == "sunspot_number"), sunspot_cols[0] if sunspot_cols else None)
+    f107 = next(
+        (c for c in f107_cols if "adjusted" in c.lower() or "mean" in c.lower()),
+        f107_cols[0] if f107_cols else None,
+    )
+    sunspot = next(
+        (c for c in sunspot_cols if c == "sunspot_number"),
+        sunspot_cols[0] if sunspot_cols else None,
+    )
     if f107 and sunspot and f107 in out.columns and sunspot in out.columns:
         out["f107_sunspot_corr_36m"] = (
             out[f107]
@@ -168,7 +187,9 @@ def _generate_f107_sunspot_drift_features(df: pd.DataFrame) -> pd.DataFrame:
     predicted = slope * x + intercept
     residual = y - predicted
     out["f107_sunspot_residual_36m"] = residual
-    residual_std = residual.rolling(window=window, min_periods=min_periods).std().shift(1)
+    residual_std = (
+        residual.rolling(window=window, min_periods=min_periods).std().shift(1)
+    )
     out["f107_sunspot_zscore_36m"] = np.where(
         residual_std.notna() & (residual_std > 0),
         residual / residual_std,
@@ -198,63 +219,81 @@ def _generate_coverage_flags(df: pd.DataFrame, date_col: str | None) -> pd.DataF
     return out
 
 
-def _build_feature_registry(df: pd.DataFrame, original_columns: list[str], semantics: dict[str, list[str]]) -> dict[str, Any]:
+def _build_feature_registry(
+    df: pd.DataFrame, original_columns: list[str], semantics: dict[str, list[str]]
+) -> dict[str, Any]:
     """Generate a feature registry entry for every column in the engineered DataFrame."""
     fields: list[dict[str, Any]] = []
-    numeric_cols = [c for c in df.columns if pd.api.types.is_numeric_dtype(df[c]) and c not in original_columns]
+    numeric_cols = [
+        c
+        for c in df.columns
+        if pd.api.types.is_numeric_dtype(df[c]) and c not in original_columns
+    ]
 
     for col in df.columns:
         meaning = lookup_physical_meaning(col)
         if col in LABEL_FIELDS:
-            fields.append({
-                "field": col,
-                "role": "label",
-                "allowed_as_model_input": False,
-                "leakage_risk": "forbidden_as_input",
-                "evidence_tier": EVIDENCE_TIER["metadata"],
-                "note": "Supervised target only. Never use as an input feature.",
-                "physical_meaning": meaning.get("physical_meaning"),
-                "mechanism_link": meaning.get("mechanism_link", []),
-            })
+            fields.append(
+                {
+                    "field": col,
+                    "role": "label",
+                    "allowed_as_model_input": False,
+                    "leakage_risk": "forbidden_as_input",
+                    "evidence_tier": EVIDENCE_TIER["metadata"],
+                    "note": "Supervised target only. Never use as an input feature.",
+                    "physical_meaning": meaning.get("physical_meaning"),
+                    "mechanism_link": meaning.get("mechanism_link", []),
+                }
+            )
             continue
 
-        if col in {"date_month", "year", "month"} or col in original_columns and col in ["cycle_no"]:
-            fields.append({
-                "field": col,
-                "role": "identifier",
-                "allowed_as_model_input": False,
-                "leakage_risk": "use_only_for_grouping_or_time_split",
-                "evidence_tier": EVIDENCE_TIER["metadata"],
-                "note": "",
-                "physical_meaning": meaning.get("physical_meaning"),
-                "mechanism_link": meaning.get("mechanism_link", []),
-            })
+        if (
+            col in {"date_month", "year", "month"}
+            or col in original_columns
+            and col in ["cycle_no"]
+        ):
+            fields.append(
+                {
+                    "field": col,
+                    "role": "identifier",
+                    "allowed_as_model_input": False,
+                    "leakage_risk": "use_only_for_grouping_or_time_split",
+                    "evidence_tier": EVIDENCE_TIER["metadata"],
+                    "note": "",
+                    "physical_meaning": meaning.get("physical_meaning"),
+                    "mechanism_link": meaning.get("mechanism_link", []),
+                }
+            )
             continue
 
         if col.startswith("is_") and col.endswith("_available"):
-            fields.append({
-                "field": col,
-                "role": "filter_field",
-                "allowed_as_model_input": True,
-                "leakage_risk": "low",
-                "evidence_tier": EVIDENCE_TIER["metadata"],
-                "note": "Coverage flag derived from instrument availability dates.",
-                "physical_meaning": meaning.get("physical_meaning"),
-                "mechanism_link": meaning.get("mechanism_link", []),
-            })
+            fields.append(
+                {
+                    "field": col,
+                    "role": "filter_field",
+                    "allowed_as_model_input": True,
+                    "leakage_risk": "low",
+                    "evidence_tier": EVIDENCE_TIER["metadata"],
+                    "note": "Coverage flag derived from instrument availability dates.",
+                    "physical_meaning": meaning.get("physical_meaning"),
+                    "mechanism_link": meaning.get("mechanism_link", []),
+                }
+            )
             continue
 
         if col in original_columns:
-            fields.append({
-                "field": col,
-                "role": "input_feature",
-                "allowed_as_model_input": True,
-                "leakage_risk": "low",
-                "evidence_tier": EVIDENCE_TIER["primary"],
-                "note": "Original uploaded column.",
-                "physical_meaning": meaning.get("physical_meaning"),
-                "mechanism_link": meaning.get("mechanism_link", []),
-            })
+            fields.append(
+                {
+                    "field": col,
+                    "role": "input_feature",
+                    "allowed_as_model_input": True,
+                    "leakage_risk": "low",
+                    "evidence_tier": EVIDENCE_TIER["primary"],
+                    "note": "Original uploaded column.",
+                    "physical_meaning": meaning.get("physical_meaning"),
+                    "mechanism_link": meaning.get("mechanism_link", []),
+                }
+            )
             continue
 
         # Engineered numeric features
@@ -273,29 +312,33 @@ def _build_feature_registry(df: pd.DataFrame, original_columns: list[str], seman
             if "months_to_cycle_peak" in col or "roc" in col:
                 leakage = "high_if_predicting_before_peak"
 
-            fields.append({
-                "field": col,
-                "role": "input_feature",
-                "allowed_as_model_input": True,
-                "leakage_risk": leakage,
-                "evidence_tier": evidence,
-                "note": "Engineered feature with no future information.",
-                "physical_meaning": meaning.get("physical_meaning"),
-                "mechanism_link": meaning.get("mechanism_link", []),
-            })
+            fields.append(
+                {
+                    "field": col,
+                    "role": "input_feature",
+                    "allowed_as_model_input": True,
+                    "leakage_risk": leakage,
+                    "evidence_tier": evidence,
+                    "note": "Engineered feature with no future information.",
+                    "physical_meaning": meaning.get("physical_meaning"),
+                    "mechanism_link": meaning.get("mechanism_link", []),
+                }
+            )
             continue
 
         # Default for anything else
-        fields.append({
-            "field": col,
-            "role": "input_feature",
-            "allowed_as_model_input": True,
-            "leakage_risk": "low",
-            "evidence_tier": EVIDENCE_TIER["metadata"],
-            "note": "",
-            "physical_meaning": meaning.get("physical_meaning"),
-            "mechanism_link": meaning.get("mechanism_link", []),
-        })
+        fields.append(
+            {
+                "field": col,
+                "role": "input_feature",
+                "allowed_as_model_input": True,
+                "leakage_risk": "low",
+                "evidence_tier": EVIDENCE_TIER["metadata"],
+                "note": "",
+                "physical_meaning": meaning.get("physical_meaning"),
+                "mechanism_link": meaning.get("mechanism_link", []),
+            }
+        )
 
     return {
         "generated_utc": datetime.now(timezone.utc).isoformat(),
@@ -308,29 +351,37 @@ def _build_feature_registry(df: pd.DataFrame, original_columns: list[str], seman
     }
 
 
-def _validate_engineered_features(df: pd.DataFrame, original_columns: list[str], registry: dict[str, Any]) -> list[dict[str, Any]]:
+def _validate_engineered_features(
+    df: pd.DataFrame, original_columns: list[str], registry: dict[str, Any]
+) -> list[dict[str, Any]]:
     """Validate that engineered features are leakage-free and physically correct."""
     issues: list[dict[str, Any]] = []
 
     # 1. Labels must not be marked as input features in the registry.
-    input_fields = {f["field"] for f in registry["fields"] if f.get("role") == "input_feature"}
+    input_fields = {
+        f["field"] for f in registry["fields"] if f.get("role") == "input_feature"
+    }
     for label in LABEL_FIELDS:
         if label in input_fields:
-            issues.append({
-                "type": "label_in_input_features",
-                "severity": "critical",
-                "message": f"Label column '{label}' is incorrectly marked as an input feature in the registry.",
-            })
+            issues.append(
+                {
+                    "type": "label_in_input_features",
+                    "severity": "critical",
+                    "message": f"Label column '{label}' is incorrectly marked as an input feature in the registry.",
+                }
+            )
 
     # 2. date_month must be month-start.
     if "date_month" in df.columns:
         parsed = pd.to_datetime(df["date_month"], errors="coerce")
         if parsed.notna().any() and not (parsed.dt.day == 1).all():
-            issues.append({
-                "type": "date_month_not_month_start",
-                "severity": "warning",
-                "message": "Not all date_month values are month-start dates.",
-            })
+            issues.append(
+                {
+                    "type": "date_month_not_month_start",
+                    "severity": "warning",
+                    "message": "Not all date_month values are month-start dates.",
+                }
+            )
 
     return issues
 
@@ -402,10 +453,15 @@ def run(session: Any) -> dict[str, Any]:
         engineered_path = save_dir / "engineered_features.csv"
         engineered_df.to_csv(engineered_path, index=False, encoding="utf-8")
         registry_path = save_dir / "feature_registry.json"
-        registry_path.write_text(json.dumps(registry, ensure_ascii=False, indent=2), encoding="utf-8")
+        registry_path.write_text(
+            json.dumps(registry, ensure_ascii=False, indent=2), encoding="utf-8"
+        )
 
         # Auto-load engineered features as current dataset.
-        load_dataset_for_chat(PiAgentRequest(task="load_dataset", upload_path=str(engineered_path)), session)
+        load_dataset_for_chat(
+            PiAgentRequest(task="load_dataset", upload_path=str(engineered_path)),
+            session,
+        )
 
     return {
         "status": "ok",
@@ -413,11 +469,19 @@ def run(session: Any) -> dict[str, Any]:
         "original_columns": len(df.columns),
         "engineered_columns": len(engineered_df.columns),
         "input_feature_count": sum(
-            1 for f in registry["fields"]
-            if f.get("role") == "input_feature" and f.get("allowed_as_model_input") is True
+            1
+            for f in registry["fields"]
+            if f.get("role") == "input_feature"
+            and f.get("allowed_as_model_input") is True
         ),
         "validation_issues": registry["validation_issues"],
-        "engineered_file_path": str(engineered_path.relative_to(ROOT)).replace("\\", "/") if engineered_path else None,
-        "registry_path": str(registry_path.relative_to(ROOT)).replace("\\", "/") if registry_path else None,
+        "engineered_file_path": str(engineered_path.relative_to(ROOT)).replace(
+            "\\", "/"
+        )
+        if engineered_path
+        else None,
+        "registry_path": str(registry_path.relative_to(ROOT)).replace("\\", "/")
+        if registry_path
+        else None,
         "generated_at": datetime.now(timezone.utc).isoformat(),
     }

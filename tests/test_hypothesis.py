@@ -136,7 +136,11 @@ def make_measure_candidate():
 
 
 def make_response(request, candidates=None, distinctions=None, kind="hypotheses_ready"):
-    candidates = candidates if candidates is not None else [make_candidate(), make_measure_candidate()]
+    candidates = (
+        candidates
+        if candidates is not None
+        else [make_candidate(), make_measure_candidate()]
+    )
     if distinctions is None:
         distinctions = [
             {
@@ -178,7 +182,9 @@ def bind_evidence(register, **overrides):
 
 class RequestContractTests(unittest.TestCase):
     def test_natural_language_request(self):
-        request = build_natural_hypothesis_request("第24与25活动周极小期长度差异由什么机制解释？")
+        request = build_natural_hypothesis_request(
+            "第24与25活动周极小期长度差异由什么机制解释？"
+        )
         self.assertEqual(request["schema_version"], REQUEST_VERSION)
         self.assertEqual(request["upstream_materials"], [])
         self.assertTrue(request["task_name"].startswith("hypothesis_"))
@@ -213,7 +219,9 @@ class RequestContractTests(unittest.TestCase):
             "experiment_summary": None,
         }
         request = make_request(upstream_materials=[material])
-        self.assertEqual(request["upstream_materials"][0]["material_kind"], "data_feature")
+        self.assertEqual(
+            request["upstream_materials"][0]["material_kind"], "data_feature"
+        )
         self.assertIsNone(request["upstream_materials"][0]["experiment_summary"])
 
     def test_data_feature_material_rejects_summary(self):
@@ -235,7 +243,9 @@ class RequestContractTests(unittest.TestCase):
         }
         request = make_request(upstream_materials=[material])
         candidate = make_candidate()
-        candidate["supporting_evidence"] = [{"evidence_id": "ev_feat", "note": "特征表显示第24周极小期偏长"}]
+        candidate["supporting_evidence"] = [
+            {"evidence_id": "ev_feat", "note": "特征表显示第24周极小期偏长"}
+        ]
         response = make_response(request, candidates=[candidate])
         register = EvidenceRegister()
         register.bind(
@@ -272,7 +282,9 @@ class RequestContractTests(unittest.TestCase):
         with self.assertRaises(ContractError):
             make_request(
                 upstream_materials=[
-                    make_experiment_material(execution_completed=False, outcome="completed")
+                    make_experiment_material(
+                        execution_completed=False, outcome="completed"
+                    )
                 ]
             )
 
@@ -332,7 +344,9 @@ class ResponseContractTests(unittest.TestCase):
         candidate["evidence_gaps"] = []
         with self.assertRaises(ContractError):
             validate_hypothesis_response(
-                make_response(self.request, candidates=[candidate, make_measure_candidate()]),
+                make_response(
+                    self.request, candidates=[candidate, make_measure_candidate()]
+                ),
                 self.request,
             )
 
@@ -376,7 +390,10 @@ class ResponseContractTests(unittest.TestCase):
 
     def test_next_test_multi_candidate_must_include_self(self):
         candidate = make_candidate()
-        candidate["next_test"]["candidate_ids_distinguished"] = ["cand_measure", "ghost2"]
+        candidate["next_test"]["candidate_ids_distinguished"] = [
+            "cand_measure",
+            "ghost2",
+        ]
         with self.assertRaises(ContractError):
             validate_hypothesis_response(
                 make_response(
@@ -478,7 +495,9 @@ class SemanticCheckTests(unittest.TestCase):
         errors = collect_hypothesis_semantic_errors(
             request,
             validate_hypothesis_response(
-                make_response(request, candidates=[candidate, make_measure_candidate()]),
+                make_response(
+                    request, candidates=[candidate, make_measure_candidate()]
+                ),
                 request,
             ),
             self.register,
@@ -494,10 +513,14 @@ class SemanticCheckTests(unittest.TestCase):
         candidate["confidence"] = {"level": "medium", "basis": "有一项同口径复算证据"}
         candidate["evidence_gaps"] = []
         response = validate_hypothesis_response(
-            make_response(self.request, candidates=[candidate, make_measure_candidate()]),
+            make_response(
+                self.request, candidates=[candidate, make_measure_candidate()]
+            ),
             self.request,
         )
-        errors = collect_hypothesis_semantic_errors(self.request, response, self.register)
+        errors = collect_hypothesis_semantic_errors(
+            self.request, response, self.register
+        )
         self.assertEqual(errors, [])
 
     def test_opposing_role_mismatch_flagged(self):
@@ -509,7 +532,9 @@ class SemanticCheckTests(unittest.TestCase):
         errors = collect_hypothesis_semantic_errors(
             self.request,
             validate_hypothesis_response(
-                make_response(self.request, candidates=[candidate, make_measure_candidate()]),
+                make_response(
+                    self.request, candidates=[candidate, make_measure_candidate()]
+                ),
                 self.request,
             ),
             self.register,
@@ -548,7 +573,9 @@ class SemanticCheckTests(unittest.TestCase):
         errors = collect_hypothesis_semantic_errors(
             self.request,
             validate_hypothesis_response(
-                make_response(self.request, candidates=[candidate, make_measure_candidate()]),
+                make_response(
+                    self.request, candidates=[candidate, make_measure_candidate()]
+                ),
                 self.request,
             ),
             self.register,
@@ -561,7 +588,9 @@ class SemanticCheckTests(unittest.TestCase):
         errors = collect_hypothesis_semantic_errors(
             self.request,
             validate_hypothesis_response(
-                make_response(self.request, candidates=[candidate, make_measure_candidate()]),
+                make_response(
+                    self.request, candidates=[candidate, make_measure_candidate()]
+                ),
                 self.request,
             ),
             self.register,
@@ -574,7 +603,9 @@ class SemanticCheckTests(unittest.TestCase):
         errors = collect_hypothesis_semantic_errors(
             self.request,
             validate_hypothesis_response(
-                make_response(self.request, candidates=[candidate, make_measure_candidate()]),
+                make_response(
+                    self.request, candidates=[candidate, make_measure_candidate()]
+                ),
                 self.request,
             ),
             self.register,
@@ -586,10 +617,14 @@ class SemanticCheckTests(unittest.TestCase):
         candidate = make_candidate()
         candidate["falsification_conditions"] = ["同口径复算后两周极小期长度无差异"]
         response = validate_hypothesis_response(
-            make_response(self.request, candidates=[candidate, make_measure_candidate()]),
+            make_response(
+                self.request, candidates=[candidate, make_measure_candidate()]
+            ),
             self.request,
         )
-        errors = collect_hypothesis_semantic_errors(self.request, response, self.register)
+        errors = collect_hypothesis_semantic_errors(
+            self.request, response, self.register
+        )
         self.assertEqual(errors, [])
 
     def test_technical_failure_not_scientific_evidence(self):
@@ -608,7 +643,9 @@ class SemanticCheckTests(unittest.TestCase):
         errors = collect_hypothesis_semantic_errors(
             self.request,
             validate_hypothesis_response(
-                make_response(self.request, candidates=[candidate, make_measure_candidate()]),
+                make_response(
+                    self.request, candidates=[candidate, make_measure_candidate()]
+                ),
                 self.request,
             ),
             register,
@@ -739,7 +776,9 @@ class PreflightAndFreezeTests(unittest.TestCase):
             request,
         )
         with tempfile.TemporaryDirectory() as tmp:
-            outcome = freeze_hypothesis_portfolio(request, response, register, runs_root=Path(tmp))
+            outcome = freeze_hypothesis_portfolio(
+                request, response, register, runs_root=Path(tmp)
+            )
             self.assertEqual(outcome["status"], "frozen_and_valid")
             self.assertEqual(outcome["files_written"], 3)
             self.assertEqual(outcome["experiments_executed"], 0)
@@ -753,9 +792,13 @@ class PreflightAndFreezeTests(unittest.TestCase):
             self.assertNotIn("schema_version", markdown)
             self.assertNotIn("evidence_id", markdown)
             # 用户展示文本与落盘 Markdown 一致
-            self.assertTrue(outcome["user_display_markdown"].startswith(markdown.rstrip()))
+            self.assertTrue(
+                outcome["user_display_markdown"].startswith(markdown.rstrip())
+            )
             # 再次保存建立新的独立运行目录，不覆盖历史运行
-            second = freeze_hypothesis_portfolio(request, response, register, runs_root=Path(tmp))
+            second = freeze_hypothesis_portfolio(
+                request, response, register, runs_root=Path(tmp)
+            )
             self.assertNotEqual(second["run_id"], outcome["run_id"])
             self.assertTrue((Path(tmp) / second["run_id"] / "hypotheses.md").exists())
             self.assertTrue((run_dir / "hypotheses.md").exists())
@@ -772,7 +815,9 @@ class PreflightAndFreezeTests(unittest.TestCase):
                     encoding="utf-8"
                 )
             )
-            self.assertEqual(portfolio["schema_version"], "scientific-hypothesis-portfolio-v1")
+            self.assertEqual(
+                portfolio["schema_version"], "scientific-hypothesis-portfolio-v1"
+            )
             self.assertEqual(len(portfolio["portfolio_sha256"]), 64)
             self.assertEqual(portfolio["status"], "frozen")
 

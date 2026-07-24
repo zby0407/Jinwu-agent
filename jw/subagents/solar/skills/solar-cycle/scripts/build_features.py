@@ -86,25 +86,35 @@ def _cycles_from_canonical_minima(sunspot: pd.DataFrame) -> list[dict]:
     usable = [d for d in minima if d >= min_date and d <= max_date]
     if len(usable) < 2:
         # Fallback: coarse local-minima inference for non-standard data.
-        smoothed = sunspot.set_index("date")["sn"].rolling(61, center=True, min_periods=1).mean()
-        minima = smoothed[(smoothed.shift(1) > smoothed) & (smoothed.shift(-1) > smoothed)]
+        smoothed = (
+            sunspot.set_index("date")["sn"]
+            .rolling(61, center=True, min_periods=1)
+            .mean()
+        )
+        minima = smoothed[
+            (smoothed.shift(1) > smoothed) & (smoothed.shift(-1) > smoothed)
+        ]
         dates = sorted({*minima.index.tolist(), min_date, max_date})
         usable = [pd.to_datetime(d) for d in dates]
 
     cycles = []
     for i in range(len(usable) - 1):
-        segment = sunspot[(sunspot["date"] >= usable[i]) & (sunspot["date"] < usable[i + 1])]
+        segment = sunspot[
+            (sunspot["date"] >= usable[i]) & (sunspot["date"] < usable[i + 1])
+        ]
         if segment.empty:
             continue
         peak_idx = segment["sn"].idxmax()
         peak = segment.loc[peak_idx]
-        cycles.append({
-            "cycle": i + 1,
-            "start_date": usable[i].strftime("%Y-%m-%d"),
-            "end_date": usable[i + 1].strftime("%Y-%m-%d"),
-            "peak_date": peak["date"].strftime("%Y-%m-%d"),
-            "peak_sn": float(peak["sn"]),
-        })
+        cycles.append(
+            {
+                "cycle": i + 1,
+                "start_date": usable[i].strftime("%Y-%m-%d"),
+                "end_date": usable[i + 1].strftime("%Y-%m-%d"),
+                "peak_date": peak["date"].strftime("%Y-%m-%d"),
+                "peak_sn": float(peak["sn"]),
+            }
+        )
     return cycles
 
 
@@ -130,7 +140,9 @@ def build_cycle_features(
             continue
         min_sn = float(seg["sn"].min())
         peak_sn = float(c.get("peak_sn", seg["sn"].max()))
-        peak_date = pd.to_datetime(c.get("peak_date", seg.loc[seg["sn"].idxmax(), "date"]))
+        peak_date = pd.to_datetime(
+            c.get("peak_date", seg.loc[seg["sn"].idxmax(), "date"])
+        )
         length_months = int((end - start).days / 30.44)
         rise_months = int((peak_date - start).days / 30.44)
         fall_months = length_months - rise_months

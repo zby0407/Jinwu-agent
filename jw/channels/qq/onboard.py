@@ -39,8 +39,7 @@ PORTAL_HOST = os.getenv("QQ_PORTAL_HOST", "q.qq.com")
 ONBOARD_CREATE_PATH = "/lite/create_bind_task"
 ONBOARD_POLL_PATH = "/lite/poll_bind_result"
 QR_URL_TEMPLATE = (
-    "https://q.qq.com/qqbot/openclaw/connect.html"
-    "?task_id={task_id}&_wv=2&source=jw"
+    "https://q.qq.com/qqbot/openclaw/connect.html?task_id={task_id}&_wv=2&source=jw"
 )
 
 ONBOARD_API_TIMEOUT = 10.0
@@ -82,10 +81,7 @@ def _build_user_agent() -> str:
         f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}"
     )
     os_name = platform.system().lower()
-    return (
-        f"JWQQ/1.0.0 (Python/{py_version}; {os_name}; "
-        f"jw/{_get_jw_version()})"
-    )
+    return f"JWQQ/1.0.0 (Python/{py_version}; {os_name}; jw/{_get_jw_version()})"
 
 
 def _api_headers() -> dict[str, str]:

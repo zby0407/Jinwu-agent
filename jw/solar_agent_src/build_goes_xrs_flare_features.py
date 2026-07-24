@@ -30,8 +30,15 @@ CLASS_BASE_FLUX = {
 def selected_report_files() -> list[Path]:
     files = []
     for year in range(1975, 2018):
-        if year == 2015 and (RAW_DIR / "goes-xrs-report_2015_modifiedreplacedmissingrows.txt").exists():
-            files.append(RAW_DIR / "goes-xrs-report_2015_modifiedreplacedmissingrows.txt")
+        if (
+            year == 2015
+            and (
+                RAW_DIR / "goes-xrs-report_2015_modifiedreplacedmissingrows.txt"
+            ).exists()
+        ):
+            files.append(
+                RAW_DIR / "goes-xrs-report_2015_modifiedreplacedmissingrows.txt"
+            )
         elif year == 2017 and (RAW_DIR / "goes-xrs-report_2017-ytd.txt").exists():
             files.append(RAW_DIR / "goes-xrs-report_2017-ytd.txt")
         else:
@@ -72,14 +79,18 @@ def clean_time_token(token: str) -> tuple[str | None, bool]:
     return f"{hour:02d}:{minute:02d}", has_quality_letters
 
 
-def time_to_datetime(event_date: pd.Timestamp, time_value: str | None) -> datetime | None:
+def time_to_datetime(
+    event_date: pd.Timestamp, time_value: str | None
+) -> datetime | None:
     if pd.isna(event_date) or not time_value:
         return None
     hour, minute = [int(part) for part in time_value.split(":")]
     return datetime(event_date.year, event_date.month, event_date.day, hour, minute)
 
 
-def duration_minutes(event_date: pd.Timestamp, start_time: str | None, end_time: str | None) -> float:
+def duration_minutes(
+    event_date: pd.Timestamp, start_time: str | None, end_time: str | None
+) -> float:
     start_dt = time_to_datetime(event_date, start_time)
     end_dt = time_to_datetime(event_date, end_time)
     if start_dt is None or end_dt is None:
@@ -90,7 +101,9 @@ def duration_minutes(event_date: pd.Timestamp, start_time: str | None, end_time:
 
 
 def parse_class(line: str) -> tuple[str | None, str | None, float, float, str]:
-    match = re.search(r"\s(?P<letter>[ABCMX])\s*(?P<value>\d+(?:\.\d+)?)\s+(?P<sat>GOES|G\d+)\b", line)
+    match = re.search(
+        r"\s(?P<letter>[ABCMX])\s*(?P<value>\d+(?:\.\d+)?)\s+(?P<sat>GOES|G\d+)\b", line
+    )
     if not match:
         return None, None, np.nan, np.nan, "missing"
     letter = match.group("letter")
@@ -107,7 +120,9 @@ def parse_class(line: str) -> tuple[str | None, str | None, float, float, str]:
 
 def parse_location(line: str) -> tuple[str | None, float, float, str, bool, str]:
     search_region = line[20:58]
-    match = re.search(r"(?P<lat_dir>[NS])(?P<lat>\d{2})(?P<lon_dir>[EW])(?P<lon>\d{2})", search_region)
+    match = re.search(
+        r"(?P<lat_dir>[NS])(?P<lat>\d{2})(?P<lon_dir>[EW])(?P<lon>\d{2})", search_region
+    )
     if not match:
         return None, np.nan, np.nan, "unknown", False, "missing"
     lat = int(match.group("lat"))
@@ -122,11 +137,20 @@ def parse_location(line: str) -> tuple[str | None, float, float, str, bool, str]
         quality = "mid_disk"
     else:
         quality = "limb"
-    return match.group(0), float(latitude), float(longitude), hemisphere, abs_lon > 60, quality
+    return (
+        match.group(0),
+        float(latitude),
+        float(longitude),
+        hemisphere,
+        abs_lon > 60,
+        quality,
+    )
 
 
 def parse_active_region(line: str) -> tuple[str | None, bool]:
-    class_match = re.search(r"\s[ABCMX]\s*\d+(?:\.\d+)?\s+(?:GOES|G\d+)\b(?P<tail>.*)$", line)
+    class_match = re.search(
+        r"\s[ABCMX]\s*\d+(?:\.\d+)?\s+(?:GOES|G\d+)\b(?P<tail>.*)$", line
+    )
     if not class_match:
         return None, False
     tail_tokens = class_match.group("tail").split()
@@ -161,15 +185,30 @@ def parse_time_fields(line: str) -> tuple[str | None, str | None, str | None, st
     return start_time, peak_time, end_time, flag
 
 
-def parse_line(line: str, path: Path, raw_line_no: int, sequence: int) -> dict[str, object]:
+def parse_line(
+    line: str, path: Path, raw_line_no: int, sequence: int
+) -> dict[str, object]:
     src_year = source_year(path)
     tokens = line.split()
     date_token = tokens[0] if tokens else ""
     event_date = parse_event_date(date_token)
     date_ok = not pd.isna(event_date)
     start_time, peak_time, end_time, time_quality_flag = parse_time_fields(line)
-    xray_class_full, xray_class_letter, xray_class_value, xray_peak_flux_proxy, class_quality_flag = parse_class(line)
-    location_raw, latitude_deg, longitude_deg, hemisphere, limb_flag, position_quality_flag = parse_location(line)
+    (
+        xray_class_full,
+        xray_class_letter,
+        xray_class_value,
+        xray_peak_flux_proxy,
+        class_quality_flag,
+    ) = parse_class(line)
+    (
+        location_raw,
+        latitude_deg,
+        longitude_deg,
+        hemisphere,
+        limb_flag,
+        position_quality_flag,
+    ) = parse_location(line)
     noaa_active_region, has_active_region = parse_active_region(line)
     parse_status = "ok" if date_ok and class_quality_flag == "ok" else "partial"
     if not date_ok:
@@ -189,7 +228,9 @@ def parse_line(line: str, path: Path, raw_line_no: int, sequence: int) -> dict[s
         "start_time": start_time,
         "peak_time": peak_time,
         "end_time": end_time,
-        "duration_min": duration_minutes(event_date, start_time, end_time) if date_ok else np.nan,
+        "duration_min": duration_minutes(event_date, start_time, end_time)
+        if date_ok
+        else np.nan,
         "xray_class_full": xray_class_full,
         "xray_class_letter": xray_class_letter,
         "xray_class_value": xray_class_value,
@@ -261,7 +302,9 @@ def monthly_quality_flag(group: pd.DataFrame) -> str:
         | group["time_quality_flag"].ne("ok")
         | group["class_quality_flag"].ne("ok")
     ).mean()
-    position_missing_share = group["position_quality_flag"].isin(["missing", "invalid"]).mean()
+    position_missing_share = (
+        group["position_quality_flag"].isin(["missing", "invalid"]).mean()
+    )
     if partial_share > 0.25:
         return "partial_parse"
     if position_missing_share > 0.5:
@@ -276,7 +319,9 @@ def build_monthly(events: pd.DataFrame) -> pd.DataFrame:
     usable["valid_position"] = usable["hemisphere"].isin(["north", "south"])
     grouped = dict(tuple(usable.groupby("date_month", sort=True)))
     monthly_rows = []
-    for date_month in pd.date_range(LEGACY_COVERAGE_START, LEGACY_COVERAGE_END, freq="MS"):
+    for date_month in pd.date_range(
+        LEGACY_COVERAGE_START, LEGACY_COVERAGE_END, freq="MS"
+    ):
         group = grouped.get(date_month, usable.iloc[0:0])
         north = int(group["hemisphere"].eq("north").sum())
         south = int(group["hemisphere"].eq("south").sum())
@@ -295,43 +340,77 @@ def build_monthly(events: pd.DataFrame) -> pd.DataFrame:
                 "flare_count_m": int(group["xray_class_letter"].eq("M").sum()),
                 "flare_count_x": int(group["xray_class_letter"].eq("X").sum()),
                 "flare_count_unknown": int(group["xray_class_letter"].isna().sum()),
-                "flare_count_ge_c": int(group["xray_class_letter"].isin(["C", "M", "X"]).sum()),
-                "flare_count_ge_m": int(group["xray_class_letter"].isin(["M", "X"]).sum()),
-                "m_x_flare_count": int(group["xray_class_letter"].isin(["M", "X"]).sum()),
-                "xray_peak_flux_sum_proxy": group["xray_peak_flux_proxy"].sum(skipna=True),
-                "xray_peak_flux_max_proxy": group["xray_peak_flux_proxy"].max(skipna=True),
-                "flare_days_count": int(group["event_date"].dt.date.nunique()) if total else 0,
-                "active_region_count": int(group.loc[group["has_active_region"], "noaa_active_region"].nunique()),
+                "flare_count_ge_c": int(
+                    group["xray_class_letter"].isin(["C", "M", "X"]).sum()
+                ),
+                "flare_count_ge_m": int(
+                    group["xray_class_letter"].isin(["M", "X"]).sum()
+                ),
+                "m_x_flare_count": int(
+                    group["xray_class_letter"].isin(["M", "X"]).sum()
+                ),
+                "xray_peak_flux_sum_proxy": group["xray_peak_flux_proxy"].sum(
+                    skipna=True
+                ),
+                "xray_peak_flux_max_proxy": group["xray_peak_flux_proxy"].max(
+                    skipna=True
+                ),
+                "flare_days_count": int(group["event_date"].dt.date.nunique())
+                if total
+                else 0,
+                "active_region_count": int(
+                    group.loc[
+                        group["has_active_region"], "noaa_active_region"
+                    ].nunique()
+                ),
                 "flare_north_count": north,
                 "flare_south_count": south,
-                "flare_hemispheric_asymmetry": ((north - south) / denom) if denom else np.nan,
+                "flare_hemispheric_asymmetry": ((north - south) / denom)
+                if denom
+                else np.nan,
                 "position_valid_count": position_valid_count,
-                "position_valid_rate": (position_valid_count / total) if total else np.nan,
+                "position_valid_rate": (position_valid_count / total)
+                if total
+                else np.nan,
                 "hemisphere_unknown_count": unknown_hemi,
                 "limb_flare_share": group["limb_flag"].mean() if total else np.nan,
-                "flare_parse_ok_rate": group["parse_status"].eq("ok").mean() if total else 1.0,
-                "flare_time_complete_rate": group["time_quality_flag"].isin(["ok", "legacy_uncertain"]).mean()
+                "flare_parse_ok_rate": group["parse_status"].eq("ok").mean()
                 if total
                 else 1.0,
-                "flare_position_valid_rate": (position_valid_count / total) if total else np.nan,
-                "flare_class_valid_rate": group["class_quality_flag"].eq("ok").mean() if total else 1.0,
+                "flare_time_complete_rate": group["time_quality_flag"]
+                .isin(["ok", "legacy_uncertain"])
+                .mean()
+                if total
+                else 1.0,
+                "flare_position_valid_rate": (position_valid_count / total)
+                if total
+                else np.nan,
+                "flare_class_valid_rate": group["class_quality_flag"].eq("ok").mean()
+                if total
+                else 1.0,
                 "has_flare_data": True,
-                "flare_coverage_status": "observed_zero_event" if observed_zero_event else "observed_events",
-                "flare_legacy_duration_warning": bool(total and group["time_quality_flag"].ne("ok").any()),
-                "flare_data_quality_flag": "observed_zero_event" if observed_zero_event else monthly_quality_flag(group),
+                "flare_coverage_status": "observed_zero_event"
+                if observed_zero_event
+                else "observed_events",
+                "flare_legacy_duration_warning": bool(
+                    total and group["time_quality_flag"].ne("ok").any()
+                ),
+                "flare_data_quality_flag": "observed_zero_event"
+                if observed_zero_event
+                else monthly_quality_flag(group),
                 "flare_evidence_tier": "auxiliary",
             }
         )
     return pd.DataFrame(monthly_rows)
 
 
-def build_cycle_flare_features(monthly: pd.DataFrame, master: pd.DataFrame) -> pd.DataFrame:
+def build_cycle_flare_features(
+    monthly: pd.DataFrame, master: pd.DataFrame
+) -> pd.DataFrame:
     phase_cols = ["date_month", "cycle_no", "cycle_phase", "months_to_cycle_peak"]
     if "cycle_phase_windowed" in master.columns:
         phase_cols.append("cycle_phase_windowed")
-    merged = master[phase_cols].merge(
-        monthly, on="date_month", how="left"
-    )
+    merged = master[phase_cols].merge(monthly, on="date_month", how="left")
     if "cycle_phase_windowed" not in merged.columns:
         merged["cycle_phase_windowed"] = merged["cycle_phase"]
     merged = merged[merged["cycle_no"].notna()].copy()
@@ -362,7 +441,11 @@ def build_cycle_flare_features(monthly: pd.DataFrame, master: pd.DataFrame) -> p
         monthly_peak = covered.loc[covered["m_x_flare_count"].fillna(0).idxmax()]
         peak_lag = monthly_peak["months_to_cycle_peak"]
         valid_asym = covered["flare_hemispheric_asymmetry"].dropna()
-        partial_share = covered["flare_data_quality_flag"].isin(["partial_parse", "limited_position"]).mean()
+        partial_share = (
+            covered["flare_data_quality_flag"]
+            .isin(["partial_parse", "limited_position"])
+            .mean()
+        )
         if partial_share > 0.5:
             quality = "partial_legacy"
         elif len(covered) < len(group):
@@ -372,22 +455,33 @@ def build_cycle_flare_features(monthly: pd.DataFrame, master: pd.DataFrame) -> p
         rows.append(
             {
                 "cycle_no": cycle_no,
-                "cycle_flare_count_total": covered["flare_count_total"].sum(skipna=True),
+                "cycle_flare_count_total": covered["flare_count_total"].sum(
+                    skipna=True
+                ),
                 "cycle_mx_flare_count": covered["m_x_flare_count"].sum(skipna=True),
                 "cycle_x_flare_count": covered["flare_count_x"].sum(skipna=True),
-                "cycle_flare_flux_sum_proxy": covered["xray_peak_flux_sum_proxy"].sum(skipna=True),
-                "cycle_flare_flux_max_proxy": covered["xray_peak_flux_max_proxy"].max(skipna=True),
+                "cycle_flare_flux_sum_proxy": covered["xray_peak_flux_sum_proxy"].sum(
+                    skipna=True
+                ),
+                "cycle_flare_flux_max_proxy": covered["xray_peak_flux_max_proxy"].max(
+                    skipna=True
+                ),
                 "rise_phase_mx_flare_count": covered.loc[
                     covered["cycle_phase"].eq("rising"), "m_x_flare_count"
                 ].sum(skipna=True),
                 "max_phase_mx_flare_count": covered.loc[
-                    covered["cycle_phase_windowed"].eq("maximum_window"), "m_x_flare_count"
+                    covered["cycle_phase_windowed"].eq("maximum_window"),
+                    "m_x_flare_count",
                 ].sum(skipna=True),
                 "decline_phase_mx_flare_count": covered.loc[
                     covered["cycle_phase"].eq("declining"), "m_x_flare_count"
                 ].sum(skipna=True),
-                "flare_peak_lag_to_sunspot_peak_months": -peak_lag if pd.notna(peak_lag) else np.nan,
-                "cycle_flare_asymmetry_mean": valid_asym.mean() if not valid_asym.empty else np.nan,
+                "flare_peak_lag_to_sunspot_peak_months": -peak_lag
+                if pd.notna(peak_lag)
+                else np.nan,
+                "cycle_flare_asymmetry_mean": valid_asym.mean()
+                if not valid_asym.empty
+                else np.nan,
                 "flare_coverage_months": int(len(covered)),
                 "flare_cycle_quality_flag": quality,
             }
@@ -403,9 +497,13 @@ def build_monthly_outputs() -> tuple[pd.DataFrame, pd.DataFrame]:
     events.to_csv(EVENT_OUTPUT, index=False, encoding="utf-8")
     monthly.to_csv(MONTHLY_OUTPUT, index=False, encoding="utf-8")
     print(f"saved {EVENT_OUTPUT}")
-    print(f"events={len(events)} range={events['event_date'].min()}..{events['event_date'].max()}")
+    print(
+        f"events={len(events)} range={events['event_date'].min()}..{events['event_date'].max()}"
+    )
     print(f"saved {MONTHLY_OUTPUT}")
-    print(f"months={len(monthly)} range={monthly['date_month'].min()}..{monthly['date_month'].max()}")
+    print(
+        f"months={len(monthly)} range={monthly['date_month'].min()}..{monthly['date_month'].max()}"
+    )
     print(monthly["flare_data_quality_flag"].value_counts().to_string())
     return events, monthly
 

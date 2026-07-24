@@ -171,9 +171,7 @@ class TestModelOverride:
 
         with (
             _patched_config({"model": "gpt-5", "model_provider": "openai"}),
-            patch(
-                "jw.llm.get_chat_model", return_value=new_model
-            ) as mock_get,
+            patch("jw.llm.get_chat_model", return_value=new_model) as mock_get,
         ):
             mw.wrap_model_call(req, handler)
 
@@ -197,9 +195,7 @@ class TestModelOverride:
             _patched_config(
                 {"model": "claude-opus-4-8", "model_provider": "anthropic"}
             ),
-            patch(
-                "jw.llm.get_chat_model", return_value=new_model
-            ) as mock_get,
+            patch("jw.llm.get_chat_model", return_value=new_model) as mock_get,
         ):
             result = await mw.awrap_model_call(req, handler)
 
@@ -214,9 +210,7 @@ class TestModelOverride:
 
         with (
             _patched_config({"model": "gpt-5"}),
-            patch(
-                "jw.llm.get_chat_model", return_value=new_model
-            ) as mock_get,
+            patch("jw.llm.get_chat_model", return_value=new_model) as mock_get,
         ):
             mw.wrap_model_call(req, handler)
 
@@ -240,9 +234,7 @@ class TestCache:
 
         with (
             _patched_config({"model": "gpt-5", "model_provider": "openai"}),
-            patch(
-                "jw.llm.get_chat_model", return_value=new_model
-            ) as mock_get,
+            patch("jw.llm.get_chat_model", return_value=new_model) as mock_get,
         ):
             mw.wrap_model_call(req1, handler)
             mw.wrap_model_call(req2, handler)
@@ -365,9 +357,7 @@ class TestRunnableContextVarIntegration:
             {"configurable": {"model": "gpt-5.5", "model_provider": "openai"}}
         )
         try:
-            with patch(
-                "jw.llm.get_chat_model", return_value=new_model
-            ) as mock_get:
+            with patch("jw.llm.get_chat_model", return_value=new_model) as mock_get:
                 mw.wrap_model_call(req, handler)
         finally:
             var_child_runnable_config.reset(token)

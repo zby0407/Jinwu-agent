@@ -57,7 +57,10 @@ def _rel(path: Path) -> str:
 
 def _bounded(value: Any, *, list_limit: int = 50) -> Any:
     if isinstance(value, dict):
-        return {str(key): _bounded(item, list_limit=list_limit) for key, item in value.items()}
+        return {
+            str(key): _bounded(item, list_limit=list_limit)
+            for key, item in value.items()
+        }
     if isinstance(value, list):
         return [_bounded(item, list_limit=list_limit) for item in value[:list_limit]]
     if isinstance(value, tuple):
@@ -107,7 +110,11 @@ class PathPolicy:
         roots: list[Path] = [ROOT.resolve()]
         configured = os.getenv("DATA_FEATURE_ALLOWED_ROOTS", "")
         if configured:
-            roots.extend(Path(item.strip().strip('"')).expanduser() for item in configured.split(os.pathsep) if item.strip())
+            roots.extend(
+                Path(item.strip().strip('"')).expanduser()
+                for item in configured.split(os.pathsep)
+                if item.strip()
+            )
         if extra_roots:
             roots.extend(Path(item).expanduser() for item in extra_roots)
         self.allowed_roots = list(dict.fromkeys(path.resolve() for path in roots))
@@ -117,7 +124,9 @@ class PathPolicy:
         if not path.is_absolute():
             path = ROOT / path
         path = path.resolve()
-        if not any(path == root or path.is_relative_to(root) for root in self.allowed_roots):
+        if not any(
+            path == root or path.is_relative_to(root) for root in self.allowed_roots
+        ):
             raise PermissionError(
                 f"Dataset path is outside DATA_FEATURE_ALLOWED_ROOTS: {path}. "
                 f"Allowed roots: {[str(root) for root in self.allowed_roots]}"
@@ -153,7 +162,9 @@ class AgentToolContext:
     def current_path(self, requested: str | None = None) -> Path:
         value = requested or self.session.get_current_dataset_path()
         if not value:
-            raise ValueError("No dataset is available. Provide path or call register_dataset first.")
+            raise ValueError(
+                "No dataset is available. Provide path or call register_dataset first."
+            )
         return self.path_policy.resolve_csv(value)
 
 
@@ -219,7 +230,11 @@ def inspect_dataset(ctx: AgentToolContext, args: dict[str, Any]) -> dict[str, An
     inspection = inspect_csv(path, max_rows=max_rows)
     return tool_result(
         "inspect_dataset",
-        summary={"path": str(path), "bytes": path.stat().st_size, "inspection": inspection},
+        summary={
+            "path": str(path),
+            "bytes": path.stat().st_size,
+            "inspection": inspection,
+        },
         warnings=inspection.get("warnings", []),
         started_utc=started,
     )
@@ -242,7 +257,9 @@ def dataset_statistics(ctx: AgentToolContext, args: dict[str, Any]) -> dict[str,
     elif action == "tail":
         result = dataset_stats_engine.tail(session, n=n)
     elif action == "column_stats":
-        result = dataset_stats_engine.column_stats(session, column=columns[0] if columns else None)
+        result = dataset_stats_engine.column_stats(
+            session, column=columns[0] if columns else None
+        )
     elif action == "corr":
         if len(columns) != 2:
             raise ValueError("corr requires exactly two columns")
@@ -258,7 +275,9 @@ def dataset_statistics(ctx: AgentToolContext, args: dict[str, Any]) -> dict[str,
     elif action == "drift":
         if len(columns) != 2:
             raise ValueError("drift requires exactly two numeric columns")
-        result = dataset_stats_engine.drift(session, columns[0], columns[1], group=group)
+        result = dataset_stats_engine.drift(
+            session, columns[0], columns[1], group=group
+        )
     else:
         raise ValueError(f"Unknown statistics action: {action}")
     return tool_result("dataset_statistics", summary=result, started_utc=started)
@@ -275,12 +294,18 @@ def analyze_data_quality(ctx: AgentToolContext, args: dict[str, Any]) -> dict[st
     return tool_result(
         "analyze_data_quality",
         summary=report,
-        warnings=[issue["message"] for issue in report.get("issues", []) if issue.get("severity") == "critical"],
+        warnings=[
+            issue["message"]
+            for issue in report.get("issues", [])
+            if issue.get("severity") == "critical"
+        ],
         started_utc=started,
     )
 
 
-def validate_data_contracts(ctx: AgentToolContext, args: dict[str, Any]) -> dict[str, Any]:
+def validate_data_contracts(
+    ctx: AgentToolContext, args: dict[str, Any]
+) -> dict[str, Any]:
     del ctx, args
     started = utc_now()
     result = run_contract_tests()
@@ -289,7 +314,9 @@ def validate_data_contracts(ctx: AgentToolContext, args: dict[str, Any]) -> dict
         "validate_data_contracts",
         status=status,
         summary=result,
-        error=None if status == "ok" else {"type": "ContractTestFailure", "message": "Contract tests failed"},
+        error=None
+        if status == "ok"
+        else {"type": "ContractTestFailure", "message": "Contract tests failed"},
         started_utc=started,
     )
 
@@ -301,7 +328,9 @@ def register_dataset(ctx: AgentToolContext, args: dict[str, Any]) -> dict[str, A
     request.use_llm_semantics = bool(args.get("use_llm_semantics", True))
     result = load_dataset_for_chat(request, ctx.session)
     summary = ctx.session.get_inspection_summary() or {}
-    artifacts = [item for item in [result.get("dataset"), summary.get("report_path")] if item]
+    artifacts = [
+        item for item in [result.get("dataset"), summary.get("report_path")] if item
+    ]
     warnings = [item for item in [result.get("warning")] if item]
     return tool_result(
         "register_dataset",
@@ -312,47 +341,68 @@ def register_dataset(ctx: AgentToolContext, args: dict[str, Any]) -> dict[str, A
     )
 
 
-def generate_dataset_features(ctx: AgentToolContext, args: dict[str, Any]) -> dict[str, Any]:
+def generate_dataset_features(
+    ctx: AgentToolContext, args: dict[str, Any]
+) -> dict[str, Any]:
     del args
     started = utc_now()
     if not ctx.session.get_current_dataset_path():
         raise ValueError("register_dataset must be completed before feature generation")
     quality = ctx.session.get_agent_state("latest_quality_report")
     if not quality:
-        raise ValueError("analyze_data_quality must be completed before feature generation")
+        raise ValueError(
+            "analyze_data_quality must be completed before feature generation"
+        )
     result = feature_engineering_engine.run(ctx.session)
     artifacts = [
-        item for item in [result.get("engineered_file_path"), result.get("registry_path")] if item
+        item
+        for item in [result.get("engineered_file_path"), result.get("registry_path")]
+        if item
     ]
     return tool_result(
         "generate_dataset_features",
         summary=result,
         artifacts=artifacts,
-        warnings=[item.get("message", str(item)) for item in result.get("validation_issues", [])],
+        warnings=[
+            item.get("message", str(item))
+            for item in result.get("validation_issues", [])
+        ],
         started_utc=started,
     )
 
 
-def create_experiment_handoff(ctx: AgentToolContext, args: dict[str, Any]) -> dict[str, Any]:
+def create_experiment_handoff(
+    ctx: AgentToolContext, args: dict[str, Any]
+) -> dict[str, Any]:
     del args
     started = utc_now()
     path = ctx.current_path()
     registry_path = ctx.session.get_upload_registry_path()
     if not registry_path or not registry_path.exists():
-        raise ValueError("generate_dataset_features must create feature_registry.json before handoff")
+        raise ValueError(
+            "generate_dataset_features must create feature_registry.json before handoff"
+        )
     quality = ctx.session.get_agent_state("latest_quality_report")
     if not quality:
         raise ValueError("analyze_data_quality must be completed before handoff")
     registry = json.loads(registry_path.read_text(encoding="utf-8"))
     frame = _read_frame(path)
-    handoff = experiment_handoff_engine.build_handoff(frame, str(path), registry, quality)
+    handoff = experiment_handoff_engine.build_handoff(
+        frame, str(path), registry, quality
+    )
     report_dir = registry_path.parent
     handoff_path = report_dir / "experiment_handoff.json"
-    handoff_path.write_text(json.dumps(handoff, ensure_ascii=False, indent=2), encoding="utf-8")
+    handoff_path.write_text(
+        json.dumps(handoff, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
     handoff["handoff_path"] = _rel(handoff_path)
-    forbidden = handoff.get("handoff_to_experiment_agent", {}).get("forbidden_inputs", [])
+    forbidden = handoff.get("handoff_to_experiment_agent", {}).get(
+        "forbidden_inputs", []
+    )
     if any(not str(item).startswith("next_cycle_") for item in forbidden):
-        warnings = ["Review non-next-cycle forbidden inputs before downstream modeling."]
+        warnings = [
+            "Review non-next-cycle forbidden inputs before downstream modeling."
+        ]
     else:
         warnings = []
     return tool_result(
@@ -364,24 +414,35 @@ def create_experiment_handoff(ctx: AgentToolContext, args: dict[str, Any]) -> di
     )
 
 
-def rebuild_project_pipeline(ctx: AgentToolContext, args: dict[str, Any]) -> dict[str, Any]:
+def rebuild_project_pipeline(
+    ctx: AgentToolContext, args: dict[str, Any]
+) -> dict[str, Any]:
     del ctx
     started = utc_now()
     workflow = run_full_workflow()
     tests = run_contract_tests() if bool(args.get("run_tests", True)) else None
-    status = "ok" if workflow.get("status") == "ok" and (tests is None or tests.get("status") == "ok") else "failed"
+    status = (
+        "ok"
+        if workflow.get("status") == "ok"
+        and (tests is None or tests.get("status") == "ok")
+        else "failed"
+    )
     artifacts = [item for item in REQUIRED_OUTPUTS if (ROOT / item).exists()]
     return tool_result(
         "rebuild_project_pipeline",
         status=status,
         summary={"workflow": workflow, "tests": tests},
         artifacts=artifacts,
-        error=None if status == "ok" else {"type": "PipelineFailure", "message": "Pipeline or tests failed"},
+        error=None
+        if status == "ok"
+        else {"type": "PipelineFailure", "message": "Pipeline or tests failed"},
         started_utc=started,
     )
 
 
-def ingest_align_solar_data(ctx: AgentToolContext, args: dict[str, Any]) -> dict[str, Any]:
+def ingest_align_solar_data(
+    ctx: AgentToolContext, args: dict[str, Any]
+) -> dict[str, Any]:
     started = utc_now()
     paths = [ctx.path_policy.resolve_csv(item) for item in args["paths"]]
     result = skill_workflows.ingest_align_solar_data(
@@ -401,7 +462,9 @@ def ingest_align_solar_data(ctx: AgentToolContext, args: dict[str, Any]) -> dict
     )
 
 
-def audit_solar_data_quality(ctx: AgentToolContext, args: dict[str, Any]) -> dict[str, Any]:
+def audit_solar_data_quality(
+    ctx: AgentToolContext, args: dict[str, Any]
+) -> dict[str, Any]:
     started = utc_now()
     path = ctx.current_path(args.get("path"))
     result = skill_workflows.audit_solar_data(
@@ -413,13 +476,20 @@ def audit_solar_data_quality(ctx: AgentToolContext, args: dict[str, Any]) -> dic
         "audit_solar_data_quality",
         status=result.get("status", "failed"),
         summary=result,
-        warnings=[issue.get("message", str(issue)) for issue in result.get("critical_issues", [])],
-        error=None if result.get("status") == "ok" else {"type": "CriticalQualityError", "message": "Quality gate failed"},
+        warnings=[
+            issue.get("message", str(issue))
+            for issue in result.get("critical_issues", [])
+        ],
+        error=None
+        if result.get("status") == "ok"
+        else {"type": "CriticalQualityError", "message": "Quality gate failed"},
         started_utc=started,
     )
 
 
-def propose_solar_cleaning(ctx: AgentToolContext, args: dict[str, Any]) -> dict[str, Any]:
+def propose_solar_cleaning(
+    ctx: AgentToolContext, args: dict[str, Any]
+) -> dict[str, Any]:
     started = utc_now()
     path = ctx.current_path(args.get("path"))
     result = skill_workflows.propose_solar_cleaning(
@@ -442,7 +512,9 @@ def apply_solar_cleaning(ctx: AgentToolContext, args: dict[str, Any]) -> dict[st
     )
 
 
-def engineer_solar_features(ctx: AgentToolContext, args: dict[str, Any]) -> dict[str, Any]:
+def engineer_solar_features(
+    ctx: AgentToolContext, args: dict[str, Any]
+) -> dict[str, Any]:
     started = utc_now()
     requested = args.get("path")
     if requested and not ctx.session.get_current_dataset_path():
@@ -453,9 +525,16 @@ def engineer_solar_features(ctx: AgentToolContext, args: dict[str, Any]) -> dict
             resolver=ctx.path_policy.resolve_csv,
         )
         if ingestion.get("status") != "ok":
-            return tool_result("engineer_solar_features", status="failed", summary=ingestion, started_utc=started)
+            return tool_result(
+                "engineer_solar_features",
+                status="failed",
+                summary=ingestion,
+                started_utc=started,
+            )
     current = ctx.current_path()
-    audit = skill_workflows.audit_solar_data(current, session=ctx.session, resolver=ctx.path_policy.resolve_csv)
+    audit = skill_workflows.audit_solar_data(
+        current, session=ctx.session, resolver=ctx.path_policy.resolve_csv
+    )
     if audit.get("status") != "ok":
         return tool_result(
             "engineer_solar_features",
@@ -470,12 +549,16 @@ def engineer_solar_features(ctx: AgentToolContext, args: dict[str, Any]) -> dict
         status=result.get("status", "failed"),
         summary=result,
         artifacts=result.get("artifacts", []),
-        error=None if result.get("status") == "ok" else {"type": "FeatureValidationError", "message": "Feature validation failed"},
+        error=None
+        if result.get("status") == "ok"
+        else {"type": "FeatureValidationError", "message": "Feature validation failed"},
         started_utc=started,
     )
 
 
-def prepare_solar_experiment(ctx: AgentToolContext, args: dict[str, Any]) -> dict[str, Any]:
+def prepare_solar_experiment(
+    ctx: AgentToolContext, args: dict[str, Any]
+) -> dict[str, Any]:
     started = utc_now()
     result = skill_workflows.prepare_experiment_handoff(
         ctx.session,
@@ -489,7 +572,9 @@ def prepare_solar_experiment(ctx: AgentToolContext, args: dict[str, Any]) -> dic
     )
 
 
-def run_solar_feature_workflow(ctx: AgentToolContext, args: dict[str, Any]) -> dict[str, Any]:
+def run_solar_feature_workflow(
+    ctx: AgentToolContext, args: dict[str, Any]
+) -> dict[str, Any]:
     started = utc_now()
     paths = [ctx.path_policy.resolve_csv(item) for item in args["paths"]]
     result = skill_workflows.run_solar_feature_workflow(
@@ -515,7 +600,9 @@ def run_solar_feature_workflow(ctx: AgentToolContext, args: dict[str, Any]) -> d
     )
 
 
-def plan_solar_feature_workflow(ctx: AgentToolContext, args: dict[str, Any]) -> dict[str, Any]:
+def plan_solar_feature_workflow(
+    ctx: AgentToolContext, args: dict[str, Any]
+) -> dict[str, Any]:
     started = utc_now()
     paths = [ctx.path_policy.resolve_csv(item) for item in args["paths"]]
     result = skill_workflows.plan_solar_feature_workflow(
@@ -528,15 +615,24 @@ def plan_solar_feature_workflow(ctx: AgentToolContext, args: dict[str, Any]) -> 
     )
     return tool_result(
         "plan_solar_feature_workflow",
-        status="ok" if result.get("status") == "planned" else result.get("status", "failed"),
+        status="ok"
+        if result.get("status") == "planned"
+        else result.get("status", "failed"),
         summary=result,
         warnings=result.get("warnings", []),
-        error=None if result.get("status") in {"planned", "confirmation_required"} else {"type": "CriticalQualityError", "message": "Preflight quality gate failed"},
+        error=None
+        if result.get("status") in {"planned", "confirmation_required"}
+        else {
+            "type": "CriticalQualityError",
+            "message": "Preflight quality gate failed",
+        },
         started_utc=started,
     )
 
 
-def _object_schema(properties: dict[str, Any], required: list[str] | None = None) -> dict[str, Any]:
+def _object_schema(
+    properties: dict[str, Any], required: list[str] | None = None
+) -> dict[str, Any]:
     return {
         "type": "object",
         "properties": properties,
@@ -546,8 +642,14 @@ def _object_schema(properties: dict[str, Any], required: list[str] | None = None
 
 
 def build_tool_definitions() -> list[ToolDefinition]:
-    path = {"type": "string", "description": "Existing CSV path within an allowed root."}
-    optional_path = {"type": "string", "description": "Optional CSV path; omit to use the current dataset."}
+    path = {
+        "type": "string",
+        "description": "Existing CSV path within an allowed root.",
+    }
+    optional_path = {
+        "type": "string",
+        "description": "Optional CSV path; omit to use the current dataset.",
+    }
     paths = {"type": "array", "items": {"type": "string"}, "minItems": 1, "maxItems": 8}
     return [
         ToolDefinition(
@@ -631,7 +733,10 @@ def build_tool_definitions() -> list[ToolDefinition]:
                     "use_llm_semantics": {"type": "boolean", "default": True},
                     "include_strategy": {"type": "boolean", "default": True},
                     "split_proposal": {"type": "object"},
-                    "preflight_token": {"type": "string", "description": "Token returned by plan_solar_feature_workflow for the same inputs and configuration."},
+                    "preflight_token": {
+                        "type": "string",
+                        "description": "Token returned by plan_solar_feature_workflow for the same inputs and configuration.",
+                    },
                 },
                 ["paths", "preflight_token"],
             ),
@@ -659,11 +764,27 @@ def build_tool_definitions() -> list[ToolDefinition]:
                     "path": optional_path,
                     "action": {
                         "type": "string",
-                        "enum": ["describe", "head", "tail", "column_stats", "corr", "value_counts", "groupby", "drift"],
+                        "enum": [
+                            "describe",
+                            "head",
+                            "tail",
+                            "column_stats",
+                            "corr",
+                            "value_counts",
+                            "groupby",
+                            "drift",
+                        ],
                     },
-                    "columns": {"type": "array", "items": {"type": "string"}, "maxItems": 3},
+                    "columns": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "maxItems": 3,
+                    },
                     "n": {"type": "integer", "minimum": 1, "maximum": 20},
-                    "aggregation": {"type": "string", "enum": ["mean", "median", "std", "min", "max", "sum", "count"]},
+                    "aggregation": {
+                        "type": "string",
+                        "enum": ["mean", "median", "std", "min", "max", "sum", "count"],
+                    },
                     "group": {"type": "string"},
                 },
                 ["action"],
@@ -749,7 +870,9 @@ class AgentToolRegistry:
         definition = self._tools.get(name)
         return bool(definition and definition.mutates)
 
-    def execute(self, name: str, arguments: dict[str, Any], session: ChatSession) -> dict[str, Any]:
+    def execute(
+        self, name: str, arguments: dict[str, Any], session: ChatSession
+    ) -> dict[str, Any]:
         started = utc_now()
         definition = self._tools.get(name)
         if definition is None:
@@ -761,7 +884,9 @@ class AgentToolRegistry:
             )
         try:
             self._validate_arguments(definition.parameters, arguments)
-            return definition.handler(AgentToolContext(session, self.path_policy), arguments)
+            return definition.handler(
+                AgentToolContext(session, self.path_policy), arguments
+            )
         except Exception as exc:
             return tool_result(
                 name,
@@ -801,29 +926,69 @@ class AgentToolRegistry:
                 raise ValueError(f"Tool argument {key!r} must be one of {rule['enum']}")
             if expected == "integer":
                 if "minimum" in rule and value < rule["minimum"]:
-                    raise ValueError(f"Tool argument {key!r} is below minimum {rule['minimum']}")
+                    raise ValueError(
+                        f"Tool argument {key!r} is below minimum {rule['minimum']}"
+                    )
                 if "maximum" in rule and value > rule["maximum"]:
-                    raise ValueError(f"Tool argument {key!r} exceeds maximum {rule['maximum']}")
+                    raise ValueError(
+                        f"Tool argument {key!r} exceeds maximum {rule['maximum']}"
+                    )
             if expected == "array":
                 if "minItems" in rule and len(value) < rule["minItems"]:
-                    raise ValueError(f"Tool argument {key!r} is below minItems {rule['minItems']}")
+                    raise ValueError(
+                        f"Tool argument {key!r} is below minItems {rule['minItems']}"
+                    )
                 if "maxItems" in rule and len(value) > rule["maxItems"]:
-                    raise ValueError(f"Tool argument {key!r} exceeds maxItems {rule['maxItems']}")
+                    raise ValueError(
+                        f"Tool argument {key!r} exceeds maxItems {rule['maxItems']}"
+                    )
                 item_type = rule.get("items", {}).get("type")
-                if item_type == "string" and any(not isinstance(item, str) for item in value):
+                if item_type == "string" and any(
+                    not isinstance(item, str) for item in value
+                ):
                     raise ValueError(f"Tool argument {key!r} must contain only strings")
 
-    def preview(self, name: str, arguments: dict[str, Any], session: ChatSession) -> dict[str, Any]:
+    def preview(
+        self, name: str, arguments: dict[str, Any], session: ChatSession
+    ) -> dict[str, Any]:
         dataset_id = session.get_dataset_id() or "<dataset-id>"
         outputs = {
-            "ingest_align_solar_data": ["data/uploads/<dataset-id>/", "data/processed/uploads/<dataset-id>/"],
-            "apply_solar_cleaning": [f"data/processed/uploads/{dataset_id}/cleaned_v1.csv", f"data/processed/uploads/{dataset_id}/quality_report.json"],
-            "engineer_solar_features": [f"data/processed/uploads/{dataset_id}/engineered_features.csv", f"data/processed/uploads/{dataset_id}/feature_registry.json"],
-            "prepare_solar_experiment": [f"data/processed/uploads/{dataset_id}/experiment_handoff.json", f"data/processed/uploads/{dataset_id}/strategy_recommendation.json"],
-            "run_solar_feature_workflow": ["data/processed/skill_runs/<run-id>/run_manifest.json", "data/uploads/<dataset-id>/", "data/processed/uploads/<dataset-id>/"],
-            "register_dataset": ["data/uploads/<dataset-id>/", "data/processed/uploads/<dataset-id>/inspection.json"],
-            "generate_dataset_features": [f"data/processed/uploads/{dataset_id}/engineered_features.csv", f"data/processed/uploads/{dataset_id}/feature_registry.json"],
-            "create_experiment_handoff": [f"data/processed/uploads/{dataset_id}/experiment_handoff.json"],
+            "ingest_align_solar_data": [
+                "data/uploads/<dataset-id>/",
+                "data/processed/uploads/<dataset-id>/",
+            ],
+            "apply_solar_cleaning": [
+                f"data/processed/uploads/{dataset_id}/cleaned_v1.csv",
+                f"data/processed/uploads/{dataset_id}/quality_report.json",
+            ],
+            "engineer_solar_features": [
+                f"data/processed/uploads/{dataset_id}/engineered_features.csv",
+                f"data/processed/uploads/{dataset_id}/feature_registry.json",
+            ],
+            "prepare_solar_experiment": [
+                f"data/processed/uploads/{dataset_id}/experiment_handoff.json",
+                f"data/processed/uploads/{dataset_id}/strategy_recommendation.json",
+            ],
+            "run_solar_feature_workflow": [
+                "data/processed/skill_runs/<run-id>/run_manifest.json",
+                "data/uploads/<dataset-id>/",
+                "data/processed/uploads/<dataset-id>/",
+            ],
+            "register_dataset": [
+                "data/uploads/<dataset-id>/",
+                "data/processed/uploads/<dataset-id>/inspection.json",
+            ],
+            "generate_dataset_features": [
+                f"data/processed/uploads/{dataset_id}/engineered_features.csv",
+                f"data/processed/uploads/{dataset_id}/feature_registry.json",
+            ],
+            "create_experiment_handoff": [
+                f"data/processed/uploads/{dataset_id}/experiment_handoff.json"
+            ],
             "rebuild_project_pipeline": ["data/processed/"],
         }
-        return {"tool": name, "arguments": arguments, "expected_writes": outputs.get(name, [])}
+        return {
+            "tool": name,
+            "arguments": arguments,
+            "expected_writes": outputs.get(name, []),
+        }

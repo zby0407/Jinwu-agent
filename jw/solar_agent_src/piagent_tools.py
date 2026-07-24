@@ -9,7 +9,11 @@ from pathlib import Path
 from typing import Any
 
 from chat_session import ChatSession
-from piagent_schemas import RECOMMENDED_EXPERIMENT_SPLITS, REQUIRED_OUTPUTS, PiAgentRequest
+from piagent_schemas import (
+    RECOMMENDED_EXPERIMENT_SPLITS,
+    REQUIRED_OUTPUTS,
+    PiAgentRequest,
+)
 
 import dataset_stats_engine
 import safe_expression_eval
@@ -87,7 +91,11 @@ def run_contract_tests() -> dict[str, Any]:
 def forbidden_inputs_from_registry(registry: dict[str, Any]) -> list[str]:
     forbidden = []
     for item in registry.get("fields", []):
-        if item.get("leakage_risk") == "forbidden_as_input" or item.get("allowed_as_model_input") is False and item.get("role") == "label":
+        if (
+            item.get("leakage_risk") == "forbidden_as_input"
+            or item.get("allowed_as_model_input") is False
+            and item.get("role") == "label"
+        ):
             forbidden.append(item["field"])
     return sorted(set(forbidden))
 
@@ -96,9 +104,16 @@ def build_risk_flags(report: dict[str, Any], registry: dict[str, Any]) -> list[s
     flags = []
     incomplete = report.get("cycle_table_quality", {}).get("incomplete_cycles", [])
     if incomplete:
-        flags.append("cycle_25_incomplete" if 25 in incomplete else "incomplete_cycles_present")
+        flags.append(
+            "cycle_25_incomplete" if 25 in incomplete else "incomplete_cycles_present"
+        )
     source_profiles = report.get("source_profiles", {})
-    if source_profiles.get("cycle_hale_wso_features", {}).get("cycles_with_wso_hale_evidence", 0) <= 5:
+    if (
+        source_profiles.get("cycle_hale_wso_features", {}).get(
+            "cycles_with_wso_hale_evidence", 0
+        )
+        <= 5
+    ):
         flags.append("wso_small_sample")
     if "goes_xrs_monthly_features" in source_profiles:
         flags.append("goes_legacy_auxiliary_only")
@@ -143,7 +158,10 @@ def summarize_feature_registry_for_llm(registry: dict[str, Any]) -> dict[str, An
             "leakage_risk": item.get("leakage_risk"),
             "description": item.get("description"),
         }
-        if item.get("leakage_risk") == "forbidden_as_input" or item.get("allowed_as_model_input") is False:
+        if (
+            item.get("leakage_risk") == "forbidden_as_input"
+            or item.get("allowed_as_model_input") is False
+        ):
             forbidden_inputs.append(field_summary)
         elif item.get("role") == "label":
             labels.append(field_summary)
@@ -186,7 +204,9 @@ def run_bailian_experiment_summary(
     try:
         from bailian_llm import generate_experiment_summary
 
-        payload = build_bailian_payload(request, agent_output, report, registry, handoff)
+        payload = build_bailian_payload(
+            request, agent_output, report, registry, handoff
+        )
         summary = generate_experiment_summary(payload)
         BAILIAN_SUMMARY_PATH.write_text(summary, encoding="utf-8")
         status = "ok"
@@ -222,9 +242,13 @@ def run_bailian_agent_answer(
     try:
         from bailian_llm import generate_agent_answer
 
-        payload = build_bailian_payload(request, agent_output, report, registry, handoff)
+        payload = build_bailian_payload(
+            request, agent_output, report, registry, handoff
+        )
         if BAILIAN_SUMMARY_PATH.exists():
-            payload["latest_bailian_experiment_summary"] = BAILIAN_SUMMARY_PATH.read_text(encoding="utf-8")
+            payload["latest_bailian_experiment_summary"] = (
+                BAILIAN_SUMMARY_PATH.read_text(encoding="utf-8")
+            )
         answer = generate_agent_answer(payload, request.question or "")
         BAILIAN_ANSWER_PATH.write_text(answer, encoding="utf-8")
         status = "ok"
@@ -300,7 +324,9 @@ def build_experiment_handoff(
         "quality_summary": summarize_quality(report),
         "workflow_agent_output_status": agent_output.get("status"),
     }
-    EXPERIMENT_HANDOFF_PATH.write_text(json.dumps(handoff, ensure_ascii=False, indent=2), encoding="utf-8")
+    EXPERIMENT_HANDOFF_PATH.write_text(
+        json.dumps(handoff, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
     return handoff
 
 
@@ -314,13 +340,25 @@ def build_decision_log(
         decision = "full_rebuild_completed"
         reason = "Rebuild was requested by PiAgent task input."
     else:
-        missing = [item["path"] for item in required_output_checks if not item["exists"]]
-        decision = "validated_existing_outputs" if not missing else "existing_outputs_incomplete"
-        reason = "Existing outputs were used because rebuild=false." if not missing else f"Missing outputs: {missing}"
+        missing = [
+            item["path"] for item in required_output_checks if not item["exists"]
+        ]
+        decision = (
+            "validated_existing_outputs"
+            if not missing
+            else "existing_outputs_incomplete"
+        )
+        reason = (
+            "Existing outputs were used because rebuild=false."
+            if not missing
+            else f"Missing outputs: {missing}"
+        )
     decision_log = {
         "agent": "data_feature_agent",
         "platform_target": "bailian_function_calling",
-        "status": "ok" if all(tool["status"] == "ok" for tool in selected_tools) else "failed",
+        "status": "ok"
+        if all(tool["status"] == "ok" for tool in selected_tools)
+        else "failed",
         "generated_utc": datetime.now(timezone.utc).isoformat(),
         "request": request.to_dict(),
         "decision": decision,
@@ -336,21 +374,32 @@ def build_decision_log(
             "1940-1991 hemispheric source type is external calibrated observation",
         ],
         "handoff_path": rel(EXPERIMENT_HANDOFF_PATH),
-        "llm_summary_path": rel(BAILIAN_SUMMARY_PATH) if BAILIAN_SUMMARY_PATH.exists() else None,
-        "llm_answer_path": rel(BAILIAN_ANSWER_PATH) if BAILIAN_ANSWER_PATH.exists() else None,
+        "llm_summary_path": rel(BAILIAN_SUMMARY_PATH)
+        if BAILIAN_SUMMARY_PATH.exists()
+        else None,
+        "llm_answer_path": rel(BAILIAN_ANSWER_PATH)
+        if BAILIAN_ANSWER_PATH.exists()
+        else None,
         "handoff_summary": {
-            "forbidden_inputs": handoff["handoff_to_experiment_agent"]["forbidden_inputs"],
+            "forbidden_inputs": handoff["handoff_to_experiment_agent"][
+                "forbidden_inputs"
+            ],
             "risk_flags": handoff["risk_flags"],
             "recommended_split_ids": [
-                item["id"] for item in handoff["handoff_to_experiment_agent"]["recommended_splits"]
+                item["id"]
+                for item in handoff["handoff_to_experiment_agent"]["recommended_splits"]
             ],
         },
     }
-    DECISION_LOG_PATH.write_text(json.dumps(decision_log, ensure_ascii=False, indent=2), encoding="utf-8")
+    DECISION_LOG_PATH.write_text(
+        json.dumps(decision_log, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
     return decision_log
 
 
-def load_dataset_for_chat(request: PiAgentRequest, session: ChatSession) -> dict[str, Any]:
+def load_dataset_for_chat(
+    request: PiAgentRequest, session: ChatSession
+) -> dict[str, Any]:
     """Load a CSV (internal or external) and set it as the current dataset."""
     import pandas as pd
     from upload_inspector import inspect_csv, inspect_uploaded_file
@@ -404,20 +453,28 @@ def load_dataset_for_chat(request: PiAgentRequest, session: ChatSession) -> dict
         # delimiter, the original file has no real header row. Re-read as
         # header=None so the first data row is not lost.
         header = str(df.columns[0])
-        pattern = upload_column_splitter.DELIMITER_PATTERNS[split_detection["delimiter"]]
+        pattern = upload_column_splitter.DELIMITER_PATTERNS[
+            split_detection["delimiter"]
+        ]
         header_parts = [p for p in re.split(pattern, header) if p]
         if len(header_parts) > 1:
             try:
-                df = pd.read_csv(path, header=None, names=["raw_column"], encoding="utf-8")
+                df = pd.read_csv(
+                    path, header=None, names=["raw_column"], encoding="utf-8"
+                )
             except UnicodeDecodeError:
-                df = pd.read_csv(path, header=None, names=["raw_column"], encoding="gb18030")
+                df = pd.read_csv(
+                    path, header=None, names=["raw_column"], encoding="gb18030"
+                )
             df.columns = [str(c).strip() for c in df.columns]
             first_row_is_header = False
         else:
             first_row_is_header = None  # Let the LLM/heuristic decide.
 
         use_llm = getattr(request, "use_llm_semantics", True)
-        split_proposal = upload_column_splitter.llm_recognize_split(df, split_detection, use_llm=use_llm)
+        split_proposal = upload_column_splitter.llm_recognize_split(
+            df, split_detection, use_llm=use_llm
+        )
         if first_row_is_header is not None:
             split_proposal["first_row_is_header"] = first_row_is_header
 
@@ -429,7 +486,9 @@ def load_dataset_for_chat(request: PiAgentRequest, session: ChatSession) -> dict
         else:
             llm_result = llm_upload_semantic_recognizer.run(df, use_llm=True)
             if llm_result.get("status") == "llm_unavailable":
-                llm_warning = llm_result.get("error", "LLM unavailable; rule-based recognition was used.")
+                llm_warning = llm_result.get(
+                    "error", "LLM unavailable; rule-based recognition was used."
+                )
             session.set_llm_recognition(stored_path, llm_result)
 
     return {
@@ -445,14 +504,18 @@ def load_dataset_for_chat(request: PiAgentRequest, session: ChatSession) -> dict
     }
 
 
-def run_chat_llm_answer(request: PiAgentRequest, session: ChatSession) -> dict[str, Any]:
+def run_chat_llm_answer(
+    request: PiAgentRequest, session: ChatSession
+) -> dict[str, Any]:
     """Answer an open-ended question with LLM, injecting current dataset context."""
     from bailian_llm import generate_agent_answer
 
     required_checks = check_required_outputs()
     missing = [item for item in required_checks if not item["exists"]]
     if missing:
-        raise FileNotFoundError(f"Required outputs missing for chat LLM answer: {missing}")
+        raise FileNotFoundError(
+            f"Required outputs missing for chat LLM answer: {missing}"
+        )
 
     agent_output = read_json(PROCESSED_DIR / "agent_output.json")
     report = read_json(PROCESSED_DIR / "data_quality_report.json")
@@ -466,7 +529,9 @@ def run_chat_llm_answer(request: PiAgentRequest, session: ChatSession) -> dict[s
     payload["tool_trace"] = session.get_tool_trace()[-20:]
 
     if BAILIAN_SUMMARY_PATH.exists():
-        payload["latest_bailian_experiment_summary"] = BAILIAN_SUMMARY_PATH.read_text(encoding="utf-8")
+        payload["latest_bailian_experiment_summary"] = BAILIAN_SUMMARY_PATH.read_text(
+            encoding="utf-8"
+        )
 
     started = datetime.now(timezone.utc)
     try:
@@ -499,7 +564,9 @@ def run_chat_request(request: PiAgentRequest, session: ChatSession) -> dict[str,
         return load_dataset_for_chat(request, session)
 
     if request.task == "apply_multifield_split":
-        proposal = request.split_proposal or session.get_agent_state("pending_split_proposal")
+        proposal = request.split_proposal or session.get_agent_state(
+            "pending_split_proposal"
+        )
         if not proposal:
             raise ValueError("apply_multifield_split requires a split_proposal")
         return upload_column_splitter.apply_split(
@@ -537,7 +604,9 @@ def run_chat_request(request: PiAgentRequest, session: ChatSession) -> dict[str,
 
         if request.upload_path:
             load_dataset_for_chat(request, session)
-        report = data_cleaning_engine.run(session, apply=(request.task == "apply_cleaning"))
+        report = data_cleaning_engine.run(
+            session, apply=(request.task == "apply_cleaning")
+        )
         report["task"] = request.task
         return report
 
@@ -570,7 +639,11 @@ def run_chat_request(request: PiAgentRequest, session: ChatSession) -> dict[str,
             session_id=session.session_id,
             approval_id=request.approval_id,
         )
-        return {"agent": "data_feature_agent", "task": "ask_agent", **response.to_dict()}
+        return {
+            "agent": "data_feature_agent",
+            "task": "ask_agent",
+            **response.to_dict(),
+        }
 
     if request.task == "chat":
         action = getattr(request, "action", None)
@@ -608,7 +681,9 @@ def run_piagent_request(request: PiAgentRequest) -> dict[str, Any]:
     required_checks_after = check_required_outputs()
     missing_after = [item for item in required_checks_after if not item["exists"]]
     if missing_after:
-        raise FileNotFoundError(f"Required outputs are missing after PiAgent run: {missing_after}")
+        raise FileNotFoundError(
+            f"Required outputs are missing after PiAgent run: {missing_after}"
+        )
     failed_tools = [tool for tool in selected_tools if tool["status"] != "ok"]
     if failed_tools:
         raise RuntimeError(f"PiAgent tool failures: {failed_tools}")
@@ -621,12 +696,18 @@ def run_piagent_request(request: PiAgentRequest) -> dict[str, Any]:
     llm_summary_tool = None
     llm_answer_tool = None
     if request.task == "summarize_for_experiment":
-        llm_summary_tool = run_bailian_experiment_summary(request, agent_output, report, registry, handoff)
+        llm_summary_tool = run_bailian_experiment_summary(
+            request, agent_output, report, registry, handoff
+        )
         selected_tools.append(llm_summary_tool)
     if request.task == "ask_agent":
-        llm_answer_tool = run_bailian_agent_answer(request, agent_output, report, registry, handoff)
+        llm_answer_tool = run_bailian_agent_answer(
+            request, agent_output, report, registry, handoff
+        )
         selected_tools.append(llm_answer_tool)
-    decision_log = build_decision_log(request, selected_tools, required_checks_after, handoff)
+    decision_log = build_decision_log(
+        request, selected_tools, required_checks_after, handoff
+    )
     if llm_summary_tool and llm_summary_tool["status"] != "ok":
         raise RuntimeError(f"Bailian summary failed: {llm_summary_tool}")
     if llm_answer_tool and llm_answer_tool["status"] != "ok":
@@ -644,6 +725,7 @@ def run_piagent_request(request: PiAgentRequest) -> dict[str, Any]:
         "risk_flags": handoff["risk_flags"],
         "forbidden_inputs": handoff["handoff_to_experiment_agent"]["forbidden_inputs"],
         "recommended_split_ids": [
-            item["id"] for item in handoff["handoff_to_experiment_agent"]["recommended_splits"]
+            item["id"]
+            for item in handoff["handoff_to_experiment_agent"]["recommended_splits"]
         ],
     }

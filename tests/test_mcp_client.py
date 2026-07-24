@@ -129,18 +129,14 @@ class TestResolveCommand:
         fake_exe.chmod(0o755)
 
         monkeypatch.setattr("shutil.which", lambda _: None)
-        monkeypatch.setattr(
-            "jw.mcp.client.sys.executable", str(bin_dir / "python")
-        )
+        monkeypatch.setattr("jw.mcp.client.sys.executable", str(bin_dir / "python"))
 
         assert _resolve_command("my-mcp-tool") == str(fake_exe)
 
     def test_not_found_returns_original(self, monkeypatch):
         """Returns the original command when not found anywhere (let OS report the error)."""
         monkeypatch.setattr("shutil.which", lambda _: None)
-        monkeypatch.setattr(
-            "jw.mcp.client.sys.executable", "/nonexistent/bin/python"
-        )
+        monkeypatch.setattr("jw.mcp.client.sys.executable", "/nonexistent/bin/python")
         assert _resolve_command("unknown-tool-xyz") == "unknown-tool-xyz"
 
     def test_build_connections_resolves_command(self, monkeypatch):
@@ -810,17 +806,13 @@ class TestUvToolCompat:
     def test_is_uv_tool_env_true_unix(self, monkeypatch):
         from jw.mcp.registry import _is_uv_tool_env
 
-        monkeypatch.setenv(
-            "VIRTUAL_ENV", "/home/user/.local/share/uv/tools/jw"
-        )
+        monkeypatch.setenv("VIRTUAL_ENV", "/home/user/.local/share/uv/tools/jw")
         assert _is_uv_tool_env() is True
 
     def test_is_uv_tool_env_true_windows_backslashes(self, monkeypatch):
         from jw.mcp.registry import _is_uv_tool_env
 
-        monkeypatch.setenv(
-            "VIRTUAL_ENV", r"C:\Users\user\AppData\Local\uv\tools\jw"
-        )
+        monkeypatch.setenv("VIRTUAL_ENV", r"C:\Users\user\AppData\Local\uv\tools\jw")
         assert _is_uv_tool_env() is True
 
     # -- _uv_tool_name --
@@ -828,9 +820,7 @@ class TestUvToolCompat:
     def test_uv_tool_name_returns_name(self, monkeypatch):
         import jw.mcp.registry as reg
 
-        monkeypatch.setenv(
-            "VIRTUAL_ENV", "/home/user/.local/share/uv/tools/jw"
-        )
+        monkeypatch.setenv("VIRTUAL_ENV", "/home/user/.local/share/uv/tools/jw")
         assert reg._uv_tool_name() == "jw"
 
     def test_uv_tool_name_returns_none_when_not_uv(self, monkeypatch):
@@ -894,9 +884,7 @@ class TestUvToolCompat:
         venv = tmp_path / "uv" / "tools" / "jw"
         venv.mkdir(parents=True)
         receipt = venv / "uv-receipt.toml"
-        receipt.write_text(
-            '[tool]\nrequirements = [\n  { name = "jw" },\n]\n'
-        )
+        receipt.write_text('[tool]\nrequirements = [\n  { name = "jw" },\n]\n')
         monkeypatch.setenv("VIRTUAL_ENV", str(venv))
         assert reg._uv_tool_existing_requirements() == {}
 
@@ -1081,9 +1069,7 @@ class TestUvToolCompat:
         venv = tmp_path / "uv" / "tools" / "jw"
         venv.mkdir(parents=True)
         receipt = venv / "uv-receipt.toml"
-        receipt.write_text(
-            '[tool]\nrequirements = [\n  { name = "jw" },\n]\n'
-        )
+        receipt.write_text('[tool]\nrequirements = [\n  { name = "jw" },\n]\n')
         monkeypatch.setenv("VIRTUAL_ENV", str(venv))
 
         commands: list[list[str]] = []
@@ -1116,9 +1102,7 @@ class TestUvToolCompat:
         venv = tmp_path / "uv" / "tools" / "jw"
         venv.mkdir(parents=True)
         receipt = venv / "uv-receipt.toml"
-        receipt.write_text(
-            '[tool]\nrequirements = [\n  { name = "jw" },\n]\n'
-        )
+        receipt.write_text('[tool]\nrequirements = [\n  { name = "jw" },\n]\n')
         monkeypatch.setenv("VIRTUAL_ENV", str(venv))
 
         commands: list[list[str]] = []

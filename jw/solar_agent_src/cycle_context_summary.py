@@ -135,7 +135,13 @@ def build_cycle_context_summary(
     # Build per-cycle summaries for cycles that overlap the uploaded data.
     overlapping_cycles: list[dict[str, Any]] = []
     if not upload_cycle_features.empty:
-        exclude_cols = {"cycle_no", "start_date", "peak_date", "end_date", "is_complete"}
+        exclude_cols = {
+            "cycle_no",
+            "start_date",
+            "peak_date",
+            "end_date",
+            "is_complete",
+        }
         for _, row in upload_cycle_features.iterrows():
             cycle_no = int(row["cycle_no"])
             global_row: pd.Series | None = None

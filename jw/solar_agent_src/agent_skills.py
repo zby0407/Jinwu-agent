@@ -53,7 +53,11 @@ def parse_skill_file(path: Path) -> SkillDefinition:
     if not lines or lines[0].strip() != "---":
         raise SkillError(f"Skill frontmatter is missing: {path}")
     try:
-        closing = next(index for index, line in enumerate(lines[1:], start=1) if line.strip() == "---")
+        closing = next(
+            index
+            for index, line in enumerate(lines[1:], start=1)
+            if line.strip() == "---"
+        )
     except StopIteration as exc:
         raise SkillError(f"Skill frontmatter is not closed: {path}") from exc
 
@@ -67,19 +71,25 @@ def parse_skill_file(path: Path) -> SkillDefinition:
         metadata[key.strip()] = _unquote(value)
 
     if set(metadata) != {"name", "description"}:
-        raise SkillError(f"Skill frontmatter must contain only name and description: {path}")
+        raise SkillError(
+            f"Skill frontmatter must contain only name and description: {path}"
+        )
     name = metadata["name"].strip()
     description = metadata["description"].strip()
     if not SKILL_NAME_PATTERN.fullmatch(name):
         raise SkillError(f"Invalid skill name {name!r}: {path}")
     if path.parent.name != name:
-        raise SkillError(f"Skill name {name!r} must match directory {path.parent.name!r}")
+        raise SkillError(
+            f"Skill name {name!r} must match directory {path.parent.name!r}"
+        )
     if not description:
         raise SkillError(f"Skill description must not be empty: {path}")
     instructions = "\n".join(lines[closing + 1 :]).strip()
     if not instructions:
         raise SkillError(f"Skill instructions must not be empty: {path}")
-    return SkillDefinition(name=name, description=description, path=path, instructions=instructions)
+    return SkillDefinition(
+        name=name, description=description, path=path, instructions=instructions
+    )
 
 
 class SkillRegistry:
@@ -108,7 +118,9 @@ class SkillRegistry:
 
     def load(self, name: str) -> SkillDefinition:
         if name not in self._skills:
-            raise SkillError(f"Unknown skill {name!r}. Available skills: {self.names()}")
+            raise SkillError(
+                f"Unknown skill {name!r}. Available skills: {self.names()}"
+            )
         return self._skills[name]
 
     def explicit_skill(self, question: str) -> SkillDefinition | None:

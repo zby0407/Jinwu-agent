@@ -446,9 +446,7 @@ class TestThirdPartyRouting:
         """OpenRouter Anthropic prompt caching should be opt-out."""
         mock_init.return_value = "mock_model"
         monkeypatch.setenv("OPENROUTER_API_KEY", "or-key")
-        monkeypatch.delenv(
-            "JW_OPENROUTER_ANTHROPIC_PROMPT_CACHE", raising=False
-        )
+        monkeypatch.delenv("JW_OPENROUTER_ANTHROPIC_PROMPT_CACHE", raising=False)
 
         get_chat_model("claude-sonnet-4.6", provider="openrouter")
 

@@ -61,7 +61,9 @@ async def fetch_webpage_content(url: str, timeout: float = 10.0) -> str:
         return f"Error fetching content from {url}: {e!s}"
 
 
-async def _duckduckgo_html_search(query: str, max_results: int = 3) -> list[dict[str, str]]:
+async def _duckduckgo_html_search(
+    query: str, max_results: int = 3
+) -> list[dict[str, str]]:
     """Lightweight DuckDuckGo HTML search fallback (no API key required).
 
     Returns a list of ``{"title": ..., "url": ...}`` dicts. Full content is
@@ -135,6 +137,7 @@ async def tavily_search(
     """
 
     if _has_tavily_key():
+
         def _sync_search() -> dict:
             return _get_tavily_client().search(
                 query,
@@ -151,7 +154,9 @@ async def tavily_search(
         try:
             results = await _duckduckgo_html_search(query, max_results=max_results)
         except Exception as e:
-            return f"Web search failed (no Tavily key, DuckDuckGo fallback error): {e!s}"
+            return (
+                f"Web search failed (no Tavily key, DuckDuckGo fallback error): {e!s}"
+            )
 
     if not results:
         return f"No results found for '{query}'"

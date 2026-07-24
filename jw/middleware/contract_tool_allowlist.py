@@ -121,16 +121,12 @@ class ContractToolAllowlistMiddleware(AgentMiddleware[Any, Any, Any]):
     async def awrap_tool_call(
         self,
         request: ToolCallRequest,
-        handler: Callable[
-            [ToolCallRequest], Awaitable[ToolMessage | Command[Any]]
-        ],
+        handler: Callable[[ToolCallRequest], Awaitable[ToolMessage | Command[Any]]],
     ) -> ToolMessage | Command[Any]:
         blocked = self._blocked_tool_message(request)
         return blocked if blocked is not None else await handler(request)
 
-    def _blocked_tool_message(
-        self, request: ToolCallRequest
-    ) -> ToolMessage | None:
+    def _blocked_tool_message(self, request: ToolCallRequest) -> ToolMessage | None:
         name = request.tool_call.get("name")
         if isinstance(name, str) and name in self.allowed:
             return None

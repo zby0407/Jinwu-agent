@@ -272,7 +272,7 @@ def test_data_experiment_cannot_validate_with_zero_inputs(tmp_path: Path) -> Non
 
 
 def test_experiment_policy_blocks_fake_fallback_and_centered_prediction() -> None:
-    source = '''
+    source = """
 def run_experiment(context):
     try:
         values = context["input_path_by_id"]["data"]
@@ -285,7 +285,7 @@ def run_experiment(context):
         "measurements": [], "result_items": [], "artifacts": [],
         "warnings": [], "endpoint_results": [], "scientific_payload": {}
     }
-'''
+"""
     with pytest.raises(CodePolicyError) as caught:
         scan_python(source + "\n# LOOCV prediction\n")
     message = str(caught.value)

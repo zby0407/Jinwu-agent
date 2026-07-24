@@ -28,7 +28,9 @@ def _indent(text: str, spaces: int = 2) -> str:
 def _render_issue(issue: dict[str, Any]) -> str:
     lines = []
     severity = issue.get("severity", "info")
-    severity_cn = {"critical": "严重", "warning": "警告", "info": "提示"}.get(severity, severity)
+    severity_cn = {"critical": "严重", "warning": "警告", "info": "提示"}.get(
+        severity, severity
+    )
     lines.append(f"[{severity_cn}] {issue.get('type', 'unknown')}")
     if issue.get("message"):
         lines.append(f"  描述：{issue['message']}")
@@ -145,7 +147,9 @@ def _render_cleaning(cleaning: dict[str, Any]) -> str:
                 applies = action.get("applies", False)
                 desc = action.get("description", "")
                 desc_cn = safe_action_desc_cn.get(action_name, desc)
-                lines.append(f"  - {action_name}（{'可执行' if applies else '暂不可执行'}）：{desc_cn}")
+                lines.append(
+                    f"  - {action_name}（{'可执行' if applies else '暂不可执行'}）：{desc_cn}"
+                )
             else:
                 lines.append(f"  - {action}")
 
@@ -206,9 +210,7 @@ def _render_cycle_context_summary(summary: dict[str, Any]) -> str:
                 for k, v in global_features.items():
                     lines.append(f"      {k}：{v}")
                 if c.get("global_feature_count", 0) > len(global_features):
-                    lines.append(
-                        f"      ... 共 {c['global_feature_count']} 个全局字段"
-                    )
+                    lines.append(f"      ... 共 {c['global_feature_count']} 个全局字段")
     else:
         lines.append("未找到重叠的太阳活动周期。")
 
@@ -221,9 +223,7 @@ def _render_cycle_context_summary(summary: dict[str, Any]) -> str:
             lines.append(f"      证据等级：{f.get('evidence_tier') or '无'}")
             mechanism = f.get("mechanism_link") or []
             if mechanism:
-                lines.append(
-                    f"      机制关联：{', '.join(str(m) for m in mechanism)}"
-                )
+                lines.append(f"      机制关联：{', '.join(str(m) for m in mechanism)}")
     else:
         lines.append("未找到与上传信号相关的 ML 可用输入特征。")
 
@@ -314,7 +314,9 @@ def _render_upload_report(report: dict[str, Any]) -> str:
         prov = report["split_provenance"]
         lines.append("拆分来源：")
         lines.append(f"  原始文件：{prov.get('original_path', '无')}")
-        lines.append(f"  拆分分隔符：{prov.get('delimiter_label') or prov.get('delimiter', '无')}")
+        lines.append(
+            f"  拆分分隔符：{prov.get('delimiter_label') or prov.get('delimiter', '无')}"
+        )
         lines.append(
             f"  首行是否为表头：{'是' if prov.get('first_row_is_header') else '否'}"
         )
@@ -337,7 +339,9 @@ def _render_upload_report(report: dict[str, Any]) -> str:
         lines.append(f"列名：{', '.join(str(c) for c in columns)}")
     date_range = report.get("date_range") or coverage.get("time_range")
     if isinstance(date_range, dict):
-        lines.append(f"时间范围：{date_range.get('start', '无')} 至 {date_range.get('end', '无')}")
+        lines.append(
+            f"时间范围：{date_range.get('start', '无')} 至 {date_range.get('end', '无')}"
+        )
     lines.append("")
 
     # Quality score
@@ -549,7 +553,9 @@ def _render_processed_report(report: dict[str, Any]) -> str:
         lines.append(f"总周期数：{cycle_quality.get('total_cycles', '无')}")
         lines.append(f"完整周期数：{cycle_quality.get('complete_cycle_count', '无')}")
         incomplete = cycle_quality.get("incomplete_cycles", [])
-        lines.append(f"不完整周期：{', '.join(str(c) for c in incomplete) if incomplete else '无'}")
+        lines.append(
+            f"不完整周期：{', '.join(str(c) for c in incomplete) if incomplete else '无'}"
+        )
         feature_avail = cycle_quality.get("feature_availability_by_cycle_signal", {})
         if feature_avail:
             lines.append("特征可用性：")
@@ -574,7 +580,9 @@ def _render_processed_report(report: dict[str, Any]) -> str:
                 if isinstance(item, dict):
                     signal = item.get("signal", "unknown")
                     fields = item.get("fields", [])
-                    lines.append(f"  - {signal}（字段：{', '.join(str(f) for f in fields)}）")
+                    lines.append(
+                        f"  - {signal}（字段：{', '.join(str(f) for f in fields)}）"
+                    )
                     usable = item.get("usable_for", [])
                     if usable:
                         lines.append("    可用于：")
@@ -594,7 +602,9 @@ def _render_processed_report(report: dict[str, Any]) -> str:
                 if isinstance(item, dict):
                     signal = item.get("signal", "unknown")
                     fields = item.get("fields", [])
-                    lines.append(f"  - {signal}（字段：{', '.join(str(f) for f in fields)}）")
+                    lines.append(
+                        f"  - {signal}（字段：{', '.join(str(f) for f in fields)}）"
+                    )
                     usable = item.get("usable_for", [])
                     if usable:
                         lines.append("    可用于：")

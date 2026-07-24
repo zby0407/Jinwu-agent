@@ -48,9 +48,7 @@ except ImportError:  # packaged installs without the repo's src/ tree
         """Same rule as ``jw/paths.py`` (and store.py)."""
 
         override = os.getenv("JW_DATA_DIR")
-        base = (
-            Path(override).expanduser() if override else Path.home() / ".jw"
-        )
+        base = Path(override).expanduser() if override else Path.home() / ".jw"
         return base / "knowledge.db"
 
 

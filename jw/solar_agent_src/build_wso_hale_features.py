@@ -93,10 +93,16 @@ def nearest_hale_phase(monthly: pd.DataFrame, target_date: pd.Timestamp) -> str:
         ]
         return "weak" if not weak.empty else "missing"
     candidates["distance"] = (candidates["date_month"] - target_date).abs()
-    return str(candidates.sort_values(["distance", "date_month"]).iloc[0]["hale_phase_wso_monthly"])
+    return str(
+        candidates.sort_values(["distance", "date_month"]).iloc[0][
+            "hale_phase_wso_monthly"
+        ]
+    )
 
 
-def build_monthly(master: pd.DataFrame, weak_threshold: float = WEAK_FIELD_THRESHOLD) -> pd.DataFrame:
+def build_monthly(
+    master: pd.DataFrame, weak_threshold: float = WEAK_FIELD_THRESHOLD
+) -> pd.DataFrame:
     monthly = master[
         [
             "date_month",
@@ -107,11 +113,17 @@ def build_monthly(master: pd.DataFrame, weak_threshold: float = WEAK_FIELD_THRES
             "cycle_phase",
         ]
     ].copy()
-    monthly["polar_north_sign"] = monthly["polar_north"].map(lambda value: sign_label(value, weak_threshold))
-    monthly["polar_south_sign"] = monthly["polar_south"].map(lambda value: sign_label(value, weak_threshold))
+    monthly["polar_north_sign"] = monthly["polar_north"].map(
+        lambda value: sign_label(value, weak_threshold)
+    )
+    monthly["polar_south_sign"] = monthly["polar_south"].map(
+        lambda value: sign_label(value, weak_threshold)
+    )
     monthly["polar_dipole_state"] = [
         dipole_state(north, south)
-        for north, south in zip(monthly["polar_north_sign"], monthly["polar_south_sign"])
+        for north, south in zip(
+            monthly["polar_north_sign"], monthly["polar_south_sign"]
+        )
     ]
     monthly["hale_phase_wso_monthly"] = monthly["polar_dipole_state"]
     monthly["hale_evidence_tier"] = np.where(
@@ -164,14 +176,24 @@ def build_cycle(
                 "north_reversal_month": north_reversal,
                 "south_reversal_month": south_reversal,
                 "reversal_asymmetry_months": reversal_asymmetry,
-                "hale_phase_wso_at_cycle_start": nearest_hale_phase(monthly, start_date),
-                "hale_phase_wso_at_cycle_minimum": nearest_hale_phase(monthly, start_date),
+                "hale_phase_wso_at_cycle_start": nearest_hale_phase(
+                    monthly, start_date
+                ),
+                "hale_phase_wso_at_cycle_minimum": nearest_hale_phase(
+                    monthly, start_date
+                ),
                 "hale_evidence_tier": "observed_polar_field" if has_wso else "missing",
             }
         )
 
     cycle = pd.DataFrame(rows)
-    for col in ["start_date", "peak_date", "end_date", "north_reversal_month", "south_reversal_month"]:
+    for col in [
+        "start_date",
+        "peak_date",
+        "end_date",
+        "north_reversal_month",
+        "south_reversal_month",
+    ]:
         cycle[col] = pd.to_datetime(cycle[col], errors="coerce").dt.strftime("%Y-%m-%d")
     cycle["cycle_no"] = cycle["cycle_no"].astype("Int64")
     return cycle
@@ -198,14 +220,12 @@ def build_sensitivity(master: pd.DataFrame, cycles: pd.DataFrame) -> pd.DataFram
         }
     )
     sensitivity = sensitivity.merge(base, on="cycle_no", how="left")
-    sensitivity["north_matches_baseline"] = (
-        sensitivity["north_reversal_month"].fillna("missing")
-        == sensitivity["baseline_north_reversal_month"].fillna("missing")
-    )
-    sensitivity["south_matches_baseline"] = (
-        sensitivity["south_reversal_month"].fillna("missing")
-        == sensitivity["baseline_south_reversal_month"].fillna("missing")
-    )
+    sensitivity["north_matches_baseline"] = sensitivity["north_reversal_month"].fillna(
+        "missing"
+    ) == sensitivity["baseline_north_reversal_month"].fillna("missing")
+    sensitivity["south_matches_baseline"] = sensitivity["south_reversal_month"].fillna(
+        "missing"
+    ) == sensitivity["baseline_south_reversal_month"].fillna("missing")
     return sensitivity
 
 

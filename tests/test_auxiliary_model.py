@@ -81,9 +81,7 @@ class TestAuxiliaryResolver:
     def test_set_chat_model_resets_aux_cache(self, monkeypatch):
         monkeypatch.setattr(E, "_auxiliary_chat_model", object(), raising=False)
         monkeypatch.setattr(E, "_auxiliary_chat_model_key", ("x", "y"), raising=False)
-        monkeypatch.setattr(
-            "jw.llm.get_chat_model", MagicMock(return_value=object())
-        )
+        monkeypatch.setattr("jw.llm.get_chat_model", MagicMock(return_value=object()))
         E.set_chat_model("new-m", "new-p")
         assert E._auxiliary_chat_model is None
         assert E._auxiliary_chat_model_key is None
@@ -198,9 +196,7 @@ class TestAuxiliaryMiddlewareScope:
             patch.object(E, "_ensure_config", side_effect=AssertionError),
             patch.object(E, "_ensure_chat_model", side_effect=AssertionError),
             patch.object(E, "_ensure_auxiliary_chat_model", side_effect=AssertionError),
-            patch(
-                "jw.llm.get_chat_model", return_value=aux_model
-            ) as get_model,
+            patch("jw.llm.get_chat_model", return_value=aux_model) as get_model,
             patch(
                 "jw.middleware.create_tool_selector_middleware",
                 side_effect=fake_ts,

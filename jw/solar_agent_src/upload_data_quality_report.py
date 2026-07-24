@@ -22,7 +22,9 @@ import data_quality_report_text
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def _field_records(df: pd.DataFrame, semantic_map: dict[str, str]) -> list[dict[str, Any]]:
+def _field_records(
+    df: pd.DataFrame, semantic_map: dict[str, str]
+) -> list[dict[str, Any]]:
     records = []
     for col in df.columns:
         meaning = lookup_physical_meaning(col)
@@ -52,7 +54,9 @@ def build_upload_data_quality_report(
     evidence_tiers = explain_evidence_tiers(semantic_map)
     quality_issues = general_report.get("issues", [])
 
-    narrative = build_narrative(df, semantic_map, quality_issues, plausibility, proxy_suggestions)
+    narrative = build_narrative(
+        df, semantic_map, quality_issues, plausibility, proxy_suggestions
+    )
 
     field_records = _field_records(df, semantic_map)
     verification = verify_physical_meaning(field_records)
@@ -122,11 +126,14 @@ def run(
     report = build_upload_data_quality_report(df, inspection, llm_result)
     if output_path is not None:
         output_path.parent.mkdir(parents=True, exist_ok=True)
-        output_path.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
+        output_path.write_text(
+            json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8"
+        )
         report["path"] = str(output_path.relative_to(ROOT)).replace("\\", "/")
         text_path = output_path.with_suffix(".txt")
         text_path.write_text(
-            data_quality_report_text.render_data_quality_report_text(report), encoding="utf-8"
+            data_quality_report_text.render_data_quality_report_text(report),
+            encoding="utf-8",
         )
         report["text_path"] = str(text_path.relative_to(ROOT)).replace("\\", "/")
     return report

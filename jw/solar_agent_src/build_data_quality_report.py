@@ -45,10 +45,15 @@ def range_summary(df: pd.DataFrame, date_col: str = "date_month") -> dict[str, A
 
 
 def flag_counts(df: pd.DataFrame, column: str) -> dict[str, int]:
-    return {str(k): int(v) for k, v in df[column].fillna("missing").value_counts().sort_index().items()}
+    return {
+        str(k): int(v)
+        for k, v in df[column].fillna("missing").value_counts().sort_index().items()
+    }
 
 
-def valid_month_summary(master: pd.DataFrame, value_col: str, flag_col: str) -> dict[str, Any]:
+def valid_month_summary(
+    master: pd.DataFrame, value_col: str, flag_col: str
+) -> dict[str, Any]:
     valid = master[value_col].notna()
     dates = master.loc[valid, "date_month"]
     return {
@@ -68,21 +73,35 @@ def cycle_availability(cycles: pd.DataFrame, cols: list[str]) -> dict[str, Any]:
         out[col] = {
             "cycles_with_value": int(valid.sum()),
             "cycles_missing_value": int((~valid).sum()),
-            "first_cycle_with_value": int(cycles.loc[valid, "cycle_no"].min()) if valid.any() else None,
-            "last_cycle_with_value": int(cycles.loc[valid, "cycle_no"].max()) if valid.any() else None,
+            "first_cycle_with_value": int(cycles.loc[valid, "cycle_no"].min())
+            if valid.any()
+            else None,
+            "last_cycle_with_value": int(cycles.loc[valid, "cycle_no"].max())
+            if valid.any()
+            else None,
         }
     return out
 
 
 def main() -> None:
-    master = pd.read_csv(PROCESSED_DIR / "clean_monthly_timeseries.csv", parse_dates=["date_month"])
+    master = pd.read_csv(
+        PROCESSED_DIR / "clean_monthly_timeseries.csv", parse_dates=["date_month"]
+    )
     cycles = pd.read_csv(PROCESSED_DIR / "cycle_features.csv")
     interim_files = {
-        "monthly_total_sunspot": pd.read_csv(INTERIM_DIR / "silso_sn_m_tot_v2_interim.csv"),
-        "monthly_hemispheric_sunspot": pd.read_csv(INTERIM_DIR / "silso_sn_m_hem_v2_interim.csv"),
+        "monthly_total_sunspot": pd.read_csv(
+            INTERIM_DIR / "silso_sn_m_tot_v2_interim.csv"
+        ),
+        "monthly_hemispheric_sunspot": pd.read_csv(
+            INTERIM_DIR / "silso_sn_m_hem_v2_interim.csv"
+        ),
         "monthly_f107": pd.read_csv(INTERIM_DIR / "f107_daily_flux_interim.csv"),
-        "monthly_wso_polar_field": pd.read_csv(INTERIM_DIR / "wso_polar_field_interim.csv"),
-        "solar_cycle_metadata": pd.read_csv(INTERIM_DIR / "solar_cycle_metadata_clean.csv"),
+        "monthly_wso_polar_field": pd.read_csv(
+            INTERIM_DIR / "wso_polar_field_interim.csv"
+        ),
+        "solar_cycle_metadata": pd.read_csv(
+            INTERIM_DIR / "solar_cycle_metadata_clean.csv"
+        ),
     }
     goes_events_path = INTERIM_DIR / "goes_xrs_events_interim.csv"
     goes_monthly_path = PROCESSED_DIR / "goes_xrs_monthly_features.csv"
@@ -90,63 +109,91 @@ def main() -> None:
     cycle_hale_wso_path = PROCESSED_DIR / "cycle_hale_wso_features.csv"
     cycle_hale_wso_sensitivity_path = PROCESSED_DIR / "cycle_hale_wso_sensitivity.csv"
     goes_events = pd.read_csv(goes_events_path) if goes_events_path.exists() else None
-    goes_monthly = pd.read_csv(goes_monthly_path) if goes_monthly_path.exists() else None
-    wso_hale_monthly = pd.read_csv(wso_hale_monthly_path) if wso_hale_monthly_path.exists() else None
-    cycle_hale_wso = pd.read_csv(cycle_hale_wso_path) if cycle_hale_wso_path.exists() else None
+    goes_monthly = (
+        pd.read_csv(goes_monthly_path) if goes_monthly_path.exists() else None
+    )
+    wso_hale_monthly = (
+        pd.read_csv(wso_hale_monthly_path) if wso_hale_monthly_path.exists() else None
+    )
+    cycle_hale_wso = (
+        pd.read_csv(cycle_hale_wso_path) if cycle_hale_wso_path.exists() else None
+    )
     cycle_hale_wso_sensitivity = (
         pd.read_csv(cycle_hale_wso_sensitivity_path)
         if cycle_hale_wso_sensitivity_path.exists()
         else None
     )
 
-    source_profiles = {
-        name: range_summary(df)
-        for name, df in interim_files.items()
-    }
+    source_profiles = {name: range_summary(df) for name, df in interim_files.items()}
     source_profiles["processed_master"] = range_summary(master)
     source_profiles["cycle_features"] = {
         "rows": int(len(cycles)),
         "cycle_start": int(cycles["cycle_no"].min()),
         "cycle_end": int(cycles["cycle_no"].max()),
-        "complete_cycles": int(cycles["is_complete"].astype(str).str.lower().eq("true").sum()),
-        "incomplete_cycles": int((~cycles["is_complete"].astype(str).str.lower().eq("true")).sum()),
+        "complete_cycles": int(
+            cycles["is_complete"].astype(str).str.lower().eq("true").sum()
+        ),
+        "incomplete_cycles": int(
+            (~cycles["is_complete"].astype(str).str.lower().eq("true")).sum()
+        ),
     }
     if goes_events is not None:
         source_profiles["goes_xrs_events"] = range_summary(goes_events, "event_date")
     if goes_monthly is not None:
-        source_profiles["goes_xrs_monthly_features"] = range_summary(goes_monthly, "date_month")
+        source_profiles["goes_xrs_monthly_features"] = range_summary(
+            goes_monthly, "date_month"
+        )
     if wso_hale_monthly is not None:
-        source_profiles["wso_polar_monthly_features"] = range_summary(wso_hale_monthly, "date_month")
+        source_profiles["wso_polar_monthly_features"] = range_summary(
+            wso_hale_monthly, "date_month"
+        )
     if cycle_hale_wso is not None:
         source_profiles["cycle_hale_wso_features"] = {
             "rows": int(len(cycle_hale_wso)),
             "cycle_start": int(cycle_hale_wso["cycle_no"].min()),
             "cycle_end": int(cycle_hale_wso["cycle_no"].max()),
-            "cycles_with_wso_hale_evidence": int(cycle_hale_wso["hale_evidence_tier"].eq("observed_polar_field").sum()),
+            "cycles_with_wso_hale_evidence": int(
+                cycle_hale_wso["hale_evidence_tier"].eq("observed_polar_field").sum()
+            ),
         }
     if cycle_hale_wso_sensitivity is not None:
         source_profiles["cycle_hale_wso_sensitivity"] = {
             "rows": int(len(cycle_hale_wso_sensitivity)),
             "cycle_start": int(cycle_hale_wso_sensitivity["cycle_no"].min()),
             "cycle_end": int(cycle_hale_wso_sensitivity["cycle_no"].max()),
-            "weak_thresholds": sorted(cycle_hale_wso_sensitivity["weak_threshold"].dropna().unique().tolist()),
+            "weak_thresholds": sorted(
+                cycle_hale_wso_sensitivity["weak_threshold"].dropna().unique().tolist()
+            ),
             "stability_windows_months": sorted(
-                cycle_hale_wso_sensitivity["stability_window_months"].dropna().unique().tolist()
+                cycle_hale_wso_sensitivity["stability_window_months"]
+                .dropna()
+                .unique()
+                .tolist()
             ),
         }
 
     master_validity = {
-        "sunspot_number": valid_month_summary(master, "sunspot_number", "sunspot_quality_flag"),
-        "hemispheric_sunspot": valid_month_summary(master, "north_sunspot_number", "hemisphere_quality_flag"),
+        "sunspot_number": valid_month_summary(
+            master, "sunspot_number", "sunspot_quality_flag"
+        ),
+        "hemispheric_sunspot": valid_month_summary(
+            master, "north_sunspot_number", "hemisphere_quality_flag"
+        ),
         "f107": valid_month_summary(master, "f107_monthly_mean", "f107_quality_flag"),
         "polar_field": valid_month_summary(master, "polar_north", "polar_quality_flag"),
     }
     if "flare_count_total" in master.columns:
-        master_validity["goes_xrs_flares"] = valid_month_summary(master, "flare_count_total", "flare_data_quality_flag")
+        master_validity["goes_xrs_flares"] = valid_month_summary(
+            master, "flare_count_total", "flare_data_quality_flag"
+        )
 
     data_coverage_counts = {
         str(k): int(v)
-        for k, v in master["data_coverage_flag"].fillna("missing").value_counts().sort_index().items()
+        for k, v in master["data_coverage_flag"]
+        .fillna("missing")
+        .value_counts()
+        .sort_index()
+        .items()
     }
 
     cycle_feature_availability = cycle_availability(
@@ -166,19 +213,31 @@ def main() -> None:
     )
     if cycle_hale_wso is not None:
         cycle_feature_availability["cycle_hale_wso_features_table"] = {
-            "cycles_with_observed_polar_field": int(cycle_hale_wso["hale_evidence_tier"].eq("observed_polar_field").sum()),
-            "cycles_with_north_reversal_month": int(cycle_hale_wso["north_reversal_month"].notna().sum()),
-            "cycles_with_south_reversal_month": int(cycle_hale_wso["south_reversal_month"].notna().sum()),
+            "cycles_with_observed_polar_field": int(
+                cycle_hale_wso["hale_evidence_tier"].eq("observed_polar_field").sum()
+            ),
+            "cycles_with_north_reversal_month": int(
+                cycle_hale_wso["north_reversal_month"].notna().sum()
+            ),
+            "cycles_with_south_reversal_month": int(
+                cycle_hale_wso["south_reversal_month"].notna().sum()
+            ),
         }
 
-    incomplete_cycles = cycles.loc[~cycles["is_complete"].astype(str).str.lower().eq("true"), "cycle_no"].tolist()
+    incomplete_cycles = cycles.loc[
+        ~cycles["is_complete"].astype(str).str.lower().eq("true"), "cycle_no"
+    ].tolist()
     incomplete_cycles = [int(x) for x in incomplete_cycles]
 
     all_coverage = master[master["data_coverage_flag"].eq("all")]
     all_coverage_range = {
         "months": int(len(all_coverage)),
-        "start": all_coverage["date_month"].min().strftime("%Y-%m-%d") if not all_coverage.empty else None,
-        "end": all_coverage["date_month"].max().strftime("%Y-%m-%d") if not all_coverage.empty else None,
+        "start": all_coverage["date_month"].min().strftime("%Y-%m-%d")
+        if not all_coverage.empty
+        else None,
+        "end": all_coverage["date_month"].max().strftime("%Y-%m-%d")
+        if not all_coverage.empty
+        else None,
     }
 
     report = {
@@ -205,7 +264,9 @@ def main() -> None:
         },
         "cycle_table_quality": {
             "total_cycles": int(len(cycles)),
-            "complete_cycle_count": int(cycles["is_complete"].astype(str).str.lower().eq("true").sum()),
+            "complete_cycle_count": int(
+                cycles["is_complete"].astype(str).str.lower().eq("true").sum()
+            ),
             "incomplete_cycles": incomplete_cycles,
             "feature_availability_by_cycle_signal": cycle_feature_availability,
             "target_field_notes": {
@@ -232,7 +293,12 @@ def main() -> None:
                 },
                 {
                     "signal": "solar cycle metadata",
-                    "fields": ["cycle_no", "cycle_phase", "months_from_cycle_start", "months_to_cycle_peak"],
+                    "fields": [
+                        "cycle_no",
+                        "cycle_phase",
+                        "months_from_cycle_start",
+                        "months_to_cycle_peak",
+                    ],
                     "usable_for": [
                         "cycle segmentation",
                         "phase-aware feature construction",
@@ -247,7 +313,12 @@ def main() -> None:
             "mechanism_or_auxiliary_evidence": [
                 {
                     "signal": "F10.7 radio flux",
-                    "fields": ["f107_monthly_mean", "f107_monthly_median", "f107_valid_days", "f107_quality_flag"],
+                    "fields": [
+                        "f107_monthly_mean",
+                        "f107_monthly_median",
+                        "f107_valid_days",
+                        "f107_quality_flag",
+                    ],
                     "usable_for": [
                         "proxy comparison with sunspot number",
                         "relationship drift diagnostics",
@@ -458,19 +529,28 @@ def main() -> None:
     }
 
     PROCESSED_DIR.mkdir(parents=True, exist_ok=True)
-    OUTPUT_PATH.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
+    OUTPUT_PATH.write_text(
+        json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
     text_path = OUTPUT_PATH.with_suffix(".txt")
     text_path.write_text(
-        data_quality_report_text.render_data_quality_report_text(report), encoding="utf-8"
+        data_quality_report_text.render_data_quality_report_text(report),
+        encoding="utf-8",
     )
     print(f"saved {OUTPUT_PATH}")
     print(f"saved {text_path}")
-    print(json.dumps({
-        "master_rows": len(master),
-        "cycle_rows": len(cycles),
-        "all_source_overlap_months": all_coverage_range["months"],
-        "incomplete_cycles": incomplete_cycles,
-    }, ensure_ascii=False, indent=2))
+    print(
+        json.dumps(
+            {
+                "master_rows": len(master),
+                "cycle_rows": len(cycles),
+                "all_source_overlap_months": all_coverage_range["months"],
+                "incomplete_cycles": incomplete_cycles,
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+    )
 
 
 if __name__ == "__main__":

@@ -207,8 +207,7 @@ class AskUserWidget(Widget):
                 self._title_w.update(">>> Quick check-in from jw <<<")
             else:
                 self._title_w.update(
-                    f">>> Question {index + 1}/{total}"
-                    " — Quick check-in from jw <<<"
+                    f">>> Question {index + 1}/{total} — Quick check-in from jw <<<"
                 )
 
         # Question text

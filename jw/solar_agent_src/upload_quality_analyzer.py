@@ -41,7 +41,9 @@ class QualityIssue:
         }
 
 
-def _detect_time_column(df: pd.DataFrame, inspection: dict[str, Any] | None) -> str | None:
+def _detect_time_column(
+    df: pd.DataFrame, inspection: dict[str, Any] | None
+) -> str | None:
     if inspection:
         primary = inspection.get("primary_time_column")
         if primary and primary in df.columns:
@@ -70,7 +72,9 @@ def _check_duplicate_rows(df: pd.DataFrame) -> QualityIssue | None:
     )
 
 
-def _check_duplicate_timestamps(df: pd.DataFrame, time_col: str | None) -> QualityIssue | None:
+def _check_duplicate_timestamps(
+    df: pd.DataFrame, time_col: str | None
+) -> QualityIssue | None:
     if not time_col:
         return None
     dates = _parse_time_column(df, time_col)
@@ -89,7 +93,9 @@ def _check_duplicate_timestamps(df: pd.DataFrame, time_col: str | None) -> Quali
     )
 
 
-def _check_time_continuity(df: pd.DataFrame, time_col: str | None) -> QualityIssue | None:
+def _check_time_continuity(
+    df: pd.DataFrame, time_col: str | None
+) -> QualityIssue | None:
     if not time_col:
         return None
     dates = _parse_time_column(df, time_col).dropna().sort_values()
@@ -149,7 +155,9 @@ def _detect_time_granularity(df: pd.DataFrame, time_col: str | None) -> str | No
     return f"irregular_{int(days)}d"
 
 
-def _check_missing_values(df: pd.DataFrame) -> tuple[list[QualityIssue], dict[str, Any]]:
+def _check_missing_values(
+    df: pd.DataFrame,
+) -> tuple[list[QualityIssue], dict[str, Any]]:
     issues = []
     per_column = {}
     for col in df.columns:
@@ -224,7 +232,9 @@ def _check_constant_columns(df: pd.DataFrame) -> list[QualityIssue]:
 def _check_numeric_outliers(df: pd.DataFrame) -> list[QualityIssue]:
     issues = []
     for col in df.columns:
-        if not pd.api.types.is_numeric_dtype(df[col]) or pd.api.types.is_bool_dtype(df[col]):
+        if not pd.api.types.is_numeric_dtype(df[col]) or pd.api.types.is_bool_dtype(
+            df[col]
+        ):
             continue
         non_null = df[col].dropna()
         if len(non_null) < 10:
@@ -282,7 +292,9 @@ def _check_infinite_values(df: pd.DataFrame) -> QualityIssue | None:
 def _check_category_spelling(df: pd.DataFrame) -> list[QualityIssue]:
     issues = []
     for col in df.columns:
-        if pd.api.types.is_numeric_dtype(df[col]) or pd.api.types.is_datetime64_any_dtype(df[col]):
+        if pd.api.types.is_numeric_dtype(
+            df[col]
+        ) or pd.api.types.is_datetime64_any_dtype(df[col]):
             continue
         non_null = df[col].dropna().astype(str)
         if non_null.empty:
@@ -327,7 +339,11 @@ def _check_logical_constraints(df: pd.DataFrame) -> list[QualityIssue]:
     """Check for obvious logical contradictions, e.g., end < start."""
     issues = []
     # Common date pairs
-    date_pairs = [("start_date", "end_date"), ("start_date", "peak_date"), ("begin", "end")]
+    date_pairs = [
+        ("start_date", "end_date"),
+        ("start_date", "peak_date"),
+        ("begin", "end"),
+    ]
     for start_col, end_col in date_pairs:
         if start_col not in df.columns or end_col not in df.columns:
             continue
@@ -374,7 +390,9 @@ def _compute_quality_score(issues: list[QualityIssue]) -> int:
     return max(0, score)
 
 
-def analyze(df: pd.DataFrame, inspection: dict[str, Any] | None = None) -> dict[str, Any]:
+def analyze(
+    df: pd.DataFrame, inspection: dict[str, Any] | None = None
+) -> dict[str, Any]:
     """Run the full quality analysis on a loaded DataFrame."""
     time_col = _detect_time_column(df, inspection)
 
@@ -447,8 +465,8 @@ def run(session: Any) -> dict[str, Any]:
 
         # Cycle-context physical feature summary (standard, ML-oriented).
         try:
-            report["cycle_context_summary"] = cycle_context_summary.build_cycle_context_summary(
-                df, inspection
+            report["cycle_context_summary"] = (
+                cycle_context_summary.build_cycle_context_summary(df, inspection)
             )
         except Exception as exc:
             report["cycle_context_summary_error"] = f"{type(exc).__name__}: {exc}"
@@ -459,15 +477,20 @@ def run(session: Any) -> dict[str, Any]:
                 session, apply=True, cleaned_filename="cleaned_auto_v1.csv"
             )
             report["cleaned_file_path"] = cleaning_report.get("cleaned_file_path")
-            report["applied_cleaning_actions"] = cleaning_report.get("applied_actions", [])
+            report["applied_cleaning_actions"] = cleaning_report.get(
+                "applied_actions", []
+            )
         except Exception as exc:
             report["auto_cleaning_error"] = f"{type(exc).__name__}: {exc}"
 
-        report_path.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
+        report_path.write_text(
+            json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8"
+        )
         report["report_path"] = str(report_path.relative_to(ROOT)).replace("\\", "/")
         text_path = report_path.with_suffix(".txt")
         text_path.write_text(
-            data_quality_report_text.render_data_quality_report_text(report), encoding="utf-8"
+            data_quality_report_text.render_data_quality_report_text(report),
+            encoding="utf-8",
         )
         report["text_path"] = str(text_path.relative_to(ROOT)).replace("\\", "/")
 

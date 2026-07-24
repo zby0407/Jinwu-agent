@@ -30,20 +30,57 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="PiAgent adapter for the Solar-Cycle data feature workflow.",
     )
-    parser.add_argument("--request-json", help="Optional path to a PiAgent request JSON file.")
-    parser.add_argument("--task", default="prepare_features", help="Task type for the data feature sub-agent.")
-    parser.add_argument("--target", default="cycle_prediction", help="Downstream target, e.g. cycle_prediction.")
+    parser.add_argument(
+        "--request-json", help="Optional path to a PiAgent request JSON file."
+    )
+    parser.add_argument(
+        "--task",
+        default="prepare_features",
+        help="Task type for the data feature sub-agent.",
+    )
+    parser.add_argument(
+        "--target",
+        default="cycle_prediction",
+        help="Downstream target, e.g. cycle_prediction.",
+    )
     parser.add_argument("--question", help="Question for task=ask_agent.")
-    parser.add_argument("--session-id", help="Persistent Bailian agent session identifier.")
-    parser.add_argument("--approval-id", help="Approve one previously frozen mutating tool call.")
-    parser.add_argument("--upload-file", help="CSV path for task=inspect_upload or load_dataset.")
-    parser.add_argument("--interactive", type=parse_bool, default=False, help="Start an interactive chat loop.")
-    parser.add_argument("--list-capabilities", action="store_true", help="List discoverable Skills and Tools without calling Bailian.")
+    parser.add_argument(
+        "--session-id", help="Persistent Bailian agent session identifier."
+    )
+    parser.add_argument(
+        "--approval-id", help="Approve one previously frozen mutating tool call."
+    )
+    parser.add_argument(
+        "--upload-file", help="CSV path for task=inspect_upload or load_dataset."
+    )
+    parser.add_argument(
+        "--interactive",
+        type=parse_bool,
+        default=False,
+        help="Start an interactive chat loop.",
+    )
+    parser.add_argument(
+        "--list-capabilities",
+        action="store_true",
+        help="List discoverable Skills and Tools without calling Bailian.",
+    )
     parser.add_argument("--action", help="Action for dataset_stats task.")
-    parser.add_argument("--column", help="Column argument for dataset_stats / dataset_query tasks.")
+    parser.add_argument(
+        "--column", help="Column argument for dataset_stats / dataset_query tasks."
+    )
     parser.add_argument("--query", help="Expression for dataset_query task.")
-    parser.add_argument("--rebuild", type=parse_bool, default=False, help="Whether to run the full data workflow.")
-    parser.add_argument("--run-tests", type=parse_bool, default=True, help="Whether to run contract tests.")
+    parser.add_argument(
+        "--rebuild",
+        type=parse_bool,
+        default=False,
+        help="Whether to run the full data workflow.",
+    )
+    parser.add_argument(
+        "--run-tests",
+        type=parse_bool,
+        default=True,
+        help="Whether to run contract tests.",
+    )
     parser.add_argument(
         "--data-scope",
         default=",".join(DEFAULT_DATA_SCOPE),
@@ -67,7 +104,9 @@ def request_from_args(args: argparse.Namespace) -> PiAgentRequest:
             "target": args.target,
             "rebuild": args.rebuild,
             "run_tests": args.run_tests,
-            "data_scope": [item.strip() for item in args.data_scope.split(",") if item.strip()],
+            "data_scope": [
+                item.strip() for item in args.data_scope.split(",") if item.strip()
+            ],
             "require_quality_report": args.require_quality_report,
             "question": args.question,
             "upload_path": args.upload_file,
@@ -117,9 +156,13 @@ def format_chat_output(result: dict[str, Any]) -> str:
             lines.append("")
             lines.append("检测到单列多字段 CSV。")
             proposal = result.get("split_proposal", {})
-            lines.append(f"  建议分隔符: {proposal.get('delimiter_label') or proposal.get('delimiter')}")
+            lines.append(
+                f"  建议分隔符: {proposal.get('delimiter_label') or proposal.get('delimiter')}"
+            )
             lines.append(f"  拆分后列数: {proposal.get('field_count')}")
-            lines.append(f"  列名: {', '.join(str(c) for c in proposal.get('column_names', []))}")
+            lines.append(
+                f"  列名: {', '.join(str(c) for c in proposal.get('column_names', []))}"
+            )
             confidence = proposal.get("confidence_score")
             if confidence is not None:
                 lines.append(f"  置信度: {confidence:.2f}")
@@ -262,6 +305,7 @@ def _format_cleaning_report(result: dict[str, Any], task: str) -> str:
         lines.append(f"完整报告: {report_path}")
     return "\n".join(lines)
 
+
 def print_current_dataset(session: ChatSession) -> None:
     path = session.get_current_dataset_path()
     if path:
@@ -296,7 +340,9 @@ def _resolve_clarification(session: ChatSession, user_input: str) -> Any | None:
 
     intent = pending["intent"]
     existing_cols = pending.get("columns", [])
-    combined_cols = existing_cols + [c for c in additional_cols if c not in existing_cols]
+    combined_cols = existing_cols + [
+        c for c in additional_cols if c not in existing_cols
+    ]
 
     from intent_router import _build_piagent_request
 
@@ -369,11 +415,15 @@ def _format_handoff_report(result: dict[str, Any]) -> str:
     if splits:
         lines.append(f"推荐切分: {len(splits)} 个")
         for split in splits[:5]:
-            lines.append(f"  - {split.get('id')}: {split.get('rows')} 行 ({split.get('start')} ~ {split.get('end')})")
+            lines.append(
+                f"  - {split.get('id')}: {split.get('rows')} 行 ({split.get('start')} ~ {split.get('end')})"
+            )
     risk_flags = result.get("risk_flags", [])
     if risk_flags:
         lines.append(f"风险标记: {', '.join(risk_flags)}")
-    forbidden = result.get("handoff_to_experiment_agent", {}).get("forbidden_inputs", [])
+    forbidden = result.get("handoff_to_experiment_agent", {}).get(
+        "forbidden_inputs", []
+    )
     if forbidden:
         lines.append(f"禁止输入: {', '.join(forbidden)}")
     return "\n".join(lines)
@@ -407,7 +457,9 @@ def _handle_chat_action(session: ChatSession, action: dict[str, Any]) -> str:
 
     name = action.get("action")
     if name == "domain_rules":
-        rules = data_cleaning_engine.get_coverage_rules(session.get_cleaning_coverage_overrides())
+        rules = data_cleaning_engine.get_coverage_rules(
+            session.get_cleaning_coverage_overrides()
+        )
         lines = ["当前太阳物理覆盖规则常量:"]
         for key, values in rules.items():
             lines.append(f"  {key}: {values}")
@@ -421,8 +473,15 @@ def _handle_chat_action(session: ChatSession, action: dict[str, Any]) -> str:
                 try:
                     registry = json.loads(registry_path.read_text(encoding="utf-8"))
                     fields = registry.get("fields", [])
-                    input_features = [f["field"] for f in fields if f.get("role") == "input_feature" and f.get("allowed_as_model_input")]
-                    identifiers = [f["field"] for f in fields if f.get("role") == "identifier"]
+                    input_features = [
+                        f["field"]
+                        for f in fields
+                        if f.get("role") == "input_feature"
+                        and f.get("allowed_as_model_input")
+                    ]
+                    identifiers = [
+                        f["field"] for f in fields if f.get("role") == "identifier"
+                    ]
                     labels = [f["field"] for f in fields if f.get("role") == "label"]
                     lines = [
                         f"特征注册表: {registry_path}",
@@ -431,7 +490,9 @@ def _handle_chat_action(session: ChatSession, action: dict[str, Any]) -> str:
                         f"  labels: {len(labels)}",
                     ]
                     if input_features:
-                        lines.append(f"  输入特征示例: {', '.join(input_features[:10])}")
+                        lines.append(
+                            f"  输入特征示例: {', '.join(input_features[:10])}"
+                        )
                     return "\n".join(lines)
                 except (json.JSONDecodeError, OSError):
                     pass
@@ -448,7 +509,9 @@ def _handle_chat_action(session: ChatSession, action: dict[str, Any]) -> str:
                     if issues:
                         lines = ["特征验证发现问题:"]
                         for issue in issues:
-                            lines.append(f"  [{issue.get('severity')}] {issue.get('message')}")
+                            lines.append(
+                                f"  [{issue.get('severity')}] {issue.get('message')}"
+                            )
                         return "\n".join(lines)
                     return "特征验证通过，无泄漏风险。"
                 except (json.JSONDecodeError, OSError) as exc:
@@ -520,7 +583,9 @@ def chat_mode(args: argparse.Namespace) -> None:
                 decision = input("批准此操作？[y/N] ").strip().lower()
                 approval_id = response.pending_action["approval_id"]
                 if decision in {"y", "yes", "是"}:
-                    response = agent.run("", session_id=session.session_id, approval_id=approval_id)
+                    response = agent.run(
+                        "", session_id=session.session_id, approval_id=approval_id
+                    )
                 else:
                     response = agent.reject(session.session_id, approval_id)
             output = format_chat_output({"task": "ask_agent", **response.to_dict()})
@@ -567,13 +632,21 @@ def chat_mode(args: argparse.Namespace) -> None:
 
         try:
             if request.task == "ask_agent":
-                response = agent.run(request.question or "", session_id=session.session_id)
-                while response.status == "approval_required" and response.pending_action:
-                    print(format_chat_output({"task": "ask_agent", **response.to_dict()}))
+                response = agent.run(
+                    request.question or "", session_id=session.session_id
+                )
+                while (
+                    response.status == "approval_required" and response.pending_action
+                ):
+                    print(
+                        format_chat_output({"task": "ask_agent", **response.to_dict()})
+                    )
                     decision = input("批准此操作？[y/N] ").strip().lower()
                     approval_id = response.pending_action["approval_id"]
                     if decision in {"y", "yes", "是"}:
-                        response = agent.run("", session_id=session.session_id, approval_id=approval_id)
+                        response = agent.run(
+                            "", session_id=session.session_id, approval_id=approval_id
+                        )
                     else:
                         response = agent.reject(session.session_id, approval_id)
                 result = {"task": "ask_agent", **response.to_dict()}
@@ -616,9 +689,13 @@ def chat_mode(args: argparse.Namespace) -> None:
                 decision = "y"
             else:
                 print("\n检测到单列多字段 CSV。")
-                print(f"  分隔符: {proposal.get('delimiter_label') or proposal.get('delimiter')}")
+                print(
+                    f"  分隔符: {proposal.get('delimiter_label') or proposal.get('delimiter')}"
+                )
                 print(f"  拆分后列数: {proposal.get('field_count')}")
-                print(f"  列名: {', '.join(str(c) for c in proposal.get('column_names', []))}")
+                print(
+                    f"  列名: {', '.join(str(c) for c in proposal.get('column_names', []))}"
+                )
                 print(f"  置信度: {confidence:.2f}")
                 if notes:
                     print(f"  备注: {notes}")
@@ -707,7 +784,11 @@ def main() -> None:
         sys.stdout.reconfigure(encoding="utf-8")
     args = parse_args()
     if args.list_capabilities:
-        print(json.dumps(BailianDataFeatureAgent().capabilities(), ensure_ascii=False, indent=2))
+        print(
+            json.dumps(
+                BailianDataFeatureAgent().capabilities(), ensure_ascii=False, indent=2
+            )
+        )
         return
     if args.interactive:
         chat_mode(args)
@@ -721,7 +802,11 @@ def main() -> None:
                 session_id=request.session_id,
                 approval_id=request.approval_id,
             )
-            result = {"agent": "data_feature_agent", "task": "ask_agent", **response.to_dict()}
+            result = {
+                "agent": "data_feature_agent",
+                "task": "ask_agent",
+                **response.to_dict(),
+            }
         elif request.task in {
             "chat",
             "load_dataset",

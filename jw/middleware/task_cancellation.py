@@ -24,9 +24,7 @@ class TaskCancellationMiddleware(AgentMiddleware[Any, Any, Any]):
         config = getattr(request.runtime, "config", None)
         try:
             cancelled = (
-                workspace_root_from_config(config)
-                / "receipts"
-                / "task_cancelled.json"
+                workspace_root_from_config(config) / "receipts" / "task_cancelled.json"
             ).is_file()
         except (OSError, RuntimeError, ValueError):
             cancelled = False
@@ -54,9 +52,7 @@ class TaskCancellationMiddleware(AgentMiddleware[Any, Any, Any]):
     async def awrap_tool_call(
         self,
         request: ToolCallRequest,
-        handler: Callable[
-            [ToolCallRequest], Awaitable[ToolMessage | Command[Any]]
-        ],
+        handler: Callable[[ToolCallRequest], Awaitable[ToolMessage | Command[Any]]],
     ) -> ToolMessage | Command[Any]:
         blocked = await asyncio.to_thread(self._blocked, request)
         return blocked if blocked is not None else await handler(request)

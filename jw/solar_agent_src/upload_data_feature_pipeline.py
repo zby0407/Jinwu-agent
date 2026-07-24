@@ -37,7 +37,9 @@ def _save_clean_monthly_timeseries(df: pd.DataFrame, out_dir: Path) -> Path:
     return path
 
 
-def _wrap_as_inspection(path: Path, df: pd.DataFrame, warnings: list[str]) -> dict[str, Any]:
+def _wrap_as_inspection(
+    path: Path, df: pd.DataFrame, warnings: list[str]
+) -> dict[str, Any]:
     return {
         "source_file": {
             "name": path.name,
@@ -96,7 +98,10 @@ def run(session: ChatSession, use_llm: bool = True) -> dict[str, Any]:
             cleaned_full.unlink()
         except OSError:
             pass
-        for p in (cleaned_full.parent / "quality_report.json", cleaned_full.parent / "quality_report.txt"):
+        for p in (
+            cleaned_full.parent / "quality_report.json",
+            cleaned_full.parent / "quality_report.txt",
+        ):
             try:
                 p.unlink()
             except OSError:
@@ -119,11 +124,15 @@ def run(session: ChatSession, use_llm: bool = True) -> dict[str, Any]:
 
     # 7. Drift report
     drift_report_path = out_dir / "upload_drift_report.json"
-    drift_report = run_drift_report(df, cycle_features, semantic_map, output_path=drift_report_path)
+    drift_report = run_drift_report(
+        df, cycle_features, semantic_map, output_path=drift_report_path
+    )
 
     # 8. Unified quality report
     quality_report_path = out_dir / "upload_data_quality_report.json"
-    quality_report = run_quality_report(df, inspection, llm_recognition, output_path=quality_report_path)
+    quality_report = run_quality_report(
+        df, inspection, llm_recognition, output_path=quality_report_path
+    )
 
     # 9. Feature registry (built from cycle features, the experiment-level table)
     registry_path = out_dir / "upload_feature_registry.json"
@@ -147,15 +156,29 @@ def run(session: ChatSession, use_llm: bool = True) -> dict[str, Any]:
     # 10. Update current dataset to the standard clean monthly timeseries
     warnings = drift_report.get("confidence_recommendations", [])
     wrapped = _wrap_as_inspection(clean_path, df, warnings)
-    session.set_aligned_dataset(str(clean_path.relative_to(ROOT)).replace("\\", "/"), wrapped)
+    session.set_aligned_dataset(
+        str(clean_path.relative_to(ROOT)).replace("\\", "/"), wrapped
+    )
 
     paths = {
-        "upload_clean_monthly_timeseries": str(clean_path.relative_to(ROOT)).replace("\\", "/"),
-        "upload_cycle_features": str(cycle_features_path.relative_to(ROOT)).replace("\\", "/"),
-        "upload_drift_report": str(drift_report_path.relative_to(ROOT)).replace("\\", "/"),
-        "upload_data_quality_report": str(quality_report_path.relative_to(ROOT)).replace("\\", "/"),
-        "upload_data_quality_report_text": str(quality_report_path.with_suffix(".txt").relative_to(ROOT)).replace("\\", "/"),
-        "upload_feature_registry": str(registry_path.relative_to(ROOT)).replace("\\", "/"),
+        "upload_clean_monthly_timeseries": str(clean_path.relative_to(ROOT)).replace(
+            "\\", "/"
+        ),
+        "upload_cycle_features": str(cycle_features_path.relative_to(ROOT)).replace(
+            "\\", "/"
+        ),
+        "upload_drift_report": str(drift_report_path.relative_to(ROOT)).replace(
+            "\\", "/"
+        ),
+        "upload_data_quality_report": str(
+            quality_report_path.relative_to(ROOT)
+        ).replace("\\", "/"),
+        "upload_data_quality_report_text": str(
+            quality_report_path.with_suffix(".txt").relative_to(ROOT)
+        ).replace("\\", "/"),
+        "upload_feature_registry": str(registry_path.relative_to(ROOT)).replace(
+            "\\", "/"
+        ),
     }
 
     return {

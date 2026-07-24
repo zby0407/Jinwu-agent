@@ -43,8 +43,7 @@ class DiscordChannel(Channel):
             import discord
         except ImportError:
             raise ChannelError(
-                "discord.py not installed. "
-                "Install with: pip install jw[discord]"
+                "discord.py not installed. Install with: pip install jw[discord]"
             ) from None
 
         if not self.config.bot_token:

@@ -1680,9 +1680,7 @@ class _ApiPruningCheckpointer(PruningCheckpointer):
                 )
             await self.conn.commit()
 
-    async def acopy_thread(
-        self, source_thread_id: str, target_thread_id: str
-    ) -> None:
+    async def acopy_thread(self, source_thread_id: str, target_thread_id: str) -> None:
         """Atomically replace a target thread with a complete source copy."""
         source = str(source_thread_id)
         target = str(target_thread_id)

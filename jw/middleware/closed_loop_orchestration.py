@@ -90,9 +90,7 @@ def _todo_text(todos: object) -> str:
     if not isinstance(todos, Sequence) or isinstance(todos, (str, bytes)):
         return ""
     return " ".join(
-        str(todo.get("content", ""))
-        for todo in todos
-        if isinstance(todo, Mapping)
+        str(todo.get("content", "")) for todo in todos if isinstance(todo, Mapping)
     )
 
 
@@ -162,9 +160,9 @@ def _declares_full_closed_loop(state: object) -> bool:
                 if isinstance(args, Mapping):
                     chunks.append(_todo_text(args.get("todos")))
     declared = " ".join(chunks).casefold()
-    return all(name in declared for name in _SPECIALISTS) or _natural_closed_loop_intent(
-        _state_text(state)
-    )
+    return all(
+        name in declared for name in _SPECIALISTS
+    ) or _natural_closed_loop_intent(_state_text(state))
 
 
 def _has_staged_input(workspace_root: Path, description: str = "") -> bool:
@@ -213,9 +211,7 @@ def closed_loop_receipts(workspace_root: Path) -> dict[str, Path | None]:
     )
     hypothesis = _latest_valid(
         list(
-            (workspace_root / "hypothesis" / "runs").glob(
-                "*/hypothesis_portfolio.json"
-            )
+            (workspace_root / "hypothesis" / "runs").glob("*/hypothesis_portfolio.json")
         ),
         lambda payload, _path: payload.get("status") == "frozen",
     )
@@ -295,7 +291,10 @@ class ClosedLoopOrchestrationGuardMiddleware(AgentMiddleware[Any, Any, Any]):
                     "solar-hypothesis requires a real frozen planner artifact in "
                     "this task workspace; a prose result or todo update is not a receipt.",
                 )
-            if specialist == "solar-experiment" and receipts["solar-hypothesis"] is None:
+            if (
+                specialist == "solar-experiment"
+                and receipts["solar-hypothesis"] is None
+            ):
                 return self._blocked(
                     request,
                     "solar-experiment requires a real frozen hypothesis artifact in "
@@ -330,7 +329,10 @@ class ClosedLoopOrchestrationGuardMiddleware(AgentMiddleware[Any, Any, Any]):
             todos = args.get("todos", [])
             if isinstance(todos, Sequence) and not isinstance(todos, (str, bytes)):
                 for todo in todos:
-                    if not isinstance(todo, Mapping) or todo.get("status") != "completed":
+                    if (
+                        not isinstance(todo, Mapping)
+                        or todo.get("status") != "completed"
+                    ):
                         continue
                     content = str(todo.get("content", "")).casefold()
                     for specialist in _SPECIALISTS:
@@ -389,7 +391,10 @@ class ClosedLoopOrchestrationGuardMiddleware(AgentMiddleware[Any, Any, Any]):
                         row = statuses.get(specialist)
                         if not isinstance(row, Mapping):
                             continue
-                        if _claims_success(row.get("status")) and receipts[specialist] is None:
+                        if (
+                            _claims_success(row.get("status"))
+                            and receipts[specialist] is None
+                        ):
                             return self._blocked(
                                 request,
                                 f"receipt summary falsely claims {specialist} success; "
@@ -408,9 +413,7 @@ class ClosedLoopOrchestrationGuardMiddleware(AgentMiddleware[Any, Any, Any]):
     async def awrap_tool_call(
         self,
         request: ToolCallRequest,
-        handler: Callable[
-            [ToolCallRequest], Awaitable[ToolMessage | Command[Any]]
-        ],
+        handler: Callable[[ToolCallRequest], Awaitable[ToolMessage | Command[Any]]],
     ) -> ToolMessage | Command[Any]:
         # Artifact discovery reads task-local JSON and scans three small run
         # directories.  LangGraph dev rejects those blocking filesystem calls

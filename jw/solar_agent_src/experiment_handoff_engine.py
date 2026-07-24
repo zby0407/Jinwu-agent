@@ -25,7 +25,10 @@ def _load_json(path: Path) -> dict[str, Any] | None:
 def _forbidden_inputs_from_registry(registry: dict[str, Any]) -> list[str]:
     forbidden = []
     for item in registry.get("fields", []):
-        if item.get("leakage_risk") == "forbidden_as_input" or item.get("allowed_as_model_input") is False:
+        if (
+            item.get("leakage_risk") == "forbidden_as_input"
+            or item.get("allowed_as_model_input") is False
+        ):
             forbidden.append(item["field"])
     return sorted(set(forbidden))
 
@@ -60,18 +63,26 @@ def _recommended_splits(df: pd.DataFrame, date_col: str | None) -> list[dict[str
     date_min = dates.min()
     date_max = dates.max()
 
-    def _add_split(id: str, start: str | None, end: str | None, description: str, sources: list[str]) -> None:
+    def _add_split(
+        id: str,
+        start: str | None,
+        end: str | None,
+        description: str,
+        sources: list[str],
+    ) -> None:
         start_date = pd.to_datetime(start) if start else date_min
         end_date = pd.to_datetime(end) if end else date_max
         mask = dates.notna() & (dates >= start_date) & (dates <= end_date)
-        splits.append({
-            "id": id,
-            "description": description,
-            "sources": sources,
-            "start": start_date.strftime("%Y-%m-%d"),
-            "end": end_date.strftime("%Y-%m-%d"),
-            "rows": int(mask.sum()),
-        })
+        splits.append(
+            {
+                "id": id,
+                "description": description,
+                "sources": sources,
+                "start": start_date.strftime("%Y-%m-%d"),
+                "end": end_date.strftime("%Y-%m-%d"),
+                "rows": int(mask.sum()),
+            }
+        )
 
     _add_split(
         "sunspot_only",
@@ -119,7 +130,11 @@ def _quality_summary(quality_report: dict[str, Any]) -> dict[str, Any]:
         "info_count": quality_report.get("severity_counts", {}).get("info", 0),
         "coverage": quality_report.get("coverage", {}),
         "cleaning_findings": [
-            {"type": f.get("type"), "severity": f.get("severity"), "message": f.get("message")}
+            {
+                "type": f.get("type"),
+                "severity": f.get("severity"),
+                "message": f.get("message"),
+            }
             for f in quality_report.get("cleaning", {}).get("findings", [])
         ],
     }
@@ -201,7 +216,9 @@ def run(session: Any) -> dict[str, Any]:
 
     handoff_path = report_dir / "experiment_handoff.json"
     report_dir.mkdir(parents=True, exist_ok=True)
-    handoff_path.write_text(json.dumps(handoff, ensure_ascii=False, indent=2), encoding="utf-8")
+    handoff_path.write_text(
+        json.dumps(handoff, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
     handoff["handoff_path"] = str(handoff_path.relative_to(ROOT)).replace("\\", "/")
 
     return handoff

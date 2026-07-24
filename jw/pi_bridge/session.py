@@ -22,14 +22,15 @@ class PiSessionReader:
         pi names files like ``<iso-timestamp>_<session-id>.jsonl``.
         """
         self.session_dir.mkdir(parents=True, exist_ok=True)
+        suffix = f"_{session_id}.jsonl"
         matches = [
             p
             for p in self.session_dir.iterdir()
-            if p.is_file() and p.suffix == ".jsonl" and session_id in p.name
+            if p.is_file() and p.name.endswith(suffix)
         ]
         if not matches:
             return None
-        return max(matches, key=lambda p: p.stat().st_mtime)
+        return max(matches, key=lambda p: p.name)
 
     def read_messages(self, session_id: str) -> list[dict[str, Any]]:
         """Read user/assistant/toolResult messages from the session file."""

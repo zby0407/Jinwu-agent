@@ -98,8 +98,7 @@ def run_webui(config: Any, workspace_dir: str | None = None) -> None:
             f"(both are {webui_port}).[/red]"
         )
         console.print(
-            "[dim]Change one with [bold]jw config set webui_port <port>"
-            "[/bold].[/dim]"
+            "[dim]Change one with [bold]jw config set webui_port <port>[/bold].[/dim]"
         )
         raise typer.Exit(1)
 

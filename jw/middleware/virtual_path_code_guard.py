@@ -36,9 +36,7 @@ class VirtualPathCodeGuardMiddleware(AgentMiddleware[Any, Any, Any]):
         if not path.endswith(_CODE_SUFFIXES):
             return None
         fragments = (
-            [args.get("content")]
-            if name == "write_file"
-            else [args.get("new_string")]
+            [args.get("content")] if name == "write_file" else [args.get("new_string")]
         )
         if not any(
             isinstance(fragment, str) and _EMBEDDED_VIRTUAL_PATH.search(fragment)
@@ -71,9 +69,7 @@ class VirtualPathCodeGuardMiddleware(AgentMiddleware[Any, Any, Any]):
     async def awrap_tool_call(
         self,
         request: ToolCallRequest,
-        handler: Callable[
-            [ToolCallRequest], Awaitable[ToolMessage | Command[Any]]
-        ],
+        handler: Callable[[ToolCallRequest], Awaitable[ToolMessage | Command[Any]]],
     ) -> ToolMessage | Command[Any]:
         blocked = self._blocked(request)
         return blocked if blocked is not None else await handler(request)

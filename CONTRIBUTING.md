@@ -22,7 +22,8 @@ npm install
 后端：
 
 ```bash
-uv run ruff check .
+uv run ruff check --select F .
+uv run ruff format --check jw tests
 uv run pytest
 ```
 

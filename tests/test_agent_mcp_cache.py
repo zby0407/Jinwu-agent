@@ -67,9 +67,7 @@ class TestMcpToolCaching:
             calls["config"] += 1
             return {"srv": {"transport": "stdio", "command": "demo"}}
 
-        monkeypatch.setattr(
-            "jw.mcp.client.load_mcp_config", counting_load_config
-        )
+        monkeypatch.setattr("jw.mcp.client.load_mcp_config", counting_load_config)
         monkeypatch.setattr(
             "jw.mcp.load_mcp_tools",
             lambda config=None, **_kwargs: {"main": []},

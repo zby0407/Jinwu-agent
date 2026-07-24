@@ -156,7 +156,10 @@ class TestShellGuidelines:
         assert "3600" in SHELL_GUIDELINES  # per-command override ceiling
 
     def test_explains_virtual_paths_inside_program_source(self):
-        assert "rewritten only when they appear as shell path arguments" in SHELL_GUIDELINES
+        assert (
+            "rewritten only when they appear as shell path arguments"
+            in SHELL_GUIDELINES
+        )
         assert "python -m json.tool /receipts/result.json" in SHELL_GUIDELINES
         assert "Do not use command substitution or heredocs" in SHELL_GUIDELINES
 

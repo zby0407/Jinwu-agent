@@ -8,13 +8,18 @@ from typing import Any
 import pandas as pd
 
 from feature_physical_meaning import lookup_physical_meaning
-from llm_upload_semantic_recognizer import explain_evidence_tiers, verify_physical_meaning
+from llm_upload_semantic_recognizer import (
+    explain_evidence_tiers,
+    verify_physical_meaning,
+)
 
 
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def _field_records(df: pd.DataFrame, semantic_map: dict[str, str]) -> list[dict[str, Any]]:
+def _field_records(
+    df: pd.DataFrame, semantic_map: dict[str, str]
+) -> list[dict[str, Any]]:
     records = []
     for col in df.columns:
         meaning = lookup_physical_meaning(col)
@@ -106,9 +111,13 @@ def run(
     verification: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Build and save the feature registry for uploaded data."""
-    registry = build_upload_feature_registry(df, semantic_map, llm_result, verification=verification)
+    registry = build_upload_feature_registry(
+        df, semantic_map, llm_result, verification=verification
+    )
     if output_path is not None:
         output_path.parent.mkdir(parents=True, exist_ok=True)
-        output_path.write_text(json.dumps(registry, ensure_ascii=False, indent=2), encoding="utf-8")
+        output_path.write_text(
+            json.dumps(registry, ensure_ascii=False, indent=2), encoding="utf-8"
+        )
         registry["path"] = str(output_path.relative_to(ROOT)).replace("\\", "/")
     return registry

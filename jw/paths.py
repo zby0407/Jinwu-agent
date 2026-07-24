@@ -61,9 +61,7 @@ GLOBAL_MEMORIES_DIR: Path = _global_memories_dir()
 # Memories dir: global by default, overridable via env var.
 # Supports both new (JW_MEMORIES_DIR) and old (JW_MEMORY_DIR) env vars.
 MEMORIES_DIR: Path = (
-    _env_path("JW_MEMORIES_DIR")
-    or _env_path("JW_MEMORY_DIR")
-    or GLOBAL_MEMORIES_DIR
+    _env_path("JW_MEMORIES_DIR") or _env_path("JW_MEMORY_DIR") or GLOBAL_MEMORIES_DIR
 )
 MEMORY_DIR = MEMORIES_DIR  # backward compat alias
 
@@ -93,11 +91,7 @@ def migrate_legacy_sessions_db() -> None:
     # Resolve legacy source via XDG_CONFIG_HOME (matches config.settings.get_config_dir).
     # Inlined here to avoid importing config.settings at paths load time.
     xdg = os.environ.get("XDG_CONFIG_HOME")
-    legacy = (
-        (Path(xdg) / "jw")
-        if xdg
-        else (Path.home() / ".config" / "jw")
-    )
+    legacy = (Path(xdg) / "jw") if xdg else (Path.home() / ".config" / "jw")
     if not legacy.exists():
         marker.touch()
         return
@@ -169,9 +163,7 @@ def set_workspace_root(path: str | Path) -> None:
         or GLOBAL_MEMORIES_DIR
     )
     MEMORY_DIR = MEMORIES_DIR
-    USER_SKILLS_DIR = _env_path("JW_SKILLS_DIR") or (
-        WORKSPACE_ROOT / "skills"
-    )
+    USER_SKILLS_DIR = _env_path("JW_SKILLS_DIR") or (WORKSPACE_ROOT / "skills")
     MEDIA_DIR = _env_path("JW_MEDIA_DIR") or (WORKSPACE_ROOT / "media")
 
 

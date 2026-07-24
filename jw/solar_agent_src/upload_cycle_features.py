@@ -89,7 +89,11 @@ def build_upload_cycle_features(
     # Restrict to columns that actually exist and are numeric. Non-numeric columns
     # (e.g., leftover label strings) cannot be used in physical calculations.
     def _usable(col: str | None) -> bool:
-        return col is not None and col in out.columns and pd.api.types.is_numeric_dtype(out[col])
+        return (
+            col is not None
+            and col in out.columns
+            and pd.api.types.is_numeric_dtype(out[col])
+        )
 
     sunspot_col = sunspot_col if _usable(sunspot_col) else None
     f107_col = f107_col if _usable(f107_col) else None
@@ -101,7 +105,9 @@ def build_upload_cycle_features(
     for cycle_no, group in out.groupby("cycle_number", sort=True):
         group = group.sort_values("date_month").copy()
         start_date = group["date_month"].min()
-        peak_date = pd.to_datetime(group["cycle_max_date_month"].iloc[0], errors="coerce")
+        peak_date = pd.to_datetime(
+            group["cycle_max_date_month"].iloc[0], errors="coerce"
+        )
         if pd.isna(peak_date) and sunspot_col and group[sunspot_col].notna().any():
             peak_date = group.loc[group[sunspot_col].idxmax(), "date_month"]
 
@@ -113,12 +119,28 @@ def build_upload_cycle_features(
             end_date = group["date_month"].max()
             is_complete = bool(end_date < max_observed_month)
 
-        cycle_length = _month_diff(start_date, end_date) + 1 if pd.notna(end_date) else np.nan
-        rise_time = _month_diff(start_date, peak_date) if pd.notna(peak_date) else np.nan
-        decline_time = _month_diff(peak_date, end_date) if pd.notna(peak_date) and pd.notna(end_date) else np.nan
+        cycle_length = (
+            _month_diff(start_date, end_date) + 1 if pd.notna(end_date) else np.nan
+        )
+        rise_time = (
+            _month_diff(start_date, peak_date) if pd.notna(peak_date) else np.nan
+        )
+        decline_time = (
+            _month_diff(peak_date, end_date)
+            if pd.notna(peak_date) and pd.notna(end_date)
+            else np.nan
+        )
 
-        rising = group[group["date_month"].le(peak_date)] if pd.notna(peak_date) else group.iloc[0:0]
-        declining = group[group["date_month"].ge(peak_date)] if pd.notna(peak_date) else group.iloc[0:0]
+        rising = (
+            group[group["date_month"].le(peak_date)]
+            if pd.notna(peak_date)
+            else group.iloc[0:0]
+        )
+        declining = (
+            group[group["date_month"].ge(peak_date)]
+            if pd.notna(peak_date)
+            else group.iloc[0:0]
+        )
 
         row: dict[str, Any] = {
             "cycle_no": cycle_no,
@@ -129,8 +151,12 @@ def build_upload_cycle_features(
             "cycle_length_months": cycle_length,
             "rise_time_months": rise_time,
             "decline_time_months": decline_time,
-            "official_cycle_min_sn": group["cycle_min_sn"].dropna().iloc[0] if group["cycle_min_sn"].notna().any() else np.nan,
-            "official_cycle_max_sn": group["cycle_max_sn"].dropna().iloc[0] if group["cycle_max_sn"].notna().any() else np.nan,
+            "official_cycle_min_sn": group["cycle_min_sn"].dropna().iloc[0]
+            if group["cycle_min_sn"].notna().any()
+            else np.nan,
+            "official_cycle_max_sn": group["cycle_max_sn"].dropna().iloc[0]
+            if group["cycle_max_sn"].notna().any()
+            else np.nan,
         }
 
         if sunspot_col:
@@ -139,11 +165,15 @@ def build_upload_cycle_features(
             row["mean_sunspot_number"] = group[sunspot_col].mean(skipna=True)
             row["integral_sunspot"] = group[sunspot_col].sum(skipna=True)
             if "months_since_cycle_min" in rising.columns and not rising.empty:
-                row["rise_slope"] = _linear_slope(rising["months_since_cycle_min"], rising[sunspot_col])
+                row["rise_slope"] = _linear_slope(
+                    rising["months_since_cycle_min"], rising[sunspot_col]
+                )
             else:
                 row["rise_slope"] = np.nan
             if "months_since_cycle_min" in declining.columns and not declining.empty:
-                row["decline_slope"] = _linear_slope(declining["months_since_cycle_min"], declining[sunspot_col])
+                row["decline_slope"] = _linear_slope(
+                    declining["months_since_cycle_min"], declining[sunspot_col]
+                )
             else:
                 row["decline_slope"] = np.nan
 
@@ -152,8 +182,12 @@ def build_upload_cycle_features(
             row["f107_max"] = group[f107_col].max(skipna=True)
             if sunspot_col:
                 row["f107_sunspot_corr"] = _corr(group[sunspot_col], group[f107_col])
-                row["f107_sunspot_slope"] = _linear_slope(group[sunspot_col], group[f107_col])
-                row["f107_sunspot_residual_std"] = _residual_std(group[sunspot_col], group[f107_col])
+                row["f107_sunspot_slope"] = _linear_slope(
+                    group[sunspot_col], group[f107_col]
+                )
+                row["f107_sunspot_residual_std"] = _residual_std(
+                    group[sunspot_col], group[f107_col]
+                )
 
         for col in hemisphere_cols:
             row[f"{col}_mean"] = group[col].mean(skipna=True)
@@ -162,7 +196,10 @@ def build_upload_cycle_features(
         for col in polar_cols:
             precursor_start = start_date - pd.DateOffset(months=36)
             precursor_end = start_date - pd.DateOffset(months=1)
-            precursor = out[(out["date_month"] >= precursor_start) & (out["date_month"] <= precursor_end)]
+            precursor = out[
+                (out["date_month"] >= precursor_start)
+                & (out["date_month"] <= precursor_end)
+            ]
             row[f"{col}_precursor_mean"] = precursor[col].mean(skipna=True)
             row[f"{col}_mean"] = group[col].mean(skipna=True)
 
@@ -177,11 +214,22 @@ def build_upload_cycle_features(
     if sunspot_col and "peak_sunspot_number" in features.columns:
         features["next_cycle_peak_sunspot"] = features["peak_sunspot_number"].shift(-1)
 
-    date_cols = [c for c in ["start_date", "peak_date", "end_date"] if c in features.columns]
+    date_cols = [
+        c for c in ["start_date", "peak_date", "end_date"] if c in features.columns
+    ]
     for col in date_cols:
         features[col] = pd.to_datetime(features[col]).dt.strftime("%Y-%m-%d")
 
-    int_cols = [c for c in ["cycle_no", "cycle_length_months", "rise_time_months", "decline_time_months"] if c in features.columns]
+    int_cols = [
+        c
+        for c in [
+            "cycle_no",
+            "cycle_length_months",
+            "rise_time_months",
+            "decline_time_months",
+        ]
+        if c in features.columns
+    ]
     for col in int_cols:
         features[col] = features[col].astype("Int64")
 
@@ -196,7 +244,11 @@ def run(
     """Build and save cycle features for uploaded data."""
     features = build_upload_cycle_features(df, semantic_map)
     if output_path is None:
-        return {"status": "ok", "cycle_features": features, "cycle_rows": int(len(features))}
+        return {
+            "status": "ok",
+            "cycle_features": features,
+            "cycle_rows": int(len(features)),
+        }
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
     features.to_csv(output_path, index=False, encoding="utf-8")

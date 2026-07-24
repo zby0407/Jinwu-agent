@@ -156,9 +156,7 @@ def _step_langgraph_dev_port(config: JWConfig) -> int:
             f"jw config set langgraph_dev_port <other-port>[/yellow]"
         )
     else:
-        console.print(
-            f"  [green]✓ JW will run on http://127.0.0.1:{port}[/green]"
-        )
+        console.print(f"  [green]✓ JW will run on http://127.0.0.1:{port}[/green]")
     return port
 
 
@@ -411,11 +409,7 @@ def _step_oauth_auth_mode(
         Choice(title=f"API Key (direct {provider_label} access)", value="api_key"),
         Choice(
             title=f"{oauth_label} (via ccproxy — no API key needed)"
-            + (
-                ""
-                if ccproxy_available
-                else " [requires: pip install jw[oauth]]"
-            ),
+            + ("" if ccproxy_available else " [requires: pip install jw[oauth]]"),
             value="oauth",
         ),
         questionary.Separator(),

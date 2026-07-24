@@ -123,7 +123,11 @@ def _basic_column_info(series: pd.Series, name: str) -> dict[str, Any]:
         "null_ratio": round(float(series.isna().mean()), 4),
         "unique_count": int(non_null.nunique()) if len(non_null) else 0,
     }
-    if pd.api.types.is_numeric_dtype(series) and not pd.api.types.is_bool_dtype(series) and len(non_null):
+    if (
+        pd.api.types.is_numeric_dtype(series)
+        and not pd.api.types.is_bool_dtype(series)
+        and len(non_null)
+    ):
         info.update(
             {
                 "mean": round(float(non_null.mean()), 4),
@@ -142,7 +146,11 @@ def describe(session: Any) -> dict[str, Any]:
     df, path, dataset_id, inspection = _load_current_dataset(session)
     table_name = _table_name_from_path(path) if path else None
     global_registry = _load_feature_registry()
-    upload_registry = session.load_upload_registry() if hasattr(session, "load_upload_registry") else None
+    upload_registry = (
+        session.load_upload_registry()
+        if hasattr(session, "load_upload_registry")
+        else None
+    )
 
     rows, cols = df.shape
     numeric_cols = _numeric_columns(df)
@@ -164,7 +172,9 @@ def describe(session: Any) -> dict[str, Any]:
 
     column_summaries = []
     for col in df.columns:
-        meta = _field_metadata(col, table_name, dataset_id, global_registry, upload_registry)
+        meta = _field_metadata(
+            col, table_name, dataset_id, global_registry, upload_registry
+        )
         summary = {
             "column": col,
             "inferred_type": str(df[col].dtype),
@@ -224,13 +234,21 @@ def column_stats(session: Any, column: str | None = None) -> dict[str, Any]:
     df, path, dataset_id, _ = _load_current_dataset(session)
     table_name = _table_name_from_path(path) if path else None
     global_registry = _load_feature_registry()
-    upload_registry = session.load_upload_registry() if hasattr(session, "load_upload_registry") else None
+    upload_registry = (
+        session.load_upload_registry()
+        if hasattr(session, "load_upload_registry")
+        else None
+    )
 
     if column:
         if column not in df.columns:
-            raise ValueError(f"Column not found: {column}. Available columns: {list(df.columns)}")
+            raise ValueError(
+                f"Column not found: {column}. Available columns: {list(df.columns)}"
+            )
         series = df[column]
-        meta = _field_metadata(column, table_name, dataset_id, global_registry, upload_registry)
+        meta = _field_metadata(
+            column, table_name, dataset_id, global_registry, upload_registry
+        )
         info = _basic_column_info(series, column)
         return {
             "status": "ok",
@@ -264,10 +282,16 @@ def corr(session: Any, column1: str, column2: str) -> dict[str, Any]:
     df, path, dataset_id, _ = _load_current_dataset(session)
     table_name = _table_name_from_path(path) if path else None
     global_registry = _load_feature_registry()
-    upload_registry = session.load_upload_registry() if hasattr(session, "load_upload_registry") else None
+    upload_registry = (
+        session.load_upload_registry()
+        if hasattr(session, "load_upload_registry")
+        else None
+    )
     for col in (column1, column2):
         if col not in df.columns:
-            raise ValueError(f"Column not found: {col}. Available columns: {list(df.columns)}")
+            raise ValueError(
+                f"Column not found: {col}. Available columns: {list(df.columns)}"
+            )
         if not pd.api.types.is_numeric_dtype(df[col]):
             raise ValueError(f"Column is not numeric: {col}")
 
@@ -275,14 +299,24 @@ def corr(session: Any, column1: str, column2: str) -> dict[str, Any]:
     coefficient = float(valid[column1].corr(valid[column2]))
     n = int(len(valid))
 
-    meta1 = _field_metadata(column1, table_name, dataset_id, global_registry, upload_registry)
-    meta2 = _field_metadata(column2, table_name, dataset_id, global_registry, upload_registry)
+    meta1 = _field_metadata(
+        column1, table_name, dataset_id, global_registry, upload_registry
+    )
+    meta2 = _field_metadata(
+        column2, table_name, dataset_id, global_registry, upload_registry
+    )
     warnings = []
-    if meta1.get("leakage_risk") == "forbidden_as_input" or meta2.get("leakage_risk") == "forbidden_as_input":
+    if (
+        meta1.get("leakage_risk") == "forbidden_as_input"
+        or meta2.get("leakage_risk") == "forbidden_as_input"
+    ):
         warnings.append(
             "One or both columns are marked as forbidden inputs; this correlation is for understanding only, not for modeling."
         )
-    if meta1.get("leakage_risk") == "unverified" or meta2.get("leakage_risk") == "unverified":
+    if (
+        meta1.get("leakage_risk") == "unverified"
+        or meta2.get("leakage_risk") == "unverified"
+    ):
         warnings.append(
             "One or both columns are from an uploaded dataset and their semantic meaning is not verified; interpret with caution."
         )
@@ -303,7 +337,9 @@ def corr(session: Any, column1: str, column2: str) -> dict[str, Any]:
 def value_counts(session: Any, column: str) -> dict[str, Any]:
     df, path, dataset_id, _ = _load_current_dataset(session)
     if column not in df.columns:
-        raise ValueError(f"Column not found: {column}. Available columns: {list(df.columns)}")
+        raise ValueError(
+            f"Column not found: {column}. Available columns: {list(df.columns)}"
+        )
     counts = df[column].value_counts(dropna=False).head(20)
     return {
         "status": "ok",
@@ -318,10 +354,14 @@ def value_counts(session: Any, column: str) -> dict[str, Any]:
 def groupby(session: Any, column: str, agg: str) -> dict[str, Any]:
     df, path, dataset_id, _ = _load_current_dataset(session)
     if column not in df.columns:
-        raise ValueError(f"Column not found: {column}. Available columns: {list(df.columns)}")
+        raise ValueError(
+            f"Column not found: {column}. Available columns: {list(df.columns)}"
+        )
     numeric_cols = _numeric_columns(df)
     if agg not in {"mean", "median", "std", "min", "max", "sum", "count"}:
-        raise ValueError(f"Unsupported aggregation: {agg}. Supported: mean, median, std, min, max, sum, count")
+        raise ValueError(
+            f"Unsupported aggregation: {agg}. Supported: mean, median, std, min, max, sum, count"
+        )
     if agg == "count":
         result = df.groupby(column).size()
         data = [{column: str(k), "count": int(v)} for k, v in result.items()]
@@ -339,19 +379,29 @@ def groupby(session: Any, column: str, agg: str) -> dict[str, Any]:
     }
 
 
-def drift(session: Any, column1: str, column2: str, group: str | None = None) -> dict[str, Any]:
+def drift(
+    session: Any, column1: str, column2: str, group: str | None = None
+) -> dict[str, Any]:
     df, path, dataset_id, _ = _load_current_dataset(session)
     table_name = _table_name_from_path(path) if path else None
     global_registry = _load_feature_registry()
-    upload_registry = session.load_upload_registry() if hasattr(session, "load_upload_registry") else None
+    upload_registry = (
+        session.load_upload_registry()
+        if hasattr(session, "load_upload_registry")
+        else None
+    )
     for col in (column1, column2):
         if col not in df.columns:
-            raise ValueError(f"Column not found: {col}. Available columns: {list(df.columns)}")
+            raise ValueError(
+                f"Column not found: {col}. Available columns: {list(df.columns)}"
+            )
         if not pd.api.types.is_numeric_dtype(df[col]):
             raise ValueError(f"Column is not numeric: {col}")
 
     if group and group not in df.columns:
-        raise ValueError(f"Group column not found: {group}. Available columns: {list(df.columns)}")
+        raise ValueError(
+            f"Group column not found: {group}. Available columns: {list(df.columns)}"
+        )
 
     if group:
         grouped = df.groupby(group)
@@ -388,14 +438,24 @@ def drift(session: Any, column1: str, column2: str, group: str | None = None) ->
 
     valid = df[[column1, column2]].dropna()
     coefficient = float(valid[column1].corr(valid[column2]))
-    meta1 = _field_metadata(column1, table_name, dataset_id, global_registry, upload_registry)
-    meta2 = _field_metadata(column2, table_name, dataset_id, global_registry, upload_registry)
+    meta1 = _field_metadata(
+        column1, table_name, dataset_id, global_registry, upload_registry
+    )
+    meta2 = _field_metadata(
+        column2, table_name, dataset_id, global_registry, upload_registry
+    )
     warnings = []
-    if meta1.get("leakage_risk") == "forbidden_as_input" or meta2.get("leakage_risk") == "forbidden_as_input":
+    if (
+        meta1.get("leakage_risk") == "forbidden_as_input"
+        or meta2.get("leakage_risk") == "forbidden_as_input"
+    ):
         warnings.append(
             "One or both columns are marked as forbidden inputs; this relationship is for understanding only."
         )
-    if meta1.get("leakage_risk") == "unverified" or meta2.get("leakage_risk") == "unverified":
+    if (
+        meta1.get("leakage_risk") == "unverified"
+        or meta2.get("leakage_risk") == "unverified"
+    ):
         warnings.append(
             "One or both columns are from an uploaded dataset and their semantic meaning is not verified; interpret with caution."
         )
@@ -451,6 +511,8 @@ def run(request: Any, session: Any) -> dict[str, Any]:
         parts = str(request.column).split()
         if len(parts) < 2:
             raise ValueError("drift requires at least two columns: <column1> <column2>")
-        return drift(session, parts[0], parts[1], group=parts[2] if len(parts) > 2 else None)
+        return drift(
+            session, parts[0], parts[1], group=parts[2] if len(parts) > 2 else None
+        )
 
     raise ValueError(f"Unknown dataset_stats action: {action}")

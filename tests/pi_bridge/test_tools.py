@@ -149,9 +149,7 @@ class TestPiToolBridge:
 class TestPiToolBridgeJWCapabilities:
     def test_skill_manager(self):
         bridge = PiToolBridge("/tmp/ws")
-        with patch(
-            "jw.tools.skill_manager.skill_manager"
-        ) as mock_skill_manager:
+        with patch("jw.tools.skill_manager.skill_manager") as mock_skill_manager:
             mock_skill_manager.invoke.return_value = "skill result"
             resp = bridge.skill_manager("list")
         assert resp["isError"] is False
@@ -161,12 +159,8 @@ class TestPiToolBridgeJWCapabilities:
         bridge = PiToolBridge("/tmp/ws")
         with (
             patch("jw.middleware.scheduler.schedule_task") as mock_schedule,
-            patch(
-                "jw.middleware.scheduler.list_scheduled_tasks"
-            ) as mock_list,
-            patch(
-                "jw.middleware.scheduler.cancel_scheduled_task"
-            ) as mock_cancel,
+            patch("jw.middleware.scheduler.list_scheduled_tasks") as mock_list,
+            patch("jw.middleware.scheduler.cancel_scheduled_task") as mock_cancel,
         ):
             mock_schedule.invoke.return_value = "scheduled"
             mock_list.invoke.return_value = "no tasks"
@@ -181,13 +175,9 @@ class TestPiToolBridgeJWCapabilities:
     def test_memory_tools(self):
         bridge = PiToolBridge("/tmp/ws", source_session_id="t1")
         with (
-            patch(
-                "jw.memory.create_search_observations_tool"
-            ) as mock_search_factory,
+            patch("jw.memory.create_search_observations_tool") as mock_search_factory,
             patch("jw.memory.create_read_memory_tool") as mock_read_factory,
-            patch(
-                "jw.memory.create_record_observation_tool"
-            ) as mock_record_factory,
+            patch("jw.memory.create_record_observation_tool") as mock_record_factory,
         ):
             mock_search = MagicMock()
             mock_search.invoke.return_value = '{"results": []}'

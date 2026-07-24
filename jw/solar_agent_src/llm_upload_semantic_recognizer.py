@@ -76,6 +76,7 @@ def _extract_json(text: str) -> dict[str, Any]:
 def _call_llm_json(system_prompt: str, user_prompt: str) -> dict[str, Any]:
     try:
         from bailian_llm import BailianLLMError, call_bailian
+
         content = call_bailian(system_prompt, user_prompt)
     except BailianLLMError as exc:
         raise LLMUnavailableError(str(exc)) from exc
@@ -97,7 +98,12 @@ def _rule_based_recognition(df: pd.DataFrame) -> dict[str, Any]:
             semantic_map[col] = "unknown"
 
     mappings = [
-        {"column": c, "semantic": s, "confidence": "low", "reason": "rule-based fallback"}
+        {
+            "column": c,
+            "semantic": s,
+            "confidence": "low",
+            "reason": "rule-based fallback",
+        }
         for c, s in semantic_map.items()
     ]
     return {
@@ -197,7 +203,10 @@ def verify_physical_meaning(
                 "safer_wording": physical_meaning or seed_meaning,
             }
         )
-    return {"verified": verified, "all_consistent": all(v["consistent"] for v in verified)}
+    return {
+        "verified": verified,
+        "all_consistent": all(v["consistent"] for v in verified),
+    }
 
 
 def check_wording_risk(text: str) -> dict[str, Any]:
@@ -211,11 +220,15 @@ def check_wording_risk(text: str) -> dict[str, Any]:
     return _call_llm_json(system, user)
 
 
-def check_physical_plausibility(df: pd.DataFrame, semantic_map: dict[str, str]) -> dict[str, Any]:
+def check_physical_plausibility(
+    df: pd.DataFrame, semantic_map: dict[str, str]
+) -> dict[str, Any]:
     """Ask LLM whether the uploaded data values conflict with known solar physics."""
     stats: dict[str, Any] = {}
     for col, sem in semantic_map.items():
-        if sem in {"sunspot", "f107", "polar"} and pd.api.types.is_numeric_dtype(df[col]):
+        if sem in {"sunspot", "f107", "polar"} and pd.api.types.is_numeric_dtype(
+            df[col]
+        ):
             stats[col] = {
                 "min": float(df[col].min()) if not df[col].empty else None,
                 "max": float(df[col].max()) if not df[col].empty else None,
@@ -248,21 +261,33 @@ def build_narrative(
     if "date_month" in df.columns and not df["date_month"].empty:
         dates = pd.to_datetime(df["date_month"], errors="coerce")
         if dates.notna().any():
-            date_range = f"{dates.min().strftime('%Y-%m')} ~ {dates.max().strftime('%Y-%m')}"
+            date_range = (
+                f"{dates.min().strftime('%Y-%m')} ~ {dates.max().strftime('%Y-%m')}"
+            )
     lines = [
         f"该上传数据共 {len(df)} 行，时间范围 {date_range}。",
         f"主证据字段：{', '.join(primary) if primary else '无'}。",
         f"辅助代理字段：{', '.join(auxiliary) if auxiliary else '无'}。",
     ]
     if quality_issues:
-        lines.append(f"检测到 {len(quality_issues)} 个数据质量问题：" + "；".join(i.get("message", str(i)) for i in quality_issues[:3]))
+        lines.append(
+            f"检测到 {len(quality_issues)} 个数据质量问题："
+            + "；".join(i.get("message", str(i)) for i in quality_issues[:3])
+        )
     if proxy_suggestions:
-        lines.append("缺失数据代理建议：" + "；".join(s.get("note", str(s)) for s in proxy_suggestions[:3]))
+        lines.append(
+            "缺失数据代理建议："
+            + "；".join(s.get("note", str(s)) for s in proxy_suggestions[:3])
+        )
     plausibility_notes = plausibility.get("notes") or []
     if plausibility_notes:
-        lines.append("物理合理性检查：" + "；".join(str(n) for n in plausibility_notes[:3]))
+        lines.append(
+            "物理合理性检查：" + "；".join(str(n) for n in plausibility_notes[:3])
+        )
     if not primary:
-        lines.append("警告：缺少主证据字段（如太阳黑子数），对太阳活动周机制分析应降低置信度。")
+        lines.append(
+            "警告：缺少主证据字段（如太阳黑子数），对太阳活动周机制分析应降低置信度。"
+        )
     return " ".join(lines)
 
 
@@ -292,7 +317,9 @@ def run(
         feature_recommendations = recommend_features(semantic_map)
         proxy_suggestions = suggest_missing_data_proxies(semantic_map)
         plausibility = check_physical_plausibility(df, semantic_map)
-        wording = check_wording_risk(build_narrative(df, semantic_map, [], plausibility, proxy_suggestions))
+        wording = check_wording_risk(
+            build_narrative(df, semantic_map, [], plausibility, proxy_suggestions)
+        )
 
         return {
             "status": "ok",

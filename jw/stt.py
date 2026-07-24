@@ -126,8 +126,7 @@ async def transcribe_file(
         return result or None
     except ImportError as e:
         logger.warning(
-            f"[STT] Missing dependency: {e}. "
-            "Install with: pip install 'JW[stt]'"
+            f"[STT] Missing dependency: {e}. Install with: pip install 'JW[stt]'"
         )
         return None
     except Exception as e:

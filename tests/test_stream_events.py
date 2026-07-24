@@ -1170,9 +1170,11 @@ class TestSummarizationHelpers:
 class TestStreamPiAgentEvents:
     @pytest.mark.asyncio
     async def test_routes_pi_agent_graph(self, tmp_path):
+        from pathlib import Path
         from unittest.mock import AsyncMock, MagicMock, patch
 
         from jw.pi_bridge.graph import PiAgentGraph
+        from jw.pi_bridge.process import PiProcessManager
 
         cfg = MagicMock()
         cfg.agent_engine = "pi"
@@ -1182,7 +1184,16 @@ class TestStreamPiAgentEvents:
         cfg.pi_args = ""
         cfg.dashscope_api_key = "fake"
 
-        graph = PiAgentGraph(cfg, workspace_dir=str(tmp_path))
+        process_manager = PiProcessManager(
+            cfg,
+            pi_cli=Path("/fake/pi.js"),
+            session_dir=tmp_path / "sessions",
+        )
+        graph = PiAgentGraph(
+            cfg,
+            workspace_dir=str(tmp_path),
+            process_manager=process_manager,
+        )
         fake_proc = MagicMock()
         fake_proc.returncode = None
         fake_proc.stdin = AsyncMock()

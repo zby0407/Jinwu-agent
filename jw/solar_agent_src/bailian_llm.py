@@ -34,11 +34,14 @@ def load_bailian_config() -> dict[str, Any]:
     try:
         timeout_seconds = float(timeout_raw)
     except ValueError as exc:
-        raise BailianLLMError(f"Invalid BAILIAN_TIMEOUT_SECONDS: {timeout_raw!r}") from exc
+        raise BailianLLMError(
+            f"Invalid BAILIAN_TIMEOUT_SECONDS: {timeout_raw!r}"
+        ) from exc
 
     return {
         "api_key": api_key,
-        "base_url": os.getenv("BAILIAN_BASE_URL", DEFAULT_BASE_URL).strip() or DEFAULT_BASE_URL,
+        "base_url": os.getenv("BAILIAN_BASE_URL", DEFAULT_BASE_URL).strip()
+        or DEFAULT_BASE_URL,
         "model": os.getenv("BAILIAN_MODEL", DEFAULT_MODEL).strip() or DEFAULT_MODEL,
         "timeout_seconds": timeout_seconds,
         "trust_env": os.getenv("BAILIAN_TRUST_ENV", "false").strip().lower()
@@ -157,7 +160,9 @@ def create_bailian_tool_completion(
                 temperature=0.2,
             )
         except Exception as exc:
-            raise BailianLLMError(f"Bailian tool-calling request failed: {exc}") from exc
+            raise BailianLLMError(
+                f"Bailian tool-calling request failed: {exc}"
+            ) from exc
     finally:
         http_client.close()
     if not response.choices:

@@ -14,7 +14,9 @@ PROCESSED_DIR = ROOT / "data" / "processed"
 OUTPUT_PATH = PROCESSED_DIR / "drift_report.json"
 
 
-def _rolling_baseline(series: pd.Series, window: int = 4) -> tuple[pd.Series, pd.Series]:
+def _rolling_baseline(
+    series: pd.Series, window: int = 4
+) -> tuple[pd.Series, pd.Series]:
     """Return rolling mean/std of previous `window` cycles for each index value."""
     means = {}
     stds = {}
@@ -26,7 +28,12 @@ def _rolling_baseline(series: pd.Series, window: int = 4) -> tuple[pd.Series, pd
 
 
 def _drift_flag(value: float, baseline_mean: float, baseline_std: float) -> str:
-    if pd.isna(value) or pd.isna(baseline_mean) or pd.isna(baseline_std) or baseline_std == 0:
+    if (
+        pd.isna(value)
+        or pd.isna(baseline_mean)
+        or pd.isna(baseline_std)
+        or baseline_std == 0
+    ):
         return "insufficient_data"
     z = abs(float((value - baseline_mean) / baseline_std))
     if z < 1.0:
@@ -44,7 +51,9 @@ def _linear_regression_slope(x: pd.Series, y: pd.Series) -> float:
     return float(slope)
 
 
-def _build_cycle_metric_series(master: pd.DataFrame, x_col: str, y_col: str) -> pd.DataFrame:
+def _build_cycle_metric_series(
+    master: pd.DataFrame, x_col: str, y_col: str
+) -> pd.DataFrame:
     """Compute per-cycle linear relationship metrics between two monthly columns."""
     rows = []
     for cycle_no, group in master.groupby("cycle_no"):
@@ -62,12 +71,14 @@ def _build_cycle_metric_series(master: pd.DataFrame, x_col: str, y_col: str) -> 
             slope = float(coef[0])
             pred = slope * x + coef[1]
             residual_std = float((y - pred).std())
-        rows.append({
-            "cycle_no": cycle_no,
-            f"{x_col}_{y_col}_corr": corr,
-            f"{x_col}_{y_col}_slope": slope,
-            f"{x_col}_{y_col}_residual_std": residual_std,
-        })
+        rows.append(
+            {
+                "cycle_no": cycle_no,
+                f"{x_col}_{y_col}_corr": corr,
+                f"{x_col}_{y_col}_slope": slope,
+                f"{x_col}_{y_col}_residual_std": residual_std,
+            }
+        )
     if not rows:
         return pd.DataFrame(columns=["cycle_no"]).set_index("cycle_no")
     return pd.DataFrame(rows).set_index("cycle_no")
@@ -83,7 +94,12 @@ def _indicator_from_metrics(
     window: int = 4,
 ) -> dict[str, Any]:
     cycles_out = []
-    flag_counts = {"stable": 0, "mild_drift": 0, "significant_drift": 0, "insufficient_data": 0}
+    flag_counts = {
+        "stable": 0,
+        "mild_drift": 0,
+        "significant_drift": 0,
+        "insufficient_data": 0,
+    }
     for cycle in metrics.index:
         cycle_flags = {}
         values = {}
@@ -96,7 +112,11 @@ def _indicator_from_metrics(
             flag = _drift_flag(value, mean, std)
             cycle_flags[col] = flag
             values[col] = None if pd.isna(value) else round(float(value), 4)
-            z_scores[col] = None if pd.isna(value) or pd.isna(mean) or pd.isna(std) or std == 0 else round(float((value - mean) / std), 4)
+            z_scores[col] = (
+                None
+                if pd.isna(value) or pd.isna(mean) or pd.isna(std) or std == 0
+                else round(float((value - mean) / std), 4)
+            )
             flag_counts[flag] = flag_counts.get(flag, 0) + 1
         # overall flag for the cycle: worst among metrics
         if "significant_drift" in cycle_flags.values():
@@ -107,23 +127,33 @@ def _indicator_from_metrics(
             overall = "stable"
         else:
             overall = "insufficient_data"
-        cycles_out.append({
-            "cycle_no": int(cycle),
-            "values": values,
-            "z_scores": z_scores,
-            "metric_flags": cycle_flags,
-            "drift_flag": overall,
-        })
+        cycles_out.append(
+            {
+                "cycle_no": int(cycle),
+                "values": values,
+                "z_scores": z_scores,
+                "metric_flags": cycle_flags,
+                "drift_flag": overall,
+            }
+        )
 
     overall_trend = {}
     for col in metric_cols:
         valid = metrics[col].dropna()
         if len(valid) >= 3:
-            slope = _linear_regression_slope(pd.Series(valid.index, index=valid.index), valid)
+            slope = _linear_regression_slope(
+                pd.Series(valid.index, index=valid.index), valid
+            )
             overall_trend[col] = {
-                "trend_slope_over_cycle": round(float(slope), 6) if not pd.isna(slope) else None,
+                "trend_slope_over_cycle": round(float(slope), 6)
+                if not pd.isna(slope)
+                else None,
                 "interpretation": (
-                    "increasing" if slope > 0.01 else "decreasing" if slope < -0.01 else "flat"
+                    "increasing"
+                    if slope > 0.01
+                    else "decreasing"
+                    if slope < -0.01
+                    else "flat"
                 ),
             }
 
@@ -174,7 +204,12 @@ def _residual_drift_indicator(
 
     residual_series = pd.Series(residuals)
     cycles_out = []
-    flag_counts = {"stable": 0, "mild_drift": 0, "significant_drift": 0, "insufficient_data": 0}
+    flag_counts = {
+        "stable": 0,
+        "mild_drift": 0,
+        "significant_drift": 0,
+        "insufficient_data": 0,
+    }
     for cycle in residual_series.index:
         value = residual_series.loc[cycle]
         baseline_mean, baseline_std = _rolling_baseline(residual_series, window)
@@ -182,14 +217,22 @@ def _residual_drift_indicator(
         std = baseline_std.loc[cycle]
         flag = _drift_flag(value, mean, std)
         flag_counts[flag] = flag_counts.get(flag, 0) + 1
-        cycles_out.append({
-            "cycle_no": int(cycle),
-            "x_value": None if pd.isna(df.loc[cycle, x_col]) else round(float(df.loc[cycle, x_col]), 4),
-            "y_value": None if pd.isna(df.loc[cycle, y_col]) else round(float(df.loc[cycle, y_col]), 4),
-            "residual": None if pd.isna(value) else round(float(value), 4),
-            "z_score": None if pd.isna(value) or pd.isna(mean) or pd.isna(std) or std == 0 else round(float((value - mean) / std), 4),
-            "drift_flag": flag,
-        })
+        cycles_out.append(
+            {
+                "cycle_no": int(cycle),
+                "x_value": None
+                if pd.isna(df.loc[cycle, x_col])
+                else round(float(df.loc[cycle, x_col]), 4),
+                "y_value": None
+                if pd.isna(df.loc[cycle, y_col])
+                else round(float(df.loc[cycle, y_col]), 4),
+                "residual": None if pd.isna(value) else round(float(value), 4),
+                "z_score": None
+                if pd.isna(value) or pd.isna(mean) or pd.isna(std) or std == 0
+                else round(float((value - mean) / std), 4),
+                "drift_flag": flag,
+            }
+        )
 
     return {
         "id": indicator_id,
@@ -221,12 +264,18 @@ def build_drift_report(
     indicators = []
 
     # 1. F10.7 vs sunspot relation
-    f107_metrics = _build_cycle_metric_series(master, "sunspot_number", "f107_monthly_mean")
+    f107_metrics = _build_cycle_metric_series(
+        master, "sunspot_number", "f107_monthly_mean"
+    )
     if not f107_metrics.empty:
         indicators.append(
             _indicator_from_metrics(
                 f107_metrics,
-                ["sunspot_number_f107_monthly_mean_corr", "sunspot_number_f107_monthly_mean_slope", "sunspot_number_f107_monthly_mean_residual_std"],
+                [
+                    "sunspot_number_f107_monthly_mean_corr",
+                    "sunspot_number_f107_monthly_mean_slope",
+                    "sunspot_number_f107_monthly_mean_residual_std",
+                ],
                 indicator_id="f107_sunspot_relation",
                 name="F10.7-太阳黑子数关系",
                 description="检测每个太阳活动周内 F10.7 与太阳黑子数的相关性、斜率和残差是否偏离此前周期滑动基线。",
@@ -285,7 +334,10 @@ def build_drift_report(
             indicators.append(peak_ind)
 
     # 4. Polar precursor vs next cycle peak
-    if "polar_precursor_mean" in cycles.columns and "next_cycle_peak_sunspot" in cycles.columns:
+    if (
+        "polar_precursor_mean" in cycles.columns
+        and "next_cycle_peak_sunspot" in cycles.columns
+    ):
         indicators.append(
             _residual_drift_indicator(
                 cycles,
@@ -300,7 +352,10 @@ def build_drift_report(
         )
 
     # 5. Hemispheric asymmetry vs peak
-    if "hemispheric_asymmetry_mean" in cycles.columns and "peak_sunspot_number" in cycles.columns:
+    if (
+        "hemispheric_asymmetry_mean" in cycles.columns
+        and "peak_sunspot_number" in cycles.columns
+    ):
         indicators.append(
             _residual_drift_indicator(
                 cycles,
@@ -316,19 +371,28 @@ def build_drift_report(
 
     # Confidence recommendations: aggregate from indicators
     recommendations = []
-    significant_ids = [ind["id"] for ind in indicators if any(c["drift_flag"] == "significant_drift" for c in ind.get("cycles", []))]
+    significant_ids = [
+        ind["id"]
+        for ind in indicators
+        if any(c["drift_flag"] == "significant_drift" for c in ind.get("cycles", []))
+    ]
     if "f107_sunspot_relation" in significant_ids:
         recommendations.append("降低依赖 F10.7 作为单一输入的模型置信度。")
     if "rise_slope_vs_peak" in significant_ids:
         recommendations.append("降低基于 Waldmeier 效应的峰值预测置信度。")
-    if "previous_cycle_length_vs_next_peak" in significant_ids or "previous_peak_vs_next_peak" in significant_ids:
+    if (
+        "previous_cycle_length_vs_next_peak" in significant_ids
+        or "previous_peak_vs_next_peak" in significant_ids
+    ):
         recommendations.append("降低基于相邻周期记忆效应的预测置信度。")
     if "polar_precursor_vs_next_peak" in significant_ids:
         recommendations.append("降低基于极区前兆假设的预测置信度。")
     if "hemispheric_asymmetry_vs_peak" in significant_ids:
         recommendations.append("谨慎解释半球不对称与周期峰值的关系。")
     if not recommendations:
-        recommendations.append("当前周期关系未检测到显著漂移，但仍需关注数据覆盖和辅助代理局限。")
+        recommendations.append(
+            "当前周期关系未检测到显著漂移，但仍需关注数据覆盖和辅助代理局限。"
+        )
 
     report = {
         "generated_utc": datetime.now(timezone.utc).isoformat(),
@@ -337,12 +401,16 @@ def build_drift_report(
         "confidence_recommendations": recommendations,
         "data_sources": {
             "master": str(master_path.relative_to(ROOT)).replace("\\", "/"),
-            "cycle_features": str(cycle_features_path.relative_to(ROOT)).replace("\\", "/"),
+            "cycle_features": str(cycle_features_path.relative_to(ROOT)).replace(
+                "\\", "/"
+            ),
         },
     }
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    output_path.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
+    output_path.write_text(
+        json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
     print(f"saved {output_path}")
     return report
 

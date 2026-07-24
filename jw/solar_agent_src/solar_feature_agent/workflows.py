@@ -51,7 +51,9 @@ def _rel(path: Path) -> str:
         return str(path.resolve())
 
 
-def _resolve_csv(value: str | Path, resolver: Callable[[str | Path], Path] | None = None) -> Path:
+def _resolve_csv(
+    value: str | Path, resolver: Callable[[str | Path], Path] | None = None
+) -> Path:
     if resolver is not None:
         return resolver(value)
     from agent_tools import PathPolicy
@@ -84,11 +86,17 @@ def _inspection_wrapper(path: Path, inspection: dict[str, Any]) -> dict[str, Any
     }
 
 
-def _restore_lineage_dataset(session: ChatSession, current_path: str | None, original_summary: dict[str, Any] | None) -> None:
+def _restore_lineage_dataset(
+    session: ChatSession,
+    current_path: str | None,
+    original_summary: dict[str, Any] | None,
+) -> None:
     """Keep run artifacts under the original dataset id after engines auto-load derived files."""
     if not current_path or not original_summary:
         return
-    full_path = Path(current_path) if Path(current_path).is_absolute() else ROOT / current_path
+    full_path = (
+        Path(current_path) if Path(current_path).is_absolute() else ROOT / current_path
+    )
     inspection = inspect_csv(full_path)
     stored_path = original_summary.get("stored_path") or current_path
     wrapper = {
@@ -119,18 +127,26 @@ def _config_fingerprint(payload: dict[str, Any]) -> str:
 
 
 def _preflight_token(input_fingerprints: dict[str, str], config_hash: str) -> str:
-    return _config_fingerprint({"inputs": input_fingerprints, "configuration": config_hash})
+    return _config_fingerprint(
+        {"inputs": input_fingerprints, "configuration": config_hash}
+    )
 
 
 def _atomic_json(path: Path, payload: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_suffix(path.suffix + ".tmp")
-    temporary.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    temporary.write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
     os.replace(temporary, path)
 
 
 def _critical_quality_errors(report: dict[str, Any]) -> list[dict[str, Any]]:
-    return [issue for issue in report.get("issues", []) if issue.get("severity") == "critical"]
+    return [
+        issue
+        for issue in report.get("issues", [])
+        if issue.get("severity") == "critical"
+    ]
 
 
 def audit_solar_data(
@@ -143,12 +159,16 @@ def audit_solar_data(
     inspection = inspect_csv(source)
     frame = _read_csv(source, inspection)
     audit_session = EphemeralSession()
-    audit_session.set_current_dataset(str(source), _inspection_wrapper(source, inspection))
+    audit_session.set_current_dataset(
+        str(source), _inspection_wrapper(source, inspection)
+    )
     statistics = dataset_stats_engine.describe(audit_session)
     report = upload_quality_analyzer.analyze(frame, inspection)
     time_detection = inspection.get("time_detection") or {}
     critical = _critical_quality_errors(report)
-    if not time_detection.get("primary_time_column") and not time_detection.get("primary_time_columns"):
+    if not time_detection.get("primary_time_column") and not time_detection.get(
+        "primary_time_columns"
+    ):
         critical = [
             *critical,
             {
@@ -197,7 +217,9 @@ def ingest_align_solar_data(
                     "stage": "split",
                     "loaded": loaded,
                     "split_proposal": proposal,
-                    "warnings": ["Confirm the proposed single-column split before continuing."],
+                    "warnings": [
+                        "Confirm the proposed single-column split before continuing."
+                    ],
                 }
             split_result = upload_column_splitter.apply_split(
                 session,
@@ -241,7 +263,12 @@ def propose_solar_cleaning(
     coverage = session.get_cleaning_coverage_overrides() if session else {}
     semantics = data_cleaning_engine.infer_column_semantics(frame, overrides)
     report = data_cleaning_engine.generate_report(frame, semantics, coverage)
-    return {"status": "ok", "path": str(source), "cleaning_report": report, "artifacts": []}
+    return {
+        "status": "ok",
+        "path": str(source),
+        "cleaning_report": report,
+        "artifacts": [],
+    }
 
 
 def apply_solar_cleaning(session: ChatSession) -> dict[str, Any]:
@@ -267,20 +294,36 @@ def engineer_solar_features(session: ChatSession) -> dict[str, Any]:
         current = session.get_current_dataset_path()
         audit = audit_solar_data(current, session=session)
         if audit["status"] != "ok":
-            return {"status": "failed", "stage": "audit", "audit": audit, "artifacts": []}
+            return {
+                "status": "failed",
+                "stage": "audit",
+                "audit": audit,
+                "artifacts": [],
+            }
     original_summary = session.get_inspection_summary()
     result = feature_engineering_engine.run(session)
-    _restore_lineage_dataset(session, result.get("engineered_file_path"), original_summary)
+    _restore_lineage_dataset(
+        session, result.get("engineered_file_path"), original_summary
+    )
     artifacts = [
-        item for item in [result.get("engineered_file_path"), result.get("registry_path")] if item
+        item
+        for item in [result.get("engineered_file_path"), result.get("registry_path")]
+        if item
     ]
-    status = "failed" if any(
-        issue.get("severity") == "critical" for issue in result.get("validation_issues", [])
-    ) else "ok"
+    status = (
+        "failed"
+        if any(
+            issue.get("severity") == "critical"
+            for issue in result.get("validation_issues", [])
+        )
+        else "ok"
+    )
     return {"status": status, "feature_result": result, "artifacts": artifacts}
 
 
-def prepare_experiment_handoff(session: ChatSession, *, include_strategy: bool = True) -> dict[str, Any]:
+def prepare_experiment_handoff(
+    session: ChatSession, *, include_strategy: bool = True
+) -> dict[str, Any]:
     result = experiment_handoff_engine.run(session)
     strategy = llm_strategy_recommender.run(session) if include_strategy else None
     artifacts = [item for item in [result.get("handoff_path")] if item]
@@ -297,7 +340,11 @@ def prepare_experiment_handoff(session: ChatSession, *, include_strategy: bool =
 def rebuild_solar_data_pipeline(*, run_tests: bool = True) -> dict[str, Any]:
     workflow = run_full_workflow()
     tests = run_contract_tests() if run_tests else None
-    status = "ok" if workflow.get("status") == "ok" and (not tests or tests.get("status") == "ok") else "failed"
+    status = (
+        "ok"
+        if workflow.get("status") == "ok" and (not tests or tests.get("status") == "ok")
+        else "failed"
+    )
     return {
         "status": status,
         "workflow": workflow,
@@ -338,7 +385,13 @@ def plan_solar_feature_workflow(
         audits.append(audit)
         cleaning_proposals.append(propose_solar_cleaning(source, resolver=resolver))
     critical = [issue for audit in audits for issue in audit.get("critical_issues", [])]
-    status = "failed" if critical else "confirmation_required" if pending_splits else "planned"
+    status = (
+        "failed"
+        if critical
+        else "confirmation_required"
+        if pending_splits
+        else "planned"
+    )
     actual_run_id = run_id or f"run_{uuid.uuid4().hex[:16]}"
     planned_writes = [
         f"data/processed/skill_runs/{actual_run_id}/run_manifest.json",
@@ -358,7 +411,9 @@ def plan_solar_feature_workflow(
         "critical_issues": critical,
         "planned_writes": planned_writes,
         "artifacts": [],
-        "warnings": ["Confirm every pending split before requesting write approval."] if pending_splits else [],
+        "warnings": ["Confirm every pending split before requesting write approval."]
+        if pending_splits
+        else [],
     }
 
 
@@ -387,14 +442,26 @@ def run_solar_feature_workflow(
     config_hash = _config_fingerprint(configuration)
     expected_preflight_token = _preflight_token(input_fingerprints, config_hash)
     if preflight_token is not None and preflight_token != expected_preflight_token:
-        raise ValueError("Preflight token does not match the current inputs and configuration")
+        raise ValueError(
+            "Preflight token does not match the current inputs and configuration"
+        )
     manifest: dict[str, Any]
     if manifest_path.exists():
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
         if not resume:
-            if manifest.get("status") == "completed" and manifest.get("input_fingerprints") == input_fingerprints and manifest.get("config_fingerprint") == config_hash:
-                return {**manifest, "manifest_path": _rel(manifest_path), "idempotent": True}
-            raise ValueError(f"Run {run_id} already exists; pass resume=true to continue it")
+            if (
+                manifest.get("status") == "completed"
+                and manifest.get("input_fingerprints") == input_fingerprints
+                and manifest.get("config_fingerprint") == config_hash
+            ):
+                return {
+                    **manifest,
+                    "manifest_path": _rel(manifest_path),
+                    "idempotent": True,
+                }
+            raise ValueError(
+                f"Run {run_id} already exists; pass resume=true to continue it"
+            )
         if manifest.get("input_fingerprints") != input_fingerprints:
             raise ValueError("Cannot resume because an input fingerprint changed")
         if manifest.get("config_fingerprint") != config_hash:
@@ -421,7 +488,11 @@ def run_solar_feature_workflow(
             manifest["stages_completed"].append(name)
         manifest["last_stage"] = name
         manifest.setdefault("stage_results", {})[name] = result
-        manifest["artifacts"] = list(dict.fromkeys([*manifest.get("artifacts", []), *result.get("artifacts", [])]))
+        manifest["artifacts"] = list(
+            dict.fromkeys(
+                [*manifest.get("artifacts", []), *result.get("artifacts", [])]
+            )
+        )
         _atomic_json(manifest_path, manifest)
 
     try:
@@ -447,8 +518,14 @@ def run_solar_feature_workflow(
         if audit["status"] != "ok":
             manifest["status"] = "failed"
             manifest["last_stage"] = "audit"
-            manifest["error"] = {"type": "CriticalQualityError", "message": "Critical quality issues block downstream stages"}
-            manifest["stage_results"] = {**manifest.get("stage_results", {}), "audit": audit}
+            manifest["error"] = {
+                "type": "CriticalQualityError",
+                "message": "Critical quality issues block downstream stages",
+            }
+            manifest["stage_results"] = {
+                **manifest.get("stage_results", {}),
+                "audit": audit,
+            }
             _atomic_json(manifest_path, manifest)
             return {**manifest, "manifest_path": _rel(manifest_path)}
         complete_stage("audit", {**audit, "artifacts": []})
@@ -469,10 +546,16 @@ def run_solar_feature_workflow(
             complete_stage("features", features)
 
         if "handoff" not in manifest["stages_completed"]:
-            handoff = prepare_experiment_handoff(session, include_strategy=include_strategy)
+            handoff = prepare_experiment_handoff(
+                session, include_strategy=include_strategy
+            )
             complete_stage("handoff", handoff)
 
-        missing = [artifact for artifact in manifest.get("artifacts", []) if not (ROOT / artifact).exists() and not Path(artifact).is_absolute()]
+        missing = [
+            artifact
+            for artifact in manifest.get("artifacts", [])
+            if not (ROOT / artifact).exists() and not Path(artifact).is_absolute()
+        ]
         if missing:
             raise FileNotFoundError(f"Workflow artifacts are missing: {missing}")
         manifest["status"] = "completed"

@@ -69,9 +69,7 @@ def test_binding_filename_cannot_be_controlled_by_thread_id(tmp_path, monkeypatc
 def test_same_thread_id_is_scoped_independently_per_base_workspace(
     tmp_path, monkeypatch
 ):
-    monkeypatch.setenv(
-        "JW_WORKSPACE_BINDINGS_DIR", str(tmp_path / "registry")
-    )
+    monkeypatch.setenv("JW_WORKSPACE_BINDINGS_DIR", str(tmp_path / "registry"))
     first_base = tmp_path / "project-one"
     second_base = tmp_path / "project-two"
     first_base.mkdir()
@@ -91,9 +89,7 @@ def test_persisted_binding_can_be_preloaded_after_process_restart(
 ):
     import jw.workspaces as workspace_module
 
-    monkeypatch.setenv(
-        "JW_WORKSPACE_BINDINGS_DIR", str(tmp_path / "registry")
-    )
+    monkeypatch.setenv("JW_WORKSPACE_BINDINGS_DIR", str(tmp_path / "registry"))
     base = tmp_path / "project"
     base.mkdir()
     created = ensure_thread_workspace("resume-thread", base)
@@ -107,9 +103,7 @@ def test_persisted_binding_can_be_preloaded_after_process_restart(
 def test_runtime_scope_prefers_parent_workspace_thread(tmp_path, monkeypatch):
     base = tmp_path / "workspace"
     base.mkdir()
-    monkeypatch.setenv(
-        "JW_WORKSPACE_BINDINGS_DIR", str(tmp_path / "registry")
-    )
+    monkeypatch.setenv("JW_WORKSPACE_BINDINGS_DIR", str(tmp_path / "registry"))
     config = {
         "configurable": {
             "thread_id": "async-child",
@@ -163,9 +157,7 @@ def test_task_workspace_middleware_hydrates_precreated_blank_task(
 
     base = tmp_path / "workspace"
     base.mkdir()
-    monkeypatch.setenv(
-        "JW_WORKSPACE_BINDINGS_DIR", str(tmp_path / "registry")
-    )
+    monkeypatch.setenv("JW_WORKSPACE_BINDINGS_DIR", str(tmp_path / "registry"))
     binding = ensure_thread_workspace("middleware-thread", base)
     runtime = SimpleNamespace(
         config={
@@ -273,9 +265,7 @@ async def test_api_checkpointer_primes_workspace_before_first_graph_node(
     base = tmp_path / "workspace"
     base.mkdir()
     monkeypatch.setenv("JW_WORKSPACE_DIR", str(base))
-    monkeypatch.setenv(
-        "JW_WORKSPACE_BINDINGS_DIR", str(tmp_path / "registry")
-    )
+    monkeypatch.setenv("JW_WORKSPACE_BINDINGS_DIR", str(tmp_path / "registry"))
     workspace_module._BINDING_CACHE.clear()
     config = {
         "configurable": {
