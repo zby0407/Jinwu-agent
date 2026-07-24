@@ -2,7 +2,7 @@
 
 import pytest
 
-from EvoScientist.pi_bridge.tracing import PiBridgeTracer
+from jw.pi_bridge.tracing import PiBridgeTracer
 
 
 class TestPiBridgeTracer:

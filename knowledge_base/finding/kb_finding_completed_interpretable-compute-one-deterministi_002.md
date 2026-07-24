@@ -3,15 +3,15 @@ id: "kb_finding_completed_interpretable-compute-one-deterministi_002"
 type: "finding"
 title: "[completed_interpretable] Compute one deterministic mean and preserve a reviewable JSON artifact."
 source_type: "historical_run"
-source_ref: "macos_smoke-20260722T070457Z-1c77707d"
+source_ref: "macos_smoke-20260724T035756Z-1c77707d"
 confidence: "low"
 status: "candidate"
 valid_range: ""
 related_ids: []
-provenance: {"run_id": "macos_smoke-20260722T070457Z-1c77707d", "agent": "automatic_experiment"}
+provenance: {"run_id": "macos_smoke-20260724T035756Z-1c77707d", "agent": "automatic_experiment"}
 version: 1
-created_at: "2026-07-22T07:04:57+00:00"
-updated_at: "2026-07-22T07:04:57+00:00"
+created_at: "2026-07-24T03:57:56+00:00"
+updated_at: "2026-07-24T03:57:56+00:00"
 created_by: "automatic_experiment"
 ---
 
@@ -21,7 +21,7 @@ The reported measurements describe the supplied input and do not imply broader p
 
 ## run_id
 
-macos_smoke-20260722T070457Z-1c77707d
+macos_smoke-20260724T035756Z-1c77707d
 
 ## uncertainty
 

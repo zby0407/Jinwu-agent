@@ -5,8 +5,8 @@ from __future__ import annotations
 import os
 from types import SimpleNamespace
 
-from EvoScientist.cli import commands
-from EvoScientist.config import MemoryObservationWriter
+from jw.cli import commands
+from jw.config import MemoryObservationWriter
 
 
 def _make_config(
@@ -56,7 +56,7 @@ def _run_serve_once(
     ask_user: bool = False,
     dangerous: bool = False,
 ):
-    import EvoScientist.config as config_mod
+    import jw.config as config_mod
 
     order: list[tuple[str, str | None]] = []
     captured: dict[str, object] = {}
@@ -191,16 +191,16 @@ def test_serve_debug_sets_log_level_and_channel_trace(monkeypatch, tmp_path):
     ws = str((tmp_path / "ws").resolve())
     config = _make_config(default_workdir=ws, channel_send_thinking=True)
     configure_calls: list[tuple[str | None, str | None]] = []
-    monkeypatch.delenv("EVOSCIENTIST_LOG_LEVEL", raising=False)
-    monkeypatch.delenv("EVOSCIENTIST_CHANNEL_DEBUG_TRACING", raising=False)
+    monkeypatch.delenv("JW_LOG_LEVEL", raising=False)
+    monkeypatch.delenv("JW_CHANNEL_DEBUG_TRACING", raising=False)
 
     monkeypatch.setattr(
         commands,
         "_configure_logging",
         lambda: configure_calls.append(
             (
-                os.environ.get("EVOSCIENTIST_LOG_LEVEL"),
-                os.environ.get("EVOSCIENTIST_CHANNEL_DEBUG_TRACING"),
+                os.environ.get("JW_LOG_LEVEL"),
+                os.environ.get("JW_CHANNEL_DEBUG_TRACING"),
             )
         ),
     )

@@ -6,7 +6,7 @@ from tests.fakes import FakeGraphGateway, FakeThreadStore
 
 
 def _ctx(thread_id="current", workspace_dir="/ws", thread_store=None):
-    from EvoScientist.commands.base import CommandContext
+    from jw.commands.base import CommandContext
 
     store = thread_store or FakeThreadStore()
     ui = MagicMock()
@@ -24,7 +24,7 @@ def _ctx(thread_id="current", workspace_dir="/ws", thread_store=None):
 
 class TestResumeCommand:
     async def test_with_arg_resolves_and_calls_ui(self):
-        from EvoScientist.commands.implementation.session import ResumeCommand
+        from jw.commands.implementation.session import ResumeCommand
 
         ctx, ui = _ctx(
             thread_store=FakeThreadStore(
@@ -39,7 +39,7 @@ class TestResumeCommand:
         assert ctx.workspace_dir == "/restored"
 
     async def test_no_arg_empty_threads_prints_message(self):
-        from EvoScientist.commands.implementation.session import ResumeCommand
+        from jw.commands.implementation.session import ResumeCommand
 
         ctx, ui = _ctx()
         await ResumeCommand().execute(ctx, [])
@@ -49,7 +49,7 @@ class TestResumeCommand:
         ui.handle_session_resume.assert_not_called()
 
     async def test_no_arg_calls_picker(self):
-        from EvoScientist.commands.implementation.session import ResumeCommand
+        from jw.commands.implementation.session import ResumeCommand
 
         ctx, ui = _ctx()
         ui.wait_for_thread_pick.return_value = "picked-tid"
@@ -64,7 +64,7 @@ class TestResumeCommand:
         ui.handle_session_resume.assert_awaited_once()
 
     async def test_picker_cancel_returns(self):
-        from EvoScientist.commands.implementation.session import ResumeCommand
+        from jw.commands.implementation.session import ResumeCommand
 
         ctx, ui = _ctx()
         ui.wait_for_thread_pick.return_value = None
@@ -75,7 +75,7 @@ class TestResumeCommand:
         ui.handle_session_resume.assert_not_called()
 
     async def test_ambiguous_prefix(self):
-        from EvoScientist.commands.implementation.session import ResumeCommand
+        from jw.commands.implementation.session import ResumeCommand
 
         ctx, ui = _ctx(thread_store=FakeThreadStore(matches=["abc-one", "abc-two"]))
         await ResumeCommand().execute(ctx, ["abc"])
@@ -84,7 +84,7 @@ class TestResumeCommand:
         ui.handle_session_resume.assert_not_called()
 
     async def test_not_found(self):
-        from EvoScientist.commands.implementation.session import ResumeCommand
+        from jw.commands.implementation.session import ResumeCommand
 
         ctx, ui = _ctx()
         await ResumeCommand().execute(ctx, ["missing"])
@@ -93,7 +93,7 @@ class TestResumeCommand:
         ui.handle_session_resume.assert_not_called()
 
     async def test_prefix_resolves_to_unique_match(self):
-        from EvoScientist.commands.implementation.session import ResumeCommand
+        from jw.commands.implementation.session import ResumeCommand
 
         ctx, ui = _ctx(
             thread_store=FakeThreadStore(
@@ -106,7 +106,7 @@ class TestResumeCommand:
         assert ctx.thread_id == "abc-one"
 
     async def test_empty_workspace_metadata_preserves_ctx_workspace(self):
-        from EvoScientist.commands.implementation.session import ResumeCommand
+        from jw.commands.implementation.session import ResumeCommand
 
         ctx, ui = _ctx(
             workspace_dir="/keep",

@@ -1,6 +1,6 @@
 ---
 name: Feature request
-about: Suggest an idea for EvoScientist core functionality
+about: Suggest an idea for JW core functionality
 title: ''
 labels: enhancement
 assignees: ''
@@ -9,7 +9,7 @@ type: Feature
 ---
 
 > **Note:** We only accept feature requests for core functionality that benefits the majority of users.
-> If your idea is a niche workflow or personal utility, consider contributing it to [EvoSkills](https://github.com/EvoScientist/EvoSkills) instead.
+> If your idea is a niche workflow or personal utility, consider contributing it to [JWSkills](https://github.com/zby0407/JW-Skills) instead.
 
 **Is your feature request related to a problem? Please describe.**
 A clear and concise description of the problem. Ex. "I'm always frustrated when [...]"

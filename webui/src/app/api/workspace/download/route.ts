@@ -77,8 +77,9 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    const workspaceDir = await getWorkspaceDir();
-    tmpFile = join(tmpdir(), `jinwu-workspace-${randomUUID()}.zip`);
+    const threadId = request.nextUrl.searchParams.get("threadId");
+    const workspaceDir = await getWorkspaceDir(threadId);
+    tmpFile = join(tmpdir(), `jw-workspace-${randomUUID()}.zip`);
     await zipWorkspace(workspaceDir, tmpFile, request.signal);
 
     const stat = await fs.stat(tmpFile);

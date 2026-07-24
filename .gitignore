@@ -31,14 +31,17 @@ bridge/package-lock.json
 .codex/
 .cursorrules
 .ruff_cache/
+.playwright-cli/
+.playwright-mcp/
+.tmp_new_agents/
 
 # Project specific
 .langgraph_api/
 workspace/
 skills/
-!EvoScientist/skills/
+!jw/skills/
 memory/
-!EvoScientist/memory/
+!jw/memory/
 media/
 conversation_history/
 .deno_cache/
@@ -48,6 +51,17 @@ conversation_history/
 *meals/
 botpy.log
 large_tool_results/
+
+# WebUI
+node_modules/
+.next/
+out/
+coverage/
+.cache/
+.turbo/
+.eslintcache
+*.tsbuildinfo
+*.tgz
 
 # Research planner runtime artifacts
 planner/runs/

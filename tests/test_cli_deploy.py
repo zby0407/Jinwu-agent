@@ -1,4 +1,4 @@
-"""Tests for ``EvoSci deploy`` command flow.
+"""Tests for ``jw deploy`` command flow.
 
 Verifies the orchestration:
 - workspace resolution (CLI > config > cwd)
@@ -17,7 +17,7 @@ from typing import Any
 import pytest
 import typer
 
-from EvoScientist.deploy import server as deploy_server
+from jw.deploy import server as deploy_server
 
 
 def _make_config(
@@ -79,7 +79,7 @@ def _run_deploy_once(
 ):
     """Run ``deploy()`` end-to-end with all external dependencies mocked.
     Returns a ``captured`` dict with observation points."""
-    import EvoScientist.config as config_mod
+    import jw.config as config_mod
 
     captured: dict[str, Any] = {
         "ccproxy_started": False,
@@ -104,13 +104,13 @@ def _run_deploy_once(
     monkeypatch.setattr(deploy_server, "console", _SilentConsole())
 
     # Workspace setup mocks
-    from EvoScientist import paths as paths_mod
+    from jw import paths as paths_mod
 
     monkeypatch.setattr(paths_mod, "set_workspace_root", lambda _p: None)
     monkeypatch.setattr(paths_mod, "ensure_dirs", lambda: None)
 
     # langgraph_dev.manager mocks
-    from EvoScientist.langgraph_dev import manager as lgm
+    from jw.langgraph_dev import manager as lgm
 
     monkeypatch.setattr(lgm, "_is_port_occupied", lambda _p: port_occupied)
     monkeypatch.setattr(
@@ -148,7 +148,7 @@ def _run_deploy_once(
     )
 
     # ccproxy mocks
-    from EvoScientist import ccproxy_manager as ccp
+    from jw import ccproxy_manager as ccp
 
     def _fake_maybe_start_ccproxy(_cfg):
         captured["ccproxy_started"] = True
@@ -337,8 +337,8 @@ def test_deploy_starts_ccproxy_when_openai_oauth(monkeypatch, tmp_path):
     assert captured["ccproxy_started"] is True
 
 
-def test_deploy_refuses_when_port_occupied_by_evosci(monkeypatch, tmp_path):
-    """If port is occupied AND it's serving an EvoSci langgraph dev,
+def test_deploy_refuses_when_port_occupied_by_jw(monkeypatch, tmp_path):
+    """If port is occupied AND it's serving an jw langgraph dev,
     refuse with exit code 1."""
     config = _make_config(default_workdir=str(tmp_path))
     with pytest.raises(typer.Exit) as exc:
@@ -346,7 +346,7 @@ def test_deploy_refuses_when_port_occupied_by_evosci(monkeypatch, tmp_path):
             monkeypatch,
             config,
             port_occupied=True,
-            langgraph_dev_running=True,  # /ok responds → existing EvoSci instance
+            langgraph_dev_running=True,  # /ok responds → existing jw instance
         )
     assert exc.value.exit_code == 1
 

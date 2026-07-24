@@ -2,8 +2,8 @@
 
 import pytest
 
-from EvoScientist.channels.base import ChannelError
-from EvoScientist.channels.telegram.channel import TelegramChannel, TelegramConfig
+from jw.channels.base import ChannelError
+from jw.channels.telegram.channel import TelegramChannel, TelegramConfig
 
 
 class TestTelegramConfig:
@@ -43,7 +43,7 @@ class TestTelegramChannel:
         await channel.stop()
 
     async def test_send_returns_false_without_app(self):
-        from EvoScientist.channels.base import OutboundMessage
+        from jw.channels.base import OutboundMessage
 
         config = TelegramConfig(bot_token="test")
         channel = TelegramChannel(config)

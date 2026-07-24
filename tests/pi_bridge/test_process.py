@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from EvoScientist.pi_bridge.process import PiProcessManager
+from jw.pi_bridge.process import PiProcessManager
 
 
 class TestPiProcessManager:
@@ -180,8 +180,8 @@ class TestPiProcessManager:
             workspace_dir=str(tmp_path),
         )
         env = mgr._build_env("thread-123")
-        assert "EVOSCIENTIST_PI_TOOL_SOCKET" in env
-        assert env["EVOSCIENTIST_PI_TOOL_SOCKET"].endswith("thread-123.sock")
+        assert "JW_PI_TOOL_SOCKET" in env
+        assert env["JW_PI_TOOL_SOCKET"].endswith("thread-123.sock")
 
     def test_touch_updates_last_activity(self, tmp_path):
         cfg = self._make_cfg()

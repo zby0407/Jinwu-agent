@@ -6,8 +6,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from EvoScientist.channels.base import ChannelError, OutboundMessage
-from EvoScientist.channels.feishu.channel import (
+from jw.channels.base import ChannelError, OutboundMessage
+from jw.channels.feishu.channel import (
     FeishuChannel,
     FeishuConfig,
     _markdown_to_feishu_post,
@@ -86,7 +86,7 @@ class TestFeishuChannel:
         assert result is False
 
     def test_capabilities(self):
-        from EvoScientist.channels.capabilities import FEISHU
+        from jw.channels.capabilities import FEISHU
 
         config = FeishuConfig()
         channel = FeishuChannel(config)
@@ -476,7 +476,7 @@ class TestFeishuMarkdownConversion:
 
 class TestFeishuChannelRegistration:
     def test_feishu_registered(self):
-        from EvoScientist.channels.channel_manager import available_channels
+        from jw.channels.channel_manager import available_channels
 
         channels = available_channels()
         assert "feishu" in channels
@@ -484,14 +484,14 @@ class TestFeishuChannelRegistration:
 
 class TestFeishuProbe:
     async def test_missing_app_id(self):
-        from EvoScientist.channels.feishu.probe import validate_feishu_credentials
+        from jw.channels.feishu.probe import validate_feishu_credentials
 
         ok, msg = await validate_feishu_credentials("", "secret")
         assert ok is False
         assert "app_id" in msg
 
     async def test_missing_app_secret(self):
-        from EvoScientist.channels.feishu.probe import validate_feishu_credentials
+        from jw.channels.feishu.probe import validate_feishu_credentials
 
         ok, msg = await validate_feishu_credentials("id", "")
         assert ok is False

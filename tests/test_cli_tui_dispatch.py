@@ -4,14 +4,14 @@ from types import SimpleNamespace
 
 import pytest
 
-from EvoScientist.cli.commands import _is_fresh_interactive_session
-from EvoScientist.cli.interactive import cmd_interactive
+from jw.cli.commands import _is_fresh_interactive_session
+from jw.cli.interactive import cmd_interactive
 
 
 @pytest.mark.parametrize(
     ("prompt", "thread_id", "expected"),
     [
-        (None, None, True),  # bare `EvoSci` → fresh → WebUI launches
+        (None, None, True),  # bare `jw` → fresh → WebUI launches
         ("what is 1+1", None, False),  # `-p` one-shot → terminal (Rich CLI)
         (None, "47bcffcd", False),  # `--resume <id>` → terminal (Rich CLI)
         ("hi", "47bcffcd", False),  # both → terminal
@@ -25,22 +25,22 @@ def test_is_fresh_interactive_session(prompt, thread_id, expected):
 
 
 def _invoke_main(monkeypatch, argv):
-    """Invoke the EvoSci main callback with ui_backend=webui and all heavy setup
+    """Invoke the jw main callback with ui_backend=webui and all heavy setup
     mocked. Returns (calls, result): calls["dispatch"] is "webui" if run_webui
     ran, or ("cli", <ui_backend>) if cmd_interactive ran."""
     from typer.testing import CliRunner
 
-    import EvoScientist.cli.commands as cmds
-    import EvoScientist.cli.interactive as interactive_mod
-    import EvoScientist.config as cfg_mod
-    import EvoScientist.deploy.webui as webui_mod
-    from EvoScientist.cli._app import app
-    from EvoScientist.config.settings import EvoScientistConfig
+    import jw.cli.commands as cmds
+    import jw.cli.interactive as interactive_mod
+    import jw.config as cfg_mod
+    import jw.deploy.webui as webui_mod
+    from jw.cli._app import app
+    from jw.config.settings import JWConfig
 
     calls: dict[str, object] = {}
 
     def _fake_config(overrides):
-        cfg = EvoScientistConfig()
+        cfg = JWConfig()
         # Mirror the real --ui override; default to webui for this test.
         cfg.ui_backend = overrides.get("ui_backend") or "webui"
         return cfg
@@ -65,14 +65,14 @@ def _invoke_main(monkeypatch, argv):
 
 
 def test_main_callback_launches_webui_for_fresh_session(monkeypatch):
-    """Bare `EvoSci` with ui_backend=webui opens the browser app."""
+    """Bare `jw` with ui_backend=webui opens the browser app."""
     calls, result = _invoke_main(monkeypatch, [])
     assert result.exit_code == 0
     assert calls.get("dispatch") == "webui"
 
 
 def test_main_callback_resume_falls_back_to_cli(monkeypatch):
-    """`EvoSci --resume <id>` with ui_backend=webui does NOT open the browser;
+    """`jw --resume <id>` with ui_backend=webui does NOT open the browser;
     it resumes the conversation in the Rich CLI (ui_backend forced to 'cli')."""
     calls, result = _invoke_main(monkeypatch, ["--resume", "abc123"])
     assert result.exit_code == 0
@@ -82,7 +82,7 @@ def test_main_callback_resume_falls_back_to_cli(monkeypatch):
 def test_background_agent_server_starts_even_when_async_subagents_disabled(
     monkeypatch,
 ):
-    import EvoScientist.cli.commands as cmds
+    import jw.cli.commands as cmds
 
     calls = []
 
@@ -90,7 +90,7 @@ def test_background_agent_server_starts_even_when_async_subagents_disabled(
         calls.append((config, workspace_dir))
 
     monkeypatch.setattr(
-        "EvoScientist.langgraph_dev.manager.ensure_langgraph_dev",
+        "jw.langgraph_dev.manager.ensure_langgraph_dev",
         fake_ensure,
     )
 
@@ -103,7 +103,7 @@ def test_background_agent_server_starts_even_when_async_subagents_disabled(
 async def test_resume_workspace_sync_runs_even_when_async_subagents_disabled(
     monkeypatch,
 ):
-    import EvoScientist.cli.commands as cmds
+    import jw.cli.commands as cmds
 
     calls = []
 
@@ -111,7 +111,7 @@ async def test_resume_workspace_sync_runs_even_when_async_subagents_disabled(
         calls.append((config, workspace_dir))
 
     monkeypatch.setattr(
-        "EvoScientist.langgraph_dev.manager.ensure_langgraph_dev",
+        "jw.langgraph_dev.manager.ensure_langgraph_dev",
         fake_ensure,
     )
 
@@ -138,11 +138,11 @@ def test_cmd_interactive_dispatches_to_textual(monkeypatch):
         captured_kwargs.append(kwargs)
 
     monkeypatch.setattr(
-        "EvoScientist.cli.interactive.resolve_ui_backend",
+        "jw.cli.interactive.resolve_ui_backend",
         _fake_resolve_ui_backend,
     )
     monkeypatch.setattr(
-        "EvoScientist.cli.interactive.run_textual_interactive",
+        "jw.cli.interactive.run_textual_interactive",
         _fake_run_textual_interactive,
     )
 

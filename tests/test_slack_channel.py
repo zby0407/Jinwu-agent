@@ -2,8 +2,8 @@
 
 import pytest
 
-from EvoScientist.channels.base import ChannelError
-from EvoScientist.channels.slack.channel import SlackChannel, SlackConfig
+from jw.channels.base import ChannelError
+from jw.channels.slack.channel import SlackChannel, SlackConfig
 
 
 class TestSlackConfig:
@@ -55,7 +55,7 @@ class TestSlackChannel:
         await channel.stop()
 
     async def test_send_returns_false_without_client(self):
-        from EvoScientist.channels.base import OutboundMessage
+        from jw.channels.base import OutboundMessage
 
         config = SlackConfig(bot_token="xoxb-test", app_token="xapp-test")
         channel = SlackChannel(config)
@@ -71,7 +71,7 @@ class TestSlackChannel:
 
 class TestSlackChannelRegistration:
     def test_slack_registered(self):
-        from EvoScientist.channels.channel_manager import available_channels
+        from jw.channels.channel_manager import available_channels
 
         channels = available_channels()
         assert "slack" in channels

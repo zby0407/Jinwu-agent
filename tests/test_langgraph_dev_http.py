@@ -9,18 +9,18 @@ from unittest.mock import patch
 
 from starlette.testclient import TestClient
 
-from EvoScientist.config import EvoScientistConfig
-from EvoScientist.langgraph_dev.http import app
+from jw.config import JWConfig
+from jw.langgraph_dev.http import app
 
 client = TestClient(app)
 
 
 def test_get_models_returns_entries_and_default():
-    mock_cfg = EvoScientistConfig(
+    mock_cfg = JWConfig(
         model="claude-sonnet-4-6", provider="custom-anthropic"
     )
     with patch(
-        "EvoScientist.langgraph_dev.http.get_effective_config", return_value=mock_cfg
+        "jw.langgraph_dev.http.get_effective_config", return_value=mock_cfg
     ):
         resp = client.get("/api/models")
     assert resp.status_code == 200
@@ -52,15 +52,15 @@ def test_entries_preserve_registry_order():
     registry order rather than implicitly depending on the ambient
     deploy config.
     """
-    from EvoScientist.llm.models import list_models_by_provider
+    from jw.llm.models import list_models_by_provider
 
     expected = [
         {"name": n, "model_id": m, "provider": p}
         for n, m, p in list_models_by_provider()
     ]
-    mock_cfg = EvoScientistConfig()
+    mock_cfg = JWConfig()
     with patch(
-        "EvoScientist.langgraph_dev.http.get_effective_config", return_value=mock_cfg
+        "jw.langgraph_dev.http.get_effective_config", return_value=mock_cfg
     ):
         resp = client.get("/api/models")
     assert resp.json()["entries"] == expected
@@ -71,9 +71,9 @@ def test_default_passes_through_arbitrary_config_pair():
     registry (typo, retired model), still report it as default — the
     picker labels it as the active selection regardless.
     """
-    mock_cfg = EvoScientistConfig(model="some-retired-name", provider="some-provider")
+    mock_cfg = JWConfig(model="some-retired-name", provider="some-provider")
     with patch(
-        "EvoScientist.langgraph_dev.http.get_effective_config", return_value=mock_cfg
+        "jw.langgraph_dev.http.get_effective_config", return_value=mock_cfg
     ):
         resp = client.get("/api/models")
     assert resp.json()["default"] == {
@@ -87,7 +87,7 @@ def test_ollama_models_appended_when_base_url_configured():
     locally-pulled Ollama models are appended after the static registry
     as ``provider: "ollama"`` entries.
     """
-    mock_cfg = EvoScientistConfig(
+    mock_cfg = JWConfig(
         model="claude-sonnet-4-6",
         provider="custom-anthropic",
         ollama_base_url="http://localhost:11434",
@@ -98,11 +98,11 @@ def test_ollama_models_appended_when_base_url_configured():
 
     with (
         patch(
-            "EvoScientist.langgraph_dev.http.get_effective_config",
+            "jw.langgraph_dev.http.get_effective_config",
             return_value=mock_cfg,
         ),
         patch(
-            "EvoScientist.llm.ollama_discovery.discover_ollama_models",
+            "jw.llm.ollama_discovery.discover_ollama_models",
             new=fake_discover,
         ),
     ):
@@ -110,7 +110,7 @@ def test_ollama_models_appended_when_base_url_configured():
 
     # Assert the response is the static registry followed by the discovered
     # Ollama suffix — robust to future static Ollama entries in the registry.
-    from EvoScientist.llm.models import list_models_by_provider
+    from jw.llm.models import list_models_by_provider
 
     static_entries = [
         {"name": n, "model_id": m, "provider": p}
@@ -132,7 +132,7 @@ def test_ollama_discovery_skipped_when_base_url_absent():
     matches the ``/model`` picker's gating. The probe function should never
     be called in that case.
     """
-    mock_cfg = EvoScientistConfig(
+    mock_cfg = JWConfig(
         model="claude-sonnet-4-6", provider="custom-anthropic"
     )
     calls: list[str | None] = []
@@ -143,11 +143,11 @@ def test_ollama_discovery_skipped_when_base_url_absent():
 
     with (
         patch(
-            "EvoScientist.langgraph_dev.http.get_effective_config",
+            "jw.langgraph_dev.http.get_effective_config",
             return_value=mock_cfg,
         ),
         patch(
-            "EvoScientist.llm.ollama_discovery.discover_ollama_models",
+            "jw.llm.ollama_discovery.discover_ollama_models",
             new=spy_discover,
         ),
     ):
@@ -155,7 +155,7 @@ def test_ollama_discovery_skipped_when_base_url_absent():
 
     assert calls == []
     # Response is exactly the static registry — no Ollama additions whatsoever.
-    from EvoScientist.llm.models import list_models_by_provider
+    from jw.llm.models import list_models_by_provider
 
     assert body["entries"] == [
         {"name": n, "model_id": m, "provider": p}

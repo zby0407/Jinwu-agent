@@ -15,7 +15,7 @@ from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.graph import END, START, StateGraph
 from langgraph.types import interrupt
 
-from EvoScientist.stream.events import _clear_interrupted_graph_state
+from jw.stream.events import _clear_interrupted_graph_state
 
 
 class _S(TypedDict):

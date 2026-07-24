@@ -2,7 +2,7 @@
 
 from types import SimpleNamespace
 
-from EvoScientist.llm.context_window import (
+from jw.llm.context_window import (
     DEFAULT_CONTEXT_WINDOW_FALLBACK,
     apply_known_context_window,
     get_context_window,

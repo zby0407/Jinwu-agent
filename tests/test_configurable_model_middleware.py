@@ -1,4 +1,4 @@
-"""Tests for ``EvoScientist.middleware.configurable_model``.
+"""Tests for ``JW.middleware.configurable_model``.
 
 Verifies that the middleware reads ``model`` / ``model_provider`` from
 the active ``RunnableConfig.configurable`` (via ``langgraph.config.get_config``)
@@ -11,7 +11,7 @@ from __future__ import annotations
 from contextlib import contextmanager
 from unittest.mock import MagicMock, patch
 
-from EvoScientist.middleware.configurable_model import (
+from jw.middleware.configurable_model import (
     ConfigurableModelMiddleware,
     _read_model_override,
 )
@@ -172,7 +172,7 @@ class TestModelOverride:
         with (
             _patched_config({"model": "gpt-5", "model_provider": "openai"}),
             patch(
-                "EvoScientist.llm.get_chat_model", return_value=new_model
+                "jw.llm.get_chat_model", return_value=new_model
             ) as mock_get,
         ):
             mw.wrap_model_call(req, handler)
@@ -198,7 +198,7 @@ class TestModelOverride:
                 {"model": "claude-opus-4-8", "model_provider": "anthropic"}
             ),
             patch(
-                "EvoScientist.llm.get_chat_model", return_value=new_model
+                "jw.llm.get_chat_model", return_value=new_model
             ) as mock_get,
         ):
             result = await mw.awrap_model_call(req, handler)
@@ -215,7 +215,7 @@ class TestModelOverride:
         with (
             _patched_config({"model": "gpt-5"}),
             patch(
-                "EvoScientist.llm.get_chat_model", return_value=new_model
+                "jw.llm.get_chat_model", return_value=new_model
             ) as mock_get,
         ):
             mw.wrap_model_call(req, handler)
@@ -241,7 +241,7 @@ class TestCache:
         with (
             _patched_config({"model": "gpt-5", "model_provider": "openai"}),
             patch(
-                "EvoScientist.llm.get_chat_model", return_value=new_model
+                "jw.llm.get_chat_model", return_value=new_model
             ) as mock_get,
         ):
             mw.wrap_model_call(req1, handler)
@@ -256,7 +256,7 @@ class TestCache:
         handler = MagicMock(return_value="ok")
 
         with patch(
-            "EvoScientist.llm.get_chat_model", side_effect=[MagicMock(), MagicMock()]
+            "jw.llm.get_chat_model", side_effect=[MagicMock(), MagicMock()]
         ) as mock_get:
             with _patched_config(
                 {"model": "claude-sonnet-4-6", "model_provider": "anthropic"}
@@ -278,7 +278,7 @@ class TestCache:
         with (
             _patched_config({"model": "gpt-5", "model_provider": "openai"}),
             patch(
-                "EvoScientist.llm.get_chat_model",
+                "jw.llm.get_chat_model",
                 side_effect=[MagicMock(), MagicMock()],
             ) as mock_get,
         ):
@@ -305,7 +305,7 @@ class TestResolveFailure:
         with (
             _patched_config({"model": "doesnotexist", "model_provider": "openai"}),
             patch(
-                "EvoScientist.llm.get_chat_model",
+                "jw.llm.get_chat_model",
                 side_effect=ValueError("unknown model"),
             ),
         ):
@@ -328,7 +328,7 @@ class TestResolveFailure:
         with (
             _patched_config({"model": "doesnotexist", "model_provider": "openai"}),
             patch(
-                "EvoScientist.llm.get_chat_model",
+                "jw.llm.get_chat_model",
                 side_effect=ValueError("unknown model"),
             ),
         ):
@@ -366,7 +366,7 @@ class TestRunnableContextVarIntegration:
         )
         try:
             with patch(
-                "EvoScientist.llm.get_chat_model", return_value=new_model
+                "jw.llm.get_chat_model", return_value=new_model
             ) as mock_get:
                 mw.wrap_model_call(req, handler)
         finally:

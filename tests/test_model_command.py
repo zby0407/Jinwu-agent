@@ -10,7 +10,7 @@ class TestExtractModelAndProvider:
     """Unit tests for the argument parser helper."""
 
     def test_known_model_no_provider(self):
-        from EvoScientist.commands.implementation.model import (
+        from jw.commands.implementation.model import (
             extract_model_and_provider,
         )
 
@@ -19,7 +19,7 @@ class TestExtractModelAndProvider:
         assert prov == "anthropic"
 
     def test_known_model_with_provider_override(self):
-        from EvoScientist.commands.implementation.model import (
+        from jw.commands.implementation.model import (
             extract_model_and_provider,
         )
 
@@ -28,7 +28,7 @@ class TestExtractModelAndProvider:
         assert prov == "openrouter"
 
     def test_unknown_model_no_provider_raises(self):
-        from EvoScientist.commands.implementation.model import (
+        from jw.commands.implementation.model import (
             extract_model_and_provider,
         )
 
@@ -36,7 +36,7 @@ class TestExtractModelAndProvider:
             extract_model_and_provider(["nonexistent-model-xyz"])
 
     def test_unknown_model_with_provider_still_raises(self):
-        from EvoScientist.commands.implementation.model import (
+        from jw.commands.implementation.model import (
             extract_model_and_provider,
         )
 
@@ -45,7 +45,7 @@ class TestExtractModelAndProvider:
             extract_model_and_provider(["my-custom-model", "custom-openai"])
 
     def test_provider_override_on_known_model(self):
-        from EvoScientist.commands.implementation.model import (
+        from jw.commands.implementation.model import (
             extract_model_and_provider,
         )
 
@@ -57,7 +57,7 @@ class TestExtractModelAndProvider:
     def test_ollama_provider_accepts_arbitrary_name(self):
         """Ollama models are locally-installed — the registry doesn't know
         them. The ``ollama`` provider must pass any name through verbatim."""
-        from EvoScientist.commands.implementation.model import (
+        from jw.commands.implementation.model import (
             extract_model_and_provider,
         )
 
@@ -66,7 +66,7 @@ class TestExtractModelAndProvider:
         assert prov == "ollama"
 
     def test_ollama_provider_accepts_dotted_tag(self):
-        from EvoScientist.commands.implementation.model import (
+        from jw.commands.implementation.model import (
             extract_model_and_provider,
         )
 
@@ -79,7 +79,7 @@ class TestModelCommandUnknownModel:
     """Verify error message for unknown models."""
 
     async def test_unknown_model_shows_error(self):
-        from EvoScientist.commands.implementation.model import ModelCommand
+        from jw.commands.implementation.model import ModelCommand
 
         cmd = ModelCommand()
         ui = MagicMock()
@@ -90,7 +90,7 @@ class TestModelCommandUnknownModel:
         ctx.ui = ui
 
         with patch(
-            "EvoScientist.EvoScientist._ensure_config",
+            "jw.agent._ensure_config",
             return_value=cfg,
         ):
             await cmd.execute(ctx, ["nonexistent-model-xyz"])
@@ -105,7 +105,7 @@ class TestModelCommandPickerCancelled:
     """Verify no-op when the interactive picker is cancelled."""
 
     async def test_picker_returns_none(self):
-        from EvoScientist.commands.implementation.model import ModelCommand
+        from jw.commands.implementation.model import ModelCommand
 
         cmd = ModelCommand()
         ui = MagicMock()
@@ -117,7 +117,7 @@ class TestModelCommandPickerCancelled:
         ctx.ui = ui
 
         with patch(
-            "EvoScientist.EvoScientist._ensure_config",
+            "jw.agent._ensure_config",
             return_value=cfg,
         ):
             await cmd.execute(ctx, [])
@@ -130,7 +130,7 @@ class TestModelCommandSwitch:
     """Verify a successful model switch updates config and rebuilds agent."""
 
     async def test_switch_known_model(self):
-        from EvoScientist.commands.implementation.model import ModelCommand
+        from jw.commands.implementation.model import ModelCommand
 
         cmd = ModelCommand()
         ui = MagicMock()
@@ -145,14 +145,14 @@ class TestModelCommandSwitch:
 
         with (
             patch(
-                "EvoScientist.EvoScientist._ensure_config",
+                "jw.agent._ensure_config",
                 return_value=cfg,
             ),
-            patch("EvoScientist.EvoScientist._build_chat_model"),
-            patch("EvoScientist.EvoScientist.set_active_config") as set_cfg,
-            patch("EvoScientist.EvoScientist.set_chat_model_instance"),
+            patch("jw.agent._build_chat_model"),
+            patch("jw.agent.set_active_config") as set_cfg,
+            patch("jw.agent.set_chat_model_instance"),
             patch(
-                "EvoScientist.cli.agent._load_agent",
+                "jw.cli.agent._load_agent",
                 return_value=new_agent,
             ),
         ):
@@ -175,7 +175,7 @@ class TestModelCommandSwitch:
         assert "anthropic" in msg
 
     async def test_switch_with_save_flag(self):
-        from EvoScientist.commands.implementation.model import ModelCommand
+        from jw.commands.implementation.model import ModelCommand
 
         cmd = ModelCommand()
         ui = MagicMock()
@@ -189,17 +189,17 @@ class TestModelCommandSwitch:
 
         with (
             patch(
-                "EvoScientist.EvoScientist._ensure_config",
+                "jw.agent._ensure_config",
                 return_value=cfg,
             ),
-            patch("EvoScientist.EvoScientist._build_chat_model"),
-            patch("EvoScientist.EvoScientist.set_active_config"),
-            patch("EvoScientist.EvoScientist.set_chat_model_instance"),
+            patch("jw.agent._build_chat_model"),
+            patch("jw.agent.set_active_config"),
+            patch("jw.agent.set_chat_model_instance"),
             patch(
-                "EvoScientist.cli.agent._load_agent",
+                "jw.cli.agent._load_agent",
                 return_value=MagicMock(),
             ),
-            patch("EvoScientist.config.settings.set_config_value") as mock_save,
+            patch("jw.config.settings.set_config_value") as mock_save,
         ):
             await cmd.execute(ctx, ["claude-opus-4-8", "--save"])
 
@@ -212,7 +212,7 @@ class TestModelCommandSwitch:
         assert "saved to config" in msg
 
     async def test_switch_without_save_flag_does_not_persist(self):
-        from EvoScientist.commands.implementation.model import ModelCommand
+        from jw.commands.implementation.model import ModelCommand
 
         cmd = ModelCommand()
         ui = MagicMock()
@@ -226,17 +226,17 @@ class TestModelCommandSwitch:
 
         with (
             patch(
-                "EvoScientist.EvoScientist._ensure_config",
+                "jw.agent._ensure_config",
                 return_value=cfg,
             ),
-            patch("EvoScientist.EvoScientist._build_chat_model"),
-            patch("EvoScientist.EvoScientist.set_active_config"),
-            patch("EvoScientist.EvoScientist.set_chat_model_instance"),
+            patch("jw.agent._build_chat_model"),
+            patch("jw.agent.set_active_config"),
+            patch("jw.agent.set_chat_model_instance"),
             patch(
-                "EvoScientist.cli.agent._load_agent",
+                "jw.cli.agent._load_agent",
                 return_value=MagicMock(),
             ),
-            patch("EvoScientist.config.settings.set_config_value") as mock_save,
+            patch("jw.config.settings.set_config_value") as mock_save,
         ):
             await cmd.execute(ctx, ["claude-opus-4-8"])
 
@@ -252,7 +252,7 @@ class TestModelCommandFailure:
     """Verify error handling when chat-model construction raises."""
 
     async def test_build_chat_model_error(self):
-        from EvoScientist.commands.implementation.model import ModelCommand
+        from jw.commands.implementation.model import ModelCommand
 
         cmd = ModelCommand()
         ui = MagicMock()
@@ -266,11 +266,11 @@ class TestModelCommandFailure:
 
         with (
             patch(
-                "EvoScientist.EvoScientist._ensure_config",
+                "jw.agent._ensure_config",
                 return_value=cfg,
             ),
             patch(
-                "EvoScientist.EvoScientist._build_chat_model",
+                "jw.agent._build_chat_model",
                 side_effect=RuntimeError("API key missing"),
             ) as mock_build,
         ):
@@ -285,20 +285,20 @@ class TestModelCommandFailure:
 
 @pytest.fixture
 def evo_module_state():
-    """Snapshot and restore ``EvoScientist.EvoScientist`` module globals.
+    """Snapshot and restore ``JW.agent`` module globals.
 
     The chat-model cache tests mutate ``_chat_model`` / ``_chat_model_key``
-    / ``_config`` / ``_EvoScientist_agent`` directly.  This fixture
+    / ``_config`` / ``_jw_agent`` directly.  This fixture
     guarantees all four are restored — even if a test body grows an early
     return — so later tests in the suite see a clean module state.
     """
-    import EvoScientist.EvoScientist as mod
+    import jw.agent as mod
 
     snapshot = (
         mod._chat_model,
         mod._chat_model_key,
         mod._config,
-        mod._EvoScientist_agent,
+        mod._jw_agent,
     )
     try:
         yield mod
@@ -307,7 +307,7 @@ def evo_module_state():
             mod._chat_model,
             mod._chat_model_key,
             mod._config,
-            mod._EvoScientist_agent,
+            mod._jw_agent,
         ) = snapshot
 
 
@@ -335,9 +335,9 @@ class TestEnsureChatModelCacheInvalidation:
         mod._chat_model = None
         mod._chat_model_key = None
         mod._config = cfg
-        mod._EvoScientist_agent = None
+        mod._jw_agent = None
 
-        with patch("EvoScientist.llm.get_chat_model", side_effect=[m1, m2]) as gm:
+        with patch("jw.llm.get_chat_model", side_effect=[m1, m2]) as gm:
             first = mod._ensure_chat_model()
             assert first is m1
             # Same config → cache hit, no rebuild.
@@ -369,9 +369,9 @@ class TestEnsureChatModelCacheInvalidation:
         mod._chat_model = None
         mod._chat_model_key = None
         mod._config = cfg
-        mod._EvoScientist_agent = None
+        mod._jw_agent = None
 
-        with patch("EvoScientist.llm.get_chat_model", side_effect=[m1, m2]) as gm:
+        with patch("jw.llm.get_chat_model", side_effect=[m1, m2]) as gm:
             assert mod._ensure_chat_model() is m1
             cfg.provider = "openrouter"
             assert mod._ensure_chat_model() is m2
@@ -388,9 +388,9 @@ class TestEnsureChatModelCacheInvalidation:
         mod._chat_model = None
         mod._chat_model_key = None
         mod._config = cfg
-        mod._EvoScientist_agent = None
+        mod._jw_agent = None
 
-        with patch("EvoScientist.llm.get_chat_model", return_value=m_set) as gm:
+        with patch("jw.llm.get_chat_model", return_value=m_set) as gm:
             mod.set_chat_model("minimax-m2.7", provider="openrouter")
             assert mod._chat_model is m_set
             assert mod._chat_model_key == ("minimax-m2.7", "openrouter")
@@ -418,9 +418,9 @@ class TestEnsureChatModelCacheInvalidation:
         mod._chat_model = existing
         mod._chat_model_key = ("minimax-m2.7", "openrouter")
         mod._config = SimpleNamespace(model="minimax-m2.7", provider="openrouter")
-        mod._EvoScientist_agent = None
+        mod._jw_agent = None
 
-        with patch("EvoScientist.llm.get_chat_model") as gm:
+        with patch("jw.llm.get_chat_model") as gm:
             returned = mod.set_chat_model("minimax-m2.7", provider="openrouter")
 
         # Fast path: returned the EXISTING instance, no rebuild.
@@ -445,8 +445,8 @@ class TestApplyModelIntegration:
     """
 
     async def test_new_agent_is_bound_to_newly_selected_model(self, evo_module_state):
-        from EvoScientist.commands.implementation.model import ModelCommand
-        from EvoScientist.config.settings import EvoScientistConfig
+        from jw.commands.implementation.model import ModelCommand
+        from jw.config.settings import JWConfig
 
         mod = evo_module_state
 
@@ -474,7 +474,7 @@ class TestApplyModelIntegration:
             agent._bound_model = chat_model
             return agent
 
-        cfg = EvoScientistConfig(model="claude-sonnet-4-6", provider="anthropic")
+        cfg = JWConfig(model="claude-sonnet-4-6", provider="anthropic")
         ctx = MagicMock()
         ctx.ui = MagicMock()
         ctx.ui.supports_interactive = True
@@ -486,16 +486,16 @@ class TestApplyModelIntegration:
         mod._config = cfg
         mod._chat_model = _fake_get_chat_model("claude-sonnet-4-6", "anthropic")
         mod._chat_model_key = ("claude-sonnet-4-6", "anthropic")
-        mod._EvoScientist_agent = None
+        mod._jw_agent = None
         old_model = mod._chat_model
 
         with (
             patch(
-                "EvoScientist.llm.get_chat_model",
+                "jw.llm.get_chat_model",
                 side_effect=_fake_get_chat_model,
             ),
             patch(
-                "EvoScientist.cli.agent._load_agent",
+                "jw.cli.agent._load_agent",
                 side_effect=_fake_load_agent,
             ),
         ):
@@ -540,8 +540,8 @@ class TestApplyModelPreservesConfigByReference:
     async def test_held_config_reference_tracks_repeated_switches(
         self, evo_module_state
     ):
-        from EvoScientist.commands.implementation.model import ModelCommand
-        from EvoScientist.config.settings import EvoScientistConfig
+        from jw.commands.implementation.model import ModelCommand
+        from jw.config.settings import JWConfig
 
         mod = evo_module_state
 
@@ -560,11 +560,11 @@ class TestApplyModelPreservesConfigByReference:
         ):
             return MagicMock(name="fake-agent")
 
-        cfg = EvoScientistConfig(model="claude-sonnet-4-6", provider="anthropic")
+        cfg = JWConfig(model="claude-sonnet-4-6", provider="anthropic")
         mod._config = cfg
         mod._chat_model = None
         mod._chat_model_key = None
-        mod._EvoScientist_agent = None
+        mod._jw_agent = None
 
         # Simulate serve capturing the startup config object once (commands.py:
         # ``agent_holder = {... "config": config}``) and never re-reading it.
@@ -579,11 +579,11 @@ class TestApplyModelPreservesConfigByReference:
         cmd = ModelCommand()
         with (
             patch(
-                "EvoScientist.llm.get_chat_model",
+                "jw.llm.get_chat_model",
                 side_effect=_fake_get_chat_model,
             ),
             patch(
-                "EvoScientist.cli.agent._load_agent",
+                "jw.cli.agent._load_agent",
                 side_effect=_fake_load_agent,
             ),
         ):
@@ -611,7 +611,7 @@ class TestModelCommandLoadAgentFailure:
     reordered to call ``set_chat_model`` first)."""
 
     async def test_load_agent_error_is_transactional(self):
-        from EvoScientist.commands.implementation.model import ModelCommand
+        from jw.commands.implementation.model import ModelCommand
 
         cmd = ModelCommand()
         ui = MagicMock()
@@ -625,22 +625,22 @@ class TestModelCommandLoadAgentFailure:
 
         with (
             patch(
-                "EvoScientist.EvoScientist._ensure_config",
+                "jw.agent._ensure_config",
                 return_value=cfg,
             ),
-            patch("EvoScientist.EvoScientist._build_chat_model"),
+            patch("jw.agent._build_chat_model"),
             patch(
-                "EvoScientist.cli.agent._load_agent",
+                "jw.cli.agent._load_agent",
                 side_effect=RuntimeError("agent build failed"),
             ) as mock_load,
             patch(
-                "EvoScientist.EvoScientist.set_active_config",
+                "jw.agent.set_active_config",
             ) as mock_set_cfg,
             patch(
-                "EvoScientist.EvoScientist.set_chat_model_instance",
+                "jw.agent.set_chat_model_instance",
             ) as mock_set_model,
             patch(
-                "EvoScientist.config.settings.set_config_value",
+                "jw.config.settings.set_config_value",
             ) as mock_save,
         ):
             # Pass ``--save`` to strengthen the assertion: if the ordering
@@ -678,8 +678,8 @@ class TestApplyModelLoadAgentFailureTransactional:
     """
 
     async def test_globals_unchanged_when_load_agent_raises(self, evo_module_state):
-        from EvoScientist.commands.implementation.model import ModelCommand
-        from EvoScientist.config.settings import EvoScientistConfig
+        from jw.commands.implementation.model import ModelCommand
+        from jw.config.settings import JWConfig
 
         mod = evo_module_state
 
@@ -695,14 +695,14 @@ class TestApplyModelLoadAgentFailureTransactional:
             # agent wiring (middleware build, deepagents, MCP reconnect, ...).
             raise RuntimeError("middleware build failed")
 
-        cfg = EvoScientistConfig(model="claude-sonnet-4-6", provider="anthropic")
+        cfg = JWConfig(model="claude-sonnet-4-6", provider="anthropic")
         old_model = MagicMock(name="old-model")
         old_agent = MagicMock(name="old-default-agent")
 
         mod._config = cfg
         mod._chat_model = old_model
         mod._chat_model_key = ("claude-sonnet-4-6", "anthropic")
-        mod._EvoScientist_agent = old_agent
+        mod._jw_agent = old_agent
 
         ctx = MagicMock()
         ctx.ui = MagicMock()
@@ -712,11 +712,11 @@ class TestApplyModelLoadAgentFailureTransactional:
 
         with (
             patch(
-                "EvoScientist.EvoScientist._build_chat_model",
+                "jw.agent._build_chat_model",
                 return_value=MagicMock(name="new-model"),
             ),
             patch(
-                "EvoScientist.cli.agent._load_agent",
+                "jw.cli.agent._load_agent",
                 side_effect=_fake_load_agent,
             ),
         ):
@@ -727,7 +727,7 @@ class TestApplyModelLoadAgentFailureTransactional:
         assert mod._config is cfg
         assert mod._chat_model is old_model
         assert mod._chat_model_key == ("claude-sonnet-4-6", "anthropic")
-        assert mod._EvoScientist_agent is old_agent
+        assert mod._jw_agent is old_agent
         # The ``cfg`` object itself was not mutated.
         assert cfg.model == "claude-sonnet-4-6"
         assert cfg.provider == "anthropic"
@@ -756,7 +756,7 @@ class TestModelCommandOllamaPicker:
     async def test_picker_entries_include_detected_ollama_models(self):
         """When Ollama is reachable, detected models appear in entries with
         provider='ollama' and the Custom sentinel is appended."""
-        from EvoScientist.commands.implementation.model import ModelCommand
+        from jw.commands.implementation.model import ModelCommand
 
         ctx, cfg, ui = self._make_ctx_and_cfg(ollama_base_url="http://localhost:11434")
 
@@ -765,11 +765,11 @@ class TestModelCommandOllamaPicker:
 
         with (
             patch(
-                "EvoScientist.EvoScientist._ensure_config",
+                "jw.agent._ensure_config",
                 return_value=cfg,
             ),
             patch(
-                "EvoScientist.llm.ollama_discovery.discover_ollama_models",
+                "jw.llm.ollama_discovery.discover_ollama_models",
                 side_effect=fake_discover,
             ),
         ):
@@ -788,7 +788,7 @@ class TestModelCommandOllamaPicker:
     async def test_picker_entries_include_sentinel_when_discovery_empty(self):
         """Daemon unreachable / no models pulled — sentinel is the user's
         escape hatch and must always be present."""
-        from EvoScientist.commands.implementation.model import ModelCommand
+        from jw.commands.implementation.model import ModelCommand
 
         ctx, cfg, ui = self._make_ctx_and_cfg(ollama_base_url="http://localhost:11434")
 
@@ -797,11 +797,11 @@ class TestModelCommandOllamaPicker:
 
         with (
             patch(
-                "EvoScientist.EvoScientist._ensure_config",
+                "jw.agent._ensure_config",
                 return_value=cfg,
             ),
             patch(
-                "EvoScientist.llm.ollama_discovery.discover_ollama_models",
+                "jw.llm.ollama_discovery.discover_ollama_models",
                 side_effect=fake_discover,
             ),
         ):
@@ -816,7 +816,7 @@ class TestModelCommandOllamaPicker:
     async def test_picker_skips_ollama_section_when_not_configured(self):
         """ollama_base_url unset → no discovery call, no ollama entries,
         no sentinel (issue non-goal: no implicit localhost detection)."""
-        from EvoScientist.commands.implementation.model import ModelCommand
+        from jw.commands.implementation.model import ModelCommand
 
         ctx, cfg, ui = self._make_ctx_and_cfg(ollama_base_url="")
 
@@ -824,11 +824,11 @@ class TestModelCommandOllamaPicker:
 
         with (
             patch(
-                "EvoScientist.EvoScientist._ensure_config",
+                "jw.agent._ensure_config",
                 return_value=cfg,
             ),
             patch(
-                "EvoScientist.llm.ollama_discovery.discover_ollama_models",
+                "jw.llm.ollama_discovery.discover_ollama_models",
                 discovery,
             ),
         ):
@@ -842,7 +842,7 @@ class TestModelCommandOllamaPicker:
         """getattr(cfg, 'ollama_base_url', None) fallback: old configs
         (or SimpleNamespace test fixtures) may not carry the attribute
         at all. Must not raise AttributeError, must not probe."""
-        from EvoScientist.commands.implementation.model import ModelCommand
+        from jw.commands.implementation.model import ModelCommand
 
         # Deliberately omit ollama_base_url from the namespace.
         cfg = SimpleNamespace(model="claude-sonnet-4-6", provider="anthropic")
@@ -856,11 +856,11 @@ class TestModelCommandOllamaPicker:
 
         with (
             patch(
-                "EvoScientist.EvoScientist._ensure_config",
+                "jw.agent._ensure_config",
                 return_value=cfg,
             ),
             patch(
-                "EvoScientist.llm.ollama_discovery.discover_ollama_models",
+                "jw.llm.ollama_discovery.discover_ollama_models",
                 discovery,
             ),
         ):
@@ -874,7 +874,7 @@ class TestModelCommandOllamaPicker:
         """Defense-in-depth: if the widget ever returns the sentinel name
         itself (shouldn't happen — it should substitute the typed name),
         dispatch treats it as a cancel and does NOT call _apply_model."""
-        from EvoScientist.commands.implementation.model import ModelCommand
+        from jw.commands.implementation.model import ModelCommand
 
         ctx, cfg, ui = self._make_ctx_and_cfg(ollama_base_url="http://localhost:11434")
         ui.wait_for_model_pick = AsyncMock(return_value=("__custom_ollama__", "ollama"))
@@ -884,14 +884,14 @@ class TestModelCommandOllamaPicker:
 
         with (
             patch(
-                "EvoScientist.EvoScientist._ensure_config",
+                "jw.agent._ensure_config",
                 return_value=cfg,
             ),
             patch(
-                "EvoScientist.llm.ollama_discovery.discover_ollama_models",
+                "jw.llm.ollama_discovery.discover_ollama_models",
                 side_effect=fake_discover,
             ),
-            patch("EvoScientist.cli.agent._load_agent") as load_agent,
+            patch("jw.cli.agent._load_agent") as load_agent,
         ):
             await ModelCommand().execute(ctx, [])
 
@@ -901,7 +901,7 @@ class TestModelCommandOllamaPicker:
     async def test_picker_applies_detected_ollama_model(self):
         """User picks a live-detected Ollama model → _apply_model is invoked
         with (name, "ollama") and the agent is rebuilt."""
-        from EvoScientist.commands.implementation.model import ModelCommand
+        from jw.commands.implementation.model import ModelCommand
 
         ctx, cfg, ui = self._make_ctx_and_cfg(ollama_base_url="http://localhost:11434")
         ctx.workspace_dir = "/tmp/test"
@@ -913,18 +913,18 @@ class TestModelCommandOllamaPicker:
 
         with (
             patch(
-                "EvoScientist.EvoScientist._ensure_config",
+                "jw.agent._ensure_config",
                 return_value=cfg,
             ),
             patch(
-                "EvoScientist.llm.ollama_discovery.discover_ollama_models",
+                "jw.llm.ollama_discovery.discover_ollama_models",
                 side_effect=fake_discover,
             ),
-            patch("EvoScientist.EvoScientist._build_chat_model"),
-            patch("EvoScientist.EvoScientist.set_active_config") as set_cfg,
-            patch("EvoScientist.EvoScientist.set_chat_model_instance"),
+            patch("jw.agent._build_chat_model"),
+            patch("jw.agent.set_active_config") as set_cfg,
+            patch("jw.agent.set_chat_model_instance"),
             patch(
-                "EvoScientist.cli.agent._load_agent",
+                "jw.cli.agent._load_agent",
                 return_value=MagicMock(),
             ),
         ):

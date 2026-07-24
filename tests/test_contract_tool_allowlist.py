@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 from dataclasses import dataclass
 
-from EvoScientist.middleware.contract_tool_allowlist import (
+from jw.middleware.contract_tool_allowlist import (
     CONTRACT_TOOL_ALLOWLISTS,
     ContractToolAllowlistMiddleware,
 )

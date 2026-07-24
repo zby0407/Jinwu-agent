@@ -1,7 +1,7 @@
 """工具层上下文注入与人审痕迹测试（kb_read/kb_propose/kb_promote 的 RunnableConfig 回填）。
 
-db 用临时目录隔离（EVOSCIENTIST_DATA_DIR / EVOSCIENTIST_KB_EXPORT_DIR），不碰真实
-~/.evoscientist 与仓库 knowledge_base/ 导出树；不访问网络。
+db 用临时目录隔离（JW_DATA_DIR / JW_KB_EXPORT_DIR），不碰真实
+~/.jw 与仓库 knowledge_base/ 导出树；不访问网络。
 """
 
 from __future__ import annotations
@@ -20,7 +20,7 @@ for candidate in (str(SRC), str(ROOT)):
     if candidate not in sys.path:
         sys.path.insert(0, candidate)
 
-from EvoScientist.tools import knowledge_base as kb_tools  # noqa: E402
+from jw.tools import knowledge_base as kb_tools  # noqa: E402
 
 
 def _candidate_payload(**overrides):
@@ -41,10 +41,10 @@ class ToolContextTests(unittest.TestCase):
         self._tmp = tempfile.mkdtemp(prefix="kb-toolctx-")
         self._old_env = {
             key: os.environ.get(key)
-            for key in ("EVOSCIENTIST_DATA_DIR", "EVOSCIENTIST_KB_EXPORT_DIR")
+            for key in ("JW_DATA_DIR", "JW_KB_EXPORT_DIR")
         }
-        os.environ["EVOSCIENTIST_DATA_DIR"] = self._tmp
-        os.environ["EVOSCIENTIST_KB_EXPORT_DIR"] = str(Path(self._tmp) / "export")
+        os.environ["JW_DATA_DIR"] = self._tmp
+        os.environ["JW_KB_EXPORT_DIR"] = str(Path(self._tmp) / "export")
         kb_tools._STORE = None
         kb_tools._DISTILL_BINDINGS.clear()
         kb_tools._ACTIVE_DISTILL_BINDINGS.clear()

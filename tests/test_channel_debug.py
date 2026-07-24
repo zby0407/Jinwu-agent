@@ -4,7 +4,7 @@ import asyncio
 import logging
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from EvoScientist.channels.debug import (
+from jw.channels.debug import (
     TraceMixin,
     debug_trace_enabled,
     emit_debug_event,
@@ -56,7 +56,7 @@ def test_emit_debug_event_if_disabled_does_not_log(caplog):
 
 def _make_raw(**overrides):
     """Create a minimal RawIncoming for testing."""
-    from EvoScientist.channels.base import RawIncoming
+    from jw.channels.base import RawIncoming
 
     defaults = {"sender_id": "user1", "chat_id": "chat1", "text": "hello"}
     defaults.update(overrides)
@@ -74,7 +74,7 @@ def _make_channel_context(*, debug_trace=True, name="test_channel"):
 
 
 async def test_middleware_dedup_emits_structured_event(caplog):
-    from EvoScientist.channels.middleware import DedupMiddleware
+    from jw.channels.middleware import DedupMiddleware
 
     with caplog.at_level(logging.DEBUG):
         mw = DedupMiddleware()
@@ -94,7 +94,7 @@ async def test_middleware_dedup_emits_structured_event(caplog):
 
 
 async def test_middleware_allowlist_emits_structured_event(caplog):
-    from EvoScientist.channels.middleware import AllowListMiddleware
+    from jw.channels.middleware import AllowListMiddleware
 
     with caplog.at_level(logging.DEBUG):
         mw = AllowListMiddleware(allowed_senders={"allowed_user"})
@@ -107,7 +107,7 @@ async def test_middleware_allowlist_emits_structured_event(caplog):
 
 
 async def test_middleware_mention_gating_emits_structured_event(caplog):
-    from EvoScientist.channels.middleware import MentionGatingMiddleware
+    from jw.channels.middleware import MentionGatingMiddleware
 
     with caplog.at_level(logging.DEBUG):
         mw = MentionGatingMiddleware(require_mention="group")
@@ -120,7 +120,7 @@ async def test_middleware_mention_gating_emits_structured_event(caplog):
 
 
 async def test_typing_manager_emits_trace_events(caplog):
-    from EvoScientist.channels.middleware import TypingManager
+    from jw.channels.middleware import TypingManager
 
     with caplog.at_level(logging.DEBUG):
         send_action = AsyncMock(side_effect=RuntimeError("typing api down"))
@@ -138,7 +138,7 @@ async def test_typing_manager_emits_trace_events(caplog):
 
 
 async def test_ack_reaction_emits_error_traces(caplog):
-    from EvoScientist.channels.middleware import AckReactionMiddleware
+    from jw.channels.middleware import AckReactionMiddleware
 
     with caplog.at_level(logging.DEBUG):
         send_fn = AsyncMock()
@@ -172,7 +172,7 @@ async def test_ack_reaction_emits_error_traces(caplog):
 
 async def test_inbound_raw_event_emitted(caplog):
     """Integration-style: _enqueue_raw emits inbound_raw at the top."""
-    from EvoScientist.channels.base import Channel, RawIncoming
+    from jw.channels.base import Channel, RawIncoming
 
     # Create a minimal concrete channel
     class _TestChannel(Channel):
@@ -212,7 +212,7 @@ async def test_inbound_raw_event_emitted(caplog):
 
 async def test_format_fallback_emits_event(caplog):
     """_send_with_format_fallback emits outbound_format_fallback on fallback."""
-    from EvoScientist.channels.base import Channel
+    from jw.channels.base import Channel
 
     class _TestChannel(Channel):
         name = "test_fallback"
@@ -282,9 +282,9 @@ def test_trace_mixin_trace_event(caplog):
 
 
 async def test_standalone_dispatcher_treats_false_send_as_error(caplog):
-    from EvoScientist.channels.bus import MessageBus
-    from EvoScientist.channels.bus.events import OutboundMessage
-    from EvoScientist.channels.standalone import standalone_outbound_dispatcher
+    from jw.channels.bus import MessageBus
+    from jw.channels.bus.events import OutboundMessage
+    from jw.channels.standalone import standalone_outbound_dispatcher
 
     channel = MagicMock()
     channel.name = "test"
@@ -308,9 +308,9 @@ async def test_standalone_dispatcher_treats_false_send_as_error(caplog):
 
 
 async def test_standalone_dispatcher_sends_media():
-    from EvoScientist.channels.bus import MessageBus
-    from EvoScientist.channels.bus.events import OutboundMessage
-    from EvoScientist.channels.standalone import standalone_outbound_dispatcher
+    from jw.channels.bus import MessageBus
+    from jw.channels.bus.events import OutboundMessage
+    from jw.channels.standalone import standalone_outbound_dispatcher
 
     channel = MagicMock()
     channel.name = "test"
@@ -340,7 +340,7 @@ async def test_standalone_dispatcher_sends_media():
 
 
 def test_emit_debug_event_warns_on_level_mismatch(caplog):
-    import EvoScientist.channels.debug as dbg
+    import jw.channels.debug as dbg
 
     # Reset the global warning flag
     dbg._warned_debug_level_mismatch = False

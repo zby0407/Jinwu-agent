@@ -312,7 +312,7 @@ export function AgentsPanel({ onReportToMainChat }: AgentsPanelProps) {
             ? `${runningCount} running`
             : tasks.length > 0
             ? `${tasks.length} total`
-            : "\u540e\u53f0 Agents"}
+            : "Background agents"}
         </p>
         <div className="flex items-center gap-1">
           {/* Auto-report toggle: when on, finished agents loop back to the main
@@ -321,7 +321,7 @@ export function AgentsPanel({ onReportToMainChat }: AgentsPanelProps) {
             type="button"
             onClick={toggleAutoNotify}
             aria-pressed={autoNotify}
-            aria-label={`\u81ea\u52a8\u56de\u62a5${autoNotify ? "\u5df2\u5f00" : "\u5173"}`}
+            aria-label={`Auto-report ${autoNotify ? "on" : "off"}`}
             title={
               autoNotify
                 ? "Auto-report on: finished agents are sent to the main chat automatically"
@@ -339,14 +339,14 @@ export function AgentsPanel({ onReportToMainChat }: AgentsPanelProps) {
               aria-hidden="true"
             />
             <span className="hidden min-[340px]:inline">
-              {autoNotify ? "\u81ea\u52a8\u56de\u62a5\u5df2\u5f00" : "\u81ea\u52a8\u56de\u62a5\u5173"}
+              Auto-report {autoNotify ? "On" : "Off"}
             </span>
           </button>
           <button
             type="button"
             onClick={refresh}
-            aria-label="\u5237\u65b0 Agents"
-            title="\u5237\u65b0"
+            aria-label="Refresh agents"
+            title="Refresh"
             className="rounded p-1 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
           >
             <RefreshCw
@@ -367,7 +367,7 @@ export function AgentsPanel({ onReportToMainChat }: AgentsPanelProps) {
             className="size-4 animate-spin"
             aria-hidden="true"
           />
-          {"\u52a0\u8f7d\u4e2d..."}
+          Loading…
         </div>
       )}
 
@@ -378,10 +378,10 @@ export function AgentsPanel({ onReportToMainChat }: AgentsPanelProps) {
             aria-hidden="true"
           />
           <p className="text-sm text-muted-foreground">
-            {"\u6682\u65e0\u540e\u53f0 Agents\u3002"}
+            No background agents yet.
           </p>
           <p className="text-xs text-muted-foreground/80">
-            {"\u5f53\u91d1\u4e4c\u59d4\u6d3e\u957f\u4efb\u52a1\uff08\u5199\u4f5c\u3001\u6570\u636e\u5206\u6790\u7b49\uff09\u65f6\uff0c\u5b83\u4eec\u4f1a\u5728\u540e\u53f0\u8fd0\u884c\u5e76\u663e\u793a\u5728\u8fd9\u91cc\u3002"}
+            金乌委派的长任务（如写作、数据分析）会在后台运行，并显示在这里。
           </p>
         </div>
       )}
@@ -446,7 +446,7 @@ export function AgentsPanel({ onReportToMainChat }: AgentsPanelProps) {
                         className="size-3.5 animate-spin"
                         aria-hidden="true"
                       />
-                      {"\u52a0\u8f7d\u4e2d..."}
+                      Loading steps…
                     </div>
                   )}
                   {detail?.error && (

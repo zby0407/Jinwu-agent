@@ -110,10 +110,10 @@
  M submissions/FINAL_COMPLETION_AUDIT.md
  M submissions/FINAL_GATE_MATRIX.json
  M submissions/FINAL_GATE_MATRIX.md
- M submissions/JinWu-SpotLab_pitch_deck.pptx.inspect.ndjson
- M submissions/JinWu-SpotLab_submission_checklist.md
- M submissions/JinWu-SpotLab_technical_report.md
- M submissions/JinWu-SpotLab_technical_report.pdf
+ M submissions/JW-SpotLab_pitch_deck.pptx.inspect.ndjson
+ M submissions/JW-SpotLab_submission_checklist.md
+ M submissions/JW-SpotLab_technical_report.md
+ M submissions/JW-SpotLab_technical_report.pdf
  D submissions/LEIZHU_READINESS_REPORT.json
  D submissions/LEIZHU_READINESS_REPORT.md
  M submissions/RED_TEAM_REVIEW.json

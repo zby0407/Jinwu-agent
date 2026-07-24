@@ -10,7 +10,7 @@ on:
       - ".dockerignore"
       - "pyproject.toml"
       - "uv.lock"
-      - "EvoScientist/**"
+      - "jw/**"
       - ".github/workflows/docker.yml"
   workflow_dispatch:
 

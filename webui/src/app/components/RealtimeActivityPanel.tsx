@@ -15,8 +15,14 @@ import { lastTextOf } from "@/lib/subAgentActivity";
 
 export function RealtimeActivityPanel() {
   const { state } = useRealtimeActivity();
-  const { isLoading, hasInterrupt, interruptType, activeToolCalls, subAgents, todos } =
-    state;
+  const {
+    isLoading,
+    hasInterrupt,
+    interruptType,
+    activeToolCalls,
+    subAgents,
+    todos,
+  } = state;
 
   const status = (() => {
     if (hasInterrupt) {
@@ -52,7 +58,7 @@ export function RealtimeActivityPanel() {
   })();
 
   const activeTodos = todos.filter((t) => t.status === "in_progress");
-  const is\u7a7a\u95f2 =
+  const isIdle =
     status.label === "空闲" &&
     activeToolCalls.length === 0 &&
     subAgents.length === 0 &&
@@ -67,12 +73,16 @@ export function RealtimeActivityPanel() {
         />
         <h3 className="text-sm font-semibold">实时活动</h3>
       </div>
-      <div className="flex-1 overflow-y-auto p-3 space-y-4">
+      <div className="flex-1 space-y-4 overflow-y-auto p-3">
         {/* Main agent status */}
         <div className="rounded-lg border border-border bg-card p-3">
           <div className="flex items-center gap-2 text-sm font-medium">
             <status.icon
-              className={cn("size-4", status.color, status.spin && "animate-spin")}
+              className={cn(
+                "size-4",
+                status.color,
+                status.spin && "animate-spin"
+              )}
               aria-hidden="true"
             />
             <span>{status.label}</span>
@@ -168,7 +178,7 @@ export function RealtimeActivityPanel() {
           </div>
         )}
 
-        {is\u7a7a\u95f2 && (
+        {isIdle && (
           <p className="text-center text-xs text-muted-foreground">
             AI 当前没有处理中的任务
           </p>

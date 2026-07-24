@@ -3,16 +3,16 @@ from __future__ import annotations
 import json
 from types import SimpleNamespace
 
-from EvoScientist import paths
-from EvoScientist.config import (
-    EvoScientistConfig,
+from jw import paths
+from jw.config import (
+    JWConfig,
     MemorySkillSynthesisCadence,
     MemorySkillSynthesisMode,
     save_config,
     set_config_value,
 )
-from EvoScientist.memory.autoskills.candidates import autoskill_candidates
-from EvoScientist.memory.autoskills.proposals import (
+from jw.memory.autoskills.candidates import autoskill_candidates
+from jw.memory.autoskills.proposals import (
     approve_skill_proposal,
     autoskill_proposals_dir,
     list_skill_proposals,
@@ -20,7 +20,7 @@ from EvoScientist.memory.autoskills.proposals import (
     reject_skill_proposal,
     submit_autoskill_proposal,
 )
-from EvoScientist.memory.autoskills.schedule import (
+from jw.memory.autoskills.schedule import (
     AUTOSKILL_GRAPH_ID,
     AUTOSKILL_RUN_KIND,
     AUTOSKILL_SCHEDULE_SEARCH_LIMIT,
@@ -28,8 +28,8 @@ from EvoScientist.memory.autoskills.schedule import (
     autoskill_cron,
     reconcile_autoskill_schedule,
 )
-from EvoScientist.memory.autoskills.tools import create_submit_autoskill_proposal_tool
-from EvoScientist.memory.observations import (
+from jw.memory.autoskills.tools import create_submit_autoskill_proposal_tool
+from jw.memory.observations import (
     MemoryScope,
     MemorySourceType,
     MemoryType,
@@ -56,7 +56,7 @@ def _record(
         scope=MemoryScope.PROJECT,
         source_type=MemorySourceType.TURN,
         source_session_id="thread-1",
-        source_agent="EvoScientist",
+        source_agent="JW",
     )
 
 
@@ -771,12 +771,12 @@ def test_submit_tool_reads_live_autoskill_mode_without_rebuild(
 ):
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config-home"))
     monkeypatch.setattr(
-        "EvoScientist.config.settings.find_dotenv",
+        "jw.config.settings.find_dotenv",
         lambda *a, **k: str(tmp_path / ".env"),
     )
-    monkeypatch.delenv("EVOSCIENTIST_MEMORY_SKILL_SYNTHESIS_MODE", raising=False)
+    monkeypatch.delenv("JW_MEMORY_SKILL_SYNTHESIS_MODE", raising=False)
     save_config(
-        EvoScientistConfig(
+        JWConfig(
             memory_skill_synthesis_mode=MemorySkillSynthesisMode.REVIEW,
         )
     )
@@ -924,7 +924,7 @@ async def test_alist_autoskill_schedules_uses_async_client_and_explicit_limit(
     monkeypatch.setattr("langgraph_sdk.get_client", lambda **_kwargs: client)
 
     rows = await alist_autoskill_schedules(
-        EvoScientistConfig(),
+        JWConfig(),
         limit=3,
     )
 
@@ -944,12 +944,12 @@ def test_reconcile_autoskill_schedule_creates_updates_and_disables(
     crons = _FakeCrons()
     client = SimpleNamespace(crons=crons)
     monkeypatch.setattr(
-        "EvoScientist.langgraph_dev.manager.is_langgraph_dev_running",
+        "jw.langgraph_dev.manager.is_langgraph_dev_running",
         lambda **_kwargs: True,
     )
     monkeypatch.setattr("langgraph_sdk.get_sync_client", lambda **_kwargs: client)
 
-    cfg = EvoScientistConfig(
+    cfg = JWConfig(
         memory_skill_synthesis_enabled=True,
         memory_skill_synthesis_cadence=MemorySkillSynthesisCadence.WEEKLY,
         memory_skill_synthesis_time="03:00",
@@ -959,7 +959,7 @@ def test_reconcile_autoskill_schedule_creates_updates_and_disables(
     created = reconcile_autoskill_schedule(cfg, workspace_dir=tmp_path)
     unchanged = reconcile_autoskill_schedule(cfg, workspace_dir=tmp_path)
     updated = reconcile_autoskill_schedule(
-        EvoScientistConfig(
+        JWConfig(
             memory_skill_synthesis_enabled=True,
             memory_skill_synthesis_cadence=MemorySkillSynthesisCadence.NIGHTLY,
             memory_skill_synthesis_time="03:00",
@@ -968,7 +968,7 @@ def test_reconcile_autoskill_schedule_creates_updates_and_disables(
         workspace_dir=tmp_path,
     )
     disabled = reconcile_autoskill_schedule(
-        EvoScientistConfig(memory_skill_synthesis_enabled=False),
+        JWConfig(memory_skill_synthesis_enabled=False),
         workspace_dir=tmp_path,
     )
 

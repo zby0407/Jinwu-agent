@@ -1,0 +1,31 @@
+# Core bundle — generic research-workflow sub-agents.
+#
+# This manifest is the single source of truth for "which agents and skills
+# belong to the core bundle". The loader (JW.utils.load_subagents)
+# discovers agents by recursively scanning this directory for *.yaml files;
+# this manifest only records metadata and the logical grouping.
+
+name: core
+version: "1.0"
+description: >-
+  Generic research-workflow sub-agents: planning, web research, code
+  implementation, debugging, data analysis, report writing, and scheduled
+  execution. Domain-agnostic; safe to enable in every deployment.
+
+# Sub-agents that live in this directory (discovered automatically by the
+# recursive loader; listed here for documentation and audit).
+agents:
+  - planner-agent
+  - research-agent
+  - code-agent
+  - debug-agent
+  - data-analysis-agent
+  - writing-agent
+  - scheduler
+
+# Skills (under jw/skills/) that this bundle depends on. The
+# skills directory is still flat for backward compatibility with the
+# one-level SKILL.md discovery; this list is the logical ownership record.
+skills:
+  - find-skills
+  - skill-creator

@@ -7,7 +7,7 @@ import {
   isValidSkillName,
 } from "@/lib/server/skills";
 
-// SKILL_DIRS (the global ~/.evoscientist/skills tier + legacy ~/.config
+// SKILL_DIRS (the global ~/.jw/skills tier + legacy ~/.config
 // fallback) is the single source of truth, shared with the install route.
 
 interface SkillCard {
@@ -111,7 +111,7 @@ export async function DELETE(req: NextRequest) {
       continue; // not here
     }
     await fs.rm(target, { recursive: true, force: true });
-    // Keep EvoScientist's manifest in sync — drop the entry so onboard/CLI no
+    // Keep JW's manifest in sync — drop the entry so onboard/CLI no
     // longer list it. Best-effort: don't fail the uninstall on a manifest error.
     await recordUninstall(name).catch(() => {});
     return NextResponse.json({ ok: true });

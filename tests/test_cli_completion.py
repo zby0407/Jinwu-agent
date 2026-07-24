@@ -2,7 +2,7 @@
 
 from unittest.mock import MagicMock
 
-from EvoScientist.cli.interactive import SlashCommandCompleter
+from jw.cli.interactive import SlashCommandCompleter
 
 
 def _doc(text: str):
@@ -68,7 +68,7 @@ class TestSlashCommandCompleter:
 
     def test_results_match_engine_order(self):
         """Completer preserves the category-based order from compute_completions."""
-        from EvoScientist.commands._completion_engine import compute_completions
+        from jw.commands._completion_engine import compute_completions
 
         completer = SlashCommandCompleter()
         completions = list(completer.get_completions(_doc("/"), None))
@@ -86,7 +86,7 @@ class TestSlashCommandCompleter:
 
     def test_subcommand_completions_match_engine_order(self):
         """Subcommand completions preserve the order from compute_completions."""
-        from EvoScientist.commands._completion_engine import compute_completions
+        from jw.commands._completion_engine import compute_completions
 
         completer = SlashCommandCompleter()
         completions = list(completer.get_completions(_doc("/mcp "), None))

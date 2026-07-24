@@ -3,11 +3,11 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from EvoScientist import paths
-from EvoScientist.tools import automatic_experiment as experiment_tools
-from EvoScientist.tools import research_planner as planner_tools
-from EvoScientist.tools import scientific_hypothesis as hypothesis_tools
-from EvoScientist.workspaces import ensure_thread_workspace
+from jw import paths
+from jw.tools import automatic_experiment as experiment_tools
+from jw.tools import research_planner as planner_tools
+from jw.tools import scientific_hypothesis as hypothesis_tools
+from jw.workspaces import ensure_thread_workspace
 from scientific_hypothesis.contracts import canonical_json_sha256
 
 QUESTION_A = (
@@ -22,7 +22,7 @@ QUESTION_B = (
 
 def _task_config(tmp_path: Path, monkeypatch, thread_id: str):
     monkeypatch.setenv(
-        "EVOSCIENTIST_WORKSPACE_BINDINGS_DIR", str(tmp_path / "registry")
+        "JW_WORKSPACE_BINDINGS_DIR", str(tmp_path / "registry")
     )
     monkeypatch.setattr(paths, "WORKSPACE_ROOT", tmp_path)
     binding = ensure_thread_workspace(thread_id, tmp_path)

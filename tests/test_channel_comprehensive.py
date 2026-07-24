@@ -20,25 +20,25 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from EvoScientist.channels.base import (
+from jw.channels.base import (
     ChannelError,
     InboundMessage,
     OutboundMessage,
     RawIncoming,
     chunk_text,
 )
-from EvoScientist.channels.bus.events import (
+from jw.channels.bus.events import (
     InboundMessage as BusInbound,
 )
-from EvoScientist.channels.bus.events import (
+from jw.channels.bus.events import (
     OutboundMessage as BusOutbound,
 )
-from EvoScientist.channels.bus.message_bus import MessageBus
-from EvoScientist.channels.channel_manager import ChannelManager
-from EvoScientist.channels.consumer import InboundConsumer
-from EvoScientist.channels.formatter import convert_markdown
-from EvoScientist.channels.middleware import DedupCache
-from EvoScientist.channels.retry import RetryConfig, RetryInfo, retry_async
+from jw.channels.bus.message_bus import MessageBus
+from jw.channels.channel_manager import ChannelManager
+from jw.channels.consumer import InboundConsumer
+from jw.channels.formatter import convert_markdown
+from jw.channels.middleware import DedupCache
+from jw.channels.retry import RetryConfig, RetryInfo, retry_async
 
 # ═══════════════════════════════════════════════════════════════════
 # Helpers
@@ -1654,7 +1654,7 @@ class TestEdgeCases:
 
     def test_health_server_response_structure(self):
         """HealthServer builds response with expected keys."""
-        from EvoScientist.channels.channel_manager import _HealthServer
+        from jw.channels.channel_manager import _HealthServer
 
         bus = MessageBus()
         mgr = ChannelManager(bus)

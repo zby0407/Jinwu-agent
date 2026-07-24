@@ -84,7 +84,7 @@ export function detectFileLink(text: string): FileLink | null {
   return { kind: "workspace", display: s, path: workspacePath };
 }
 
-export const FILE_LINK_EVENT = "evosci:open-file";
+export const FILE_LINK_EVENT = "jw:open-file";
 
 export type FileLinkEventDetail = FileLink;
 
@@ -98,7 +98,7 @@ export function dispatchFileLink(detail: FileLink): void {
 /** Hash href prefix used by the rehype plugin below to mark bare-text path
  *  matches. The `MarkdownContent` <a> renderer keys on this to decide whether
  *  to dispatch a file-open event or render a normal external link. */
-export const FILE_LINK_HREF_PREFIX = "#evosci-file:";
+export const FILE_LINK_HREF_PREFIX = "#jw-file:";
 
 const EXT_GROUP = Array.from(KNOWN_EXTS).join("|");
 // Match a path-shaped substring. Two accepted shapes (both guarantee at
@@ -135,7 +135,7 @@ interface HastNode {
  * Rehype plugin: replace bare-text occurrences of file paths with `<a>` nodes
  * whose href encodes the original path. The plugin runs BEFORE rehypeSanitize
  * so the resulting elements pass through the sanitizer normally — the
- * `#evosci-file:` href is just a hash link, which the default schema allows.
+ * `#jw-file:` href is just a hash link, which the default schema allows.
  * Element-tagged children (existing `<code>` etc.) are left untouched.
  */
 export function rehypePathLinks() {

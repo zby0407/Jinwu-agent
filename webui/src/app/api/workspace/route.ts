@@ -90,7 +90,8 @@ export async function GET(request: NextRequest) {
 
     const relPath = request.nextUrl.searchParams.get("path") ?? "";
     const recursive = request.nextUrl.searchParams.get("recursive") === "1";
-    const workspaceDir = await getWorkspaceDir();
+    const threadId = request.nextUrl.searchParams.get("threadId");
+    const workspaceDir = await getWorkspaceDir(threadId);
     const dir = await safeResolve(workspaceDir, relPath);
 
     const stat = await fs.stat(dir);

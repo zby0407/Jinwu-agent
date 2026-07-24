@@ -6,8 +6,8 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from EvoScientist.commands.channel_ui import ChannelCommandUI
-from EvoScientist.gateway import ThreadStore
+from jw.commands.channel_ui import ChannelCommandUI
+from jw.gateway import ThreadStore
 from tests.fakes import FakeGraphGateway, FakeThreadStore
 
 
@@ -39,9 +39,9 @@ async def _run_resume(ui, thread_id: str, workspace_dir: str):
         return task
 
     with (
-        patch("EvoScientist.cli.channel._bus_loop", new=loop),
+        patch("jw.cli.channel._bus_loop", new=loop),
         patch(
-            "EvoScientist.commands.channel_ui.asyncio.run_coroutine_threadsafe",
+            "jw.commands.channel_ui.asyncio.run_coroutine_threadsafe",
             side_effect=_schedule,
         ),
     ):
@@ -80,7 +80,7 @@ async def test_handle_session_resume_sends_history_back_to_channel_without_local
     assert "Resumed session: thread-42" in text
     assert "Conversation history:" in text
     assert "User: How does this work?" in text
-    assert "EvoScientist: Here is the saved answer." in text
+    assert "JW: Here is the saved answer." in text
 
 
 async def test_handle_session_resume_propagates_callback_abort_without_history():

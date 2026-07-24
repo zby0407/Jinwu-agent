@@ -1,4 +1,4 @@
-"""Tests for EvoScientist.sessions — thread CRUD, ID generation, helpers."""
+"""Tests for JW.sessions — thread CRUD, ID generation, helpers."""
 
 import asyncio
 import json
@@ -15,7 +15,7 @@ from langchain_core.messages import AIMessage, HumanMessage, RemoveMessage
 from langgraph.checkpoint.serde.jsonplus import JsonPlusSerializer
 from langgraph.graph.message import REMOVE_ALL_MESSAGES
 
-from EvoScientist.sessions import (
+from jw.sessions import (
     AGENT_NAME,
     _format_relative_time,
     _reduce_messages_delta,
@@ -33,7 +33,7 @@ from EvoScientist.sessions import (
 
 
 def _mock_path(db_path: str):
-    """Build a Path-like object for patching ``EvoScientist.sessions.get_db_path``.
+    """Build a Path-like object for patching ``JW.sessions.get_db_path``.
 
     Implements the subset of ``pathlib.Path`` that ``sessions.py`` actually
     touches: ``__str__``, ``__fspath__``, ``exists``, ``stat``.
@@ -66,15 +66,15 @@ class TestGetDbPath(unittest.TestCase):
         path = get_db_path()
         assert str(path).endswith("sessions.db")
         # On Windows ``get_db_path`` may return the 8.3 short-path
-        # form (e.g. ``.../EVOSCI~1/``), hiding the literal
-        # ``.evoscientist`` segment. ``resolve()`` walks back through
+        # form (e.g. ``.../JW~1/``), hiding the literal
+        # ``.jw`` segment. ``resolve()`` walks back through
         # the short-name mapping when possible, restoring the long
         # form for substring matching.
         try:
             long_form = str(path.resolve())
         except OSError:
             long_form = str(path)
-        assert ".evoscientist" in long_form or "evoscientist" in long_form.lower()
+        assert ".jw" in long_form or "jw" in long_form.lower()
 
 
 class TestFormatRelativeTime(unittest.TestCase):
@@ -181,7 +181,7 @@ class TestThreadFunctions(unittest.IsolatedAsyncioTestCase):
                         (tid, f"cp_{i}", empty_ck_type, empty_ck_blob, meta),
                     )
 
-                # Insert a non-EvoScientist checkpoint (should be filtered)
+                # Insert a non-JW checkpoint (should be filtered)
                 other_meta = json.dumps(
                     {
                         "agent_name": "OtherAgent",
@@ -201,7 +201,7 @@ class TestThreadFunctions(unittest.IsolatedAsyncioTestCase):
 
         # Patch get_db_path to point to our temp DB
         cls._patcher = patch(
-            "EvoScientist.sessions.get_db_path",
+            "jw.sessions.get_db_path",
             return_value=type(
                 "P",
                 (),
@@ -224,7 +224,7 @@ class TestThreadFunctions(unittest.IsolatedAsyncioTestCase):
 
     async def test_list_threads(self):
         threads = await list_threads(limit=10)
-        # Should only contain EvoScientist threads
+        # Should only contain JW threads
         assert len(threads) == 3
         # Most recent first
         assert threads[0]["thread_id"] == "def00001"
@@ -566,7 +566,7 @@ class TestThreadFunctions(unittest.IsolatedAsyncioTestCase):
         alone — so if a third-party agent's checkpoint for the same
         ``thread_id`` happens to have a higher id (lexicographically),
         we'd leak its transcript into ``/resume``. Pinning the head to
-        the latest EvoScientist-agent row prevents that.
+        the latest JW-agent row prevents that.
         """
         from langgraph.checkpoint.serde.types import _DeltaSnapshot
 
@@ -593,7 +593,7 @@ class TestThreadFunctions(unittest.IsolatedAsyncioTestCase):
             other_meta = json.dumps({"agent_name": "ThirdPartyAgent"})
 
             async with aiosqlite.connect(self._db_path) as conn:
-                # EvoScientist's checkpoint id is LEXICOGRAPHICALLY
+                # JW's checkpoint id is LEXICOGRAPHICALLY
                 # SMALLER than the third-party agent's, so a naive
                 # "latest by checkpoint_id" lookup would pick the wrong
                 # one.
@@ -650,7 +650,7 @@ class TestThreadFunctions(unittest.IsolatedAsyncioTestCase):
 
     async def test_delete_thread_preserves_other_agent_writes(self):
         """Deleting a shared thread_id must only remove writes linked to
-        EvoScientist checkpoints, leaving OtherAgent's writes intact."""
+        JW checkpoints, leaving OtherAgent's writes intact."""
 
         shared_tid = "shared01"
 
@@ -658,7 +658,7 @@ class TestThreadFunctions(unittest.IsolatedAsyncioTestCase):
             import aiosqlite
 
             async with aiosqlite.connect(self._db_path) as conn:
-                # EvoScientist checkpoint + write
+                # JW checkpoint + write
                 evo_meta = json.dumps(
                     {
                         "agent_name": AGENT_NAME,
@@ -695,7 +695,7 @@ class TestThreadFunctions(unittest.IsolatedAsyncioTestCase):
 
         await _insert()
 
-        # Delete — should only affect EvoScientist's data
+        # Delete — should only affect JW's data
         await delete_thread(shared_tid)
 
         # Verify OtherAgent's writes survive
@@ -743,7 +743,7 @@ class TestPruningCheckpointer(unittest.IsolatedAsyncioTestCase):
         loop it was opened on; reusing it across separate event loops
         raises ``ValueError("no active connection")``.
         """
-        from EvoScientist.sessions import PruningCheckpointer
+        from jw.sessions import PruningCheckpointer
 
         async def _go():
             async with PruningCheckpointer.from_conn_string_with_keep(
@@ -898,7 +898,7 @@ class TestPruningCheckpointer(unittest.IsolatedAsyncioTestCase):
         from langgraph.checkpoint.base import BaseCheckpointSaver
         from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 
-        from EvoScientist.sessions import PruningCheckpointer
+        from jw.sessions import PruningCheckpointer
 
         async def _body(saver):
             assert isinstance(saver, BaseCheckpointSaver)
@@ -974,7 +974,7 @@ class TestPruningCheckpointer(unittest.IsolatedAsyncioTestCase):
 
         await self._run_with_wrapper(keep=2, body=_body)
 
-        # OtherAgent's row + 2 EvoScientist rows = 3 total
+        # OtherAgent's row + 2 JW rows = 3 total
         assert await self._row_count(tid) == 3
 
         async def _check_other():
@@ -1199,7 +1199,7 @@ class TestPruningCheckpointerDeltaChannel(unittest.IsolatedAsyncioTestCase):
         """Snapshot lives outside the anchor window → walk reaches and stops."""
         from langgraph.checkpoint.serde.types import _DeltaSnapshot
 
-        from EvoScientist.sessions import PruningCheckpointer
+        from jw.sessions import PruningCheckpointer
 
         tid = "tdsa_001"
 
@@ -1229,7 +1229,7 @@ class TestPruningCheckpointerDeltaChannel(unittest.IsolatedAsyncioTestCase):
 
     async def test_preserves_full_chain_when_no_snapshot(self):
         """No snapshot anywhere → walk reaches root, preserves everything."""
-        from EvoScientist.sessions import PruningCheckpointer
+        from jw.sessions import PruningCheckpointer
 
         tid = "tdsa_002"
 
@@ -1256,7 +1256,7 @@ class TestPruningCheckpointerDeltaChannel(unittest.IsolatedAsyncioTestCase):
 
     async def test_plain_list_seed_also_terminates_walk(self):
         """Pre-DeltaChannel format (plain list in channel_values) also counts as seed."""
-        from EvoScientist.sessions import PruningCheckpointer
+        from jw.sessions import PruningCheckpointer
 
         tid = "tdsa_003"
 
@@ -1287,7 +1287,7 @@ class TestPruningCheckpointerDeltaChannel(unittest.IsolatedAsyncioTestCase):
 
     async def test_chain_break_stops_walk_cleanly(self):
         """Missing ancestor row breaks the chain; walk stops without raising."""
-        from EvoScientist.sessions import PruningCheckpointer
+        from jw.sessions import PruningCheckpointer
 
         tid = "tdsa_004"
 
@@ -1327,7 +1327,7 @@ class TestPruningCheckpointerDeltaChannel(unittest.IsolatedAsyncioTestCase):
 
     async def test_deserialization_failure_safe_side_over_preserves(self):
         """Corrupt blob mid-walk: pruner preserves what it visited so far."""
-        from EvoScientist.sessions import PruningCheckpointer
+        from jw.sessions import PruningCheckpointer
 
         tid = "tdsa_005"
 
@@ -1368,7 +1368,7 @@ class TestPruningCheckpointerDeltaChannel(unittest.IsolatedAsyncioTestCase):
 
     async def test_anchor_count_below_keep_is_noop(self):
         """When checkpoint count < keep_per_ns, prune returns early without DELETE."""
-        from EvoScientist.sessions import PruningCheckpointer
+        from jw.sessions import PruningCheckpointer
 
         tid = "tdsa_006"
 
@@ -1402,14 +1402,14 @@ class TestMigrationSweep(unittest.IsolatedAsyncioTestCase):
         self._db_path = os.path.join(self._tmpdir, "sweep.db")
         # Patch get_db_path so all sessions.py helpers point at our temp DB.
         self._patcher = patch(
-            "EvoScientist.sessions.get_db_path",
+            "jw.sessions.get_db_path",
             return_value=_mock_path(self._db_path),
         )
         self._patcher.start()
         # Mock atexit.register so sweep-spawned hooks don't leak past the fixture.
-        self._atexit_patcher = patch("EvoScientist.sessions.atexit.register")
+        self._atexit_patcher = patch("jw.sessions.atexit.register")
         self._atexit_patcher.start()
-        import EvoScientist.sessions as _sessions_mod
+        import jw.sessions as _sessions_mod
 
         self._prev_vacuum_scheduled = _sessions_mod._vacuum_scheduled
         _sessions_mod._vacuum_scheduled = False
@@ -1417,7 +1417,7 @@ class TestMigrationSweep(unittest.IsolatedAsyncioTestCase):
     def tearDown(self):
         self._patcher.stop()
         self._atexit_patcher.stop()
-        import EvoScientist.sessions as _sessions_mod
+        import jw.sessions as _sessions_mod
 
         _sessions_mod._vacuum_scheduled = self._prev_vacuum_scheduled
         try:
@@ -1501,7 +1501,7 @@ class TestMigrationSweep(unittest.IsolatedAsyncioTestCase):
         return await _go()
 
     async def test_sweep_partitions_threads_and_ns(self):
-        from EvoScientist.sessions import _run_migration_sweep
+        from jw.sessions import _run_migration_sweep
 
         await self._seed(
             [
@@ -1519,7 +1519,7 @@ class TestMigrationSweep(unittest.IsolatedAsyncioTestCase):
         assert await self._row_count("t2", "") == 3
 
     async def test_sweep_sets_user_version(self):
-        from EvoScientist.sessions import _MIGRATION_VERSION, _run_migration_sweep
+        from jw.sessions import _MIGRATION_VERSION, _run_migration_sweep
 
         await self._seed([("ta", "", 5)])
         assert await self._user_version() == 0
@@ -1527,7 +1527,7 @@ class TestMigrationSweep(unittest.IsolatedAsyncioTestCase):
         assert await self._user_version() == _MIGRATION_VERSION
 
     async def test_sweep_skipped_when_marker_set(self):
-        from EvoScientist.sessions import (
+        from jw.sessions import (
             _MIGRATION_VERSION,
             _run_migration_sweep,
             _set_user_version,
@@ -1548,7 +1548,7 @@ class TestMigrationSweep(unittest.IsolatedAsyncioTestCase):
         assert await self._row_count("tb", "") == 5
 
     async def test_needs_migration_below_threshold(self):
-        from EvoScientist.sessions import _needs_migration
+        from jw.sessions import _needs_migration
 
         # Empty DB (file doesn't exist yet) → False
         assert not await _needs_migration()
@@ -1558,7 +1558,7 @@ class TestMigrationSweep(unittest.IsolatedAsyncioTestCase):
 
     async def test_needs_migration_above_threshold(self):
         """Use monkeypatch on the threshold constant so tests stay fast."""
-        from EvoScientist import sessions as sessions_module
+        from jw import sessions as sessions_module
 
         await self._seed([("td", "", 3)])
         with patch.object(sessions_module, "_MIGRATION_THRESHOLD_BYTES", 1):
@@ -1566,7 +1566,7 @@ class TestMigrationSweep(unittest.IsolatedAsyncioTestCase):
             assert await sessions_module._needs_migration()
 
     async def test_keep_zero_short_circuits_sweep(self):
-        from EvoScientist.sessions import _run_migration_sweep
+        from jw.sessions import _run_migration_sweep
 
         await self._seed([("te", "", 4)])
         pairs = await _run_migration_sweep(keep=0)
@@ -1580,7 +1580,7 @@ class TestMigrationSweep(unittest.IsolatedAsyncioTestCase):
         ``DELETE FROM writes`` and would abort on the first iteration
         with ``no such table: writes``, leaving the bloat in place.
         """
-        from EvoScientist.sessions import _run_migration_sweep
+        from jw.sessions import _run_migration_sweep
 
         # Seed creates both tables; drop ``writes`` to simulate legacy.
         await self._seed([("tw", "", 5)])
@@ -1604,8 +1604,8 @@ class TestMigrationSweep(unittest.IsolatedAsyncioTestCase):
         DELETEs. After the first call sets ``user_version=1``, subsequent
         calls must skip the sweep entirely.
         """
-        from EvoScientist import sessions as sessions_module
-        from EvoScientist.sessions import (
+        from jw import sessions as sessions_module
+        from jw.sessions import (
             _MIGRATION_VERSION,
             get_checkpointer,
         )
@@ -1653,7 +1653,7 @@ class TestMigrationSweep(unittest.IsolatedAsyncioTestCase):
         """
         from langgraph.checkpoint.serde.types import _DeltaSnapshot
 
-        from EvoScientist.sessions import _run_migration_sweep
+        from jw.sessions import _run_migration_sweep
 
         tid = "tsweep_delta"
 
@@ -1748,7 +1748,7 @@ class TestDbStats(unittest.IsolatedAsyncioTestCase):
         self._tmpdir = tempfile.mkdtemp()
         self._db_path = os.path.join(self._tmpdir, "stats.db")
         self._patcher = patch(
-            "EvoScientist.sessions.get_db_path",
+            "jw.sessions.get_db_path",
             return_value=_mock_path(self._db_path),
         )
         self._patcher.start()
@@ -1800,7 +1800,7 @@ class TestDbStats(unittest.IsolatedAsyncioTestCase):
                 )
                 evo = json.dumps({"agent_name": AGENT_NAME, "step": 0})
                 other = json.dumps({"agent_name": "OtherAgent", "step": 0})
-                # 2 EvoScientist threads, 5 + 3 = 8 checkpoints
+                # 2 JW threads, 5 + 3 = 8 checkpoints
                 for i in range(5):
                     await conn.execute(
                         "INSERT INTO checkpoints (thread_id, checkpoint_ns, checkpoint_id, metadata) "
@@ -1813,13 +1813,13 @@ class TestDbStats(unittest.IsolatedAsyncioTestCase):
                         "VALUES (?, '', ?, ?)",
                         ("evo02", f"ce02_{i}", evo),
                     )
-                # 1 OtherAgent thread (excluded from EvoSci counts)
+                # 1 OtherAgent thread (excluded from jw counts)
                 await conn.execute(
                     "INSERT INTO checkpoints (thread_id, checkpoint_ns, checkpoint_id, metadata) "
                     "VALUES (?, '', ?, ?)",
                     ("oth01", "co01_0", other),
                 )
-                # 4 writes linked to an EvoScientist checkpoint
+                # 4 writes linked to an JW checkpoint
                 # (counted by db_stats via the JOIN to checkpoints).
                 for i in range(4):
                     await conn.execute(
@@ -1841,14 +1841,14 @@ class TestDbStats(unittest.IsolatedAsyncioTestCase):
         await _go()
 
     async def test_stats_returns_evo_only_counts(self):
-        """All counts (incl. ``write_count``) must scope to EvoScientist rows.
+        """All counts (incl. ``write_count``) must scope to JW rows.
 
         Regression for the previous bare ``COUNT(*) FROM writes`` which
         over-reported when other LangGraph apps share the DB. The seed
-        fixture inserts 4 EvoSci writes and 2 OtherAgent writes; only the
+        fixture inserts 4 jw writes and 2 OtherAgent writes; only the
         4 should count.
         """
-        from EvoScientist.sessions import db_stats
+        from jw.sessions import db_stats
 
         await self._seed()
         stats = await db_stats()
@@ -1859,7 +1859,7 @@ class TestDbStats(unittest.IsolatedAsyncioTestCase):
         assert stats["db_path"].endswith("stats.db")
 
     async def test_stats_top_threads_ordered_desc(self):
-        from EvoScientist.sessions import db_stats
+        from jw.sessions import db_stats
 
         await self._seed()
         stats = await db_stats(top_n=5)
@@ -1871,7 +1871,7 @@ class TestDbStats(unittest.IsolatedAsyncioTestCase):
 
     async def test_stats_missing_db(self):
         """No DB on disk → returns zeroed stats, never raises."""
-        from EvoScientist.sessions import db_stats
+        from jw.sessions import db_stats
 
         # Don't seed — file doesn't exist.
         stats = await db_stats()
@@ -1920,7 +1920,7 @@ def _import_upstream_reducer():
 
     A ``pytest.fail`` (not ``skip``) is deliberate: this test is the
     tripwire that fires when the upstream private symbol is renamed or
-    relocated. A silent skip would let semantic drift between EvoSci's
+    relocated. A silent skip would let semantic drift between jw's
     inline copy (``sessions.py``) and upstream go unnoticed.
     """
     try:
@@ -1930,7 +1930,7 @@ def _import_upstream_reducer():
     except ImportError as exc:  # pragma: no cover - tripwire path
         pytest.fail(
             "deepagents._messages_reducer._messages_delta_reducer could not "
-            f"be imported ({exc}). The upstream private reducer that EvoSci's "
+            f"be imported ({exc}). The upstream private reducer that jw's "
             "inline copy in sessions.py (_reduce_messages_delta) mirrors has "
             "moved or been renamed. Re-locate the upstream symbol and "
             "re-evaluate the inline copy for semantic drift before adjusting "
@@ -1943,9 +1943,9 @@ class TestReduceMessagesDeltaUpstreamParity:
     """Behavioral parity vs deepagents' private ``_messages_delta_reducer``.
 
     Drift detector: if upstream changes the reducer's semantics (dedup,
-    tombstone, reset, coercion) the EvoSci inline copy must be updated to
+    tombstone, reset, coercion) the jw inline copy must be updated to
     match. These cases pass equivalent batched writes to both functions
-    and assert identical output. (EvoSci's signature is ``writes: list[Any]``
+    and assert identical output. (jw's signature is ``writes: list[Any]``
     and upstream's is ``list[list[AnyMessage]]``, but both flatten lists
     vs single items the same way, so batched-list writes are equivalent.)
     """
@@ -2010,7 +2010,7 @@ class TestCreateCheckpointerForLanggraphApi(unittest.IsolatedAsyncioTestCase):
     SQLite checkpointer factory that replaces the default ``InMemorySaver``."""
 
     def test_direct_api_launch_publishes_workspace_sidecar(self):
-        from EvoScientist.sessions import _publish_api_workspace_sidecar
+        from jw.sessions import _publish_api_workspace_sidecar
 
         with tempfile.TemporaryDirectory() as td:
             workspace = Path(td) / "workspace"
@@ -2018,14 +2018,14 @@ class TestCreateCheckpointerForLanggraphApi(unittest.IsolatedAsyncioTestCase):
             with (
                 patch.dict(
                     os.environ,
-                    {"EVOSCIENTIST_WORKSPACE_DIR": str(workspace)},
+                    {"JW_WORKSPACE_DIR": str(workspace)},
                 ),
                 patch(
-                    "EvoScientist.langgraph_dev.manager._read_workspace_sidecar",
+                    "jw.langgraph_dev.manager._read_workspace_sidecar",
                     return_value=None,
                 ),
                 patch(
-                    "EvoScientist.langgraph_dev.manager._write_workspace_sidecar"
+                    "jw.langgraph_dev.manager._write_workspace_sidecar"
                 ) as write_sidecar,
             ):
                 _publish_api_workspace_sidecar()
@@ -2033,20 +2033,20 @@ class TestCreateCheckpointerForLanggraphApi(unittest.IsolatedAsyncioTestCase):
             write_sidecar.assert_called_once_with(workspace.resolve(), os.getpid())
 
     def test_direct_api_launch_does_not_replace_live_langgraph_owner(self):
-        from EvoScientist.sessions import _publish_api_workspace_sidecar
+        from jw.sessions import _publish_api_workspace_sidecar
 
         with (
             patch.dict(
                 os.environ,
-                {"EVOSCIENTIST_WORKSPACE_DIR": "/tmp/test-workspace"},
+                {"JW_WORKSPACE_DIR": "/tmp/test-workspace"},
             ),
             patch(
-                "EvoScientist.langgraph_dev.manager._read_workspace_sidecar",
+                "jw.langgraph_dev.manager._read_workspace_sidecar",
                 return_value={"workspace": "/real/workspace", "pid": 4242},
             ),
             patch("psutil.Process") as process,
             patch(
-                "EvoScientist.langgraph_dev.manager._write_workspace_sidecar"
+                "jw.langgraph_dev.manager._write_workspace_sidecar"
             ) as write_sidecar,
         ):
             process.return_value.cmdline.return_value = ["python", "langgraph", "dev"]
@@ -2055,20 +2055,20 @@ class TestCreateCheckpointerForLanggraphApi(unittest.IsolatedAsyncioTestCase):
         write_sidecar.assert_not_called()
 
     def test_direct_api_launch_replaces_non_langgraph_owner(self):
-        from EvoScientist.sessions import _publish_api_workspace_sidecar
+        from jw.sessions import _publish_api_workspace_sidecar
 
         with (
             patch.dict(
                 os.environ,
-                {"EVOSCIENTIST_WORKSPACE_DIR": "/tmp/test-workspace"},
+                {"JW_WORKSPACE_DIR": "/tmp/test-workspace"},
             ),
             patch(
-                "EvoScientist.langgraph_dev.manager._read_workspace_sidecar",
+                "jw.langgraph_dev.manager._read_workspace_sidecar",
                 return_value={"workspace": "/temporary/test", "pid": 4242},
             ),
             patch("psutil.Process") as process,
             patch(
-                "EvoScientist.langgraph_dev.manager._write_workspace_sidecar"
+                "jw.langgraph_dev.manager._write_workspace_sidecar"
             ) as write_sidecar,
         ):
             process.return_value.cmdline.return_value = ["python", "pytest"]
@@ -2080,7 +2080,7 @@ class TestCreateCheckpointerForLanggraphApi(unittest.IsolatedAsyncioTestCase):
 
     async def test_yields_pruning_checkpointer(self):
         """Factory yields a ``PruningCheckpointer`` instance."""
-        from EvoScientist.sessions import (
+        from jw.sessions import (
             PruningCheckpointer,
             create_checkpointer_for_langgraph_api,
         )
@@ -2088,7 +2088,7 @@ class TestCreateCheckpointerForLanggraphApi(unittest.IsolatedAsyncioTestCase):
         with tempfile.TemporaryDirectory() as td:
             db = os.path.join(td, "sessions.db")
             with patch(
-                "EvoScientist.sessions.get_db_path",
+                "jw.sessions.get_db_path",
                 return_value=_mock_path(db),
             ):
 
@@ -2102,12 +2102,12 @@ class TestCreateCheckpointerForLanggraphApi(unittest.IsolatedAsyncioTestCase):
         """Factory calls ``setup()`` so tables exist before yielding."""
         import aiosqlite
 
-        from EvoScientist.sessions import create_checkpointer_for_langgraph_api
+        from jw.sessions import create_checkpointer_for_langgraph_api
 
         with tempfile.TemporaryDirectory() as td:
             db = os.path.join(td, "sessions.db")
             with patch(
-                "EvoScientist.sessions.get_db_path",
+                "jw.sessions.get_db_path",
                 return_value=_mock_path(db),
             ):
 
@@ -2131,7 +2131,7 @@ class TestCreateCheckpointerForLanggraphApi(unittest.IsolatedAsyncioTestCase):
         survives process restarts (simulated as two separate ``async with``
         blocks sharing the same DB file).
         """
-        from EvoScientist.sessions import create_checkpointer_for_langgraph_api
+        from jw.sessions import create_checkpointer_for_langgraph_api
 
         thread_id = "testthread1"
 
@@ -2141,7 +2141,7 @@ class TestCreateCheckpointerForLanggraphApi(unittest.IsolatedAsyncioTestCase):
 
                 def _patch():
                     return patch(
-                        "EvoScientist.sessions.get_db_path",
+                        "jw.sessions.get_db_path",
                         return_value=_mock_path(db),
                     )
 
@@ -2168,7 +2168,7 @@ class TestCreateCheckpointerForLanggraphApi(unittest.IsolatedAsyncioTestCase):
                             "step": 0,
                             "writes": {},
                             "parents": {},
-                            "agent_name": "EvoScientist",
+                            "agent_name": "JW",
                         }
                         await cp.aput(config, checkpoint, metadata, {})
 
@@ -2201,7 +2201,7 @@ class TestCreateCheckpointerForLanggraphApi(unittest.IsolatedAsyncioTestCase):
         """
         from langgraph.checkpoint.base import BaseCheckpointSaver
 
-        from EvoScientist.sessions import _ApiPruningCheckpointer
+        from jw.sessions import _ApiPruningCheckpointer
 
         def overridden(name: str) -> bool:
             base = getattr(BaseCheckpointSaver, name, None)
@@ -2221,7 +2221,7 @@ class TestCreateCheckpointerForLanggraphApi(unittest.IsolatedAsyncioTestCase):
             assert overridden(method), f"'{method}' must be a real implementation"
 
     async def test_api_checkpointer_run_cleanup_copy_and_prune(self):
-        from EvoScientist.sessions import _ApiPruningCheckpointer
+        from jw.sessions import _ApiPruningCheckpointer
 
         with tempfile.TemporaryDirectory() as td:
             db = os.path.join(td, "sessions.db")
@@ -2302,7 +2302,7 @@ class TestCreateCheckpointerForLanggraphApi(unittest.IsolatedAsyncioTestCase):
 
         import aiosqlite
 
-        from EvoScientist.sessions import (
+        from jw.sessions import (
             AGENT_NAME,
             create_checkpointer_for_langgraph_api,
         )
@@ -2341,7 +2341,7 @@ class TestCreateCheckpointerForLanggraphApi(unittest.IsolatedAsyncioTestCase):
                         }
                     },
                     _checkpoint("ckpt-worker"),
-                    {"source": "loop", "step": 1, "graph_id": "evomemory-turn-worker"},
+                    {"source": "loop", "step": 1, "graph_id": "jwmemory-turn-worker"},
                     {},
                 )
             async with aiosqlite.connect(db) as conn:
@@ -2364,15 +2364,15 @@ class TestCreateCheckpointerForLanggraphApi(unittest.IsolatedAsyncioTestCase):
             db = os.path.join(td, "sessions.db")
             with (
                 patch(
-                    "EvoScientist.sessions.get_db_path",
+                    "jw.sessions.get_db_path",
                     return_value=_mock_path(db),
                 ),
                 patch.dict(
                     os.environ,
-                    {"EVOSCIENTIST_WORKSPACE_DIR": "/tmp/test-workspace"},
+                    {"JW_WORKSPACE_DIR": "/tmp/test-workspace"},
                 ),
                 patch(
-                    "EvoScientist.sessions._api_workspace_dir",
+                    "jw.sessions._api_workspace_dir",
                     return_value="/tmp/test-workspace",
                 ),
             ):
@@ -2394,10 +2394,10 @@ class TestRestoreWebuiThreadsToGlobalStore(unittest.IsolatedAsyncioTestCase):
         db_path: str,
         thread_ids: list[str],
         assistant_id: str | None = "aaaa-bbbb",
-        graph_id: str | None = "EvoScientist",
+        graph_id: str | None = "JW",
         workspace_dir: str | None = _WS,
         model: str | None = "test-model",
-        agent_name: str | None = "EvoScientist",
+        agent_name: str | None = "JW",
         ckpt_prefix: str = "ckpt",
     ) -> None:
         """Insert minimal checkpoint rows for the given thread_ids into a fresh DB."""
@@ -2433,14 +2433,14 @@ class TestRestoreWebuiThreadsToGlobalStore(unittest.IsolatedAsyncioTestCase):
     def _patch_workspace(self):
         from unittest.mock import patch
 
-        return patch("EvoScientist.sessions._api_workspace_dir", return_value=self._WS)
+        return patch("jw.sessions._api_workspace_dir", return_value=self._WS)
 
     async def test_restores_uuid_threads_into_global_store(self):
         """UUID-format thread IDs from SQLite are injected into GlobalStore."""
         import sys
         from unittest.mock import MagicMock, patch
 
-        from EvoScientist.sessions import _restore_webui_threads_to_global_store
+        from jw.sessions import _restore_webui_threads_to_global_store
 
         uuid_id = "12345678-1234-1234-1234-123456789abc"
         asst_uuid_id = "a2b49500-c49b-5560-b664-d42ee8b66d3c"
@@ -2462,7 +2462,7 @@ class TestRestoreWebuiThreadsToGlobalStore(unittest.IsolatedAsyncioTestCase):
             )
             with (
                 patch(
-                    "EvoScientist.sessions.get_db_path",
+                    "jw.sessions.get_db_path",
                     return_value=_mock_path(db),
                 ),
                 patch.dict(
@@ -2493,7 +2493,7 @@ class TestRestoreWebuiThreadsToGlobalStore(unittest.IsolatedAsyncioTestCase):
         # exclude restored threads from assistant_id-filtered searches.
         assert added[0]["metadata"].get("assistant_id") == asst_uuid_id
         assert isinstance(added[0]["metadata"].get("assistant_id"), str)
-        assert added[0]["metadata"].get("graph_id") == "EvoScientist"
+        assert added[0]["metadata"].get("graph_id") == "JW"
         assert added[0]["metadata"].get("workspace_dir") == self._WS
         assert added[0]["metadata"].get("model") == "test-model"
         # created_at / updated_at must be datetime objects, not ISO strings.
@@ -2519,7 +2519,7 @@ class TestRestoreWebuiThreadsToGlobalStore(unittest.IsolatedAsyncioTestCase):
         import uuid as _uuid_mod
         from unittest.mock import MagicMock, patch
 
-        from EvoScientist.sessions import _restore_webui_threads_to_global_store
+        from jw.sessions import _restore_webui_threads_to_global_store
 
         uuid_id = "aaaabbbb-aaaa-bbbb-cccc-ddddeeeeffff"
         asst_uuid_id = "a2b49500-c49b-5560-b664-d42ee8b66d3c"
@@ -2540,7 +2540,7 @@ class TestRestoreWebuiThreadsToGlobalStore(unittest.IsolatedAsyncioTestCase):
             self._make_db_with_threads(db, [uuid_id], assistant_id=asst_uuid_id)
             with (
                 patch(
-                    "EvoScientist.sessions.get_db_path",
+                    "jw.sessions.get_db_path",
                     return_value=_mock_path(db),
                 ),
                 patch.dict(
@@ -2563,7 +2563,7 @@ class TestRestoreWebuiThreadsToGlobalStore(unittest.IsolatedAsyncioTestCase):
         # metadata must be backfilled — assistant_id as str (runtime convention).
         assert t["metadata"].get("assistant_id") == asst_uuid_id
         assert isinstance(t["metadata"].get("assistant_id"), str)
-        assert t["metadata"].get("graph_id") == "EvoScientist"
+        assert t["metadata"].get("graph_id") == "JW"
         assert t["metadata"].get("workspace_dir") == self._WS
         assert t["metadata"].get("model") == "test-model"
 
@@ -2581,7 +2581,7 @@ class TestRestoreWebuiThreadsToGlobalStore(unittest.IsolatedAsyncioTestCase):
         import uuid as _uuid_mod
         from unittest.mock import MagicMock, patch
 
-        from EvoScientist.sessions import _restore_webui_threads_to_global_store
+        from jw.sessions import _restore_webui_threads_to_global_store
 
         mine = "11111111-1111-1111-1111-111111111111"
         other_ws = "22222222-2222-2222-2222-222222222222"
@@ -2602,12 +2602,12 @@ class TestRestoreWebuiThreadsToGlobalStore(unittest.IsolatedAsyncioTestCase):
             db = os.path.join(td, "sessions.db")
             self._make_db_with_threads(db, [mine])
             self._make_db_with_threads(db, [other_ws], workspace_dir="/elsewhere")
-            self._make_db_with_threads(db, [worker], graph_id="evomemory-turn-worker")
+            self._make_db_with_threads(db, [worker], graph_id="jwmemory-turn-worker")
             self._make_db_with_threads(db, [subagent], graph_id="writing-agent")
             self._make_db_with_threads(db, [legacy_no_ws], workspace_dir=None)
             with (
                 patch(
-                    "EvoScientist.sessions.get_db_path",
+                    "jw.sessions.get_db_path",
                     return_value=_mock_path(db),
                 ),
                 patch.dict(
@@ -2624,7 +2624,7 @@ class TestRestoreWebuiThreadsToGlobalStore(unittest.IsolatedAsyncioTestCase):
             _uuid_mod.UUID(subagent),
         }
         assert restored[_uuid_mod.UUID(mine)]["metadata"].get("graph_id") == (
-            "EvoScientist"
+            "JW"
         )
         assert restored[_uuid_mod.UUID(mine)]["metadata"].get("workspace_dir") == (
             self._WS
@@ -2637,12 +2637,12 @@ class TestRestoreWebuiThreadsToGlobalStore(unittest.IsolatedAsyncioTestCase):
             self._WS
         )
 
-    async def test_purge_removes_only_evomemory_rows(self):
-        """Startup purge drops evomemory-* residue, leaves everything else."""
+    async def test_purge_removes_only_jwmemory_rows(self):
+        """Startup purge drops jwmemory-* residue, leaves everything else."""
         import sqlite3
         from unittest.mock import patch
 
-        from EvoScientist.sessions import _purge_internal_worker_threads
+        from jw.sessions import _purge_internal_worker_threads
 
         keep_main = "11111111-1111-1111-1111-111111111111"
         keep_cli = "abcd1234"
@@ -2653,11 +2653,11 @@ class TestRestoreWebuiThreadsToGlobalStore(unittest.IsolatedAsyncioTestCase):
             db = os.path.join(td, "sessions.db")
             self._make_db_with_threads(db, [keep_main, keep_cli])
             self._make_db_with_threads(
-                db, [drop_worker], graph_id="evomemory-turn-worker"
+                db, [drop_worker], graph_id="jwmemory-turn-worker"
             )
             self._make_db_with_threads(db, [keep_subagent], graph_id="writing-agent")
             with patch(
-                "EvoScientist.sessions.get_db_path",
+                "jw.sessions.get_db_path",
                 return_value=_mock_path(db),
             ):
                 await _purge_internal_worker_threads()
@@ -2675,7 +2675,7 @@ class TestRestoreWebuiThreadsToGlobalStore(unittest.IsolatedAsyncioTestCase):
     async def test_cli_session_filters_exclude_non_main_graph_rows(self):
         from unittest.mock import patch
 
-        from EvoScientist.sessions import (
+        from jw.sessions import (
             list_threads,
             resolve_thread_id_prefix,
             thread_exists,
@@ -2688,10 +2688,10 @@ class TestRestoreWebuiThreadsToGlobalStore(unittest.IsolatedAsyncioTestCase):
             db = os.path.join(td, "sessions.db")
             self._make_db_with_threads(db, [main_thread])
             self._make_db_with_threads(
-                db, [worker_thread], graph_id="evomemory-turn-worker"
+                db, [worker_thread], graph_id="jwmemory-turn-worker"
             )
             with patch(
-                "EvoScientist.sessions.get_db_path",
+                "jw.sessions.get_db_path",
                 return_value=_mock_path(db),
             ):
                 assert [row["thread_id"] for row in await list_threads()] == [
@@ -2704,12 +2704,12 @@ class TestRestoreWebuiThreadsToGlobalStore(unittest.IsolatedAsyncioTestCase):
     async def test_restores_cli_rows_and_excludes_worker_residue(self):
         """CLI rows (agent_name, no graph_id) are restored with graph_id
         backfilled; crashed-worker residue (agent_name AND graph_id=
-        evomemory-*) stays excluded — graph_id wins over agent_name."""
+        jwmemory-*) stays excluded — graph_id wins over agent_name."""
         import sys
         import uuid as _uuid_mod
         from unittest.mock import MagicMock, patch
 
-        from EvoScientist.sessions import _restore_webui_threads_to_global_store
+        from jw.sessions import _restore_webui_threads_to_global_store
 
         cli_thread = "11111111-1111-1111-1111-111111111111"
         worker_residue = "22222222-2222-2222-2222-222222222222"
@@ -2732,11 +2732,11 @@ class TestRestoreWebuiThreadsToGlobalStore(unittest.IsolatedAsyncioTestCase):
             )
             # Crashed memory-worker residue: stamps BOTH.
             self._make_db_with_threads(
-                db, [worker_residue], graph_id="evomemory-turn-worker"
+                db, [worker_residue], graph_id="jwmemory-turn-worker"
             )
             with (
                 patch(
-                    "EvoScientist.sessions.get_db_path",
+                    "jw.sessions.get_db_path",
                     return_value=_mock_path(db),
                 ),
                 patch.dict(
@@ -2750,7 +2750,7 @@ class TestRestoreWebuiThreadsToGlobalStore(unittest.IsolatedAsyncioTestCase):
         assert len(added) == 1
         assert added[0]["thread_id"] == _uuid_mod.UUID(cli_thread)
         # graph_id backfilled so Threads.State.get works on the CLI stub.
-        assert added[0]["metadata"].get("graph_id") == "EvoScientist"
+        assert added[0]["metadata"].get("graph_id") == "JW"
         assert added[0]["metadata"].get("workspace_dir") == self._WS
         assert added[0]["metadata"].get("model") == "test-model"
 
@@ -2762,7 +2762,7 @@ class TestRestoreWebuiThreadsToGlobalStore(unittest.IsolatedAsyncioTestCase):
         import uuid as _uuid_mod
         from unittest.mock import MagicMock, patch
 
-        from EvoScientist.sessions import _restore_webui_threads_to_global_store
+        from jw.sessions import _restore_webui_threads_to_global_store
 
         tid = "11111111-1111-1111-1111-111111111111"
         asst = "a2b49500-c49b-5560-b664-d42ee8b66d3c"
@@ -2788,7 +2788,7 @@ class TestRestoreWebuiThreadsToGlobalStore(unittest.IsolatedAsyncioTestCase):
             self._make_db_with_threads(db, [tid], assistant_id=asst, ckpt_prefix="b")
             with (
                 patch(
-                    "EvoScientist.sessions.get_db_path",
+                    "jw.sessions.get_db_path",
                     return_value=_mock_path(db),
                 ),
                 patch.dict(
@@ -2802,7 +2802,7 @@ class TestRestoreWebuiThreadsToGlobalStore(unittest.IsolatedAsyncioTestCase):
         assert len(added) == 1, f"expected 1 thread, got {added}"
         assert added[0]["thread_id"] == _uuid_mod.UUID(tid)
         assert added[0]["metadata"].get("assistant_id") == asst
-        assert added[0]["metadata"].get("graph_id") == "EvoScientist"
+        assert added[0]["metadata"].get("graph_id") == "JW"
         assert added[0]["metadata"].get("workspace_dir") == self._WS
         assert added[0]["metadata"].get("model") == "test-model"
 
@@ -2814,7 +2814,7 @@ class TestRestoreWebuiThreadsToGlobalStore(unittest.IsolatedAsyncioTestCase):
 
         from langchain_core.messages import HumanMessage
 
-        from EvoScientist.sessions import (
+        from jw.sessions import (
             AGENT_NAME,
             _restore_webui_threads_to_global_store,
             create_checkpointer_for_langgraph_api,
@@ -2855,14 +2855,14 @@ class TestRestoreWebuiThreadsToGlobalStore(unittest.IsolatedAsyncioTestCase):
             db = os.path.join(td, "sessions.db")
             with (
                 patch(
-                    "EvoScientist.sessions.get_db_path",
+                    "jw.sessions.get_db_path",
                     return_value=_mock_path(db),
                 ),
                 patch.dict(
                     sys.modules, {"langgraph_runtime_inmem.database": fake_module}
                 ),
                 patch(
-                    "EvoScientist.sessions._api_workspace_dir",
+                    "jw.sessions._api_workspace_dir",
                     return_value=self._WS,
                 ),
             ):
@@ -2884,7 +2884,7 @@ class TestRestoreWebuiThreadsToGlobalStore(unittest.IsolatedAsyncioTestCase):
         import uuid as _uuid_mod
         from unittest.mock import MagicMock, patch
 
-        from EvoScientist.sessions import _restore_webui_threads_to_global_store
+        from jw.sessions import _restore_webui_threads_to_global_store
 
         in_scope = "11111111-1111-1111-1111-111111111111"
         out_of_scope = "22222222-2222-2222-2222-222222222222"
@@ -2912,7 +2912,7 @@ class TestRestoreWebuiThreadsToGlobalStore(unittest.IsolatedAsyncioTestCase):
             self._make_db_with_threads(db, [out_of_scope], workspace_dir="/elsewhere")
             with (
                 patch(
-                    "EvoScientist.sessions.get_db_path",
+                    "jw.sessions.get_db_path",
                     return_value=_mock_path(db),
                 ),
                 patch.dict(
@@ -2936,7 +2936,7 @@ class TestRestoreWebuiThreadsToGlobalStore(unittest.IsolatedAsyncioTestCase):
         import sys
         from unittest.mock import patch
 
-        from EvoScientist.sessions import _restore_webui_threads_to_global_store
+        from jw.sessions import _restore_webui_threads_to_global_store
 
         with patch.dict(sys.modules, {"langgraph_runtime_inmem.database": None}):
             # Must not raise.
@@ -2947,7 +2947,7 @@ class TestRestoreWebuiThreadsToGlobalStore(unittest.IsolatedAsyncioTestCase):
         import sys
         from unittest.mock import MagicMock, patch
 
-        from EvoScientist.sessions import _restore_webui_threads_to_global_store
+        from jw.sessions import _restore_webui_threads_to_global_store
 
         mock_store: dict = {"threads": []}
         mock_global_store = MagicMock()
@@ -2965,7 +2965,7 @@ class TestRestoreWebuiThreadsToGlobalStore(unittest.IsolatedAsyncioTestCase):
             sqlite3.connect(db).close()
             with (
                 patch(
-                    "EvoScientist.sessions.get_db_path",
+                    "jw.sessions.get_db_path",
                     return_value=_mock_path(db),
                 ),
                 patch.dict(
@@ -2981,7 +2981,7 @@ class TestRestoreWebuiThreadsToGlobalStore(unittest.IsolatedAsyncioTestCase):
         """create_checkpointer_for_langgraph_api calls _restore_webui_threads_to_global_store."""
         from unittest.mock import patch
 
-        from EvoScientist.sessions import create_checkpointer_for_langgraph_api
+        from jw.sessions import create_checkpointer_for_langgraph_api
 
         restore_called = []
 
@@ -2992,11 +2992,11 @@ class TestRestoreWebuiThreadsToGlobalStore(unittest.IsolatedAsyncioTestCase):
             db = os.path.join(td, "sessions.db")
             with (
                 patch(
-                    "EvoScientist.sessions.get_db_path",
+                    "jw.sessions.get_db_path",
                     return_value=_mock_path(db),
                 ),
                 patch(
-                    "EvoScientist.sessions._restore_webui_threads_to_global_store",
+                    "jw.sessions._restore_webui_threads_to_global_store",
                     side_effect=fake_restore,
                 ),
             ):

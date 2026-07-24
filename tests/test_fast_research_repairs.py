@@ -6,15 +6,15 @@ from pathlib import Path
 
 import pytest
 
-from EvoScientist.middleware import closed_loop_orchestration as guard_module
-from EvoScientist.middleware.closed_loop_orchestration import (
+from jw.middleware import closed_loop_orchestration as guard_module
+from jw.middleware.closed_loop_orchestration import (
     ClosedLoopOrchestrationGuardMiddleware,
 )
-from EvoScientist.middleware.virtual_path_code_guard import (
+from jw.middleware.virtual_path_code_guard import (
     VirtualPathCodeGuardMiddleware,
 )
-from EvoScientist.middleware.task_cancellation import TaskCancellationMiddleware
-from EvoScientist.tools.automatic_experiment import _request_from_model_object
+from jw.middleware.task_cancellation import TaskCancellationMiddleware
+from jw.tools.automatic_experiment import _request_from_model_object
 
 from automatic_experiment import service
 from automatic_experiment.contracts import RESPONSE_VERSION, default_request
@@ -127,7 +127,7 @@ def test_cancelled_task_blocks_new_subagent_tool_calls(
     marker.parent.mkdir(parents=True)
     marker.write_text("{}", encoding="utf-8")
     monkeypatch.setattr(
-        "EvoScientist.middleware.task_cancellation.workspace_root_from_config",
+        "jw.middleware.task_cancellation.workspace_root_from_config",
         lambda _config: tmp_path,
     )
     request = _Request(

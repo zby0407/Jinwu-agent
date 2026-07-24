@@ -9,7 +9,7 @@ scroll position against empty content — ``scroll_y`` ends up negative
 (observed: ``-7``) and the welcome banner is pushed below the visible
 viewport.
 
-The fix in :meth:`EvoTextualInteractiveApp.clear_chat` resets the viewport to
+The fix in :meth:`JWTextualInteractiveApp.clear_chat` resets the viewport to
 the top after the wipe.  These tests boot the real TUI class via Textual's
 pilot so they exercise the actual production code path.
 """
@@ -28,8 +28,8 @@ pytest.importorskip("textual")
 # ---------------------------------------------------------------------------
 # Module access
 #
-# ``EvoTextualInteractiveApp`` is defined inside ``run_textual_interactive``,
-# so it is not reachable as ``tui_interactive.EvoTextualInteractiveApp``.  We
+# ``JWTextualInteractiveApp`` is defined inside ``run_textual_interactive``,
+# so it is not reachable as ``tui_interactive.JWTextualInteractiveApp``.  We
 # grab it by invoking the factory once with a patched ``App.run_async`` that
 # captures the freshly-built instance.  The factory must be invoked from a
 # fresh top-level event loop (it pulls in nest_asyncio and the global loop),
@@ -38,10 +38,10 @@ pytest.importorskip("textual")
 
 
 def _capture_app(monkeypatch) -> object:
-    """Build an ``EvoTextualInteractiveApp`` without entering its main loop."""
+    """Build an ``JWTextualInteractiveApp`` without entering its main loop."""
     from textual.app import App
 
-    from EvoScientist.cli import tui_interactive as tui_mod
+    from jw.cli import tui_interactive as tui_mod
 
     captured: dict = {}
 
@@ -57,7 +57,7 @@ def _capture_app(monkeypatch) -> object:
         yield None
 
     monkeypatch.setattr(
-        "EvoScientist.cli.tui_interactive.get_checkpointer",
+        "jw.cli.tui_interactive.get_checkpointer",
         _fake_checkpointer,
         raising=False,
     )
@@ -67,19 +67,19 @@ def _capture_app(monkeypatch) -> object:
             pass
 
     monkeypatch.setattr(
-        "EvoScientist.cli.history_suggester.HistorySuggester", _FakeSuggester
+        "jw.cli.history_suggester.HistorySuggester", _FakeSuggester
     )
 
     monkeypatch.setattr(
-        "EvoScientist.cli.tui_interactive._auto_start_channel",
+        "jw.cli.tui_interactive._auto_start_channel",
         lambda *_a, **_k: None,
         raising=False,
     )
 
-    monkeypatch.setattr("EvoScientist.cli.tui_interactive.mode", "dev", raising=False)
+    monkeypatch.setattr("jw.cli.tui_interactive.mode", "dev", raising=False)
     # Note: ``create_session_workspace`` and ``load_agent`` are passed
     # as parameters to ``run_textual_interactive`` (the factory), so the
-    # closure inside ``EvoTextualInteractiveApp`` uses the fakes directly
+    # closure inside ``JWTextualInteractiveApp`` uses the fakes directly
     # and the module-level ``create_session_workspace`` / ``load_agent``
     # symbols never get a chance to run.
 
@@ -106,7 +106,7 @@ def _capture_app(monkeypatch) -> object:
     app = captured.get("app")
     if app is None:
         raise RuntimeError(
-            "EvoTextualInteractiveApp was not captured — _no_run was never "
+            "JWTextualInteractiveApp was not captured — _no_run was never "
             "called, meaning the factory crashed before constructing the app."
         )
     return app
@@ -256,8 +256,8 @@ async def test_clear_chat_then_full_user_turn_keeps_banner_at_top(monkeypatch):
         # ``container.scroll_end(animate=False)`` (line 1305 in the
         # real code).  In a tall viewport this still lands at scroll_y
         # == 0 because content fits.
-        from EvoScientist.cli.widgets.assistant_message import AssistantMessage
-        from EvoScientist.cli.widgets.user_message import UserMessage
+        from jw.cli.widgets.assistant_message import AssistantMessage
+        from jw.cli.widgets.user_message import UserMessage
 
         await chat.mount(UserMessage("hello"))
         chat.scroll_end(animate=False)
@@ -298,8 +298,8 @@ async def test_short_turn_keeps_banner_at_top_after_layout_refresh(monkeypatch):
     from textual.containers import VerticalScroll
     from textual.widgets import Static
 
-    from EvoScientist.cli.widgets.assistant_message import AssistantMessage
-    from EvoScientist.cli.widgets.user_message import UserMessage
+    from jw.cli.widgets.assistant_message import AssistantMessage
+    from jw.cli.widgets.user_message import UserMessage
 
     app = _capture_app(monkeypatch)
     # Tall terminal: welcome + a short exchange fits with room to spare,

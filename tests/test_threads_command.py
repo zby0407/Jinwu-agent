@@ -8,7 +8,7 @@ from tests.fakes import FakeGraphGateway, FakeThreadStore
 
 
 def _ctx(**overrides):
-    from EvoScientist.commands.base import CommandContext
+    from jw.commands.base import CommandContext
 
     ui = MagicMock()
     ui.supports_interactive = overrides.pop("supports_interactive", True)
@@ -24,7 +24,7 @@ def _ctx(**overrides):
 
 class TestThreadsCommand:
     async def test_empty_list_prints_message(self):
-        from EvoScientist.commands.implementation.session import ThreadsCommand
+        from jw.commands.implementation.session import ThreadsCommand
 
         ctx, ui = _ctx()
         await ThreadsCommand().execute(ctx, [])
@@ -32,7 +32,7 @@ class TestThreadsCommand:
         assert "No saved sessions" in ui.append_system.call_args.args[0]
 
     async def test_renders_table_with_current_marker(self):
-        from EvoScientist.commands.implementation.session import ThreadsCommand
+        from jw.commands.implementation.session import ThreadsCommand
 
         ctx, ui = _ctx(thread_id="current")
         threads = [
@@ -65,7 +65,7 @@ class TestThreadsCommand:
 
     async def test_footer_hint_suppressed_in_channel_mode(self):
         """Channels don't get the footer — keeps outbound text short."""
-        from EvoScientist.commands.implementation.session import ThreadsCommand
+        from jw.commands.implementation.session import ThreadsCommand
 
         ctx, ui = _ctx(supports_interactive=False)
         threads = [
@@ -84,7 +84,7 @@ class TestThreadsCommand:
 
     async def test_channel_mode_drops_model_column(self):
         """Non-interactive (channel) UIs get a narrower table."""
-        from EvoScientist.commands.implementation.session import ThreadsCommand
+        from jw.commands.implementation.session import ThreadsCommand
 
         ctx, ui = _ctx(supports_interactive=False)
         threads = [

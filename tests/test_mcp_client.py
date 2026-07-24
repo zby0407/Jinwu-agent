@@ -1,4 +1,4 @@
-"""Tests for EvoScientist.mcp module."""
+"""Tests for JW.mcp module."""
 
 import textwrap
 from pathlib import Path
@@ -7,7 +7,7 @@ from types import SimpleNamespace
 import pytest
 import yaml
 
-from EvoScientist.mcp.client import (
+from jw.mcp.client import (
     _build_connections,
     _filter_tools,
     _interpolate_env,
@@ -52,7 +52,7 @@ class TestInterpolateEnv:
 def mcp_config_file(monkeypatch, tmp_path):
     """Point USER_MCP_CONFIG to a temp file for isolated testing."""
     cfg = tmp_path / "mcp.yaml"
-    monkeypatch.setattr("EvoScientist.mcp.client.USER_MCP_CONFIG", cfg)
+    monkeypatch.setattr("jw.mcp.client.USER_MCP_CONFIG", cfg)
     return cfg
 
 
@@ -130,7 +130,7 @@ class TestResolveCommand:
 
         monkeypatch.setattr("shutil.which", lambda _: None)
         monkeypatch.setattr(
-            "EvoScientist.mcp.client.sys.executable", str(bin_dir / "python")
+            "jw.mcp.client.sys.executable", str(bin_dir / "python")
         )
 
         assert _resolve_command("my-mcp-tool") == str(fake_exe)
@@ -139,14 +139,14 @@ class TestResolveCommand:
         """Returns the original command when not found anywhere (let OS report the error)."""
         monkeypatch.setattr("shutil.which", lambda _: None)
         monkeypatch.setattr(
-            "EvoScientist.mcp.client.sys.executable", "/nonexistent/bin/python"
+            "jw.mcp.client.sys.executable", "/nonexistent/bin/python"
         )
         assert _resolve_command("unknown-tool-xyz") == "unknown-tool-xyz"
 
     def test_build_connections_resolves_command(self, monkeypatch):
         """_build_connections uses _resolve_command so the full path appears in output."""
         monkeypatch.setattr(
-            "EvoScientist.mcp.client._resolve_command", lambda cmd: f"/resolved/{cmd}"
+            "jw.mcp.client._resolve_command", lambda cmd: f"/resolved/{cmd}"
         )
         config = {"srv": {"transport": "stdio", "command": "mytool", "args": []}}
         conns = _build_connections(config)
@@ -526,8 +526,8 @@ def user_mcp_dir(tmp_path, monkeypatch):
     cfg_dir = tmp_path / "config"
     cfg_dir.mkdir()
     cfg_file = cfg_dir / "mcp.yaml"
-    monkeypatch.setattr("EvoScientist.mcp.client.USER_CONFIG_DIR", cfg_dir)
-    monkeypatch.setattr("EvoScientist.mcp.client.USER_MCP_CONFIG", cfg_file)
+    monkeypatch.setattr("jw.mcp.client.USER_CONFIG_DIR", cfg_dir)
+    monkeypatch.setattr("jw.mcp.client.USER_MCP_CONFIG", cfg_file)
     return cfg_file
 
 
@@ -796,51 +796,51 @@ class TestUvToolCompat:
     # -- _is_uv_tool_env --
 
     def test_is_uv_tool_env_false_when_no_virtual_env(self, monkeypatch):
-        from EvoScientist.mcp.registry import _is_uv_tool_env
+        from jw.mcp.registry import _is_uv_tool_env
 
         monkeypatch.delenv("VIRTUAL_ENV", raising=False)
         assert _is_uv_tool_env() is False
 
     def test_is_uv_tool_env_false_for_regular_venv(self, monkeypatch):
-        from EvoScientist.mcp.registry import _is_uv_tool_env
+        from jw.mcp.registry import _is_uv_tool_env
 
         monkeypatch.setenv("VIRTUAL_ENV", "/home/user/projects/myapp/.venv")
         assert _is_uv_tool_env() is False
 
     def test_is_uv_tool_env_true_unix(self, monkeypatch):
-        from EvoScientist.mcp.registry import _is_uv_tool_env
+        from jw.mcp.registry import _is_uv_tool_env
 
         monkeypatch.setenv(
-            "VIRTUAL_ENV", "/home/user/.local/share/uv/tools/evoscientist"
+            "VIRTUAL_ENV", "/home/user/.local/share/uv/tools/jw"
         )
         assert _is_uv_tool_env() is True
 
     def test_is_uv_tool_env_true_windows_backslashes(self, monkeypatch):
-        from EvoScientist.mcp.registry import _is_uv_tool_env
+        from jw.mcp.registry import _is_uv_tool_env
 
         monkeypatch.setenv(
-            "VIRTUAL_ENV", r"C:\Users\user\AppData\Local\uv\tools\evoscientist"
+            "VIRTUAL_ENV", r"C:\Users\user\AppData\Local\uv\tools\jw"
         )
         assert _is_uv_tool_env() is True
 
     # -- _uv_tool_name --
 
     def test_uv_tool_name_returns_name(self, monkeypatch):
-        import EvoScientist.mcp.registry as reg
+        import jw.mcp.registry as reg
 
         monkeypatch.setenv(
-            "VIRTUAL_ENV", "/home/user/.local/share/uv/tools/evoscientist"
+            "VIRTUAL_ENV", "/home/user/.local/share/uv/tools/jw"
         )
-        assert reg._uv_tool_name() == "evoscientist"
+        assert reg._uv_tool_name() == "jw"
 
     def test_uv_tool_name_returns_none_when_not_uv(self, monkeypatch):
-        import EvoScientist.mcp.registry as reg
+        import jw.mcp.registry as reg
 
         monkeypatch.setenv("VIRTUAL_ENV", "/home/user/projects/myapp/.venv")
         assert reg._uv_tool_name() is None
 
     def test_uv_tool_name_returns_none_when_no_virtual_env(self, monkeypatch):
-        import EvoScientist.mcp.registry as reg
+        import jw.mcp.registry as reg
 
         monkeypatch.delenv("VIRTUAL_ENV", raising=False)
         assert reg._uv_tool_name() is None
@@ -848,14 +848,14 @@ class TestUvToolCompat:
     # -- _uv_tool_existing_requirements --
 
     def test_existing_requirements_from_receipt(self, monkeypatch, tmp_path):
-        import EvoScientist.mcp.registry as reg
+        import jw.mcp.registry as reg
 
-        venv = tmp_path / "uv" / "tools" / "evoscientist"
+        venv = tmp_path / "uv" / "tools" / "jw"
         venv.mkdir(parents=True)
         receipt = venv / "uv-receipt.toml"
         receipt.write_text(
             "[tool]\nrequirements = [\n"
-            '  { name = "evoscientist" },\n'
+            '  { name = "jw" },\n'
             '  { name = "arxiv-mcp-server" },\n'
             '  { name = "rich" },\n'
             "]\n"
@@ -867,14 +867,14 @@ class TestUvToolCompat:
     def test_existing_requirements_preserves_specifiers_and_extras(
         self, monkeypatch, tmp_path
     ):
-        import EvoScientist.mcp.registry as reg
+        import jw.mcp.registry as reg
 
-        venv = tmp_path / "uv" / "tools" / "evoscientist"
+        venv = tmp_path / "uv" / "tools" / "jw"
         venv.mkdir(parents=True)
         receipt = venv / "uv-receipt.toml"
         receipt.write_text(
             "[tool]\nrequirements = [\n"
-            '  { name = "evoscientist" },\n'
+            '  { name = "jw" },\n'
             '  { name = "rich", specifier = ">=13.0" },\n'
             '  { name = "requests", extras = ["socks"] },\n'
             '  { name = "lark-oapi", specifier = ">=1.4.0", extras = ["oauth"] },\n'
@@ -889,21 +889,21 @@ class TestUvToolCompat:
         }
 
     def test_existing_requirements_excludes_tool_name(self, monkeypatch, tmp_path):
-        import EvoScientist.mcp.registry as reg
+        import jw.mcp.registry as reg
 
-        venv = tmp_path / "uv" / "tools" / "evoscientist"
+        venv = tmp_path / "uv" / "tools" / "jw"
         venv.mkdir(parents=True)
         receipt = venv / "uv-receipt.toml"
         receipt.write_text(
-            '[tool]\nrequirements = [\n  { name = "evoscientist" },\n]\n'
+            '[tool]\nrequirements = [\n  { name = "jw" },\n]\n'
         )
         monkeypatch.setenv("VIRTUAL_ENV", str(venv))
         assert reg._uv_tool_existing_requirements() == {}
 
     def test_existing_requirements_no_receipt(self, monkeypatch, tmp_path):
-        import EvoScientist.mcp.registry as reg
+        import jw.mcp.registry as reg
 
-        venv = tmp_path / "uv" / "tools" / "evoscientist"
+        venv = tmp_path / "uv" / "tools" / "jw"
         venv.mkdir(parents=True)
         monkeypatch.setenv("VIRTUAL_ENV", str(venv))
         assert reg._uv_tool_existing_requirements() == {}
@@ -911,14 +911,14 @@ class TestUvToolCompat:
     # -- pip_install_hint --
 
     def test_pip_install_hint_uv_tool(self, monkeypatch):
-        import EvoScientist.mcp.registry as reg
+        import jw.mcp.registry as reg
 
         monkeypatch.setattr(reg, "_is_uv_tool_env", lambda: True)
         hint = reg.pip_install_hint()
-        assert "uv tool install --reinstall evoscientist --with" in hint
+        assert "uv tool install --reinstall jw --with" in hint
 
     def test_pip_install_hint_uv_no_tool(self, monkeypatch):
-        import EvoScientist.mcp.registry as reg
+        import jw.mcp.registry as reg
 
         monkeypatch.setattr(reg, "_is_uv_tool_env", lambda: False)
         monkeypatch.setattr(
@@ -927,7 +927,7 @@ class TestUvToolCompat:
         assert reg.pip_install_hint() == "uv pip install"
 
     def test_pip_install_hint_plain_pip(self, monkeypatch):
-        import EvoScientist.mcp.registry as reg
+        import jw.mcp.registry as reg
 
         monkeypatch.setattr(reg, "_is_uv_tool_env", lambda: False)
         monkeypatch.setattr(reg.shutil, "which", lambda x: None)
@@ -939,15 +939,15 @@ class TestUvToolCompat:
         self, monkeypatch, tmp_path
     ):
         """In a uv tool env, should use ``uv tool install --with`` for durability."""
-        import EvoScientist.mcp.registry as reg
+        import jw.mcp.registry as reg
 
         # Set up a fake uv tool env with receipt
-        venv = tmp_path / "uv" / "tools" / "evoscientist"
+        venv = tmp_path / "uv" / "tools" / "jw"
         venv.mkdir(parents=True)
         receipt = venv / "uv-receipt.toml"
         receipt.write_text(
             "[tool]\nrequirements = [\n"
-            '  { name = "evoscientist" },\n'
+            '  { name = "jw" },\n'
             '  { name = "existing-pkg" },\n'
             "]\n"
         )
@@ -968,7 +968,7 @@ class TestUvToolCompat:
         assert len(captured) == 1
         cmd = captured[0]
         assert cmd[:3] == ["uv", "tool", "install"]
-        assert "evoscientist" in cmd
+        assert "jw" in cmd
         # Must preserve existing --with requirement
         assert "--with" in cmd
         with_args = [cmd[i + 1] for i, v in enumerate(cmd) if v == "--with"]
@@ -977,14 +977,14 @@ class TestUvToolCompat:
 
     def test_install_library_uv_tool_env_no_duplicate_with(self, monkeypatch, tmp_path):
         """If the package is already in the receipt, don't add it twice."""
-        import EvoScientist.mcp.registry as reg
+        import jw.mcp.registry as reg
 
-        venv = tmp_path / "uv" / "tools" / "evoscientist"
+        venv = tmp_path / "uv" / "tools" / "jw"
         venv.mkdir(parents=True)
         receipt = venv / "uv-receipt.toml"
         receipt.write_text(
             "[tool]\nrequirements = [\n"
-            '  { name = "evoscientist" },\n'
+            '  { name = "jw" },\n'
             '  { name = "arxiv-mcp-server" },\n'
             "]\n"
         )
@@ -1007,14 +1007,14 @@ class TestUvToolCompat:
 
     def test_install_library_uv_tool_preserves_specifiers(self, monkeypatch, tmp_path):
         """Existing --with specs with extras/versions must be preserved."""
-        import EvoScientist.mcp.registry as reg
+        import jw.mcp.registry as reg
 
-        venv = tmp_path / "uv" / "tools" / "evoscientist"
+        venv = tmp_path / "uv" / "tools" / "jw"
         venv.mkdir(parents=True)
         receipt = venv / "uv-receipt.toml"
         receipt.write_text(
             "[tool]\nrequirements = [\n"
-            '  { name = "evoscientist" },\n'
+            '  { name = "jw" },\n'
             '  { name = "rich", specifier = ">=13.0" },\n'
             '  { name = "requests", extras = ["socks"] },\n'
             "]\n"
@@ -1042,14 +1042,14 @@ class TestUvToolCompat:
         self, monkeypatch, tmp_path
     ):
         """Dedup must match bare name even if package arg has version spec."""
-        import EvoScientist.mcp.registry as reg
+        import jw.mcp.registry as reg
 
-        venv = tmp_path / "uv" / "tools" / "evoscientist"
+        venv = tmp_path / "uv" / "tools" / "jw"
         venv.mkdir(parents=True)
         receipt = venv / "uv-receipt.toml"
         receipt.write_text(
             "[tool]\nrequirements = [\n"
-            '  { name = "evoscientist" },\n'
+            '  { name = "jw" },\n'
             '  { name = "rich", specifier = ">=13.0" },\n'
             "]\n"
         )
@@ -1076,13 +1076,13 @@ class TestUvToolCompat:
     def test_install_library_uv_tool_falls_back_on_failure(self, monkeypatch, tmp_path):
         """install_library: if ``uv tool install --with`` fails, fall back
         to ``uv pip install`` — standalone uv tool install is NEVER tried."""
-        import EvoScientist.mcp.registry as reg
+        import jw.mcp.registry as reg
 
-        venv = tmp_path / "uv" / "tools" / "evoscientist"
+        venv = tmp_path / "uv" / "tools" / "jw"
         venv.mkdir(parents=True)
         receipt = venv / "uv-receipt.toml"
         receipt.write_text(
-            '[tool]\nrequirements = [\n  { name = "evoscientist" },\n]\n'
+            '[tool]\nrequirements = [\n  { name = "jw" },\n]\n'
         )
         monkeypatch.setenv("VIRTUAL_ENV", str(venv))
 
@@ -1111,13 +1111,13 @@ class TestUvToolCompat:
     ):
         """install_cli_tool: uv-tool env, --with fails → standalone uv tool
         install is tried, then pip fallback."""
-        import EvoScientist.mcp.registry as reg
+        import jw.mcp.registry as reg
 
-        venv = tmp_path / "uv" / "tools" / "evoscientist"
+        venv = tmp_path / "uv" / "tools" / "jw"
         venv.mkdir(parents=True)
         receipt = venv / "uv-receipt.toml"
         receipt.write_text(
-            '[tool]\nrequirements = [\n  { name = "evoscientist" },\n]\n'
+            '[tool]\nrequirements = [\n  { name = "jw" },\n]\n'
         )
         monkeypatch.setenv("VIRTUAL_ENV", str(venv))
 
@@ -1147,7 +1147,7 @@ class TestUvToolCompat:
         <pkg>`` entirely — standalone uv tools aren't importable."""
         import sys
 
-        import EvoScientist.mcp.registry as reg
+        import jw.mcp.registry as reg
 
         captured: list[list[str]] = []
 
@@ -1171,7 +1171,7 @@ class TestUvToolCompat:
     ):
         """install_cli_tool outside a uv-tool env: standalone ``uv tool
         install <pkg>`` is preferred so the binary survives uv sync."""
-        import EvoScientist.mcp.registry as reg
+        import jw.mcp.registry as reg
 
         captured: list[list[str]] = []
 
@@ -1203,7 +1203,7 @@ class TestUvToolCompat:
         through to ``uv pip install``."""
         import sys
 
-        import EvoScientist.mcp.registry as reg
+        import jw.mcp.registry as reg
 
         captured: list[list[str]] = []
 
@@ -1230,7 +1230,7 @@ class TestUvToolCompat:
         """install_cli_tool: ``uv tool install`` success + binary present in
         uv-tool bin dir ⇒ no pip fallback, even if a stale copy exists in
         the venv on PATH."""
-        import EvoScientist.mcp.registry as reg
+        import jw.mcp.registry as reg
 
         captured: list[list[str]] = []
 
@@ -1267,7 +1267,7 @@ class TestUvToolCompat:
     def test_install_library_falls_back_to_pip_when_no_uv(self, monkeypatch):
         import sys
 
-        import EvoScientist.mcp.registry as reg
+        import jw.mcp.registry as reg
 
         captured: list[list[str]] = []
 
@@ -1288,14 +1288,14 @@ class TestUvToolCompat:
     # -- _resolve_command_path --
 
     def test_resolve_command_path_absolute_passthrough(self):
-        from EvoScientist.mcp.registry import _resolve_command_path
+        from jw.mcp.registry import _resolve_command_path
 
         assert _resolve_command_path("/usr/bin/my-tool") == "/usr/bin/my-tool"
 
     def test_resolve_command_path_found_in_bin_dir(self, monkeypatch, tmp_path):
         import sys
 
-        import EvoScientist.mcp.registry as reg
+        import jw.mcp.registry as reg
 
         # Create a fake executable in a temp bin dir
         bin_dir = tmp_path / "bin"
@@ -1318,7 +1318,7 @@ class TestUvToolCompat:
         import os
         import sys
 
-        import EvoScientist.mcp.registry as reg
+        import jw.mcp.registry as reg
 
         if os.name != "nt":
             pytest.skip("Windows-only behaviour")
@@ -1338,7 +1338,7 @@ class TestUvToolCompat:
     ):
         import sys
 
-        import EvoScientist.mcp.registry as reg
+        import jw.mcp.registry as reg
 
         monkeypatch.setattr(reg.shutil, "which", lambda x: None)
         monkeypatch.setattr(reg, "_uv_tool_bin", lambda cmd: None)
@@ -1352,7 +1352,7 @@ class TestUvToolCompat:
         """When both ``uv tool dir --bin`` and a venv's ``bin/`` contain the
         command, prefer the uv-tool location so the path written to mcp.yaml
         survives ``uv sync``."""
-        import EvoScientist.mcp.registry as reg
+        import jw.mcp.registry as reg
 
         uv_bin_dir = tmp_path / "uv-bin"
         uv_bin_dir.mkdir()
@@ -1400,7 +1400,7 @@ class TestLoadToolsProgressCallback:
         monkeypatch.setattr(lc_client, "MultiServerMCPClient", _FakeClient)
 
     async def test_success_emits_start_then_success_with_tool_count(self, monkeypatch):
-        from EvoScientist.mcp.client import _load_tools
+        from jw.mcp.client import _load_tools
 
         events: list[tuple[str, str, str]] = []
         self._patch_client(
@@ -1421,7 +1421,7 @@ class TestLoadToolsProgressCallback:
         ]
 
     async def test_failure_emits_start_then_error_with_detail(self, monkeypatch):
-        from EvoScientist.mcp.client import _load_tools
+        from jw.mcp.client import _load_tools
 
         events: list[tuple[str, str, str]] = []
         self._patch_client(monkeypatch, {"srv": RuntimeError("boom")})
@@ -1439,7 +1439,7 @@ class TestLoadToolsProgressCallback:
         ]
 
     async def test_mixed_fleet_reports_each_server_independently(self, monkeypatch):
-        from EvoScientist.mcp.client import _load_tools
+        from jw.mcp.client import _load_tools
 
         events: list[tuple[str, str, str]] = []
         self._patch_client(
@@ -1467,7 +1467,7 @@ class TestLoadToolsProgressCallback:
         assert by_server["bad_srv"] == [("start", ""), ("error", "refused")]
 
     async def test_callback_errors_do_not_break_the_load(self, monkeypatch):
-        from EvoScientist.mcp.client import _load_tools
+        from jw.mcp.client import _load_tools
 
         self._patch_client(monkeypatch, {"srv": ["tool1"]})
 
@@ -1483,7 +1483,7 @@ class TestLoadToolsProgressCallback:
         """Many configured servers must not all spawn at once."""
         import asyncio
 
-        from EvoScientist.mcp import client as mcp_client
+        from jw.mcp import client as mcp_client
 
         inflight = {"count": 0, "peak": 0}
 

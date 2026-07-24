@@ -1,4 +1,4 @@
-"""Tests for EvoScientist configuration management."""
+"""Tests for JW configuration management."""
 
 import os
 from pathlib import Path
@@ -6,8 +6,8 @@ from pathlib import Path
 import pytest
 import yaml
 
-from EvoScientist.config import (
-    EvoScientistConfig,
+from jw.config import (
+    JWConfig,
     MemoryControls,
     MemoryObservationTarget,
     MemoryObservationWriter,
@@ -32,7 +32,7 @@ from EvoScientist.config import (
 
 @pytest.fixture(autouse=True)
 def _restore_dangerous_env():
-    """Snapshot/restore EVOSCIENTIST_DANGEROUS_MODE around every test.
+    """Snapshot/restore JW_DANGEROUS_MODE around every test.
 
     apply_config_to_env writes this var via direct ``os.environ`` assignment, and
     monkeypatch's ``delenv`` of an originally-absent key records no undo — so
@@ -40,22 +40,22 @@ def _restore_dangerous_env():
     later tests (an order-dependent landmine, e.g. under pytest-randomly).
     """
     _sentinel = object()
-    _prev = os.environ.get("EVOSCIENTIST_DANGEROUS_MODE", _sentinel)
+    _prev = os.environ.get("JW_DANGEROUS_MODE", _sentinel)
     yield
     if _prev is _sentinel:
-        os.environ.pop("EVOSCIENTIST_DANGEROUS_MODE", None)
+        os.environ.pop("JW_DANGEROUS_MODE", None)
     else:
-        os.environ["EVOSCIENTIST_DANGEROUS_MODE"] = _prev
+        os.environ["JW_DANGEROUS_MODE"] = _prev
 
 
 @pytest.fixture
 def temp_config_dir(tmp_path, monkeypatch):
     """Use a temporary directory for config during tests."""
-    config_dir = tmp_path / "evoscientist"
+    config_dir = tmp_path / "jw"
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
     # Prevent load_dotenv from loading the project's real .env file
     monkeypatch.setattr(
-        "EvoScientist.config.settings.find_dotenv",
+        "jw.config.settings.find_dotenv",
         lambda *a, **k: str(tmp_path / ".env"),
     )
     # Also clear any API keys from environment
@@ -63,21 +63,21 @@ def temp_config_dir(tmp_path, monkeypatch):
         "ANTHROPIC_API_KEY",
         "OPENAI_API_KEY",
         "TAVILY_API_KEY",
-        "EVOSCIENTIST_DEFAULT_MODE",
-        "EVOSCIENTIST_WORKSPACE_DIR",
-        "EVOSCIENTIST_UI_BACKEND",
-        "EVOSCIENTIST_MEMORY_PROFILE_ENABLED",
-        "EVOSCIENTIST_MEMORY_OBSERVATIONS_ENABLED",
-        "EVOSCIENTIST_MEMORY_OBSERVATION_WRITER",
-        "EVOSCIENTIST_MEMORY_WORKERS_ENABLED",
-        "EVOSCIENTIST_MEMORY_SKILL_SYNTHESIS_ENABLED",
-        "EVOSCIENTIST_MEMORY_SKILL_SYNTHESIS_MODE",
-        "EVOSCIENTIST_MEMORY_SKILL_SYNTHESIS_CADENCE",
-        "EVOSCIENTIST_MEMORY_SKILL_SYNTHESIS_TIME",
-        "EVOSCIENTIST_AUXILIARY_MODEL",
-        "EVOSCIENTIST_AUXILIARY_PROVIDER",
-        "EVOSCIENTIST_OPENROUTER_ANTHROPIC_PROMPT_CACHE",
-        "EVOSCIENTIST_DANGEROUS_MODE",
+        "JW_DEFAULT_MODE",
+        "JW_WORKSPACE_DIR",
+        "JW_UI_BACKEND",
+        "JW_MEMORY_PROFILE_ENABLED",
+        "JW_MEMORY_OBSERVATIONS_ENABLED",
+        "JW_MEMORY_OBSERVATION_WRITER",
+        "JW_MEMORY_WORKERS_ENABLED",
+        "JW_MEMORY_SKILL_SYNTHESIS_ENABLED",
+        "JW_MEMORY_SKILL_SYNTHESIS_MODE",
+        "JW_MEMORY_SKILL_SYNTHESIS_CADENCE",
+        "JW_MEMORY_SKILL_SYNTHESIS_TIME",
+        "JW_AUXILIARY_MODEL",
+        "JW_AUXILIARY_PROVIDER",
+        "JW_OPENROUTER_ANTHROPIC_PROMPT_CACHE",
+        "JW_DANGEROUS_MODE",
     ]:
         monkeypatch.delenv(key, raising=False)
     return config_dir
@@ -90,34 +90,34 @@ def clean_env(monkeypatch):
         "ANTHROPIC_API_KEY",
         "OPENAI_API_KEY",
         "TAVILY_API_KEY",
-        "EVOSCIENTIST_DEFAULT_MODE",
-        "EVOSCIENTIST_WORKSPACE_DIR",
-        "EVOSCIENTIST_UI_BACKEND",
-        "EVOSCIENTIST_MEMORY_PROFILE_ENABLED",
-        "EVOSCIENTIST_MEMORY_OBSERVATIONS_ENABLED",
-        "EVOSCIENTIST_MEMORY_OBSERVATION_WRITER",
-        "EVOSCIENTIST_MEMORY_WORKERS_ENABLED",
-        "EVOSCIENTIST_MEMORY_SKILL_SYNTHESIS_ENABLED",
-        "EVOSCIENTIST_MEMORY_SKILL_SYNTHESIS_MODE",
-        "EVOSCIENTIST_MEMORY_SKILL_SYNTHESIS_CADENCE",
-        "EVOSCIENTIST_MEMORY_SKILL_SYNTHESIS_TIME",
-        "EVOSCIENTIST_AUXILIARY_MODEL",
-        "EVOSCIENTIST_AUXILIARY_PROVIDER",
-        "EVOSCIENTIST_OPENROUTER_ANTHROPIC_PROMPT_CACHE",
-        "EVOSCIENTIST_DANGEROUS_MODE",
+        "JW_DEFAULT_MODE",
+        "JW_WORKSPACE_DIR",
+        "JW_UI_BACKEND",
+        "JW_MEMORY_PROFILE_ENABLED",
+        "JW_MEMORY_OBSERVATIONS_ENABLED",
+        "JW_MEMORY_OBSERVATION_WRITER",
+        "JW_MEMORY_WORKERS_ENABLED",
+        "JW_MEMORY_SKILL_SYNTHESIS_ENABLED",
+        "JW_MEMORY_SKILL_SYNTHESIS_MODE",
+        "JW_MEMORY_SKILL_SYNTHESIS_CADENCE",
+        "JW_MEMORY_SKILL_SYNTHESIS_TIME",
+        "JW_AUXILIARY_MODEL",
+        "JW_AUXILIARY_PROVIDER",
+        "JW_OPENROUTER_ANTHROPIC_PROMPT_CACHE",
+        "JW_DANGEROUS_MODE",
     ]:
         monkeypatch.delenv(key, raising=False)
 
 
 # =============================================================================
-# Test EvoScientistConfig dataclass
+# Test JWConfig dataclass
 # =============================================================================
 
 
-class TestEvoScientistConfig:
+class TestJWConfig:
     def test_default_values(self):
         """Test that default values are set correctly."""
-        config = EvoScientistConfig()
+        config = JWConfig()
 
         assert config.anthropic_api_key == ""
         assert config.openai_api_key == ""
@@ -153,27 +153,27 @@ class TestEvoScientistConfig:
 
     def test_auth_mode_default(self):
         """Test that anthropic_auth_mode defaults to api_key."""
-        config = EvoScientistConfig()
+        config = JWConfig()
         assert config.anthropic_auth_mode == "api_key"
 
     def test_auth_mode_set(self):
         """Test that anthropic_auth_mode can be set."""
-        config = EvoScientistConfig(anthropic_auth_mode="oauth")
+        config = JWConfig(anthropic_auth_mode="oauth")
         assert config.anthropic_auth_mode == "oauth"
 
     def test_openai_auth_mode_default(self):
         """Test that openai_auth_mode defaults to api_key."""
-        config = EvoScientistConfig()
+        config = JWConfig()
         assert config.openai_auth_mode == "api_key"
 
     def test_openai_auth_mode_set(self):
         """Test that openai_auth_mode can be set."""
-        config = EvoScientistConfig(openai_auth_mode="oauth")
+        config = JWConfig(openai_auth_mode="oauth")
         assert config.openai_auth_mode == "oauth"
 
     def test_custom_values(self):
         """Test that custom values can be set."""
-        config = EvoScientistConfig(
+        config = JWConfig(
             anthropic_api_key="sk-ant-test",
             provider="openai",
             model="gpt-4o",
@@ -187,13 +187,13 @@ class TestEvoScientistConfig:
 
     def test_dangerous_mode_default(self):
         """dangerous_mode defaults off and does not force auto_approve."""
-        config = EvoScientistConfig()
+        config = JWConfig()
         assert config.dangerous_mode is False
         assert config.auto_approve is False
 
     def test_dangerous_mode_implies_auto_approve(self):
         """Enabling dangerous_mode forces auto_approve via __post_init__."""
-        config = EvoScientistConfig(dangerous_mode=True)
+        config = JWConfig(dangerous_mode=True)
         assert config.dangerous_mode is True
         assert config.auto_approve is True
 
@@ -208,13 +208,13 @@ class TestConfigPaths:
         """Test config dir uses XDG_CONFIG_HOME when set."""
         monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
         config_dir = get_config_dir()
-        assert config_dir == tmp_path / "evoscientist"
+        assert config_dir == tmp_path / "jw"
 
     def test_get_config_dir_default(self, monkeypatch):
-        """Test config dir defaults to ~/.config/evoscientist."""
+        """Test config dir defaults to ~/.config/jw."""
         monkeypatch.delenv("XDG_CONFIG_HOME", raising=False)
         config_dir = get_config_dir()
-        assert config_dir == Path.home() / ".config" / "evoscientist"
+        assert config_dir == Path.home() / ".config" / "jw"
 
     def test_get_config_path(self, temp_config_dir):
         """Test config file path."""
@@ -236,7 +236,7 @@ class TestLoadSaveReset:
 
     def test_save_creates_file(self, temp_config_dir, clean_env):
         """Test that save creates the config file."""
-        config = EvoScientistConfig(provider="openai", model="gpt-4o")
+        config = JWConfig(provider="openai", model="gpt-4o")
         save_config(config)
 
         config_path = get_config_path()
@@ -251,7 +251,7 @@ class TestLoadSaveReset:
         """Config file permissions should not depend on the process umask."""
         original_umask = os.umask(0)
         try:
-            save_config(EvoScientistConfig(anthropic_api_key="test-key"))
+            save_config(JWConfig(anthropic_api_key="test-key"))
         finally:
             os.umask(original_umask)
 
@@ -266,7 +266,7 @@ class TestLoadSaveReset:
 
     def test_load_reads_saved_config(self, temp_config_dir, clean_env):
         """Test that load reads previously saved config."""
-        original = EvoScientistConfig(
+        original = JWConfig(
             anthropic_api_key="test-key",
             provider="openai",
         )
@@ -293,7 +293,7 @@ class TestLoadSaveReset:
 
     def test_save_writes_utf8_config(self, temp_config_dir, clean_env):
         """Config saving writes localized content with UTF-8 encoding."""
-        save_config(EvoScientistConfig(default_workdir="/tmp/résumé"))
+        save_config(JWConfig(default_workdir="/tmp/résumé"))
 
         config_path = get_config_path()
         raw = config_path.read_text(encoding="utf-8")
@@ -302,7 +302,7 @@ class TestLoadSaveReset:
 
     def test_reset_deletes_config_file(self, temp_config_dir, clean_env):
         """Test that reset deletes the config file."""
-        config = EvoScientistConfig(provider="openai")
+        config = JWConfig(provider="openai")
         save_config(config)
 
         config_path = get_config_path()
@@ -343,7 +343,7 @@ class TestLoadSaveReset:
 class TestGetSetValues:
     def test_get_config_value(self, temp_config_dir, clean_env):
         """Test getting a single config value."""
-        config = EvoScientistConfig(model="gpt-4o-mini")
+        config = JWConfig(model="gpt-4o-mini")
         save_config(config)
 
         assert get_config_value("model") == "gpt-4o-mini"
@@ -354,7 +354,7 @@ class TestGetSetValues:
 
     def test_set_config_value(self, temp_config_dir, clean_env):
         """Test setting a single config value."""
-        save_config(EvoScientistConfig())
+        save_config(JWConfig())
 
         result = set_config_value("model", "gpt-4o")
         assert result is True
@@ -369,7 +369,7 @@ class TestGetSetValues:
 
     def test_set_config_value_type_coercion_bool(self, temp_config_dir, clean_env):
         """Test that boolean values are coerced correctly."""
-        save_config(EvoScientistConfig())
+        save_config(JWConfig())
 
         set_config_value("show_thinking", "false")
         assert get_config_value("show_thinking") is False
@@ -382,7 +382,7 @@ class TestGetSetValues:
 
     def test_set_imessage_enabled_coercion(self, temp_config_dir, clean_env):
         """Test that imessage_enabled is coerced from string to bool."""
-        save_config(EvoScientistConfig())
+        save_config(JWConfig())
 
         set_config_value("imessage_enabled", "true")
         assert get_config_value("imessage_enabled") is True
@@ -392,14 +392,14 @@ class TestGetSetValues:
 
     def test_set_imessage_allowed_senders(self, temp_config_dir, clean_env):
         """Test that imessage_allowed_senders stores comma-separated string."""
-        save_config(EvoScientistConfig())
+        save_config(JWConfig())
 
         set_config_value("imessage_allowed_senders", "+1234567890,+0987654321")
         assert get_config_value("imessage_allowed_senders") == "+1234567890,+0987654321"
 
     def test_set_channel_debug_tracing_coercion(self, temp_config_dir, clean_env):
         """Test that channel_debug_tracing is coerced from string to bool."""
-        save_config(EvoScientistConfig())
+        save_config(JWConfig())
 
         set_config_value("channel_debug_tracing", "true")
         assert get_config_value("channel_debug_tracing") is True
@@ -412,7 +412,7 @@ class TestGetSetValues:
     ):
         """Observation writer mode accepts only the supported product controls."""
         save_config(
-            EvoScientistConfig(memory_observation_writer=MemoryObservationWriter.ALL)
+            JWConfig(memory_observation_writer=MemoryObservationWriter.ALL)
         )
 
         assert set_config_value("memory_observation_writer", "worker") is True
@@ -425,7 +425,7 @@ class TestGetSetValues:
     def test_memory_controls_observation_writer_targets(self):
         """MemoryControls centralizes observation writer target semantics."""
         worker_controls = MemoryControls.from_config(
-            EvoScientistConfig(
+            JWConfig(
                 memory_profile_enabled=False,
                 memory_observations_enabled=True,
                 memory_observation_writer=MemoryObservationWriter.WORKER,
@@ -433,7 +433,7 @@ class TestGetSetValues:
             )
         )
         all_controls = MemoryControls.from_config(
-            EvoScientistConfig(
+            JWConfig(
                 memory_profile_enabled=False,
                 memory_observations_enabled=True,
                 memory_observation_writer=MemoryObservationWriter.ALL,
@@ -463,7 +463,7 @@ class TestGetSetValues:
     def test_set_memory_skill_synthesis_values_validate(
         self, temp_config_dir, clean_env
     ):
-        save_config(EvoScientistConfig())
+        save_config(JWConfig())
 
         assert set_config_value("memory_skill_synthesis_mode", "auto") is True
         assert get_config_value("memory_skill_synthesis_mode") == "auto"
@@ -488,7 +488,7 @@ class TestGetSetValues:
 
     def test_list_config(self, temp_config_dir, clean_env):
         """Test listing all config values."""
-        config = EvoScientistConfig(provider="openai", model="gpt-4o")
+        config = JWConfig(provider="openai", model="gpt-4o")
         save_config(config)
 
         all_config = list_config()
@@ -510,9 +510,9 @@ class TestPriorityChain:
             "ANTHROPIC_API_KEY",
             "OPENAI_API_KEY",
             "TAVILY_API_KEY",
-            "EVOSCIENTIST_DEFAULT_MODE",
-            "EVOSCIENTIST_WORKSPACE_DIR",
-            "EVOSCIENTIST_UI_BACKEND",
+            "JW_DEFAULT_MODE",
+            "JW_WORKSPACE_DIR",
+            "JW_UI_BACKEND",
         ]:
             monkeypatch.delenv(key, raising=False)
         config = get_effective_config()
@@ -521,75 +521,75 @@ class TestPriorityChain:
 
     def test_file_overrides_defaults(self, temp_config_dir, clean_env):
         """Test file config overrides defaults."""
-        save_config(EvoScientistConfig(provider="openai"))
+        save_config(JWConfig(provider="openai"))
 
         config = get_effective_config()
         assert config.provider == "openai"
 
     def test_env_overrides_file(self, temp_config_dir, monkeypatch):
         """Test environment variables override file config."""
-        save_config(EvoScientistConfig(default_mode="run"))
-        monkeypatch.setenv("EVOSCIENTIST_DEFAULT_MODE", "daemon")
+        save_config(JWConfig(default_mode="run"))
+        monkeypatch.setenv("JW_DEFAULT_MODE", "daemon")
 
         config = get_effective_config()
         assert config.default_mode == "daemon"
 
     def test_cli_overrides_env(self, temp_config_dir, monkeypatch):
         """Test CLI arguments override environment variables."""
-        monkeypatch.setenv("EVOSCIENTIST_DEFAULT_MODE", "daemon")
+        monkeypatch.setenv("JW_DEFAULT_MODE", "daemon")
 
         config = get_effective_config(cli_overrides={"default_mode": "run"})
         assert config.default_mode == "run"
 
     def test_cli_overrides_file(self, temp_config_dir, clean_env):
         """Test CLI arguments override file config."""
-        save_config(EvoScientistConfig(model="gpt-4o"))
+        save_config(JWConfig(model="gpt-4o"))
 
         config = get_effective_config(cli_overrides={"model": "claude-opus-4-8"})
         assert config.model == "claude-opus-4-8"
 
     def test_env_ui_backend_override(self, temp_config_dir, monkeypatch):
         """UI backend can be selected via environment variable."""
-        save_config(EvoScientistConfig(ui_backend="cli"))
-        monkeypatch.setenv("EVOSCIENTIST_UI_BACKEND", "tui")
+        save_config(JWConfig(ui_backend="cli"))
+        monkeypatch.setenv("JW_UI_BACKEND", "tui")
         config = get_effective_config()
         assert config.ui_backend == "tui"
 
     def test_env_log_level_override(self, temp_config_dir, monkeypatch):
         """Log level can be selected via environment variable."""
-        save_config(EvoScientistConfig(log_level="warning"))
-        monkeypatch.setenv("EVOSCIENTIST_LOG_LEVEL", "DEBUG")
+        save_config(JWConfig(log_level="warning"))
+        monkeypatch.setenv("JW_LOG_LEVEL", "DEBUG")
         config = get_effective_config()
         assert config.log_level == "DEBUG"
 
     def test_env_reasoning_effort_override(self, temp_config_dir, monkeypatch):
         """Reasoning effort can be selected via environment variable."""
-        save_config(EvoScientistConfig(reasoning_effort="medium"))
-        monkeypatch.setenv("EVOSCIENTIST_REASONING_EFFORT", "high")
+        save_config(JWConfig(reasoning_effort="medium"))
+        monkeypatch.setenv("JW_REASONING_EFFORT", "high")
         config = get_effective_config()
         assert config.reasoning_effort == "high"
 
     def test_env_channel_debug_tracing_override(self, temp_config_dir, monkeypatch):
         """Channel tracing can be enabled via environment variable."""
-        save_config(EvoScientistConfig(channel_debug_tracing=False))
-        monkeypatch.setenv("EVOSCIENTIST_CHANNEL_DEBUG_TRACING", "true")
+        save_config(JWConfig(channel_debug_tracing=False))
+        monkeypatch.setenv("JW_CHANNEL_DEBUG_TRACING", "true")
         config = get_effective_config()
         assert config.channel_debug_tracing is True
 
     def test_env_memory_controls_override(self, temp_config_dir, monkeypatch):
         """Memory controls can be selected via environment variables."""
         save_config(
-            EvoScientistConfig(
+            JWConfig(
                 memory_profile_enabled=True,
                 memory_observations_enabled=True,
                 memory_observation_writer=MemoryObservationWriter.ALL,
                 memory_workers_enabled=True,
             )
         )
-        monkeypatch.setenv("EVOSCIENTIST_MEMORY_PROFILE_ENABLED", "false")
-        monkeypatch.setenv("EVOSCIENTIST_MEMORY_OBSERVATIONS_ENABLED", "false")
-        monkeypatch.setenv("EVOSCIENTIST_MEMORY_OBSERVATION_WRITER", "worker")
-        monkeypatch.setenv("EVOSCIENTIST_MEMORY_WORKERS_ENABLED", "false")
+        monkeypatch.setenv("JW_MEMORY_PROFILE_ENABLED", "false")
+        monkeypatch.setenv("JW_MEMORY_OBSERVATIONS_ENABLED", "false")
+        monkeypatch.setenv("JW_MEMORY_OBSERVATION_WRITER", "worker")
+        monkeypatch.setenv("JW_MEMORY_WORKERS_ENABLED", "false")
 
         config = get_effective_config()
         assert config.memory_profile_enabled is False
@@ -599,12 +599,12 @@ class TestPriorityChain:
 
     def test_sandbox_execute_timeout_default(self, temp_config_dir, clean_env):
         """Sandbox execute timeout defaults to 300 seconds."""
-        assert EvoScientistConfig().sandbox_execute_timeout == 300
+        assert JWConfig().sandbox_execute_timeout == 300
         assert get_effective_config().sandbox_execute_timeout == 300
 
     def test_env_sandbox_execute_timeout_override(self, temp_config_dir, monkeypatch):
         """Sandbox execute timeout can be set via env var and coerces to int."""
-        monkeypatch.setenv("EVOSCIENTIST_SANDBOX_EXECUTE_TIMEOUT", "600")
+        monkeypatch.setenv("JW_SANDBOX_EXECUTE_TIMEOUT", "600")
         config = get_effective_config()
         assert config.sandbox_execute_timeout == 600
         assert isinstance(config.sandbox_execute_timeout, int)
@@ -613,18 +613,18 @@ class TestPriorityChain:
         """Non-positive / non-int values fall back to the default (would
         otherwise crash CustomSandboxBackend construction at startup)."""
         assert (
-            EvoScientistConfig(sandbox_execute_timeout=0).sandbox_execute_timeout == 300
+            JWConfig(sandbox_execute_timeout=0).sandbox_execute_timeout == 300
         )
         assert (
-            EvoScientistConfig(sandbox_execute_timeout=-5).sandbox_execute_timeout
+            JWConfig(sandbox_execute_timeout=-5).sandbox_execute_timeout
             == 300
         )
         assert (
-            EvoScientistConfig(sandbox_execute_timeout="abc").sandbox_execute_timeout
+            JWConfig(sandbox_execute_timeout="abc").sandbox_execute_timeout
             == 300
         )
         assert (
-            EvoScientistConfig(sandbox_execute_timeout=True).sandbox_execute_timeout
+            JWConfig(sandbox_execute_timeout=True).sandbox_execute_timeout
             == 300
         )
 
@@ -632,7 +632,7 @@ class TestPriorityChain:
         self, temp_config_dir, clean_env
     ):
         """set_config_value must reject (not silently persist) a non-positive timeout."""
-        save_config(EvoScientistConfig(sandbox_execute_timeout=120))
+        save_config(JWConfig(sandbox_execute_timeout=120))
         assert set_config_value("sandbox_execute_timeout", 0) is False
         assert set_config_value("sandbox_execute_timeout", -5) is False
         # bool is an int subclass; reject it before coercion turns True into 1.
@@ -645,7 +645,7 @@ class TestPriorityChain:
 
     def test_env_api_key_override(self, temp_config_dir, monkeypatch):
         """Test API keys from env override file."""
-        save_config(EvoScientistConfig(anthropic_api_key="file-key"))
+        save_config(JWConfig(anthropic_api_key="file-key"))
         monkeypatch.setenv("ANTHROPIC_API_KEY", "env-key")
 
         config = get_effective_config()
@@ -653,16 +653,16 @@ class TestPriorityChain:
 
     def test_env_auth_mode_override(self, temp_config_dir, monkeypatch):
         """Test auth mode from env overrides file."""
-        save_config(EvoScientistConfig(anthropic_auth_mode="api_key"))
-        monkeypatch.setenv("EVOSCIENTIST_ANTHROPIC_AUTH_MODE", "oauth")
+        save_config(JWConfig(anthropic_auth_mode="api_key"))
+        monkeypatch.setenv("JW_ANTHROPIC_AUTH_MODE", "oauth")
 
         config = get_effective_config()
         assert config.anthropic_auth_mode == "oauth"
 
     def test_env_openai_auth_mode_override(self, temp_config_dir, monkeypatch):
         """Test openai_auth_mode from env overrides file."""
-        save_config(EvoScientistConfig(openai_auth_mode="api_key"))
-        monkeypatch.setenv("EVOSCIENTIST_OPENAI_AUTH_MODE", "oauth")
+        save_config(JWConfig(openai_auth_mode="api_key"))
+        monkeypatch.setenv("JW_OPENAI_AUTH_MODE", "oauth")
 
         config = get_effective_config()
         assert config.openai_auth_mode == "oauth"
@@ -671,15 +671,15 @@ class TestPriorityChain:
         self, temp_config_dir, monkeypatch
     ):
         """Test OpenRouter Anthropic prompt cache opt-out env overrides file."""
-        save_config(EvoScientistConfig(openrouter_anthropic_prompt_cache=True))
-        monkeypatch.setenv("EVOSCIENTIST_OPENROUTER_ANTHROPIC_PROMPT_CACHE", "false")
+        save_config(JWConfig(openrouter_anthropic_prompt_cache=True))
+        monkeypatch.setenv("JW_OPENROUTER_ANTHROPIC_PROMPT_CACHE", "false")
 
         config = get_effective_config()
         assert config.openrouter_anthropic_prompt_cache is False
 
     def test_set_openrouter_anthropic_prompt_cache(self, temp_config_dir, clean_env):
         """Test OpenRouter Anthropic prompt cache can be set through config."""
-        save_config(EvoScientistConfig())
+        save_config(JWConfig())
 
         assert set_config_value("openrouter_anthropic_prompt_cache", "false") is True
         assert get_config_value("openrouter_anthropic_prompt_cache") is False
@@ -693,7 +693,7 @@ class TestPriorityChain:
 class TestApplyConfigToEnv:
     def test_applies_api_keys_when_not_set(self, clean_env):
         """Test that API keys are applied to env when not already set."""
-        config = EvoScientistConfig(
+        config = JWConfig(
             anthropic_api_key="config-ant-key",
             openai_api_key="config-oai-key",
             tavily_api_key="config-tav-key",
@@ -709,31 +709,31 @@ class TestApplyConfigToEnv:
         """Test that existing env vars are not overridden."""
         monkeypatch.setenv("ANTHROPIC_API_KEY", "existing-key")
 
-        config = EvoScientistConfig(anthropic_api_key="config-key")
+        config = JWConfig(anthropic_api_key="config-key")
         apply_config_to_env(config)
 
         assert os.environ.get("ANTHROPIC_API_KEY") == "existing-key"
 
     def test_empty_config_keys_not_applied(self, clean_env):
         """Test that empty config keys don't create env vars."""
-        config = EvoScientistConfig()  # All empty
+        config = JWConfig()  # All empty
         apply_config_to_env(config)
 
         assert os.environ.get("ANTHROPIC_API_KEY") is None
         assert os.environ.get("OPENAI_API_KEY") is None
-        assert os.environ.get("EVOSCIENTIST_OPENROUTER_ANTHROPIC_PROMPT_CACHE") is None
+        assert os.environ.get("JW_OPENROUTER_ANTHROPIC_PROMPT_CACHE") is None
 
     def test_openrouter_anthropic_prompt_cache_opt_out_applied(
         self, clean_env, monkeypatch
     ):
         """Test OpenRouter Anthropic prompt cache opt-out config is applied to env."""
         monkeypatch.delenv(
-            "EVOSCIENTIST_OPENROUTER_ANTHROPIC_PROMPT_CACHE", raising=False
+            "JW_OPENROUTER_ANTHROPIC_PROMPT_CACHE", raising=False
         )
-        config = EvoScientistConfig(openrouter_anthropic_prompt_cache=False)
+        config = JWConfig(openrouter_anthropic_prompt_cache=False)
         apply_config_to_env(config)
 
-        assert os.environ.get("EVOSCIENTIST_OPENROUTER_ANTHROPIC_PROMPT_CACHE") == (
+        assert os.environ.get("JW_OPENROUTER_ANTHROPIC_PROMPT_CACHE") == (
             "false"
         )
 
@@ -745,22 +745,22 @@ class TestApplyConfigToEnv:
         langgraph dev subprocess) would read it back as False while the backend
         is already unconfined. apply_config_to_env round-trips it to env.
         """
-        from EvoScientist.config import get_effective_config
+        from jw.config import get_effective_config
 
-        monkeypatch.delenv("EVOSCIENTIST_DANGEROUS_MODE", raising=False)
+        monkeypatch.delenv("JW_DANGEROUS_MODE", raising=False)
         cfg = get_effective_config({"dangerous_mode": True})
         assert cfg.dangerous_mode is True
 
         apply_config_to_env(cfg)
-        assert os.environ.get("EVOSCIENTIST_DANGEROUS_MODE") == "true"
+        assert os.environ.get("JW_DANGEROUS_MODE") == "true"
         # The fresh, no-override read now agrees with the backend.
         assert get_effective_config().dangerous_mode is True
 
     def test_dangerous_mode_not_applied_when_off(self, clean_env, monkeypatch):
         """dangerous_mode=False must not write the env var."""
-        monkeypatch.delenv("EVOSCIENTIST_DANGEROUS_MODE", raising=False)
-        apply_config_to_env(EvoScientistConfig())
-        assert os.environ.get("EVOSCIENTIST_DANGEROUS_MODE") is None
+        monkeypatch.delenv("JW_DANGEROUS_MODE", raising=False)
+        apply_config_to_env(JWConfig())
+        assert os.environ.get("JW_DANGEROUS_MODE") is None
 
     def test_dangerous_mode_off_clears_stale_env(self, clean_env, monkeypatch):
         """Re-applying a non-dangerous config clears a previously-set env var.
@@ -769,16 +769,16 @@ class TestApplyConfigToEnv:
         was applied in a process it could never be lowered — leaking unconfined
         access into later non-dangerous reads.
         """
-        monkeypatch.delenv("EVOSCIENTIST_DANGEROUS_MODE", raising=False)
-        apply_config_to_env(EvoScientistConfig(dangerous_mode=True))
-        assert os.environ.get("EVOSCIENTIST_DANGEROUS_MODE") == "true"
-        apply_config_to_env(EvoScientistConfig())  # dangerous off
-        assert os.environ.get("EVOSCIENTIST_DANGEROUS_MODE") is None
+        monkeypatch.delenv("JW_DANGEROUS_MODE", raising=False)
+        apply_config_to_env(JWConfig(dangerous_mode=True))
+        assert os.environ.get("JW_DANGEROUS_MODE") == "true"
+        apply_config_to_env(JWConfig())  # dangerous off
+        assert os.environ.get("JW_DANGEROUS_MODE") is None
 
     def test_ollama_base_url_applied(self, clean_env, monkeypatch):
         """Test that ollama_base_url is applied to OLLAMA_BASE_URL env var."""
         monkeypatch.delenv("OLLAMA_BASE_URL", raising=False)
-        config = EvoScientistConfig(ollama_base_url="http://localhost:11434")
+        config = JWConfig(ollama_base_url="http://localhost:11434")
         apply_config_to_env(config)
 
         assert os.environ.get("OLLAMA_BASE_URL") == "http://localhost:11434"
@@ -786,7 +786,7 @@ class TestApplyConfigToEnv:
     def test_ollama_base_url_not_overridden(self, monkeypatch):
         """Test that existing OLLAMA_BASE_URL env var is not overridden."""
         monkeypatch.setenv("OLLAMA_BASE_URL", "http://existing:11434")
-        config = EvoScientistConfig(ollama_base_url="http://new:11434")
+        config = JWConfig(ollama_base_url="http://new:11434")
         apply_config_to_env(config)
 
         assert os.environ.get("OLLAMA_BASE_URL") == "http://existing:11434"
@@ -796,13 +796,13 @@ class TestAuxiliaryModelConfig:
     """auxiliary_model / auxiliary_provider config fields (plain str, optional)."""
 
     def test_defaults_empty(self):
-        cfg = EvoScientistConfig()
+        cfg = JWConfig()
         assert cfg.auxiliary_model == ""
         assert cfg.auxiliary_provider == ""
 
     def test_save_and_load_round_trip(self, temp_config_dir, clean_env):
         save_config(
-            EvoScientistConfig(
+            JWConfig(
                 auxiliary_model="claude-haiku-4-5",
                 auxiliary_provider="anthropic",
             )
@@ -812,16 +812,16 @@ class TestAuxiliaryModelConfig:
         assert loaded.auxiliary_provider == "anthropic"
 
     def test_get_set_value(self, temp_config_dir, clean_env):
-        save_config(EvoScientistConfig())
+        save_config(JWConfig())
         assert set_config_value("auxiliary_model", "qwen3.6-flash") is True
         assert set_config_value("auxiliary_provider", "dashscope") is True
         assert get_config_value("auxiliary_model") == "qwen3.6-flash"
         assert get_config_value("auxiliary_provider") == "dashscope"
 
     def test_env_overrides_file(self, temp_config_dir, monkeypatch):
-        save_config(EvoScientistConfig(auxiliary_model="claude-haiku-4-5"))
-        monkeypatch.setenv("EVOSCIENTIST_AUXILIARY_MODEL", "gpt-5.5")
-        monkeypatch.setenv("EVOSCIENTIST_AUXILIARY_PROVIDER", "openai")
+        save_config(JWConfig(auxiliary_model="claude-haiku-4-5"))
+        monkeypatch.setenv("JW_AUXILIARY_MODEL", "gpt-5.5")
+        monkeypatch.setenv("JW_AUXILIARY_PROVIDER", "openai")
 
         config = get_effective_config()
         assert config.auxiliary_model == "gpt-5.5"
@@ -829,9 +829,9 @@ class TestAuxiliaryModelConfig:
 
 
 def test_scheduler_config_defaults_and_env(monkeypatch):
-    from EvoScientist.config.settings import EvoScientistConfig, get_effective_config
+    from jw.config.settings import JWConfig, get_effective_config
 
-    c = EvoScientistConfig()
+    c = JWConfig()
     assert c.enable_scheduler is True
     assert c.scheduler_default_timezone == ""
     assert c.memory_skill_synthesis_enabled is True
@@ -839,15 +839,15 @@ def test_scheduler_config_defaults_and_env(monkeypatch):
     assert c.memory_skill_synthesis_cadence == MemorySkillSynthesisCadence.WEEKLY
     assert c.memory_skill_synthesis_time == "03:00"
 
-    monkeypatch.setenv("EVOSCIENTIST_ENABLE_SCHEDULER", "false")
+    monkeypatch.setenv("JW_ENABLE_SCHEDULER", "false")
     eff = get_effective_config({})
     assert eff.enable_scheduler is False
 
-    monkeypatch.setenv("EVOSCIENTIST_SCHEDULER_DEFAULT_TIMEZONE", "America/New_York")
-    monkeypatch.setenv("EVOSCIENTIST_MEMORY_SKILL_SYNTHESIS_ENABLED", "false")
-    monkeypatch.setenv("EVOSCIENTIST_MEMORY_SKILL_SYNTHESIS_MODE", "auto")
-    monkeypatch.setenv("EVOSCIENTIST_MEMORY_SKILL_SYNTHESIS_CADENCE", "monthly")
-    monkeypatch.setenv("EVOSCIENTIST_MEMORY_SKILL_SYNTHESIS_TIME", "4:30")
+    monkeypatch.setenv("JW_SCHEDULER_DEFAULT_TIMEZONE", "America/New_York")
+    monkeypatch.setenv("JW_MEMORY_SKILL_SYNTHESIS_ENABLED", "false")
+    monkeypatch.setenv("JW_MEMORY_SKILL_SYNTHESIS_MODE", "auto")
+    monkeypatch.setenv("JW_MEMORY_SKILL_SYNTHESIS_CADENCE", "monthly")
+    monkeypatch.setenv("JW_MEMORY_SKILL_SYNTHESIS_TIME", "4:30")
     eff2 = get_effective_config({})
     assert eff2.scheduler_default_timezone == "America/New_York"
     assert eff2.memory_skill_synthesis_enabled is False

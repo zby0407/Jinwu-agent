@@ -9,8 +9,8 @@ from types import SimpleNamespace
 
 from langchain_core.messages import HumanMessage
 
-from EvoScientist.middleware.task_workspace import TaskWorkspaceMiddleware
-from EvoScientist.workspaces import (
+from jw.middleware.task_workspace import TaskWorkspaceMiddleware
+from jw.workspaces import (
     binding_path,
     bootstrap_legacy_bindings,
     ensure_thread_workspace,
@@ -35,7 +35,7 @@ def test_new_threads_get_stable_distinct_run_workspaces(tmp_path, monkeypatch):
     registry = tmp_path / "registry"
     base = tmp_path / "workspace"
     base.mkdir()
-    monkeypatch.setenv("EVOSCIENTIST_WORKSPACE_BINDINGS_DIR", str(registry))
+    monkeypatch.setenv("JW_WORKSPACE_BINDINGS_DIR", str(registry))
 
     first = ensure_thread_workspace(
         "thread-one", base, project_id="solar cycles", first_request="Question one?"
@@ -59,7 +59,7 @@ def test_new_threads_get_stable_distinct_run_workspaces(tmp_path, monkeypatch):
 
 def test_binding_filename_cannot_be_controlled_by_thread_id(tmp_path, monkeypatch):
     registry = tmp_path / "registry"
-    monkeypatch.setenv("EVOSCIENTIST_WORKSPACE_BINDINGS_DIR", str(registry))
+    monkeypatch.setenv("JW_WORKSPACE_BINDINGS_DIR", str(registry))
     path = binding_path("../../outside/\nthread", tmp_path / "base")
     assert path.parent == registry
     assert path.suffix == ".json"
@@ -70,7 +70,7 @@ def test_same_thread_id_is_scoped_independently_per_base_workspace(
     tmp_path, monkeypatch
 ):
     monkeypatch.setenv(
-        "EVOSCIENTIST_WORKSPACE_BINDINGS_DIR", str(tmp_path / "registry")
+        "JW_WORKSPACE_BINDINGS_DIR", str(tmp_path / "registry")
     )
     first_base = tmp_path / "project-one"
     second_base = tmp_path / "project-two"
@@ -89,10 +89,10 @@ def test_same_thread_id_is_scoped_independently_per_base_workspace(
 def test_persisted_binding_can_be_preloaded_after_process_restart(
     tmp_path, monkeypatch
 ):
-    import EvoScientist.workspaces as workspace_module
+    import jw.workspaces as workspace_module
 
     monkeypatch.setenv(
-        "EVOSCIENTIST_WORKSPACE_BINDINGS_DIR", str(tmp_path / "registry")
+        "JW_WORKSPACE_BINDINGS_DIR", str(tmp_path / "registry")
     )
     base = tmp_path / "project"
     base.mkdir()
@@ -108,7 +108,7 @@ def test_runtime_scope_prefers_parent_workspace_thread(tmp_path, monkeypatch):
     base = tmp_path / "workspace"
     base.mkdir()
     monkeypatch.setenv(
-        "EVOSCIENTIST_WORKSPACE_BINDINGS_DIR", str(tmp_path / "registry")
+        "JW_WORKSPACE_BINDINGS_DIR", str(tmp_path / "registry")
     )
     config = {
         "configurable": {
@@ -159,12 +159,12 @@ def test_first_human_request_handles_checkpoint_type_dicts_and_tuples():
 def test_task_workspace_middleware_hydrates_precreated_blank_task(
     tmp_path, monkeypatch
 ):
-    import EvoScientist.middleware.task_workspace as task_workspace_module
+    import jw.middleware.task_workspace as task_workspace_module
 
     base = tmp_path / "workspace"
     base.mkdir()
     monkeypatch.setenv(
-        "EVOSCIENTIST_WORKSPACE_BINDINGS_DIR", str(tmp_path / "registry")
+        "JW_WORKSPACE_BINDINGS_DIR", str(tmp_path / "registry")
     )
     binding = ensure_thread_workspace("middleware-thread", base)
     runtime = SimpleNamespace(
@@ -191,7 +191,7 @@ def test_legacy_bootstrap_preserves_existing_threads_and_is_idempotent(
     base = tmp_path / "workspace"
     base.mkdir()
     registry = tmp_path / "registry"
-    monkeypatch.setenv("EVOSCIENTIST_WORKSPACE_BINDINGS_DIR", str(registry))
+    monkeypatch.setenv("JW_WORKSPACE_BINDINGS_DIR", str(registry))
     db = tmp_path / "sessions.db"
     with sqlite3.connect(db) as conn:
         conn.execute(
@@ -225,7 +225,7 @@ def test_legacy_bootstrap_preserves_existing_threads_and_is_idempotent(
 
 def test_corrupt_or_mismatched_binding_is_not_trusted(tmp_path, monkeypatch):
     registry = tmp_path / "registry"
-    monkeypatch.setenv("EVOSCIENTIST_WORKSPACE_BINDINGS_DIR", str(registry))
+    monkeypatch.setenv("JW_WORKSPACE_BINDINGS_DIR", str(registry))
     base = tmp_path / "base"
     base.mkdir()
     path = binding_path("expected", base)
@@ -237,8 +237,8 @@ def test_corrupt_or_mismatched_binding_is_not_trusted(tmp_path, monkeypatch):
 def test_async_child_run_config_inherits_parent_workspace_scope(monkeypatch):
     import langgraph.config
 
-    import EvoScientist.EvoScientist as agent_module
-    from EvoScientist.llm import patches
+    import jw.agent as agent_module
+    from jw.llm import patches
 
     monkeypatch.setattr(
         agent_module,

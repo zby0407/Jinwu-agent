@@ -5,7 +5,7 @@
 // show which background agents a conversation launched, their status, and — on
 // expand — their live steps (fetched from the task's own thread).
 //
-// Memory workers (evomemory-*-worker) are intentionally NOT shown here: they are
+// Memory workers (jwmemory-*-worker) are intentionally NOT shown here: they are
 // ~2s ephemeral background runs whose only meaningful output (profile edits /
 // observations) is already visible in the Memory panel.
 

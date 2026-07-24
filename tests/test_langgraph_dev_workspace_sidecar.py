@@ -7,7 +7,7 @@ mismatch we raise ``WorkspaceMismatchError`` so callers can surface a
 clear refuse-with-hint error rather than silently operating on the wrong
 project's files.
 
-Background: ``EvoSci deploy --workdir /A`` running + ``EvoSci`` (TUI) in
+Background: ``jw deploy --workdir /A`` running + ``jw`` (TUI) in
 /B previously took the "reuse externally-managed langgraph dev" branch
 in ``ensure_langgraph_dev`` and only logged a warning. The deployed
 sub-agents stayed pinned to /A while the TUI's main agent ran in /B,
@@ -21,7 +21,7 @@ import json
 
 import pytest
 
-from EvoScientist.langgraph_dev import manager
+from jw.langgraph_dev import manager
 
 
 def test_sidecar_path_is_next_to_pid_file():
@@ -136,7 +136,7 @@ def test_ensure_langgraph_dev_refuses_on_workspace_mismatch(
     monkeypatch.setattr(manager, "_PROCESS", None)
     monkeypatch.setattr(manager, "_PROCESS_WORKSPACE", None)
 
-    cfg = manager.EvoScientistConfig()
+    cfg = manager.JWConfig()
     cfg.enable_async_subagents = True
     with pytest.raises(manager.WorkspaceMismatchError) as exc:
         manager.ensure_langgraph_dev(cfg, workspace_dir=ws_b)
@@ -169,7 +169,7 @@ def test_ensure_langgraph_dev_refuses_on_mismatch_with_stale_process(
     # also gates on _PROCESS.poll() is None) doesn't fire on this dead handle.
     monkeypatch.setattr(manager, "_PROCESS_WORKSPACE", ws_b)
 
-    cfg = manager.EvoScientistConfig()
+    cfg = manager.JWConfig()
     cfg.enable_async_subagents = True
     with pytest.raises(manager.WorkspaceMismatchError):
         manager.ensure_langgraph_dev(cfg, workspace_dir=ws_b)
@@ -191,7 +191,7 @@ def test_ensure_langgraph_dev_reuses_when_workspace_matches(
     monkeypatch.setattr(manager, "_PROCESS", None)
     monkeypatch.setattr(manager, "_PROCESS_WORKSPACE", None)
 
-    cfg = manager.EvoScientistConfig()
+    cfg = manager.JWConfig()
     cfg.enable_async_subagents = True
     # Should NOT raise.
     manager.ensure_langgraph_dev(cfg, workspace_dir=ws_a)
@@ -211,7 +211,7 @@ def test_ensure_langgraph_dev_reuses_when_sidecar_missing(
     monkeypatch.setattr(manager, "_PROCESS", None)
     monkeypatch.setattr(manager, "_PROCESS_WORKSPACE", None)
 
-    cfg = manager.EvoScientistConfig()
+    cfg = manager.JWConfig()
     cfg.enable_async_subagents = True
     # Should NOT raise — degrades to the prior reuse-with-warning branch.
     manager.ensure_langgraph_dev(cfg, workspace_dir=tmp_path / "B")

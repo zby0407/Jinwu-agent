@@ -1,4 +1,4 @@
-"""Tests for EvoScientist/stream/events.py helpers."""
+"""Tests for jw/stream/events.py helpers."""
 
 import asyncio
 
@@ -10,13 +10,13 @@ from langchain_core.tools import tool
 from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.types import Command, Interrupt
 
-from EvoScientist.middleware.ask_user import AskUserMiddleware
-from EvoScientist.stream.events import stream_agent_events
-from EvoScientist.stream.summarization import (
+from jw.middleware.ask_user import AskUserMiddleware
+from jw.stream.events import stream_agent_events
+from jw.stream.summarization import (
     _extract_summary_message_text,
     _find_summarization_event_payload,
 )
-from EvoScientist.stream.tool_results import (
+from jw.stream.tool_results import (
     _extract_command_tool_content,
     _extract_tool_content,
 )
@@ -232,7 +232,7 @@ class TestV3ProtocolStreaming:
     ):
         calls = []
         monkeypatch.setattr(
-            "EvoScientist.stream.events.clear_completed_memory_activity_counts",
+            "jw.stream.events.clear_completed_memory_activity_counts",
             lambda: calls.append(True),
         )
         agent = FakeV3Agent([])
@@ -246,7 +246,7 @@ class TestV3ProtocolStreaming:
     ):
         calls = []
         monkeypatch.setattr(
-            "EvoScientist.stream.events.clear_completed_memory_activity_counts",
+            "jw.stream.events.clear_completed_memory_activity_counts",
             lambda: calls.append(True),
         )
         agent = FakeV3Agent([])
@@ -410,7 +410,7 @@ class TestV3ProtocolStreaming:
 
     async def test_tool_selector_reasoning_delta_is_suppressed(self):
         """Selector reasoning must not appear as main-agent thinking."""
-        import EvoScientist.middleware.tool_selector as selector_mod
+        import jw.middleware.tool_selector as selector_mod
 
         original_active = selector_mod._selector_active
         selector_mod._selector_active = True
@@ -444,7 +444,7 @@ class TestV3ProtocolStreaming:
 
     async def test_tool_selector_whole_message_reasoning_is_suppressed(self):
         """Selector reasoning in whole-message payloads is also hidden."""
-        import EvoScientist.middleware.tool_selector as selector_mod
+        import jw.middleware.tool_selector as selector_mod
 
         original_active = selector_mod._selector_active
         selector_mod._selector_active = True
@@ -779,7 +779,7 @@ class TestV3ProtocolStreaming:
 
     async def test_tool_selection_flushes_before_tool_only_step(self):
         """Selector UI event is emitted even when selection is followed only by a tool."""
-        import EvoScientist.middleware.tool_selector as selector_mod
+        import jw.middleware.tool_selector as selector_mod
 
         original_selected = selector_mod._current_selected_tools
         original_total = selector_mod._total_tools_count
@@ -1172,7 +1172,7 @@ class TestStreamPiAgentEvents:
     async def test_routes_pi_agent_graph(self, tmp_path):
         from unittest.mock import AsyncMock, MagicMock, patch
 
-        from EvoScientist.pi_bridge.graph import PiAgentGraph
+        from jw.pi_bridge.graph import PiAgentGraph
 
         cfg = MagicMock()
         cfg.agent_engine = "pi"

@@ -2,7 +2,7 @@ from unittest.mock import MagicMock, patch
 
 from deepagents.backends.protocol import FileData, ReadResult
 
-from EvoScientist.pi_bridge.tools import PiToolBridge
+from jw.pi_bridge.tools import PiToolBridge
 
 
 class TestPiToolBridge:
@@ -146,11 +146,11 @@ class TestPiToolBridge:
         assert "foo.txt" in resp["content"]
 
 
-class TestPiToolBridgeEvoCapabilities:
+class TestPiToolBridgeJWCapabilities:
     def test_skill_manager(self):
         bridge = PiToolBridge("/tmp/ws")
         with patch(
-            "EvoScientist.tools.skill_manager.skill_manager"
+            "jw.tools.skill_manager.skill_manager"
         ) as mock_skill_manager:
             mock_skill_manager.invoke.return_value = "skill result"
             resp = bridge.skill_manager("list")
@@ -160,12 +160,12 @@ class TestPiToolBridgeEvoCapabilities:
     def test_schedule_tools(self):
         bridge = PiToolBridge("/tmp/ws")
         with (
-            patch("EvoScientist.middleware.scheduler.schedule_task") as mock_schedule,
+            patch("jw.middleware.scheduler.schedule_task") as mock_schedule,
             patch(
-                "EvoScientist.middleware.scheduler.list_scheduled_tasks"
+                "jw.middleware.scheduler.list_scheduled_tasks"
             ) as mock_list,
             patch(
-                "EvoScientist.middleware.scheduler.cancel_scheduled_task"
+                "jw.middleware.scheduler.cancel_scheduled_task"
             ) as mock_cancel,
         ):
             mock_schedule.invoke.return_value = "scheduled"
@@ -182,11 +182,11 @@ class TestPiToolBridgeEvoCapabilities:
         bridge = PiToolBridge("/tmp/ws", source_session_id="t1")
         with (
             patch(
-                "EvoScientist.memory.create_search_observations_tool"
+                "jw.memory.create_search_observations_tool"
             ) as mock_search_factory,
-            patch("EvoScientist.memory.create_read_memory_tool") as mock_read_factory,
+            patch("jw.memory.create_read_memory_tool") as mock_read_factory,
             patch(
-                "EvoScientist.memory.create_record_observation_tool"
+                "jw.memory.create_record_observation_tool"
             ) as mock_record_factory,
         ):
             mock_search = MagicMock()

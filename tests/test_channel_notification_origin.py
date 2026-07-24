@@ -9,8 +9,8 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from EvoScientist.cli import channel as channel_cli
-from EvoScientist.cli.channel import ChannelMessage
+from jw.cli import channel as channel_cli
+from jw.cli.channel import ChannelMessage
 
 
 @pytest.fixture(autouse=True)
@@ -238,7 +238,7 @@ def test_publish_swallows_bus_error(monkeypatch, caplog):
 
     channel_cli.remember_channel_origin("tid-6", _make_msg())
     try:
-        with caplog.at_level("WARNING", logger="EvoScientist.cli.channel"):
+        with caplog.at_level("WARNING", logger="jw.cli.channel"):
             # The publish is scheduled (returns True); the coroutine raises
             # asynchronously and the done-callback logs the failure.
             assert channel_cli.publish_to_channel_origin("tid-6", "hi") is True

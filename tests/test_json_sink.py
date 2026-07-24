@@ -1,4 +1,4 @@
-"""Tests for the stream-json output sink (EvoScientist/stream/json_sink.py).
+"""Tests for the stream-json output sink (jw/stream/json_sink.py).
 
 The sink serializes the agent's native event stream as line-delimited JSON
 (JSONL) to a writable stream, one JSON object per line. It is the headless
@@ -10,7 +10,7 @@ import json
 
 import pytest
 
-from EvoScientist.stream.json_sink import stream_json, write_events_as_json
+from jw.stream.json_sink import stream_json, write_events_as_json
 
 
 async def _agen(items):

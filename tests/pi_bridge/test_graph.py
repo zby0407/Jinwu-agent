@@ -3,7 +3,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from EvoScientist.pi_bridge.graph import PiAgentGraph
+from jw.pi_bridge.graph import PiAgentGraph
 
 
 class TestPiAgentGraph:

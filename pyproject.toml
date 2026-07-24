@@ -1,7 +1,7 @@
 [project]
-name = "EvoScientist"
+name = "jw-agent"
 version = "0.2.2"
-description = "EvoScientist: Towards Self-Evolving AI Scientists for End-to-End Scientific Discovery"
+description = "金乌（JW）：端到端自主科研智能体"
 readme = "README.md"
 requires-python = ">=3.11"
 license = "Apache-2.0"
@@ -100,25 +100,22 @@ all-channels = [
 ]
 
 [project.urls]
-"Homepage" = "https://github.com/EvoScientist/EvoScientist"
-"Bug Tracker" = "https://github.com/EvoScientist/EvoScientist/issues"
-"Documentation" = "https://github.com/EvoScientist/EvoScientist#readme"
+"Homepage" = "https://github.com/zby0407/Jinwu-agent"
+"Bug Tracker" = "https://github.com/zby0407/Jinwu-agent/issues"
+"Documentation" = "https://github.com/zby0407/Jinwu-agent#readme"
 
 [project.scripts]
-evoscientist = "EvoScientist.cli:main"
-EvoScientist = "EvoScientist.cli:main"
-evosci = "EvoScientist.cli:main"
-EvoSci = "EvoScientist.cli:main"
+jw = "jw.cli:main"
 
 [build-system]
 requires = ["setuptools>=68.0"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
-include = ["EvoScientist*"]
+include = ["jw*"]
 
 [tool.setuptools.package-data]
-EvoScientist = [
+jw = [
     "subagents/*.yaml",
     "langgraph_dev/*.json",
     "skills/**/*",

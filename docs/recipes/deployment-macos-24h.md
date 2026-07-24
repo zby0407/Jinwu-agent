@@ -1,9 +1,9 @@
-# Running EvoScientist 24/7 on macOS (Telegram Bot + STT + ccproxy)
+# Running JW 24/7 on macOS (Telegram Bot + STT + ccproxy)
 
-This guide covers deploying EvoScientist as a fully automated 24/7 service on macOS
+This guide covers deploying JW as a fully automated 24/7 service on macOS
 (tested on Mac Mini with Apple Silicon), using:
 
-- **EvoScientist** — the AI research agent
+- **JW** — the AI research agent
 - **ccproxy** — local proxy that routes API calls through your Claude Code subscription
 - **Telegram channel** — messaging interface
 - **STT** — automatic voice message transcription (faster-whisper)
@@ -26,7 +26,7 @@ This guide covers deploying EvoScientist as a fully automated 24/7 service on ma
 mkdir -p ~/Dev/tools
 cd ~/Dev/tools
 
-git clone git@github.com:jhfnetboy/EvoScientist.git
+git clone git@github.com:zby0407/Jinwu-agent.git
 git clone git@github.com:jhfnetboy/ccproxy-api.git
 ```
 
@@ -65,10 +65,10 @@ ls ~/.claude/.credentials.json   # note the leading dot
 
 ---
 
-## 4. Install EvoScientist from source
+## 4. Install JW from source
 
 ```bash
-cd ~/Dev/tools/EvoScientist
+cd ~/Dev/tools/JW
 git checkout jhf-research
 
 # Install with Telegram and STT support
@@ -81,8 +81,8 @@ uv pip install -e '.[telegram,stt]'
 Verify:
 
 ```bash
-which EvoSci
-EvoSci -h
+which jw
+jw -h
 ```
 
 ---
@@ -102,25 +102,25 @@ print('STT model ready')
 
 ---
 
-## 6. Configure EvoScientist
+## 6. Configure JW
 
 ```bash
-cd ~/Dev/tools/EvoScientist
+cd ~/Dev/tools/JW
 
-EvoSci config set anthropic_base_url "http://localhost:8000/claude"
-EvoSci config set anthropic_api_key  "sk-dummy"
-EvoSci config set model              "claude-sonnet-4-6"
+jw config set anthropic_base_url "http://localhost:8000/claude"
+jw config set anthropic_api_key  "sk-dummy"
+jw config set model              "claude-sonnet-4-6"
 
 # Telegram
-EvoSci config set telegram_bot_token      "YOUR_BOT_TOKEN"
-EvoSci config set telegram_allowed_senders "YOUR_TELEGRAM_USER_ID"
+jw config set telegram_bot_token      "YOUR_BOT_TOKEN"
+jw config set telegram_allowed_senders "YOUR_TELEGRAM_USER_ID"
 
 # STT voice transcription
-EvoSci config set stt_enabled  true
-EvoSci config set stt_language zh     # zh / en / auto
+jw config set stt_enabled  true
+jw config set stt_language zh     # zh / en / auto
 
 # Optional: set a default workspace directory
-EvoSci config set default_workdir "/absolute/path/to/your/workspace"
+jw config set default_workdir "/absolute/path/to/your/workspace"
 ```
 
 ---
@@ -134,10 +134,10 @@ Open two terminals:
 ccproxy serve --port 8000
 ```
 
-**Terminal 2 — EvoSci:**
+**Terminal 2 — jw:**
 ```bash
-cd ~/Dev/tools/EvoScientist
-EvoSci serve --auto-approve
+cd ~/Dev/tools/JW
+jw serve --auto-approve
 ```
 
 Send a text message and a voice message to your Telegram bot.
@@ -151,16 +151,16 @@ Run this script once to create both plist files:
 
 ```bash
 CCPROXY=$(which ccproxy)
-EVOSCI_DIR="$HOME/Dev/tools/EvoScientist"   # adjust if your path differs
-EVOSCI_BIN="${EVOSCI_DIR}/.venv/bin/EvoSci"
+JW_DIR="$HOME/Dev/tools/JW"   # adjust if your path differs
+JW_BIN="${JW_DIR}/.venv/bin/jw"
 
 # ── ccproxy service ──────────────────────────────────────────────────
-cat > ~/Library/LaunchAgents/com.evosci.ccproxy.plist << EOF
+cat > ~/Library/LaunchAgents/com.jw.ccproxy.plist << EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-    <key>Label</key><string>com.evosci.ccproxy</string>
+    <key>Label</key><string>com.jw.ccproxy</string>
     <key>ProgramArguments</key>
     <array>
         <string>${CCPROXY}</string>
@@ -176,34 +176,34 @@ cat > ~/Library/LaunchAgents/com.evosci.ccproxy.plist << EOF
 </plist>
 EOF
 
-# ── EvoSci serve service ─────────────────────────────────────────────
-cat > ~/Library/LaunchAgents/com.evosci.serve.plist << EOF
+# ── jw serve service ─────────────────────────────────────────────
+cat > ~/Library/LaunchAgents/com.jw.serve.plist << EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-    <key>Label</key><string>com.evosci.serve</string>
+    <key>Label</key><string>com.jw.serve</string>
     <key>ProgramArguments</key>
     <array>
-        <string>${EVOSCI_BIN}</string>
+        <string>${JW_BIN}</string>
         <string>serve</string>
         <string>--auto-approve</string>
     </array>
-    <key>WorkingDirectory</key><string>${EVOSCI_DIR}</string>
+    <key>WorkingDirectory</key><string>${JW_DIR}</string>
     <key>RunAtLoad</key><true/>
     <key>KeepAlive</key><true/>
-    <key>StandardOutPath</key><string>/tmp/evosci.log</string>
-    <key>StandardErrorPath</key><string>/tmp/evosci.log</string>
+    <key>StandardOutPath</key><string>/tmp/jw.log</string>
+    <key>StandardErrorPath</key><string>/tmp/jw.log</string>
 </dict>
 </plist>
 EOF
 
 # ── Load both services ───────────────────────────────────────────────
-launchctl load ~/Library/LaunchAgents/com.evosci.ccproxy.plist
-launchctl load ~/Library/LaunchAgents/com.evosci.serve.plist
+launchctl load ~/Library/LaunchAgents/com.jw.ccproxy.plist
+launchctl load ~/Library/LaunchAgents/com.jw.serve.plist
 
 echo "Services loaded:"
-launchctl list | grep evosci
+launchctl list | grep jw
 ```
 
 ---
@@ -212,10 +212,10 @@ launchctl list | grep evosci
 
 ```bash
 # Are both services running?
-launchctl list | grep evosci
+launchctl list | grep jw
 
 # Live logs
-tail -f /tmp/evosci.log
+tail -f /tmp/jw.log
 tail -f /tmp/ccproxy.log
 ```
 
@@ -225,10 +225,10 @@ tail -f /tmp/ccproxy.log
 
 | Action | Command |
 |--------|---------|
-| Restart EvoSci | `launchctl kickstart -k gui/$(id -u)/com.evosci.serve` |
-| Restart ccproxy | `launchctl kickstart -k gui/$(id -u)/com.evosci.ccproxy` |
-| Stop EvoSci | `launchctl unload ~/Library/LaunchAgents/com.evosci.serve.plist` |
-| Stop ccproxy | `launchctl unload ~/Library/LaunchAgents/com.evosci.ccproxy.plist` |
+| Restart jw | `launchctl kickstart -k gui/$(id -u)/com.jw.serve` |
+| Restart ccproxy | `launchctl kickstart -k gui/$(id -u)/com.jw.ccproxy` |
+| Stop jw | `launchctl unload ~/Library/LaunchAgents/com.jw.serve.plist` |
+| Stop ccproxy | `launchctl unload ~/Library/LaunchAgents/com.jw.ccproxy.plist` |
 | Reload after plist edit | `launchctl unload <plist> && launchctl load <plist>` |
 
 ---
@@ -252,24 +252,24 @@ Verify the token was saved at `~/.claude/.credentials.json` (hidden file, note t
 ### `Channel telegram fatal error: python-telegram-bot not installed`
 The package was installed in the wrong Python environment. Use `uv pip`:
 ```bash
-cd ~/Dev/tools/EvoScientist
+cd ~/Dev/tools/JW
 uv pip install 'python-telegram-bot>=21.0'
 ```
 
-### `zsh: no matches found: evoscientist[telegram]`
+### `zsh: no matches found: jw[telegram]`
 Shell interprets `[` as a glob. Always quote the package name:
 ```bash
-uv pip install 'EvoScientist[telegram,stt]'   # correct
-uv pip install  EvoScientist[telegram,stt]    # wrong — shell eats the brackets
+uv pip install 'JW[telegram,stt]'   # correct
+uv pip install  JW[telegram,stt]    # wrong — shell eats the brackets
 ```
 
 ### Agent keeps asking to approve ffmpeg / shell commands
-Add `--auto-approve` to the EvoSci serve command in the plist (see step 8).
+Add `--auto-approve` to the jw serve command in the plist (see step 8).
 
 ### Voice messages not transcribed / agent receives `[voice: ...]` annotation
 STT is disabled or not installed:
 ```bash
-EvoSci config set stt_enabled true
+jw config set stt_enabled true
 uv pip install faster-whisper
 ```
 
@@ -279,11 +279,11 @@ automatically by the built-in VAD filter and `no_speech_prob` threshold introduc
 in PR #28. Make sure you are on the `jhf-research` branch or a release that includes
 that fix.
 
-### `Could not find service "com.evosci.*" in domain`
+### `Could not find service "com.jw.*" in domain`
 The plist was never loaded. Run:
 ```bash
-launchctl load ~/Library/LaunchAgents/com.evosci.ccproxy.plist
-launchctl load ~/Library/LaunchAgents/com.evosci.serve.plist
+launchctl load ~/Library/LaunchAgents/com.jw.ccproxy.plist
+launchctl load ~/Library/LaunchAgents/com.jw.serve.plist
 ```
 
 ### heredoc `cat > file << EOF` hangs in terminal
@@ -298,10 +298,10 @@ the services will start automatically once the drive is available.
 This is normal behaviour for a Mac Mini where the drive is always connected.
 
 ### `pip install` installs to conda base instead of `.venv`
-Always use `uv pip install` inside the EvoScientist project directory,
+Always use `uv pip install` inside the JW project directory,
 or explicitly target the venv:
 ```bash
-cd ~/Dev/tools/EvoScientist
+cd ~/Dev/tools/JW
 uv pip install 'some-package'
 ```
 
@@ -316,11 +316,11 @@ Telegram app
 python-telegram-bot (polling)
     │
     ▼
-EvoScientist channel layer
+JW channel layer
     │  STT hook in _enqueue_raw()
     │  .ogg → faster-whisper → plain text
     ▼
-EvoScientist agent
+JW agent
     │  tool calls / LLM requests
     ▼
 ccproxy  (localhost:8000)

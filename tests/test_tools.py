@@ -1,6 +1,6 @@
-"""Tests for EvoScientist/tools.py — only non-API tools."""
+"""Tests for jw/tools.py — only non-API tools."""
 
-from EvoScientist.tools import think_tool
+from jw.tools import think_tool
 
 
 class TestThinkTool:

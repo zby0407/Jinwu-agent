@@ -1,7 +1,7 @@
 """闭环接线测试（方案 §5.4 #1-#4）：brief 注入、假设/实验引用门禁、finalize 写回。
 
-db 用临时目录隔离（EVOSCIENTIST_DATA_DIR / EVOSCIENTIST_KB_EXPORT_DIR），不碰真实
-~/.evoscientist 与仓库 knowledge_base/ 导出树；不访问网络。
+db 用临时目录隔离（JW_DATA_DIR / JW_KB_EXPORT_DIR），不碰真实
+~/.jw 与仓库 knowledge_base/ 导出树；不访问网络。
 """
 
 from __future__ import annotations
@@ -43,10 +43,10 @@ class WiringTestCase(unittest.TestCase):
         self.tmp = tempfile.mkdtemp(prefix="kb_wiring_test_")
         self._old_env = {
             key: os.environ.get(key)
-            for key in ("EVOSCIENTIST_DATA_DIR", "EVOSCIENTIST_KB_EXPORT_DIR")
+            for key in ("JW_DATA_DIR", "JW_KB_EXPORT_DIR")
         }
-        os.environ["EVOSCIENTIST_DATA_DIR"] = str(Path(self.tmp) / "data")
-        os.environ["EVOSCIENTIST_KB_EXPORT_DIR"] = str(Path(self.tmp) / "export")
+        os.environ["JW_DATA_DIR"] = str(Path(self.tmp) / "data")
+        os.environ["JW_KB_EXPORT_DIR"] = str(Path(self.tmp) / "export")
         self.addCleanup(self._restore_env)
         self.addCleanup(lambda: shutil.rmtree(self.tmp, ignore_errors=True))
         store = KnowledgeStore()
@@ -98,7 +98,7 @@ class TestPlannerBriefInjection(WiringTestCase):
         # brief 必须退回 P2 之前的行为（无注入字段）而不是抛错。
         blocker = Path(self.tmp) / "not_a_dir"
         blocker.write_text("block", encoding="utf-8")
-        os.environ["EVOSCIENTIST_DATA_DIR"] = str(blocker / "data")
+        os.environ["JW_DATA_DIR"] = str(blocker / "data")
         request = build_natural_planner_request("极区磁场前兆能否预测下一活动周振幅？")
         brief = build_planning_brief(request)
         self.assertNotIn("related_candidates", brief)

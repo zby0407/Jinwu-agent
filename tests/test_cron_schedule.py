@@ -4,7 +4,7 @@ from unittest.mock import MagicMock
 
 
 def _patch_client(monkeypatch):
-    from EvoScientist.cron import schedule as crons
+    from jw.cron import schedule as crons
 
     fake = MagicMock()
     fake.crons.create.return_value = {"cron_id": "c-1", "schedule": "*/10 * * * *"}
@@ -87,10 +87,10 @@ def test_scheduler_yaml_loads_as_async():
 
     import yaml
 
-    import EvoScientist
+    import jw
 
-    subagents_dir = Path(EvoScientist.__file__).parent / "subagents"
-    yaml_path = subagents_dir / "scheduler.yaml"
+    subagents_dir = Path(jw.__file__).parent / "subagents"
+    yaml_path = subagents_dir / "core" / "scheduler.yaml"
     assert yaml_path.exists(), f"Missing {yaml_path}"
     data = yaml.safe_load(yaml_path.read_text(encoding="utf-8"))
     assert "scheduler" in data, "Top-level key must be 'scheduler'"
@@ -106,14 +106,14 @@ def test_langgraph_json_registers_scheduler():
     import json
     from pathlib import Path
 
-    import EvoScientist
+    import jw
 
-    root = Path(EvoScientist.__file__).parent
+    root = Path(jw.__file__).parent
     manifest = json.loads(
         (root / "langgraph_dev" / "langgraph.json").read_text(encoding="utf-8")
     )
     assert manifest["graphs"]["scheduler"] == (
-        "EvoScientist.langgraph_dev.graphs:scheduler"
+        "jw.langgraph_dev.graphs:scheduler"
     )
 
 
@@ -124,10 +124,10 @@ def test_scheduler_graph_id_matches_registration():
 
     import yaml
 
-    import EvoScientist
-    from EvoScientist.cron import schedule as crons
+    import jw
+    from jw.cron import schedule as crons
 
-    root = Path(EvoScientist.__file__).parent
+    root = Path(jw.__file__).parent
     manifest = json.loads(
         (root / "langgraph_dev" / "langgraph.json").read_text(encoding="utf-8")
     )
@@ -135,7 +135,7 @@ def test_scheduler_graph_id_matches_registration():
         f"SCHEDULER_GRAPH_ID={crons.SCHEDULER_GRAPH_ID!r} not found in langgraph.json graphs"
     )
     spec = yaml.safe_load(
-        (root / "subagents" / "scheduler.yaml").read_text(encoding="utf-8")
+        (root / "subagents" / "core" / "scheduler.yaml").read_text(encoding="utf-8")
     )
     assert crons.SCHEDULER_GRAPH_ID in spec, (
         f"SCHEDULER_GRAPH_ID={crons.SCHEDULER_GRAPH_ID!r} is not the top-level key in scheduler.yaml"
@@ -146,8 +146,8 @@ def test_production_loaders_accept_utf8_content(tmp_path, monkeypatch):
     """Production config readers must handle localized UTF-8 content."""
     import os
 
-    from EvoScientist.langgraph_dev import manager
-    from EvoScientist.mcp import client, registry
+    from jw.langgraph_dev import manager
+    from jw.mcp import client, registry
 
     mcp_config = tmp_path / "mcp.yaml"
     mcp_config.write_text(
@@ -182,13 +182,13 @@ args: ["-m", "écho"]
     assert entry.name == "écho"
     assert entry.tags == ["démo", "marché"]
 
-    venv = tmp_path / "uv" / "tools" / "evoscientist"
+    venv = tmp_path / "uv" / "tools" / "jw"
     venv.mkdir(parents=True)
     (venv / "uv-receipt.toml").write_text(
         """
 [tool]
 requirements = [
-  { name = "evoscientist" },
+  { name = "jw" },
   { name = "mcp-écho", specifier = ">=1.0" },
 ]
 """.lstrip(),

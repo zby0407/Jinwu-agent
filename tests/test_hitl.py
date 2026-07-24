@@ -4,8 +4,8 @@ from unittest.mock import MagicMock, patch
 
 from langgraph.types import Interrupt
 
-from EvoScientist.stream.emitter import StreamEvent, StreamEventEmitter
-from EvoScientist.stream.state import StreamState
+from jw.stream.emitter import StreamEvent, StreamEventEmitter
+from jw.stream.state import StreamState
 from tests.stream_v3_fakes import (
     FakeV3Agent,
     collect_events,
@@ -105,33 +105,33 @@ class TestStreamStateInterrupt:
 
 class TestMatchesShellAllowList:
     def test_matches_prefix(self):
-        from EvoScientist.stream.display import _matches_shell_allow_list
+        from jw.stream.display import _matches_shell_allow_list
 
         assert _matches_shell_allow_list("ls -la", ["ls", "cat"]) is True
         assert _matches_shell_allow_list("cat file.txt", ["ls", "cat"]) is True
 
     def test_no_match(self):
-        from EvoScientist.stream.display import _matches_shell_allow_list
+        from jw.stream.display import _matches_shell_allow_list
 
         assert _matches_shell_allow_list("rm -rf /", ["ls", "cat"]) is False
 
     def test_empty_allow_list(self):
-        from EvoScientist.stream.display import _matches_shell_allow_list
+        from jw.stream.display import _matches_shell_allow_list
 
         assert _matches_shell_allow_list("ls", []) is False
 
     def test_whitespace_handling(self):
-        from EvoScientist.stream.display import _matches_shell_allow_list
+        from jw.stream.display import _matches_shell_allow_list
 
         assert _matches_shell_allow_list("  ls -la", ["ls"]) is True
 
     def test_exact_match(self):
-        from EvoScientist.stream.display import _matches_shell_allow_list
+        from jw.stream.display import _matches_shell_allow_list
 
         assert _matches_shell_allow_list("python", ["python"]) is True
 
     def test_partial_word_match(self):
-        from EvoScientist.stream.display import _matches_shell_allow_list
+        from jw.stream.display import _matches_shell_allow_list
 
         # "ls" prefix matches "lsof" — this is by design (prefix matching)
         assert _matches_shell_allow_list("lsof", ["ls"]) is True
@@ -144,13 +144,13 @@ class TestMatchesShellAllowList:
 
 class TestResolveHitlApproval:
     def test_empty_requests_auto_approves(self):
-        from EvoScientist.stream.display import _resolve_hitl_approval
+        from jw.stream.display import _resolve_hitl_approval
 
         result = _resolve_hitl_approval({"action_requests": []})
         assert result == [{"type": "approve"}]
 
     def test_session_auto_approve(self):
-        import EvoScientist.stream.display as disp
+        import jw.stream.display as disp
 
         original = disp._session_auto_approve
         try:
@@ -167,8 +167,8 @@ class TestResolveHitlApproval:
             disp._session_auto_approve = original
 
     def test_config_auto_approve(self):
-        import EvoScientist.stream.display as disp
-        from EvoScientist.stream.display import _resolve_hitl_approval
+        import jw.stream.display as disp
+        from jw.stream.display import _resolve_hitl_approval
 
         original = disp._session_auto_approve
         try:
@@ -177,7 +177,7 @@ class TestResolveHitlApproval:
             mock_cfg.auto_approve = True
             mock_cfg.shell_allow_list = ""
             with patch(
-                "EvoScientist.config.settings.load_config", return_value=mock_cfg
+                "jw.config.settings.load_config", return_value=mock_cfg
             ):
                 result = _resolve_hitl_approval(
                     {
@@ -191,8 +191,8 @@ class TestResolveHitlApproval:
             disp._session_auto_approve = original
 
     def test_non_execute_tool_auto_approves(self):
-        import EvoScientist.stream.display as disp
-        from EvoScientist.stream.display import _resolve_hitl_approval
+        import jw.stream.display as disp
+        from jw.stream.display import _resolve_hitl_approval
 
         original = disp._session_auto_approve
         try:
@@ -201,7 +201,7 @@ class TestResolveHitlApproval:
             mock_cfg.auto_approve = False
             mock_cfg.shell_allow_list = ""
             with patch(
-                "EvoScientist.config.settings.load_config", return_value=mock_cfg
+                "jw.config.settings.load_config", return_value=mock_cfg
             ):
                 result = _resolve_hitl_approval(
                     {
@@ -215,8 +215,8 @@ class TestResolveHitlApproval:
             disp._session_auto_approve = original
 
     def test_execute_with_matching_allow_list(self):
-        import EvoScientist.stream.display as disp
-        from EvoScientist.stream.display import _resolve_hitl_approval
+        import jw.stream.display as disp
+        from jw.stream.display import _resolve_hitl_approval
 
         original = disp._session_auto_approve
         try:
@@ -225,7 +225,7 @@ class TestResolveHitlApproval:
             mock_cfg.auto_approve = False
             mock_cfg.shell_allow_list = "ls,cat,python"
             with patch(
-                "EvoScientist.config.settings.load_config", return_value=mock_cfg
+                "jw.config.settings.load_config", return_value=mock_cfg
             ):
                 result = _resolve_hitl_approval(
                     {
@@ -239,8 +239,8 @@ class TestResolveHitlApproval:
             disp._session_auto_approve = original
 
     def test_execute_not_in_allow_list_prompts(self):
-        import EvoScientist.stream.display as disp
-        from EvoScientist.stream.display import _resolve_hitl_approval
+        import jw.stream.display as disp
+        from jw.stream.display import _resolve_hitl_approval
 
         original = disp._session_auto_approve
         try:
@@ -249,10 +249,10 @@ class TestResolveHitlApproval:
             mock_cfg.auto_approve = False
             mock_cfg.shell_allow_list = "ls,cat"
             with patch(
-                "EvoScientist.config.settings.load_config", return_value=mock_cfg
+                "jw.config.settings.load_config", return_value=mock_cfg
             ):
                 with patch(
-                    "EvoScientist.stream.display._prompt_hitl_approval"
+                    "jw.stream.display._prompt_hitl_approval"
                 ) as mock_prompt:
                     mock_prompt.return_value = [{"type": "approve"}]
                     result = _resolve_hitl_approval(
@@ -269,8 +269,8 @@ class TestResolveHitlApproval:
 
     def test_run_in_background_not_in_allow_list_prompts(self):
         """run_in_background must NOT auto-approve — it runs shell like execute."""
-        import EvoScientist.stream.display as disp
-        from EvoScientist.stream.display import _resolve_hitl_approval
+        import jw.stream.display as disp
+        from jw.stream.display import _resolve_hitl_approval
 
         original = disp._session_auto_approve
         try:
@@ -279,10 +279,10 @@ class TestResolveHitlApproval:
             mock_cfg.auto_approve = False
             mock_cfg.shell_allow_list = "ls,cat"
             with patch(
-                "EvoScientist.config.settings.load_config", return_value=mock_cfg
+                "jw.config.settings.load_config", return_value=mock_cfg
             ):
                 with patch(
-                    "EvoScientist.stream.display._prompt_hitl_approval"
+                    "jw.stream.display._prompt_hitl_approval"
                 ) as mock_prompt:
                     mock_prompt.return_value = [{"type": "approve"}]
                     result = _resolve_hitl_approval(
@@ -302,8 +302,8 @@ class TestResolveHitlApproval:
 
     def test_run_in_background_in_allow_list_auto_approves(self):
         """An allow-listed command still auto-approves for run_in_background."""
-        import EvoScientist.stream.display as disp
-        from EvoScientist.stream.display import _resolve_hitl_approval
+        import jw.stream.display as disp
+        from jw.stream.display import _resolve_hitl_approval
 
         original = disp._session_auto_approve
         try:
@@ -312,7 +312,7 @@ class TestResolveHitlApproval:
             mock_cfg.auto_approve = False
             mock_cfg.shell_allow_list = "python"
             with patch(
-                "EvoScientist.config.settings.load_config", return_value=mock_cfg
+                "jw.config.settings.load_config", return_value=mock_cfg
             ):
                 result = _resolve_hitl_approval(
                     {
@@ -336,39 +336,39 @@ class TestResolveHitlApproval:
 
 class TestHitlConfig:
     def test_auto_approve_default(self):
-        from EvoScientist.config.settings import EvoScientistConfig
+        from jw.config.settings import JWConfig
 
-        cfg = EvoScientistConfig()
+        cfg = JWConfig()
         assert cfg.auto_approve is False
 
     def test_auto_mode_default(self):
-        from EvoScientist.config.settings import EvoScientistConfig
+        from jw.config.settings import JWConfig
 
-        cfg = EvoScientistConfig()
+        cfg = JWConfig()
         assert cfg.auto_mode is False
 
     def test_shell_allow_list_default(self):
-        from EvoScientist.config.settings import EvoScientistConfig
+        from jw.config.settings import JWConfig
 
-        cfg = EvoScientistConfig()
+        cfg = JWConfig()
         assert cfg.shell_allow_list == ""
 
     def test_auto_approve_set(self):
-        from EvoScientist.config.settings import EvoScientistConfig
+        from jw.config.settings import JWConfig
 
-        cfg = EvoScientistConfig(auto_approve=True)
+        cfg = JWConfig(auto_approve=True)
         assert cfg.auto_approve is True
 
     def test_auto_mode_set(self):
-        from EvoScientist.config.settings import EvoScientistConfig
+        from jw.config.settings import JWConfig
 
-        cfg = EvoScientistConfig(auto_mode=True)
+        cfg = JWConfig(auto_mode=True)
         assert cfg.auto_mode is True
 
     def test_shell_allow_list_set(self):
-        from EvoScientist.config.settings import EvoScientistConfig
+        from jw.config.settings import JWConfig
 
-        cfg = EvoScientistConfig(shell_allow_list="ls,cat,python")
+        cfg = JWConfig(shell_allow_list="ls,cat,python")
         assert cfg.shell_allow_list == "ls,cat,python"
 
 
@@ -437,32 +437,32 @@ class TestInterruptEventParsing:
 
 class TestConsumerHitlHelpers:
     def test_parse_approval_approve(self):
-        from EvoScientist.channels.consumer import _parse_approval_reply
+        from jw.channels.consumer import _parse_approval_reply
 
         for text in ("1", "y", "yes", "approve", "ok", " 1 ", "  Y  "):
             assert _parse_approval_reply(text) == "approve", f"Failed for: {text!r}"
 
     def test_parse_approval_reject(self):
-        from EvoScientist.channels.consumer import _parse_approval_reply
+        from jw.channels.consumer import _parse_approval_reply
 
         for text in ("2", "n", "no", "reject"):
             assert _parse_approval_reply(text) == "reject", f"Failed for: {text!r}"
 
     def test_parse_approval_auto(self):
-        from EvoScientist.channels.consumer import _parse_approval_reply
+        from jw.channels.consumer import _parse_approval_reply
 
         for text in ("3", "a", "auto", "approve all"):
             assert _parse_approval_reply(text) == "auto", f"Failed for: {text!r}"
 
     def test_parse_approval_unrecognized(self):
-        from EvoScientist.channels.consumer import _parse_approval_reply
+        from jw.channels.consumer import _parse_approval_reply
 
         assert _parse_approval_reply("hello world") is None
         assert _parse_approval_reply("") is None
         assert _parse_approval_reply("maybe") is None
 
     def test_format_approval_prompt(self):
-        from EvoScientist.channels.consumer import _format_approval_prompt
+        from jw.channels.consumer import _format_approval_prompt
 
         prompt = _format_approval_prompt(
             [
@@ -476,7 +476,7 @@ class TestConsumerHitlHelpers:
         assert "2=Reject" in prompt
 
     def test_format_approval_prompt_multiple(self):
-        from EvoScientist.channels.consumer import _format_approval_prompt
+        from jw.channels.consumer import _format_approval_prompt
 
         prompt = _format_approval_prompt(
             [
@@ -488,24 +488,24 @@ class TestConsumerHitlHelpers:
         assert "2. write_file: /out.txt" in prompt
 
     def test_should_auto_approve_non_execute(self):
-        from EvoScientist.channels.consumer import _should_auto_approve
+        from jw.channels.consumer import _should_auto_approve
 
         assert _should_auto_approve([{"name": "write_file", "args": {}}]) is True
 
     def test_should_auto_approve_empty(self):
-        from EvoScientist.channels.consumer import _should_auto_approve
+        from jw.channels.consumer import _should_auto_approve
 
         assert _should_auto_approve([]) is True
 
     def test_should_auto_approve_execute_no_allowlist(self):
-        from EvoScientist.channels.consumer import _should_auto_approve
+        from jw.channels.consumer import _should_auto_approve
 
         # With default config (auto_approve=False, shell_allow_list=""),
         # execute should NOT auto-approve
         mock_cfg = MagicMock()
         mock_cfg.auto_approve = False
         mock_cfg.shell_allow_list = ""
-        with patch("EvoScientist.config.settings.load_config", return_value=mock_cfg):
+        with patch("jw.config.settings.load_config", return_value=mock_cfg):
             result = _should_auto_approve(
                 [
                     {"name": "execute", "args": {"command": "rm -rf /"}},
@@ -515,12 +515,12 @@ class TestConsumerHitlHelpers:
 
     def test_should_auto_approve_run_in_background_no_allowlist(self):
         """Channel path must NOT auto-approve run_in_background (same as execute)."""
-        from EvoScientist.channels.consumer import _should_auto_approve
+        from jw.channels.consumer import _should_auto_approve
 
         mock_cfg = MagicMock()
         mock_cfg.auto_approve = False
         mock_cfg.shell_allow_list = ""
-        with patch("EvoScientist.config.settings.load_config", return_value=mock_cfg):
+        with patch("jw.config.settings.load_config", return_value=mock_cfg):
             result = _should_auto_approve(
                 [
                     {"name": "run_in_background", "args": {"command": "rm -rf /"}},
@@ -529,11 +529,11 @@ class TestConsumerHitlHelpers:
         assert result is False
 
     def test_should_auto_approve_config_true(self):
-        from EvoScientist.channels.consumer import _should_auto_approve
+        from jw.channels.consumer import _should_auto_approve
 
         mock_cfg = MagicMock()
         mock_cfg.auto_approve = True
-        with patch("EvoScientist.config.settings.load_config", return_value=mock_cfg):
+        with patch("jw.config.settings.load_config", return_value=mock_cfg):
             result = _should_auto_approve(
                 [
                     {"name": "execute", "args": {"command": "rm -rf /"}},
@@ -542,12 +542,12 @@ class TestConsumerHitlHelpers:
         assert result is True
 
     def test_should_auto_approve_allowlist_match(self):
-        from EvoScientist.channels.consumer import _should_auto_approve
+        from jw.channels.consumer import _should_auto_approve
 
         mock_cfg = MagicMock()
         mock_cfg.auto_approve = False
         mock_cfg.shell_allow_list = "ls,python"
-        with patch("EvoScientist.config.settings.load_config", return_value=mock_cfg):
+        with patch("jw.config.settings.load_config", return_value=mock_cfg):
             result = _should_auto_approve(
                 [
                     {"name": "execute", "args": {"command": "ls -la"}},
@@ -563,7 +563,7 @@ class TestConsumerHitlHelpers:
 
 class TestChannelHitlIntercept:
     def test_register_and_set_hitl_reply(self):
-        from EvoScientist.cli.channel import (
+        from jw.cli.channel import (
             _pop_hitl_reply,
             _register_hitl_wait,
             _try_set_hitl_reply,
@@ -581,18 +581,18 @@ class TestChannelHitlIntercept:
         assert reply == "1"
 
     def test_try_set_hitl_reply_no_pending(self):
-        from EvoScientist.cli.channel import _try_set_hitl_reply
+        from jw.cli.channel import _try_set_hitl_reply
 
         # No pending HITL — should not intercept
         assert _try_set_hitl_reply("discord", "no_pending", "y") is False
 
     def test_pop_hitl_reply_no_pending(self):
-        from EvoScientist.cli.channel import _pop_hitl_reply
+        from jw.cli.channel import _pop_hitl_reply
 
         assert _pop_hitl_reply("discord", "no_pending") is None
 
     def test_hitl_reply_timeout(self):
-        from EvoScientist.cli.channel import (
+        from jw.cli.channel import (
             _pop_hitl_reply,
             _register_hitl_wait,
         )
@@ -613,8 +613,8 @@ class TestChannelHitlIntercept:
 
 class TestResolveHitlApprovalWithPromptFn:
     def test_prompt_fn_called_for_execute(self):
-        import EvoScientist.stream.display as disp
-        from EvoScientist.stream.display import _resolve_hitl_approval
+        import jw.stream.display as disp
+        from jw.stream.display import _resolve_hitl_approval
 
         original = disp._session_auto_approve
         try:
@@ -625,7 +625,7 @@ class TestResolveHitlApprovalWithPromptFn:
             custom_decisions = [{"type": "approve"}]
             mock_fn = MagicMock(return_value=custom_decisions)
             with patch(
-                "EvoScientist.config.settings.load_config", return_value=mock_cfg
+                "jw.config.settings.load_config", return_value=mock_cfg
             ):
                 result = _resolve_hitl_approval(
                     {
@@ -641,8 +641,8 @@ class TestResolveHitlApprovalWithPromptFn:
             disp._session_auto_approve = original
 
     def test_prompt_fn_not_called_for_auto_approve(self):
-        import EvoScientist.stream.display as disp
-        from EvoScientist.stream.display import _resolve_hitl_approval
+        import jw.stream.display as disp
+        from jw.stream.display import _resolve_hitl_approval
 
         original = disp._session_auto_approve
         try:
@@ -651,7 +651,7 @@ class TestResolveHitlApprovalWithPromptFn:
             mock_cfg.auto_approve = True
             mock_fn = MagicMock()
             with patch(
-                "EvoScientist.config.settings.load_config", return_value=mock_cfg
+                "jw.config.settings.load_config", return_value=mock_cfg
             ):
                 result = _resolve_hitl_approval(
                     {
@@ -667,8 +667,8 @@ class TestResolveHitlApprovalWithPromptFn:
             disp._session_auto_approve = original
 
     def test_prompt_fn_not_called_for_non_execute(self):
-        import EvoScientist.stream.display as disp
-        from EvoScientist.stream.display import _resolve_hitl_approval
+        import jw.stream.display as disp
+        from jw.stream.display import _resolve_hitl_approval
 
         original = disp._session_auto_approve
         try:
@@ -678,7 +678,7 @@ class TestResolveHitlApprovalWithPromptFn:
             mock_cfg.shell_allow_list = ""
             mock_fn = MagicMock()
             with patch(
-                "EvoScientist.config.settings.load_config", return_value=mock_cfg
+                "jw.config.settings.load_config", return_value=mock_cfg
             ):
                 result = _resolve_hitl_approval(
                     {"action_requests": [{"name": "write_file", "args": {}}]},

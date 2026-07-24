@@ -7,7 +7,7 @@ import threading
 
 import pytest
 
-from EvoScientist.cli._agent_loader import BackgroundAgentLoader, MCPProgressTracker
+from jw.cli._agent_loader import BackgroundAgentLoader, MCPProgressTracker
 
 # ──────────────────────────────────────────────────────────────────────
 # MCPProgressTracker
@@ -16,7 +16,7 @@ from EvoScientist.cli._agent_loader import BackgroundAgentLoader, MCPProgressTra
 
 class TestMCPProgressTracker:
     def test_prime_empty_when_no_config(self, monkeypatch):
-        import EvoScientist.mcp as mcp_pkg
+        import jw.mcp as mcp_pkg
 
         monkeypatch.setattr(mcp_pkg, "load_mcp_config", lambda: {})
         t = MCPProgressTracker()
@@ -24,7 +24,7 @@ class TestMCPProgressTracker:
         assert t.progress == {}
 
     def test_prime_seeds_pending_entries(self, monkeypatch):
-        import EvoScientist.mcp as mcp_pkg
+        import jw.mcp as mcp_pkg
 
         monkeypatch.setattr(mcp_pkg, "load_mcp_config", lambda: {"a": {}, "b": {}})
         t = MCPProgressTracker()
@@ -32,7 +32,7 @@ class TestMCPProgressTracker:
         assert t.progress == {"a": ("pending", ""), "b": ("pending", "")}
 
     def test_prime_swallows_config_errors(self, monkeypatch):
-        import EvoScientist.mcp as mcp_pkg
+        import jw.mcp as mcp_pkg
 
         def _boom():
             raise RuntimeError("config broken")

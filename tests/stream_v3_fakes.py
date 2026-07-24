@@ -8,7 +8,7 @@ from dataclasses import dataclass, field
 from typing import Any
 from unittest.mock import MagicMock
 
-from EvoScientist.stream.events import stream_agent_events
+from jw.stream.events import stream_agent_events
 
 
 async def async_iter(items: Iterable[Any]) -> AsyncIterator[Any]:

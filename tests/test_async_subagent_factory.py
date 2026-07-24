@@ -1,4 +1,4 @@
-"""Tests for ``EvoScientist.subagents._factory.build_async_subagent_graph``.
+"""Tests for ``JW.subagents._factory.build_async_subagent_graph``.
 
 Pins the integration contract that the factory must request middleware
 in async-safe mode (``for_async_subagent=True``). Without this, a future
@@ -11,8 +11,8 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
-from EvoScientist.config import MemoryObservationWriter
-from EvoScientist.memory import MemorySourceType
+from jw.config import MemoryObservationWriter
+from jw.memory import MemorySourceType
 
 
 def _single_middleware(subagent: dict, class_name: str):
@@ -22,10 +22,10 @@ def _single_middleware(subagent: dict, class_name: str):
 
 
 def _assert_subagent_memory_middleware(subagent: dict, *, source_agent: str) -> None:
-    memory_middleware = _single_middleware(subagent, "EvoMemoryMiddleware")
+    memory_middleware = _single_middleware(subagent, "JWMemoryMiddleware")
     lifecycle_middleware = _single_middleware(
         subagent,
-        "EvoMemoryLifecycleMiddleware",
+        "JWMemoryLifecycleMiddleware",
     )
 
     assert [tool.name for tool in memory_middleware.tools] == [
@@ -39,14 +39,14 @@ def _assert_subagent_memory_middleware(subagent: dict, *, source_agent: str) -> 
 
 
 @patch("deepagents.create_deep_agent")
-@patch("EvoScientist.EvoScientist._load_mcp_tools_cached", return_value={})
-@patch("EvoScientist.EvoScientist._get_default_middleware", return_value=[])
-@patch("EvoScientist.EvoScientist._get_default_backend")
-@patch("EvoScientist.EvoScientist._ensure_chat_model")
-@patch("EvoScientist.EvoScientist._ensure_config")
-@patch("EvoScientist.utils.load_subagents")
-@patch("EvoScientist.config.apply_config_to_env")
-@patch("EvoScientist.config.get_effective_config")
+@patch("jw.agent._load_mcp_tools_cached", return_value={})
+@patch("jw.agent._get_default_middleware", return_value=[])
+@patch("jw.agent._get_default_backend")
+@patch("jw.agent._ensure_chat_model")
+@patch("jw.agent._ensure_config")
+@patch("jw.utils.load_subagents")
+@patch("jw.config.apply_config_to_env")
+@patch("jw.config.get_effective_config")
 def test_factory_requests_async_safe_middleware(
     mock_get_cfg,
     mock_apply_env,
@@ -92,7 +92,7 @@ def test_factory_requests_async_safe_middleware(
     # chainable so the factory's terminal ``.with_config(...)`` doesn't blow up.
     mock_create.return_value.with_config.return_value = MagicMock()
 
-    from EvoScientist.subagents._factory import build_async_subagent_graph
+    from jw.subagents._factory import build_async_subagent_graph
 
     build_async_subagent_graph("writing-agent")
 
@@ -109,11 +109,11 @@ def test_factory_requests_async_safe_middleware(
     )
 
 
-@patch("EvoScientist.EvoScientist._ensure_chat_model")
+@patch("jw.agent._ensure_chat_model")
 def test_inject_subagent_adds_memory_middleware(mock_model, tmp_path):
     mock_model.return_value = MagicMock(profile={"max_input_tokens": 200_000})
 
-    from EvoScientist.EvoScientist import _inject_subagent_middleware
+    from jw.agent import _inject_subagent_middleware
 
     workspace = tmp_path / "workspace"
     workspace.mkdir()
@@ -124,8 +124,8 @@ def test_inject_subagent_adds_memory_middleware(mock_model, tmp_path):
     _assert_subagent_memory_middleware(subs[0], source_agent="test-agent")
 
 
-@patch("EvoScientist.EvoScientist._ensure_chat_model")
-@patch("EvoScientist.EvoScientist._ensure_config")
+@patch("jw.agent._ensure_chat_model")
+@patch("jw.agent._ensure_config")
 def test_inject_subagent_omits_memory_middleware_when_memory_disabled(
     mock_config, mock_model, tmp_path
 ):
@@ -139,7 +139,7 @@ def test_inject_subagent_omits_memory_middleware_when_memory_disabled(
     cfg.auxiliary_provider = ""
     mock_config.return_value = cfg
 
-    from EvoScientist.EvoScientist import _inject_subagent_middleware
+    from jw.agent import _inject_subagent_middleware
 
     workspace = tmp_path / "workspace"
     workspace.mkdir()
@@ -150,12 +150,12 @@ def test_inject_subagent_omits_memory_middleware_when_memory_disabled(
     assert not [
         m
         for m in subs[0]["middleware"]
-        if type(m).__name__ in {"EvoMemoryMiddleware", "EvoMemoryLifecycleMiddleware"}
+        if type(m).__name__ in {"JWMemoryMiddleware", "JWMemoryLifecycleMiddleware"}
     ]
 
 
-@patch("EvoScientist.EvoScientist._ensure_chat_model")
-@patch("EvoScientist.EvoScientist._ensure_config")
+@patch("jw.agent._ensure_chat_model")
+@patch("jw.agent._ensure_config")
 def test_inject_subagent_worker_only_observation_writer_keeps_live_tool_off(
     mock_config, mock_model, tmp_path
 ):
@@ -169,7 +169,7 @@ def test_inject_subagent_worker_only_observation_writer_keeps_live_tool_off(
     cfg.auxiliary_provider = ""
     mock_config.return_value = cfg
 
-    from EvoScientist.EvoScientist import _inject_subagent_middleware
+    from jw.agent import _inject_subagent_middleware
 
     workspace = tmp_path / "workspace"
     workspace.mkdir()
@@ -177,10 +177,10 @@ def test_inject_subagent_worker_only_observation_writer_keeps_live_tool_off(
 
     _inject_subagent_middleware(subs, workspace_dir=workspace)
 
-    memory_middleware = _single_middleware(subs[0], "EvoMemoryMiddleware")
+    memory_middleware = _single_middleware(subs[0], "JWMemoryMiddleware")
     lifecycle_middleware = _single_middleware(
         subs[0],
-        "EvoMemoryLifecycleMiddleware",
+        "JWMemoryLifecycleMiddleware",
     )
     assert [tool.name for tool in memory_middleware.tools] == [
         "search_observations",
@@ -190,11 +190,11 @@ def test_inject_subagent_worker_only_observation_writer_keeps_live_tool_off(
 
 
 @patch(
-    "EvoScientist.middleware.create_tool_selector_middleware",
+    "jw.middleware.create_tool_selector_middleware",
     return_value=[MagicMock()],
 )
-@patch("EvoScientist.EvoScientist._ensure_chat_model")
-@patch("EvoScientist.EvoScientist._ensure_config")
+@patch("jw.agent._ensure_chat_model")
+@patch("jw.agent._ensure_config")
 def test_all_observation_writer_schedules_turn_worker_without_profile_memory(
     mock_config, mock_chat, mock_tool_selector
 ):
@@ -212,11 +212,11 @@ def test_all_observation_writer_schedules_turn_worker_without_profile_memory(
     mock_config.return_value = cfg
     mock_chat.return_value = MagicMock(profile={"max_input_tokens": 200_000})
 
-    from EvoScientist.EvoScientist import _get_default_middleware
+    from jw.agent import _get_default_middleware
 
     middleware = _get_default_middleware()
     memory_middleware = next(
-        m for m in middleware if type(m).__name__ == "EvoMemoryMiddleware"
+        m for m in middleware if type(m).__name__ == "JWMemoryMiddleware"
     )
 
     assert [tool.name for tool in memory_middleware.tools] == [
@@ -225,7 +225,7 @@ def test_all_observation_writer_schedules_turn_worker_without_profile_memory(
         "record_observation",
     ]
     lifecycle_middleware = next(
-        m for m in middleware if type(m).__name__ == "EvoMemoryLifecycleMiddleware"
+        m for m in middleware if type(m).__name__ == "JWMemoryLifecycleMiddleware"
     )
     assert lifecycle_middleware._source_type == MemorySourceType.TURN
 
@@ -242,11 +242,11 @@ def test_all_observation_writer_schedules_turn_worker_without_profile_memory(
 
 
 @patch(
-    "EvoScientist.middleware.create_tool_selector_middleware",
+    "jw.middleware.create_tool_selector_middleware",
     return_value=[MagicMock()],
 )
-@patch("EvoScientist.EvoScientist._ensure_chat_model")
-@patch("EvoScientist.EvoScientist._ensure_config")
+@patch("jw.agent._ensure_chat_model")
+@patch("jw.agent._ensure_config")
 def test_async_subagent_mode_filters_ask_user(
     mock_config, mock_chat, mock_tool_selector
 ):
@@ -272,8 +272,8 @@ def test_async_subagent_mode_filters_ask_user(
     mock_config.return_value = cfg
     mock_chat.return_value = MagicMock(profile={"max_input_tokens": 200_000})
 
-    from EvoScientist.EvoScientist import _get_default_middleware
-    from EvoScientist.middleware.ask_user import AskUserMiddleware
+    from jw.agent import _get_default_middleware
+    from jw.middleware.ask_user import AskUserMiddleware
 
     # CLI / in-process path includes AskUserMiddleware …
     cli_mw = _get_default_middleware()
@@ -291,11 +291,11 @@ def test_async_subagent_mode_filters_ask_user(
 
 
 @patch(
-    "EvoScientist.middleware.create_tool_selector_middleware",
+    "jw.middleware.create_tool_selector_middleware",
     return_value=[MagicMock()],
 )
-@patch("EvoScientist.EvoScientist._ensure_chat_model")
-@patch("EvoScientist.EvoScientist._ensure_config")
+@patch("jw.agent._ensure_chat_model")
+@patch("jw.agent._ensure_config")
 def test_async_subagent_disables_tool_selector_stream_tracking(
     mock_config, mock_chat, mock_tool_selector
 ):
@@ -314,7 +314,7 @@ def test_async_subagent_disables_tool_selector_stream_tracking(
     mock_config.return_value = cfg
     mock_chat.return_value = MagicMock(profile={"max_input_tokens": 200_000})
 
-    from EvoScientist.EvoScientist import _get_default_middleware
+    from jw.agent import _get_default_middleware
 
     _get_default_middleware(for_async_subagent=True)
 

@@ -5,8 +5,8 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from EvoScientist.channels.base import ChannelError, OutboundMessage
-from EvoScientist.channels.dingtalk.channel import DingTalkChannel, DingTalkConfig
+from jw.channels.base import ChannelError, OutboundMessage
+from jw.channels.dingtalk.channel import DingTalkChannel, DingTalkConfig
 
 
 class TestDingTalkConfig:
@@ -76,7 +76,7 @@ class TestDingTalkChannel:
         assert result is False
 
     def test_capabilities(self):
-        from EvoScientist.channels.capabilities import DINGTALK
+        from jw.channels.capabilities import DINGTALK
 
         config = DingTalkConfig()
         channel = DingTalkChannel(config)
@@ -265,7 +265,7 @@ class TestDingTalkSendChunk:
 
 class TestDingTalkChannelRegistration:
     def test_dingtalk_registered(self):
-        from EvoScientist.channels.channel_manager import available_channels
+        from jw.channels.channel_manager import available_channels
 
         channels = available_channels()
         assert "dingtalk" in channels
@@ -273,20 +273,20 @@ class TestDingTalkChannelRegistration:
 
 class TestDingTalkProbe:
     async def test_missing_credentials(self):
-        from EvoScientist.channels.dingtalk.probe import validate_dingtalk
+        from jw.channels.dingtalk.probe import validate_dingtalk
 
         ok, msg = await validate_dingtalk("", "")
         assert ok is False
         assert "required" in msg
 
     async def test_missing_client_id(self):
-        from EvoScientist.channels.dingtalk.probe import validate_dingtalk
+        from jw.channels.dingtalk.probe import validate_dingtalk
 
         ok, _msg = await validate_dingtalk("", "secret")
         assert ok is False
 
     async def test_missing_client_secret(self):
-        from EvoScientist.channels.dingtalk.probe import validate_dingtalk
+        from jw.channels.dingtalk.probe import validate_dingtalk
 
         ok, _msg = await validate_dingtalk("id", "")
         assert ok is False

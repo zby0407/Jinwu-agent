@@ -3,7 +3,7 @@
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from EvoScientist.gateway import GraphTarget
+from jw.gateway import GraphTarget
 from tests.fakes import FakeCommandUI, FakeGraphGateway
 
 _TARGET = GraphTarget()
@@ -15,7 +15,7 @@ async def _compact(
     thread_id: str = "tid-1",
     input_tokens_hint: int | None = None,
 ):
-    from EvoScientist.cli.commands import compact_conversation
+    from jw.cli.commands import compact_conversation
 
     return await compact_conversation(
         graph_gateway=graph_gateway,
@@ -58,9 +58,9 @@ class TestCompactCutoffZero:
         model = SimpleNamespace(profile={"max_input_tokens": 1000})
 
         with (
-            patch("EvoScientist.EvoScientist._ensure_chat_model", return_value=model),
+            patch("jw.agent._ensure_chat_model", return_value=model),
             patch(
-                "EvoScientist.EvoScientist._get_default_backend",
+                "jw.agent._get_default_backend",
                 return_value=MagicMock(),
             ),
             patch(
@@ -105,9 +105,9 @@ class TestCompactNegligibleSavings:
         token_values = iter([22_200, 200, 22_000])
 
         with (
-            patch("EvoScientist.EvoScientist._ensure_chat_model", return_value=model),
+            patch("jw.agent._ensure_chat_model", return_value=model),
             patch(
-                "EvoScientist.EvoScientist._get_default_backend",
+                "jw.agent._get_default_backend",
                 return_value=MagicMock(),
             ),
             patch(
@@ -157,9 +157,9 @@ class TestCompactNegligibleSavings:
         token_values = iter([20_000, 5_000, 15_000, 500])
 
         with (
-            patch("EvoScientist.EvoScientist._ensure_chat_model", return_value=model),
+            patch("jw.agent._ensure_chat_model", return_value=model),
             patch(
-                "EvoScientist.EvoScientist._get_default_backend",
+                "jw.agent._get_default_backend",
                 return_value=MagicMock(),
             ),
             patch(
@@ -196,9 +196,9 @@ class TestCompactSuccess:
         model = SimpleNamespace(profile={"max_input_tokens": 100_000})
 
         with (
-            patch("EvoScientist.EvoScientist._ensure_chat_model", return_value=model),
+            patch("jw.agent._ensure_chat_model", return_value=model),
             patch(
-                "EvoScientist.EvoScientist._get_default_backend",
+                "jw.agent._get_default_backend",
                 return_value=MagicMock(),
             ),
             patch(
@@ -252,9 +252,9 @@ class TestCompactSuccess:
         token_values = iter([6000, 5000, 1000, 200])
 
         with (
-            patch("EvoScientist.EvoScientist._ensure_chat_model", return_value=model),
+            patch("jw.agent._ensure_chat_model", return_value=model),
             patch(
-                "EvoScientist.EvoScientist._get_default_backend",
+                "jw.agent._get_default_backend",
                 return_value=MagicMock(),
             ),
             patch(
@@ -314,9 +314,9 @@ class TestCompactSuccess:
         model = SimpleNamespace(profile={"max_input_tokens": 2_000})
 
         with (
-            patch("EvoScientist.EvoScientist._ensure_chat_model", return_value=model),
+            patch("jw.agent._ensure_chat_model", return_value=model),
             patch(
-                "EvoScientist.EvoScientist._get_default_backend",
+                "jw.agent._get_default_backend",
                 return_value=MagicMock(),
             ),
             patch(
@@ -346,7 +346,7 @@ class TestRenderCompactResult:
     """Test the Rich rendering of CompactResult."""
 
     def test_render_noop(self):
-        from EvoScientist.cli.commands import CompactResult, render_compact_result
+        from jw.cli.commands import CompactResult, render_compact_result
 
         result = CompactResult("noop", "Nothing to compact", tokens_before=500)
         text = render_compact_result(result)
@@ -355,7 +355,7 @@ class TestRenderCompactResult:
         assert "500" in plain
 
     def test_render_noop_no_tokens(self):
-        from EvoScientist.cli.commands import CompactResult, render_compact_result
+        from jw.cli.commands import CompactResult, render_compact_result
 
         result = CompactResult(
             "noop", "Nothing to compact — no messages in conversation."
@@ -364,7 +364,7 @@ class TestRenderCompactResult:
         assert "Nothing to compact" in text.plain
 
     def test_render_error(self):
-        from EvoScientist.cli.commands import CompactResult, render_compact_result
+        from jw.cli.commands import CompactResult, render_compact_result
 
         result = CompactResult("error", "Failed to read state: DB gone")
         text = render_compact_result(result)
@@ -375,9 +375,9 @@ class TestCompactCommandUI:
     """TUI-specific compact progress indicator behavior."""
 
     async def test_command_uses_tui_indicator_when_available(self):
-        from EvoScientist.cli.commands import CompactResult
-        from EvoScientist.commands.base import CommandContext
-        from EvoScientist.commands.implementation.session import CompactCommand
+        from jw.cli.commands import CompactResult
+        from jw.commands.base import CommandContext
+        from jw.commands.implementation.session import CompactCommand
 
         ui = FakeCommandUI()
         # input_tokens_hint must be set for update_status_after_compact to fire
@@ -398,15 +398,15 @@ class TestCompactCommandUI:
 
         with (
             patch(
-                "EvoScientist.cli.commands.compact_conversation",
+                "jw.cli.commands.compact_conversation",
                 AsyncMock(return_value=result),
             ),
             patch(
-                "EvoScientist.cli.commands.render_compact_result",
+                "jw.cli.commands.render_compact_result",
                 return_value="result-panel",
             ),
             patch(
-                "EvoScientist.cli.commands.build_compact_summary_renderable",
+                "jw.cli.commands.build_compact_summary_renderable",
                 return_value="summary-panel",
             ),
         ):
@@ -419,7 +419,7 @@ class TestCompactCommandUI:
         assert ui.updated_tokens == [1200]
 
     def test_render_ok(self):
-        from EvoScientist.cli.commands import CompactResult, render_compact_result
+        from jw.cli.commands import CompactResult, render_compact_result
 
         result = CompactResult(
             "ok",
@@ -444,7 +444,7 @@ class TestCompactCommandUI:
         assert "60% used" in plain
 
     def test_build_compact_summary_renderable(self):
-        from EvoScientist.cli.commands import (
+        from jw.cli.commands import (
             CompactResult,
             build_compact_summary_renderable,
         )
@@ -456,7 +456,7 @@ class TestCompactCommandUI:
         assert renderable.summary_text == "Summary body"
 
     def test_str_fallback(self):
-        from EvoScientist.cli.commands import CompactResult
+        from jw.cli.commands import CompactResult
 
         result = CompactResult("ok", "hello world")
         assert str(result) == "hello world"

@@ -15,8 +15,8 @@ from unittest.mock import MagicMock, patch
 import httpx
 import pytest
 
-from EvoScientist.config.settings import EvoScientistConfig
-from EvoScientist.langgraph_dev import manager
+from jw.config.settings import JWConfig
+from jw.langgraph_dev import manager
 
 
 @pytest.fixture(autouse=True)
@@ -110,17 +110,17 @@ class TestLanggraphCliResolution:
 
 
 class TestIsLanggraphDevRunning:
-    @patch("EvoScientist.langgraph_dev.manager.httpx.get")
+    @patch("jw.langgraph_dev.manager.httpx.get")
     def test_returns_false_on_connect_error(self, mock_get):
         mock_get.side_effect = httpx.ConnectError("refused")
         assert manager.is_langgraph_dev_running(port=6174) is False
 
-    @patch("EvoScientist.langgraph_dev.manager.httpx.get")
+    @patch("jw.langgraph_dev.manager.httpx.get")
     def test_returns_false_on_timeout(self, mock_get):
         mock_get.side_effect = httpx.TimeoutException("slow")
         assert manager.is_langgraph_dev_running(port=6174) is False
 
-    @patch("EvoScientist.langgraph_dev.manager.httpx.get")
+    @patch("jw.langgraph_dev.manager.httpx.get")
     def test_returns_true_on_200(self, mock_get):
         mock_get.return_value = MagicMock(status_code=200)
         assert manager.is_langgraph_dev_running(port=6174) is True
@@ -128,7 +128,7 @@ class TestIsLanggraphDevRunning:
         called_url = mock_get.call_args[0][0]
         assert called_url == "http://localhost:6174/ok"
 
-    @patch("EvoScientist.langgraph_dev.manager.httpx.get")
+    @patch("jw.langgraph_dev.manager.httpx.get")
     def test_returns_false_on_non_200(self, mock_get):
         mock_get.return_value = MagicMock(status_code=503)
         assert manager.is_langgraph_dev_running(port=6174) is False
@@ -140,12 +140,12 @@ class TestIsLanggraphDevRunning:
 
 
 class TestListPidsOnPort:
-    @patch("EvoScientist.langgraph_dev.manager.psutil.net_connections")
+    @patch("jw.langgraph_dev.manager.psutil.net_connections")
     def test_empty_when_no_connections(self, mock_net):
         mock_net.return_value = []
         assert manager._list_pids_on_port(6174) == []
 
-    @patch("EvoScientist.langgraph_dev.manager.psutil.net_connections")
+    @patch("jw.langgraph_dev.manager.psutil.net_connections")
     def test_returns_pid_for_matching_port(self, mock_net):
         mock_net.return_value = [
             SimpleNamespace(laddr=SimpleNamespace(port=6174), pid=12345),
@@ -154,7 +154,7 @@ class TestListPidsOnPort:
         result = manager._list_pids_on_port(6174)
         assert result == [12345]
 
-    @patch("EvoScientist.langgraph_dev.manager.psutil.net_connections")
+    @patch("jw.langgraph_dev.manager.psutil.net_connections")
     def test_filters_none_pid(self, mock_net):
         mock_net.return_value = [
             SimpleNamespace(laddr=SimpleNamespace(port=6174), pid=None),
@@ -284,8 +284,8 @@ class TestEnsureLanggraphDev:
     def test_starts_when_async_disabled_but_memory_workers_enabled(
         self, tmp_path, runtime_paths
     ):
-        """EvoMemory workers can require langgraph dev even without async subagents."""
-        cfg = EvoScientistConfig()
+        """JWMemory workers can require langgraph dev even without async subagents."""
+        cfg = JWConfig()
         cfg.enable_async_subagents = False
         cfg.memory_workers_enabled = True
         cfg.langgraph_dev_port = 6174
@@ -313,7 +313,7 @@ class TestEnsureLanggraphDev:
         self, tmp_path, runtime_paths
     ):
         """No background server is needed without async subagents, workers, or scheduler."""
-        cfg = EvoScientistConfig()
+        cfg = JWConfig()
         cfg.enable_async_subagents = False
         cfg.memory_workers_enabled = False
         cfg.enable_scheduler = False  # scheduler crons also require the backend
@@ -341,7 +341,7 @@ class TestEnsureLanggraphDev:
 
     def test_needs_langgraph_dev_for_scheduler_only(self):
         """enable_scheduler alone requires the backend (crons fire inside it)."""
-        cfg = EvoScientistConfig()
+        cfg = JWConfig()
         cfg.enable_async_subagents = False
         cfg.memory_workers_enabled = False
         cfg.memory_skill_synthesis_enabled = False
@@ -352,7 +352,7 @@ class TestEnsureLanggraphDev:
 
     def test_reuses_existing_healthy_subprocess(self, tmp_path, runtime_paths):
         """When the subprocess is already running, no new Popen call."""
-        cfg = EvoScientistConfig()
+        cfg = JWConfig()
         cfg.enable_async_subagents = True
         cfg.langgraph_dev_port = 6174
         cfg.langgraph_dev_file_persistence = True
@@ -483,7 +483,7 @@ class TestRotateLogIfNeeded:
         log = tmp_path / "langgraph_dev.log"
         log.write_bytes(b"x" * 10)
         with patch(
-            "EvoScientist.langgraph_dev.manager.os.replace",
+            "jw.langgraph_dev.manager.os.replace",
             side_effect=PermissionError("denied"),
         ):
             # Must not raise.
@@ -509,7 +509,7 @@ class TestStartLanggraphDevRotatesLog:
         # workspace_sidecar, lock_file) is rooted under ``tmp_path``.
         # ``dataclasses.replace(runtime_paths, …)`` would still carry
         # ``pid_file`` / ``workspace_sidecar`` / ``lock_file`` from the
-        # production object pointing at ``~/.config/evoscientist/``.
+        # production object pointing at ``~/.config/jw/``.
         pid_dir = tmp_path / "pids"
         monkeypatch.setattr(
             manager,
@@ -539,7 +539,7 @@ class TestStartLanggraphDevRotatesLog:
                 manager, "_packaged_langgraph_config", return_value=fake_config
             ),
             patch(
-                "EvoScientist.langgraph_dev.manager.subprocess.Popen",
+                "jw.langgraph_dev.manager.subprocess.Popen",
                 side_effect=FileNotFoundError("subprocess not available"),
             ),
         ):
@@ -550,7 +550,7 @@ class TestStartLanggraphDevRotatesLog:
         # After start attempt, the oversize log must have been rotated.
         assert (tmp_path / "langgraph_dev.log.1").exists()
         # And the redirect held — nothing leaked into the real
-        # ``~/.config/evoscientist/`` (we'd have observed a
+        # ``~/.config/jw/`` (we'd have observed a
         # ``langgraph_dev.log.1`` *next* to the user's real log, not
         # under ``tmp_path``). The ``pid_dir`` we redirected to must
         # exist, proving the function reached past the mkdir prelude.
@@ -602,7 +602,7 @@ class TestStartLanggraphDevCapturesLogOffset:
             raise FileNotFoundError("stop before real spawn")
 
         monkeypatch.setattr(
-            "EvoScientist.langgraph_dev.manager.subprocess.Popen", _fake_popen
+            "jw.langgraph_dev.manager.subprocess.Popen", _fake_popen
         )
         try:
             manager.start_langgraph_dev(workspace_dir=tmp_path)
@@ -625,7 +625,7 @@ class TestStartLanggraphDevCapturesLogOffset:
             raise FileNotFoundError("stop before real spawn")
 
         monkeypatch.setattr(
-            "EvoScientist.langgraph_dev.manager.subprocess.Popen", _fake_popen
+            "jw.langgraph_dev.manager.subprocess.Popen", _fake_popen
         )
         try:
             manager.start_langgraph_dev(workspace_dir=tmp_path)

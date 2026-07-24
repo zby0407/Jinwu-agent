@@ -1,4 +1,4 @@
-"""知识库存储与服务端到端测试：临时目录隔离 db，不碰真实 ~/.evoscientist。"""
+"""知识库存储与服务端到端测试：临时目录隔离 db，不碰真实 ~/.jw。"""
 
 from __future__ import annotations
 

@@ -1,6 +1,6 @@
 """Tests for pi session file reading."""
 
-from EvoScientist.pi_bridge.session import PiSessionReader
+from jw.pi_bridge.session import PiSessionReader
 
 
 class TestPiSessionReader:
