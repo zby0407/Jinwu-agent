@@ -37,6 +37,8 @@ bridge/package-lock.json
 workspace/
 skills/
 !EvoScientist/skills/
+!EvoScientist/subagents/*/skills/
+!EvoScientist/subagents/*/skills/**
 memory/
 !EvoScientist/memory/
 media/

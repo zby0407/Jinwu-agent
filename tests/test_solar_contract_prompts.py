@@ -12,7 +12,7 @@ def _read(relative: str) -> str:
 
 
 def test_solar_planner_requires_bind_validate_freeze_and_receipt():
-    text = _read("EvoScientist/subagents/solar_planner.yaml")
+    text = _read("EvoScientist/subagents/solar/solar_planner.yaml")
     sequence = (
         "research_planner_get_brief",
         "research_planner_validate_plan",
@@ -32,7 +32,7 @@ def test_parent_rejects_unreceipted_specialist_prose():
 
 
 def test_knowledge_agent_requires_bound_focus_and_confidence_cap():
-    text = _read("EvoScientist/subagents/solar_knowledge.yaml")
+    text = _read("EvoScientist/subagents/solar/solar_knowledge.yaml")
     assert "lit_bind_task → lit_search → lit_fetch" in text
     assert "hard maximum of medium" in text
     assert "A DOI identifies a source but is not promotion evidence" in text
@@ -41,7 +41,7 @@ def test_knowledge_agent_requires_bound_focus_and_confidence_cap():
 
 
 def test_evidence_agent_uses_hypothesis_contract_tools():
-    text = _read("EvoScientist/subagents/solar_evidence.yaml")
+    text = _read("EvoScientist/subagents/solar/solar_evidence.yaml")
     for name in (
         "scientific_hypothesis_bind_request",
         "scientific_hypothesis_bind_evidence",
@@ -52,7 +52,9 @@ def test_evidence_agent_uses_hypothesis_contract_tools():
 
 
 def test_solar_cycle_skill_routes_every_specialist_to_contract():
-    text = _read("EvoScientist/skills/solar-cycle/SKILL.md")
+    text = _read(
+        "EvoScientist/subagents/solar/skills/solar-cycle/SKILL.md"
+    )
     for specialist in (
         "solar-planner",
         "solar-hypothesis",
