@@ -31,16 +31,21 @@ bridge/package-lock.json
 .codex/
 .cursorrules
 .ruff_cache/
+.playwright-cli/
+.playwright-mcp/
+.tmp_new_agents/
 
 # Project specific
 .langgraph_api/
 workspace/
 skills/
-!EvoScientist/skills/
-!EvoScientist/subagents/*/skills/
-!EvoScientist/subagents/*/skills/**
+!jw/skills/
+!jw/subagents/*/skills/
+!jw/subagents/*/skills/**
+jw/subagents/*/skills/**/__pycache__/
+jw/subagents/*/skills/**/*.py[cod]
 memory/
-!EvoScientist/memory/
+!jw/memory/
 media/
 conversation_history/
 .deno_cache/
@@ -50,6 +55,17 @@ conversation_history/
 *meals/
 botpy.log
 large_tool_results/
+
+# WebUI
+node_modules/
+.next/
+out/
+coverage/
+.cache/
+.turbo/
+.eslintcache
+*.tsbuildinfo
+*.tgz
 
 # Research planner runtime artifacts
 planner/runs/

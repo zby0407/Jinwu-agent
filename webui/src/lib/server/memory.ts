@@ -1,9 +1,9 @@
-// Server-only helpers for EvoScientist's on-disk *memory* — the agent's
+// Server-only helpers for JW's on-disk *memory* — the agent's
 // long-lived, cross-session knowledge. Unlike the workspace (per-deployment,
 // resolved from a live sidecar) memory is GLOBAL: it lives under the data dir
-// EvoScientist's paths.py resolves to, by default `~/.evoscientist/memories`.
+// JW's paths.py resolves to, by default `~/.jw/memories`.
 //
-// Layout written by EvoScientist (all plain markdown):
+// Layout written by JW (all plain markdown):
 //   profile/SOUL.md, profile/USER_PROFILE.md, profile/RESEARCH_TASTE.md
 //   profile/projects/<project-id>/PROJECT_PROFILE.md
 //   ideation-memory.md, experiment-memory.md            (evo-memory skill)
@@ -23,28 +23,26 @@ import type { ObsGraphData, ObsNode, ObsEdge } from "@/lib/observationGraph";
 // Re-export so memory API routes can share the workspace cross-origin guard.
 export { isCrossOrigin } from "@/lib/server/workspace";
 
-/** EvoScientist's global data dir — `~/.evoscientist` by default (paths.py
- *  DATA_DIR), relocatable via EVOSCIENTIST_DATA_DIR. Mirrors skills.ts so both
+/** JW's global data dir — `~/.jw` by default (paths.py
+ *  DATA_DIR), relocatable via JW_DATA_DIR. Mirrors skills.ts so both
  *  resolve the backend's data root the same way. */
 function expandHome(p: string): string {
   return p.startsWith("~") ? join(homedir(), p.slice(1)) : resolve(p);
 }
 
 function globalDataDir(): string {
-  const env = process.env.EVOSCIENTIST_DATA_DIR;
+  const env = process.env.agent_DATA_DIR;
   if (env && env.trim()) return expandHome(env);
-  return join(homedir(), ".evoscientist");
+  return join(homedir(), ".jw");
 }
 
 /**
- * Lexical path of the memory directory, matching EvoScientist's paths.py:
- *   EVOSCIENTIST_MEMORIES_DIR > EVOSCIENTIST_MEMORY_DIR (legacy) > DATA_DIR/memories.
+ * Lexical path of the memory directory, matching JW's paths.py:
+ *   JW_MEMORIES_DIR > JW_MEMORY_DIR (legacy) > DATA_DIR/memories.
  * Does not touch the filesystem (the dir may not exist yet).
  */
 export function memoryDirPath(): string {
-  const env =
-    process.env.EVOSCIENTIST_MEMORIES_DIR ||
-    process.env.EVOSCIENTIST_MEMORY_DIR;
+  const env = process.env.agent_MEMORIES_DIR || process.env.agent_MEMORY_DIR;
   if (env && env.trim()) return expandHome(env);
   return join(globalDataDir(), "memories");
 }

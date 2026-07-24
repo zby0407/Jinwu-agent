@@ -1,6 +1,6 @@
-"""Tests for EvoScientist/stream/utils.py pure functions."""
+"""Tests for jw/stream/utils.py pure functions."""
 
-from EvoScientist.stream.utils import (
+from jw.stream.utils import (
     _shorten_path,
     count_lines,
     format_tool_compact,
@@ -168,8 +168,8 @@ class TestFormatToolCompact:
         assert write_result == "Updating memory"
 
     def test_profile_memory_inference_uses_profile_template_headings(self, monkeypatch):
-        from EvoScientist.middleware import memory
-        from EvoScientist.stream import utils
+        from jw.middleware import memory
+        from jw.stream import utils
 
         monkeypatch.setitem(
             memory.PROFILE_TEMPLATES,

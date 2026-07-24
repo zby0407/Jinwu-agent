@@ -1,4 +1,4 @@
-"""Tests for ``EvoScientist._maybe_swap_async_subagents``.
+"""Tests for ``JW._maybe_swap_async_subagents``.
 
 Covers the fallback / swap / strip-internal-flag paths that decide whether
 sub-agents are routed in-process (sync ``task`` tool) or to the langgraph
@@ -10,7 +10,7 @@ from __future__ import annotations
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from EvoScientist.EvoScientist import _maybe_swap_async_subagents
+from jw.agent import _maybe_swap_async_subagents
 
 
 def _sub(name: str, *, async_flag: bool, description: str = "desc") -> dict:
@@ -40,7 +40,7 @@ def test_returns_unchanged_when_async_disabled_and_strips_flag():
         _sub("planner-agent", async_flag=False),
         _sub("writing-agent", async_flag=True),
     ]
-    with patch("EvoScientist.EvoScientist._ensure_config", return_value=cfg):
+    with patch("jw.agent._ensure_config", return_value=cfg):
         out = _maybe_swap_async_subagents(subs)
     assert out is subs
     for s in out:
@@ -66,9 +66,9 @@ class TestFallbackPath:
             _sub("writing-agent", async_flag=True),
         ]
         with (
-            patch("EvoScientist.EvoScientist._ensure_config", return_value=cfg),
+            patch("jw.agent._ensure_config", return_value=cfg),
             patch(
-                "EvoScientist.langgraph_dev.manager.is_async_subagents_available",
+                "jw.langgraph_dev.manager.is_async_subagents_available",
                 return_value=False,
             ),
         ):
@@ -83,9 +83,9 @@ class TestFallbackPath:
             _sub("writing-agent", async_flag=True),
         ]
         with (
-            patch("EvoScientist.EvoScientist._ensure_config", return_value=cfg),
+            patch("jw.agent._ensure_config", return_value=cfg),
             patch(
-                "EvoScientist.langgraph_dev.manager.is_async_subagents_available",
+                "jw.langgraph_dev.manager.is_async_subagents_available",
                 return_value=False,
             ),
         ):
@@ -106,9 +106,9 @@ def test_no_async_flagged_subs_strips_and_returns():
         _sub("research-agent", async_flag=False),
     ]
     with (
-        patch("EvoScientist.EvoScientist._ensure_config", return_value=cfg),
+        patch("jw.agent._ensure_config", return_value=cfg),
         patch(
-            "EvoScientist.langgraph_dev.manager.is_async_subagents_available",
+            "jw.langgraph_dev.manager.is_async_subagents_available",
             return_value=True,
         ),
     ):
@@ -131,9 +131,9 @@ def test_swaps_async_flagged_subs():
         _sub("data-analysis-agent", async_flag=True, description="analyze"),
     ]
     with (
-        patch("EvoScientist.EvoScientist._ensure_config", return_value=cfg),
+        patch("jw.agent._ensure_config", return_value=cfg),
         patch(
-            "EvoScientist.langgraph_dev.manager.is_async_subagents_available",
+            "jw.langgraph_dev.manager.is_async_subagents_available",
             return_value=True,
         ),
     ):
@@ -163,9 +163,9 @@ def test_swap_uses_configured_port():
     cfg = SimpleNamespace(enable_async_subagents=True, langgraph_dev_port=9999)
     subs = [_sub("writing-agent", async_flag=True)]
     with (
-        patch("EvoScientist.EvoScientist._ensure_config", return_value=cfg),
+        patch("jw.agent._ensure_config", return_value=cfg),
         patch(
-            "EvoScientist.langgraph_dev.manager.is_async_subagents_available",
+            "jw.langgraph_dev.manager.is_async_subagents_available",
             return_value=True,
         ),
     ):
@@ -180,15 +180,15 @@ def test_swap_uses_configured_port():
 
 def test_maybe_swap_appends_watcher_middleware_when_enabled():
     """When async subagents are swapped, AsyncWatcherMiddleware must be appended."""
-    from EvoScientist.middleware.async_watcher import AsyncWatcherMiddleware
+    from jw.middleware.async_watcher import AsyncWatcherMiddleware
 
     cfg = SimpleNamespace(enable_async_subagents=True, langgraph_dev_port=6174)
 
     middleware: list = []
     with (
-        patch("EvoScientist.EvoScientist._ensure_config", return_value=cfg),
+        patch("jw.agent._ensure_config", return_value=cfg),
         patch(
-            "EvoScientist.langgraph_dev.manager.is_async_subagents_available",
+            "jw.langgraph_dev.manager.is_async_subagents_available",
             return_value=True,
         ),
     ):
@@ -205,9 +205,9 @@ def test_maybe_swap_skips_middleware_when_no_async_flagged():
 
     middleware: list = []
     with (
-        patch("EvoScientist.EvoScientist._ensure_config", return_value=cfg),
+        patch("jw.agent._ensure_config", return_value=cfg),
         patch(
-            "EvoScientist.langgraph_dev.manager.is_async_subagents_available",
+            "jw.langgraph_dev.manager.is_async_subagents_available",
             return_value=True,
         ),
     ):
@@ -223,9 +223,9 @@ def test_maybe_swap_skips_middleware_when_langgraph_unreachable():
 
     middleware: list = []
     with (
-        patch("EvoScientist.EvoScientist._ensure_config", return_value=cfg),
+        patch("jw.agent._ensure_config", return_value=cfg),
         patch(
-            "EvoScientist.langgraph_dev.manager.is_async_subagents_available",
+            "jw.langgraph_dev.manager.is_async_subagents_available",
             return_value=False,
         ),
     ):
@@ -240,9 +240,9 @@ def test_maybe_swap_no_middleware_arg_does_not_crash():
     cfg = SimpleNamespace(enable_async_subagents=True, langgraph_dev_port=6174)
 
     with (
-        patch("EvoScientist.EvoScientist._ensure_config", return_value=cfg),
+        patch("jw.agent._ensure_config", return_value=cfg),
         patch(
-            "EvoScientist.langgraph_dev.manager.is_async_subagents_available",
+            "jw.langgraph_dev.manager.is_async_subagents_available",
             return_value=True,
         ),
     ):

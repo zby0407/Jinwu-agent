@@ -11,9 +11,9 @@
 // view). So it ships a tiny pub/sub on top of localStorage: setting it notifies
 // in-page subscribers immediately (custom event) and other tabs via `storage`.
 
-const STORAGE_KEY = "jinwu-auto-notify";
-const REPORTED_STORAGE_KEY = "jinwu-auto-notify-reported";
-const CHANGE_EVENT = "jinwu-auto-notify-change";
+const STORAGE_KEY = "jw-auto-notify";
+const REPORTED_STORAGE_KEY = "jw-auto-notify-reported";
+const CHANGE_EVENT = "jw-auto-notify-change";
 
 function load(): Record<string, boolean> {
   if (typeof window === "undefined") return {};

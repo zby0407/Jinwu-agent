@@ -1,0 +1,23 @@
+{
+    "dependencies": ["."],
+    "graphs": {
+        "JW": "jw.langgraph_dev.main_graph:jw_agent",
+        "writing-agent": "jw.langgraph_dev.graphs:writing_agent",
+        "data-analysis-agent": "jw.langgraph_dev.graphs:data_analysis_agent",
+        "scheduler": "jw.langgraph_dev.graphs:scheduler",
+        "jwmemory-subagent-worker": "jw.langgraph_dev.graphs:jwmemory_subagent_worker",
+        "jwmemory-turn-worker": "jw.langgraph_dev.graphs:jwmemory_turn_worker",
+        "jwmemory-observation-linker": "jw.langgraph_dev.graphs:jwmemory_observation_linker",
+        "jwmemory-autoskills": "jw.langgraph_dev.graphs:jwmemory_autoskills"
+    },
+    "checkpointer": {
+        "backend": "custom",
+        "path": "jw.sessions.create_checkpointer_for_langgraph_api"
+    },
+    "config": {
+        "recursion_limit": 1000000
+    },
+    "http": {
+        "app": "jw.langgraph_dev.http:app"
+    }
+}

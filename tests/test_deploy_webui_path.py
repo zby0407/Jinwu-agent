@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from EvoScientist.deploy.webui import _WEBUI_DIST
+from jw.deploy.webui import _WEBUI_DIST
 
 
 def test_webui_dist_points_to_embedded_frontend() -> None:

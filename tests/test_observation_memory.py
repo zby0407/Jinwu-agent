@@ -20,20 +20,20 @@ from langchain_core.tools import BaseTool
 from langgraph.runtime import ExecutionInfo, Runtime
 from pydantic import BaseModel
 
-from EvoScientist.config import EvoScientistConfig, MemoryObservationWriter
-from EvoScientist.gateway import background_runs
-from EvoScientist.memory import (
+from jw.config import JWConfig, MemoryObservationWriter
+from jw.gateway import background_runs
+from jw.memory import (
     launch as memory_launch,
 )
-from EvoScientist.memory import (
+from jw.memory import (
     scheduler as memory_scheduler,
 )
-from EvoScientist.memory import (
+from jw.memory import (
     source_context,
     worker_activity,
 )
-from EvoScientist.memory.agents import memory_worker, observation_linker
-from EvoScientist.memory.observations import (
+from jw.memory.agents import memory_worker, observation_linker
+from jw.memory.observations import (
     MemoryScope,
     MemorySourceType,
     MemoryType,
@@ -49,8 +49,8 @@ from EvoScientist.memory.observations import (
     record_observation_file,
     search_observation_files,
 )
-from EvoScientist.memory.types import ObservationRelation
-from EvoScientist.middleware import memory_lifecycle
+from jw.memory.types import ObservationRelation
+from jw.middleware import memory_lifecycle
 
 
 def _read_memory_document(path) -> tuple[dict[str, Any], str]:
@@ -119,7 +119,7 @@ def _memory_source_context(
     workspace_dir,
     source_type: MemorySourceType = MemorySourceType.TURN,
     project_id: str = "P-project",
-    source_agent: str = "EvoScientist",
+    source_agent: str = "JW",
     session_id: str = "thread-1",
     trajectory: list[source_context.CompactMessage] | None = None,
 ) -> source_context.MemorySourceContext:
@@ -142,12 +142,12 @@ def _memory_worker_run(
     run_id: str = "run-1",
     workspace_dir: str = "/tmp/ws",
     project_id: str = "P-project",
-    source_agent: str = "EvoScientist",
+    source_agent: str = "JW",
     source_session_id: str = "thread-1",
     trajectory_digest: str = "digest-1",
 ) -> background_runs.BackgroundRun:
     return background_runs.BackgroundRun(
-        name="EvoMemory worker",
+        name="JWMemory worker",
         url="http://x",
         graph_id=memory_launch.TURN_MEMORY_WORKER_GRAPH_ID,
         thread_id=thread_id,
@@ -169,7 +169,7 @@ def _observation_linker_run(
     run_id: str = "linker-run",
 ) -> background_runs.BackgroundRun:
     return background_runs.BackgroundRun(
-        name="EvoMemory observation linker",
+        name="JWMemory observation linker",
         url="http://x",
         graph_id=memory_launch.OBSERVATION_LINKER_GRAPH_ID,
         thread_id=thread_id,
@@ -230,7 +230,7 @@ def _record_test_observation(
         scope=scope,
         source_type=MemorySourceType.TURN,
         source_session_id="thread-1",
-        source_agent="EvoScientist",
+        source_agent="JW",
     )
 
 
@@ -357,7 +357,7 @@ def test_link_observation_files_writes_frontmatter_and_dedupes(tmp_path):
         scope=MemoryScope.PROJECT,
         source_type=MemorySourceType.TURN,
         source_session_id="thread-1",
-        source_agent="EvoScientist",
+        source_agent="JW",
     )
     second = record_observation_file(
         memory_dir=memories,
@@ -369,7 +369,7 @@ def test_link_observation_files_writes_frontmatter_and_dedupes(tmp_path):
         scope=MemoryScope.PROJECT,
         source_type=MemorySourceType.TURN,
         source_session_id="thread-1",
-        source_agent="EvoScientist",
+        source_agent="JW",
     )
     first_path = memories / first["path"].removeprefix("/memories/")
     second_path = memories / second["path"].removeprefix("/memories/")
@@ -444,7 +444,7 @@ def test_link_observation_files_serializes_concurrent_frontmatter_updates(tmp_pa
         scope=MemoryScope.PROJECT,
         source_type=MemorySourceType.TURN,
         source_session_id="thread-1",
-        source_agent="EvoScientist",
+        source_agent="JW",
     )
     targets = [
         record_observation_file(
@@ -457,7 +457,7 @@ def test_link_observation_files_serializes_concurrent_frontmatter_updates(tmp_pa
             scope=MemoryScope.PROJECT,
             source_type=MemorySourceType.TURN,
             source_session_id="thread-1",
-            source_agent="EvoScientist",
+            source_agent="JW",
         )
         for index in range(12)
     ]
@@ -507,7 +507,7 @@ def test_read_and_search_surface_related_observations(tmp_path):
         scope=MemoryScope.PROJECT,
         source_type=MemorySourceType.TURN,
         source_session_id="thread-1",
-        source_agent="EvoScientist",
+        source_agent="JW",
     )
     target = record_observation_file(
         memory_dir=memories,
@@ -519,7 +519,7 @@ def test_read_and_search_surface_related_observations(tmp_path):
         scope=MemoryScope.PROJECT,
         source_type=MemorySourceType.TURN,
         source_session_id="thread-1",
-        source_agent="EvoScientist",
+        source_agent="JW",
     )
     link_observation_files(
         memory_dir=memories,
@@ -583,7 +583,7 @@ def test_read_and_search_resolve_related_observations_from_other_projects(tmp_pa
         scope=MemoryScope.GLOBAL,
         source_type=MemorySourceType.TURN,
         source_session_id="thread-1",
-        source_agent="EvoScientist",
+        source_agent="JW",
     )
     target = record_observation_file(
         memory_dir=memories,
@@ -595,7 +595,7 @@ def test_read_and_search_resolve_related_observations_from_other_projects(tmp_pa
         scope=MemoryScope.PROJECT,
         source_type=MemorySourceType.TURN,
         source_session_id="thread-2",
-        source_agent="EvoScientist",
+        source_agent="JW",
     )
     link_observation_files(
         memory_dir=memories,
@@ -637,7 +637,7 @@ def test_malformed_observation_frontmatter_is_skipped(tmp_path):
         scope=MemoryScope.PROJECT,
         source_type=MemorySourceType.TURN,
         source_session_id="thread-1",
-        source_agent="EvoScientist",
+        source_agent="JW",
     )
     global_dir = memories / "observations" / "global"
     global_dir.mkdir(parents=True, exist_ok=True)
@@ -692,7 +692,7 @@ def test_legacy_observation_source_without_session_id_still_reads(tmp_path):
         "scope: global\n"
         "source:\n"
         "  type: turn\n"
-        "  agent: EvoScientist\n"
+        "  agent: jw\n"
         "---\n"
         "Legacy body text.\n",
         encoding="utf-8",
@@ -730,7 +730,7 @@ def test_unquoted_naive_yaml_timestamp_does_not_claim_utc(tmp_path):
         "scope: global\n"
         "source:\n"
         "  type: turn\n"
-        "  agent: EvoScientist\n"
+        "  agent: jw\n"
         "  session_id: thread-1\n"
         "---\n"
         "Legacy body text.\n",
@@ -755,7 +755,7 @@ def test_unquoted_aware_yaml_timestamp_normalizes_to_utc(tmp_path):
         "scope: global\n"
         "source:\n"
         "  type: turn\n"
-        "  agent: EvoScientist\n"
+        "  agent: jw\n"
         "  session_id: thread-1\n"
         "---\n"
         "Legacy body text.\n",
@@ -781,7 +781,7 @@ def test_link_observation_files_keeps_supersedes_directional(tmp_path):
         scope=MemoryScope.PROJECT,
         source_type=MemorySourceType.TURN,
         source_session_id="thread-1",
-        source_agent="EvoScientist",
+        source_agent="JW",
     )
     target = record_observation_file(
         memory_dir=memories,
@@ -793,7 +793,7 @@ def test_link_observation_files_keeps_supersedes_directional(tmp_path):
         scope=MemoryScope.PROJECT,
         source_type=MemorySourceType.TURN,
         source_session_id="thread-1",
-        source_agent="EvoScientist",
+        source_agent="JW",
     )
 
     result = link_observation_files(
@@ -849,7 +849,7 @@ def test_link_observations_tool_uses_runtime_project_id(tmp_path):
         scope=MemoryScope.PROJECT,
         source_type=MemorySourceType.TURN,
         source_session_id="thread-1",
-        source_agent="EvoScientist",
+        source_agent="JW",
     )
     second = record_observation_file(
         memory_dir=memories,
@@ -861,7 +861,7 @@ def test_link_observations_tool_uses_runtime_project_id(tmp_path):
         scope=MemoryScope.PROJECT,
         source_type=MemorySourceType.TURN,
         source_session_id="thread-1",
-        source_agent="EvoScientist",
+        source_agent="JW",
     )
     tool = create_link_observations_tool(
         memory_dir=memories,
@@ -869,7 +869,7 @@ def test_link_observations_tool_uses_runtime_project_id(tmp_path):
     )
     runtime = _tool_runtime(
         tool,
-        config={"configurable": {"evomemory_project_id": "P-runtime"}},
+        config={"configurable": {"jwmemory_project_id": "P-runtime"}},
     )
 
     payload = json.loads(
@@ -902,7 +902,7 @@ def test_observation_linker_finish_counts_successful_relations_once(tmp_path):
         scope=MemoryScope.PROJECT,
         source_type=MemorySourceType.TURN,
         source_session_id="thread-1",
-        source_agent="EvoScientist",
+        source_agent="JW",
     )
     second = record_observation_file(
         memory_dir=memories,
@@ -914,7 +914,7 @@ def test_observation_linker_finish_counts_successful_relations_once(tmp_path):
         scope=MemoryScope.PROJECT,
         source_type=MemorySourceType.TURN,
         source_session_id="thread-1",
-        source_agent="EvoScientist",
+        source_agent="JW",
     )
     run = _observation_linker_run()
     hooks = memory_launch._observation_linker_launch_hooks(memories)
@@ -958,7 +958,7 @@ def test_observation_linker_finish_does_not_count_reason_only_updates(tmp_path):
         scope=MemoryScope.PROJECT,
         source_type=MemorySourceType.TURN,
         source_session_id="thread-1",
-        source_agent="EvoScientist",
+        source_agent="JW",
     )
     second = record_observation_file(
         memory_dir=memories,
@@ -970,7 +970,7 @@ def test_observation_linker_finish_does_not_count_reason_only_updates(tmp_path):
         scope=MemoryScope.PROJECT,
         source_type=MemorySourceType.TURN,
         source_session_id="thread-1",
-        source_agent="EvoScientist",
+        source_agent="JW",
     )
     link_observation_files(
         memory_dir=memories,
@@ -1012,7 +1012,7 @@ def test_read_and_search_observation_tools_use_runtime_project_id(tmp_path):
         scope=MemoryScope.PROJECT,
         source_type=MemorySourceType.TURN,
         source_session_id="thread-1",
-        source_agent="EvoScientist",
+        source_agent="JW",
     )
 
     search_tool = create_search_observations_tool(
@@ -1021,7 +1021,7 @@ def test_read_and_search_observation_tools_use_runtime_project_id(tmp_path):
     )
     search_runtime = _tool_runtime(
         search_tool,
-        config={"configurable": {"evomemory_project_id": "P-runtime"}},
+        config={"configurable": {"jwmemory_project_id": "P-runtime"}},
     )
     search_payload = json.loads(
         search_tool.run(
@@ -1042,7 +1042,7 @@ def test_read_and_search_observation_tools_use_runtime_project_id(tmp_path):
     )
     read_runtime = _tool_runtime(
         read_tool,
-        config={"configurable": {"evomemory_project_id": "P-runtime"}},
+        config={"configurable": {"jwmemory_project_id": "P-runtime"}},
     )
     read_payload = json.loads(
         read_tool.run(
@@ -1334,7 +1334,7 @@ def test_search_observation_files_returns_no_low_confidence_fallback(tmp_path):
 
 
 def test_record_observation_tool_can_use_worker_config_source(tmp_path):
-    from EvoScientist.middleware.memory import create_memory_middleware
+    from jw.middleware.memory import create_memory_middleware
 
     workspace = tmp_path / "workspace"
     workspace.mkdir()
@@ -1342,7 +1342,7 @@ def test_record_observation_tool_can_use_worker_config_source(tmp_path):
         str(tmp_path / "memories"),
         workspace_dir=workspace,
         source_type=MemorySourceType.SUBAGENT,
-        source_agent="evomemory-subagent-worker",
+        source_agent="jwmemory-subagent-worker",
     )
     tool = _tool_by_name(middleware.tools, "record_observation")
     payload = _record_observation_payload(
@@ -1352,10 +1352,10 @@ def test_record_observation_tool_can_use_worker_config_source(tmp_path):
             tool_call_id="tool-1",
             config={
                 "configurable": {
-                    "evomemory_project_id": "P-project",
-                    "evomemory_source_agent": "writing-agent",
-                    "evomemory_source_session_id": "thread-source",
-                    "evomemory_trajectory_digest": "digest-source",
+                    "jwmemory_project_id": "P-project",
+                    "jwmemory_source_agent": "writing-agent",
+                    "jwmemory_source_session_id": "thread-source",
+                    "jwmemory_trajectory_digest": "digest-source",
                 }
             },
         ),
@@ -1385,7 +1385,7 @@ def test_record_observation_tool_can_use_worker_config_source(tmp_path):
 
 
 def test_record_observation_tool_schema_hides_runtime(tmp_path):
-    from EvoScientist.middleware.memory import create_memory_middleware
+    from jw.middleware.memory import create_memory_middleware
 
     workspace = tmp_path / "workspace"
     workspace.mkdir()
@@ -1410,7 +1410,7 @@ def test_record_observation_tool_schema_hides_runtime(tmp_path):
 
 
 def test_record_observation_tool_keeps_injected_runtime_through_validation(tmp_path):
-    from EvoScientist.middleware.memory import create_memory_middleware
+    from jw.middleware.memory import create_memory_middleware
 
     workspace = tmp_path / "workspace"
     workspace.mkdir()
@@ -1418,7 +1418,7 @@ def test_record_observation_tool_keeps_injected_runtime_through_validation(tmp_p
         str(tmp_path / "memories"),
         workspace_dir=workspace,
         source_type=MemorySourceType.TURN,
-        source_agent="EvoScientist",
+        source_agent="JW",
     )
     tool = _tool_by_name(middleware.tools, "record_observation")
     payload = _record_observation_payload(
@@ -1445,14 +1445,14 @@ def test_record_observation_tool_keeps_injected_runtime_through_validation(tmp_p
         "scope": "global",
         "source": {
             "type": "turn",
-            "agent": "EvoScientist",
+            "agent": "JW",
             "session_id": "thread-from-runtime",
         },
     }
 
 
 def test_record_observation_tool_skips_without_runtime_thread_id(tmp_path):
-    from EvoScientist.middleware.memory import create_memory_middleware
+    from jw.middleware.memory import create_memory_middleware
 
     workspace = tmp_path / "workspace"
     workspace.mkdir()
@@ -1483,7 +1483,7 @@ def test_record_observation_tool_skips_without_runtime_thread_id(tmp_path):
 
 
 def test_direct_record_observation_queues_linking_until_worker_finish(tmp_path):
-    from EvoScientist.middleware.memory import create_memory_middleware
+    from jw.middleware.memory import create_memory_middleware
 
     memory_dir = tmp_path / "memories"
     workspace = tmp_path / "workspace"
@@ -1551,7 +1551,7 @@ def test_turn_compaction_hides_task_call_and_keeps_orchestrator_response():
         HumanMessage("please delegate"),
         AIMessage(
             content="",
-            name="EvoScientist",
+            name="JW",
             tool_calls=[
                 {
                     "name": "task",
@@ -1561,14 +1561,12 @@ def test_turn_compaction_hides_task_call_and_keeps_orchestrator_response():
             ],
         ),
         ToolMessage("raw subagent result body", tool_call_id="task-1"),
-        AIMessage(
-            "final orchestrator text with summarized finding", name="EvoScientist"
-        ),
+        AIMessage("final orchestrator text with summarized finding", name="JW"),
     ]
 
     compact = source_context._compact_turn_messages(
         messages,
-        source_agent="EvoScientist",
+        source_agent="JW",
     )
 
     assert compact == [
@@ -1576,7 +1574,7 @@ def test_turn_compaction_hides_task_call_and_keeps_orchestrator_response():
         {
             "role": "ai",
             "content": "final orchestrator text with summarized finding",
-            "name": "EvoScientist",
+            "name": "JW",
         },
     ]
 
@@ -1586,7 +1584,7 @@ def test_turn_compaction_keeps_direct_tool_results_with_tool_names():
         HumanMessage("run a check"),
         AIMessage(
             content="",
-            name="EvoScientist",
+            name="JW",
             tool_calls=[
                 {
                     "name": "execute",
@@ -1602,12 +1600,12 @@ def test_turn_compaction_keeps_direct_tool_results_with_tool_names():
         ),
         ToolMessage("pytest passed", tool_call_id="exec-1", name="execute"),
         ToolMessage("raw subagent result body", tool_call_id="task-1", name="task"),
-        AIMessage("final answer", name="EvoScientist"),
+        AIMessage("final answer", name="JW"),
     ]
 
     compact = source_context._compact_turn_messages(
         messages,
-        source_agent="EvoScientist",
+        source_agent="JW",
     )
 
     assert compact == [
@@ -1615,7 +1613,7 @@ def test_turn_compaction_keeps_direct_tool_results_with_tool_names():
         {
             "role": "ai",
             "content": "",
-            "name": "EvoScientist",
+            "name": "JW",
             "tool_calls": [
                 {
                     "name": "execute",
@@ -1632,26 +1630,26 @@ def test_turn_compaction_keeps_direct_tool_results_with_tool_names():
             "tool_call_id": "exec-1",
             "status": "success",
         },
-        {"role": "ai", "content": "final answer", "name": "EvoScientist"},
+        {"role": "ai", "content": "final answer", "name": "JW"},
     ]
 
 
 def test_turn_compaction_uses_latest_user_turn_only():
     messages = [
         HumanMessage("old request"),
-        AIMessage("old answer", name="EvoScientist"),
+        AIMessage("old answer", name="JW"),
         HumanMessage("current request"),
-        AIMessage("current answer", name="EvoScientist"),
+        AIMessage("current answer", name="JW"),
     ]
 
     compact = source_context._compact_turn_messages(
         messages,
-        source_agent="EvoScientist",
+        source_agent="JW",
     )
 
     assert compact == [
         {"role": "human", "content": "current request"},
-        {"role": "ai", "content": "current answer", "name": "EvoScientist"},
+        {"role": "ai", "content": "current answer", "name": "JW"},
     ]
 
 
@@ -1670,12 +1668,12 @@ async def test_lifecycle_schedules_turn_worker_without_awaiting(tmp_path, monkey
         "alaunch_background_run",
         fake_launch,
     )
-    middleware = memory_lifecycle.EvoMemoryLifecycleMiddleware(
+    middleware = memory_lifecycle.JWMemoryLifecycleMiddleware(
         memory_dir=memory_dir,
         workspace_dir=workspace_dir,
         project_id="P-project",
         source_type=MemorySourceType.TURN,
-        source_agent="EvoScientist",
+        source_agent="JW",
         memory_scheduler=coordinator,
     )
     runtime = _runtime("thread-1")
@@ -1696,7 +1694,7 @@ async def test_lifecycle_schedules_turn_worker_without_awaiting(tmp_path, monkey
     assert len(calls) == 1
     request, hooks = calls[0]
     assert request.graph_id == memory_launch.TURN_MEMORY_WORKER_GRAPH_ID
-    assert request.name == "EvoMemory worker"
+    assert request.name == "JWMemory worker"
     assert hooks.on_before_run is not None
     assert hooks.on_started is not None
     assert hooks.on_finished is not None
@@ -1719,16 +1717,16 @@ def test_lifecycle_skips_memory_worker_without_runtime_thread_id(tmp_path, monke
         raise AssertionError("worker should not launch without a source thread id")
 
     monkeypatch.setattr(memory_lifecycle, "launch_memory_worker", fail_launch)
-    middleware = memory_lifecycle.EvoMemoryLifecycleMiddleware(
+    middleware = memory_lifecycle.JWMemoryLifecycleMiddleware(
         memory_dir=tmp_path / "memories",
         workspace_dir=tmp_path / "workspace",
         project_id="P-project",
         source_type=MemorySourceType.TURN,
-        source_agent="EvoScientist",
+        source_agent="JW",
     )
 
     middleware.after_agent(
-        {"messages": [HumanMessage("hi"), AIMessage("done", name="EvoScientist")]},
+        {"messages": [HumanMessage("hi"), AIMessage("done", name="JW")]},
         _runtime(),
     )
 
@@ -1739,10 +1737,10 @@ def test_subagent_summary_writer_uses_worker_metadata(tmp_path, monkeypatch):
         memory_worker,
         "_current_configurable",
         lambda: {
-            "evomemory_source_session_id": "thread-1",
-            "evomemory_source_agent": "writing-agent",
-            "evomemory_project_id": "P-project",
-            "evomemory_trajectory_digest": "digest-1",
+            "jwmemory_source_session_id": "thread-1",
+            "jwmemory_source_agent": "writing-agent",
+            "jwmemory_project_id": "P-project",
+            "jwmemory_trajectory_digest": "digest-1",
         },
     )
     middleware = memory_worker._SubagentSummaryWriterMiddleware(
@@ -1804,7 +1802,7 @@ def test_memory_worker_run_payload_use_server_thread_id_and_source_metadata(
 
     assert kwargs["assistant_id"] == memory_launch.SUBAGENT_MEMORY_WORKER_GRAPH_ID
     assert kwargs["metadata"] == {
-        "run_kind": "evomemory_subagent_worker",
+        "run_kind": "jwmemory_subagent_worker",
         "source_session_id": "thread-1",
         "source_agent": "writing-agent",
         "project_id": "P-project",
@@ -1814,14 +1812,12 @@ def test_memory_worker_run_payload_use_server_thread_id_and_source_metadata(
     configurable = kwargs["config"]["configurable"]
     assert configurable["thread_id"] == "worker-thread"
     assert {
-        key: value
-        for key, value in configurable.items()
-        if key.startswith("evomemory_")
+        key: value for key, value in configurable.items() if key.startswith("jwmemory_")
     } == {
-        "evomemory_source_session_id": "thread-1",
-        "evomemory_source_agent": "writing-agent",
-        "evomemory_project_id": "P-project",
-        "evomemory_trajectory_digest": source_context._trajectory_digest(trajectory),
+        "jwmemory_source_session_id": "thread-1",
+        "jwmemory_source_agent": "writing-agent",
+        "jwmemory_project_id": "P-project",
+        "jwmemory_trajectory_digest": source_context._trajectory_digest(trajectory),
     }
 
 
@@ -1910,7 +1906,7 @@ def test_memory_worker_linker_waits_for_active_workers_and_batches_observations(
             thread_id="thread-2",
             run_id="run-2",
             workspace_dir=str(workspace_dir),
-            source_agent="EvoScientist",
+            source_agent="JW",
             source_session_id="session-b",
             trajectory_digest="digest-b",
         )
@@ -2144,11 +2140,11 @@ def test_observation_linker_launch_request_encodes_batch_context(tmp_path):
     kwargs = request.run_payload("linker-thread")
 
     assert request.graph_id == memory_launch.OBSERVATION_LINKER_GRAPH_ID
-    assert request.name == "EvoMemory observation linker"
+    assert request.name == "JWMemory observation linker"
     configurable = kwargs["config"]["configurable"]
     assert configurable["thread_id"] == "linker-thread"
-    assert configurable["evomemory_project_id"] == "P-project"
-    assert json.loads(configurable["evomemory_observation_ids"]) == [
+    assert configurable["jwmemory_project_id"] == "P-project"
+    assert json.loads(configurable["jwmemory_observation_ids"]) == [
         "O-2",
         "O-1",
     ]
@@ -2166,7 +2162,7 @@ def test_observation_linker_does_not_launch_when_observations_disabled(
     monkeypatch.setattr(
         memory_launch,
         "get_effective_config",
-        lambda: EvoScientistConfig(memory_observations_enabled=False),
+        lambda: JWConfig(memory_observations_enabled=False),
     )
     launch_call = MagicMock()
     monkeypatch.setattr(memory_launch, "launch_background_run", launch_call)
@@ -2189,7 +2185,7 @@ async def test_async_observation_linker_does_not_launch_when_observations_disabl
     monkeypatch.setattr(
         memory_launch,
         "get_effective_config",
-        lambda: EvoScientistConfig(memory_observations_enabled=False),
+        lambda: JWConfig(memory_observations_enabled=False),
     )
     launch_call = MagicMock()
     monkeypatch.setattr(memory_launch, "alaunch_background_run", launch_call)
@@ -2251,9 +2247,9 @@ def test_structured_memory_worker_disables_thinking(monkeypatch, tmp_path):
 
     import deepagents
 
-    from EvoScientist.memory.agents import _factory
+    from jw.memory.agents import _factory
 
-    agent_module = importlib.import_module("EvoScientist.EvoScientist")
+    agent_module = importlib.import_module("jw.agent")
 
     class FakeModel:
         def __init__(self):
@@ -2270,9 +2266,7 @@ def test_structured_memory_worker_disables_thinking(monkeypatch, tmp_path):
 
     class FakeAgent:
         def with_config(self, config):
-            assert config == {
-                "recursion_limit": _factory.MEMORY_AGENT_RECURSION_LIMIT
-            }
+            assert config == {"recursion_limit": _factory.MEMORY_AGENT_RECURSION_LIMIT}
             return self
 
     captured = {}
@@ -2470,7 +2464,7 @@ def test_memory_worker_skips_when_langgraph_dev_unavailable(tmp_path, monkeypatc
         background_runs, "default_background_run_url", lambda: "http://x"
     )
     monkeypatch.setattr(
-        "EvoScientist.langgraph_dev.manager.is_langgraph_dev_running",
+        "jw.langgraph_dev.manager.is_langgraph_dev_running",
         lambda **_kwargs: False,
     )
 
@@ -2479,15 +2473,15 @@ def test_memory_worker_skips_when_langgraph_dev_unavailable(tmp_path, monkeypatc
 
     monkeypatch.setattr("langgraph_sdk.get_sync_client", fail_get_sync_client)
 
-    middleware = memory_lifecycle.EvoMemoryLifecycleMiddleware(
+    middleware = memory_lifecycle.JWMemoryLifecycleMiddleware(
         memory_dir=tmp_path / "memories",
         workspace_dir=tmp_path / "workspace",
         project_id="P-project",
         source_type=MemorySourceType.TURN,
-        source_agent="EvoScientist",
+        source_agent="JW",
     )
     middleware.after_agent(
-        {"messages": [HumanMessage("hi"), AIMessage("done", name="EvoScientist")]},
+        {"messages": [HumanMessage("hi"), AIMessage("done", name="JW")]},
         _runtime("thread-1"),
     )
 
@@ -2502,7 +2496,7 @@ def test_memory_worker_marks_active_status(tmp_path, monkeypatch):
         lambda _workspace_dir: "/tmp/ws",
     )
     monkeypatch.setattr(
-        "EvoScientist.langgraph_dev.manager.is_langgraph_dev_running",
+        "jw.langgraph_dev.manager.is_langgraph_dev_running",
         lambda **_kwargs: True,
     )
 
@@ -2532,9 +2526,9 @@ def test_memory_worker_marks_active_status(tmp_path, monkeypatch):
 
     assert worker_activity.memory_worker_status().is_running is True
     expected_metadata = {
-        "run_kind": "evomemory_turn_worker",
+        "run_kind": "jwmemory_turn_worker",
         "source_session_id": "thread-1",
-        "source_agent": "EvoScientist",
+        "source_agent": "JW",
         "project_id": "P-project",
         "trajectory_digest": source_context._trajectory_digest(trajectory),
         "workspace_dir": "/tmp/ws",
@@ -2593,7 +2587,7 @@ async def test_async_memory_worker_offloads_blocking_work(tmp_path, monkeypatch)
         )
 
     monkeypatch.setattr(
-        "EvoScientist.langgraph_dev.manager.is_langgraph_dev_running",
+        "jw.langgraph_dev.manager.is_langgraph_dev_running",
         fake_is_running,
     )
     monkeypatch.setattr(memory_launch, "snapshot_memory_outputs", fake_snapshot)
@@ -2684,7 +2678,7 @@ def test_memory_worker_observed_outputs_includes_active_worker_delta(tmp_path):
         scope=MemoryScope.PROJECT,
         source_type=MemorySourceType.TURN,
         source_session_id="thread-1",
-        source_agent="EvoScientist",
+        source_agent="JW",
     )
 
     status = worker_activity.memory_worker_observed_outputs()

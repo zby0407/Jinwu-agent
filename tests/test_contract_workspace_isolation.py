@@ -3,11 +3,11 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from EvoScientist import paths
-from EvoScientist.tools import automatic_experiment as experiment_tools
-from EvoScientist.tools import research_planner as planner_tools
-from EvoScientist.tools import scientific_hypothesis as hypothesis_tools
-from EvoScientist.workspaces import ensure_thread_workspace
+from jw import paths
+from jw.tools import automatic_experiment as experiment_tools
+from jw.tools import research_planner as planner_tools
+from jw.tools import scientific_hypothesis as hypothesis_tools
+from jw.workspaces import ensure_thread_workspace
 from scientific_hypothesis.contracts import canonical_json_sha256
 
 QUESTION_A = (
@@ -15,15 +15,12 @@ QUESTION_A = (
     "这是方法测试，不代表真实太阳活动结论。"
 )
 QUESTION_B = (
-    "固定随机种子 7，生成两组独立正态合成样本并比较方差差异；"
-    "这是第二个隔离方法测试。"
+    "固定随机种子 7，生成两组独立正态合成样本并比较方差差异；这是第二个隔离方法测试。"
 )
 
 
 def _task_config(tmp_path: Path, monkeypatch, thread_id: str):
-    monkeypatch.setenv(
-        "EVOSCIENTIST_WORKSPACE_BINDINGS_DIR", str(tmp_path / "registry")
-    )
+    monkeypatch.setenv("JW_WORKSPACE_BINDINGS_DIR", str(tmp_path / "registry"))
     monkeypatch.setattr(paths, "WORKSPACE_ROOT", tmp_path)
     binding = ensure_thread_workspace(thread_id, tmp_path)
     config = {
@@ -52,8 +49,9 @@ def test_planner_contract_state_and_freeze_root_are_task_scoped(
         )
     )
     sha_a = brief_a["request_sha256"]
-    assert planner_tools._lookup_request("", config_a)["research_question"] != (
-        planner_tools._lookup_request("", config_b)["research_question"]
+    assert (
+        planner_tools._lookup_request("", config_a)["research_question"]
+        != (planner_tools._lookup_request("", config_b)["research_question"])
     )
 
     planner_tools._VALIDATED_RESPONSES[("planner-a", sha_a)] = {"checked": True}
@@ -110,9 +108,7 @@ def test_hypothesis_state_and_freeze_root_are_task_scoped(
         captured["path_root"] = path_root
         return {"status": "frozen_and_valid"}
 
-    monkeypatch.setattr(
-        hypothesis_tools, "freeze_hypothesis_portfolio", fake_freeze
-    )
+    monkeypatch.setattr(hypothesis_tools, "freeze_hypothesis_portfolio", fake_freeze)
     outcome = json.loads(
         hypothesis_tools.scientific_hypothesis_freeze.invoke({}, config=config_a)
     )
@@ -128,9 +124,7 @@ def test_automatic_experiment_run_is_created_inside_task_workspace(
     tmp_path: Path, monkeypatch
 ) -> None:
     binding, config = _task_config(tmp_path, monkeypatch, "experiment-a")
-    repository_runs = (
-        Path(experiment_tools._PROJECT_ROOT) / "experiment" / "runs"
-    )
+    repository_runs = Path(experiment_tools._PROJECT_ROOT) / "experiment" / "runs"
     before = (
         {path.name for path in repository_runs.iterdir()}
         if repository_runs.is_dir()

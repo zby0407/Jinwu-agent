@@ -1,7 +1,7 @@
 // `/model` command for the chat composer.
 //
 // The actual model switching is handled server-side by the backend's
-// `EvoScientist/middleware/configurable_model.py` middleware, which reads
+// `jw/middleware/configurable_model.py` middleware, which reads
 // `model` / `model_provider` from each run's `RunnableConfig.configurable`.
 // Note: backend path kept unchanged for compatibility.
 // We just need to inject those fields into `stream.submit({ config: ... })`
@@ -9,7 +9,7 @@
 // the choice should follow the conversation, not the browser tab).
 //
 // Listing available models: the backend's authoritative registry lives in
-// `EvoScientist/llm/models.py` and is exposed at `GET /api/models` (mounted
+// `jw/llm/models.py` and is exposed at `GET /api/models` (mounted
 // via langgraph.json). `useAvailableModels` fetches that endpoint at runtime;
 // `COMMON_MODELS` below is a fallback for older deployments or network
 // failures. Names outside the list are NOT rejected — `/model <name>` passes
@@ -38,7 +38,7 @@ export interface CommonModelEntry extends ModelOverride {
 
 /**
  * Seed list for the `/model` picker. Not exhaustive — the backend's
- * `EvoScientist/llm/models.py` (backend path) has the full registry. This list is the
+ * `jw/llm/models.py` (backend path) has the full registry. This list is the
  * "I want to switch fast, don't make me look it up" subset; users can still
  * type any name the backend knows via `/model <name> [provider]`.
  */

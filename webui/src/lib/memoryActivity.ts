@@ -1,12 +1,12 @@
 // Surfacing memory-worker ACTIVITY by its effect (files changed in
-// ~/.evoscientist/memories), not by watching the ~2s ephemeral worker runs.
+// ~/.jw/memories), not by watching the ~2s ephemeral worker runs.
 // Two signals:
 //   A) a "new since you last looked" badge on the Memory nav (seen-baseline)
 //   B) a "recently updated" highlight inside the Memory panel (absolute recency)
 // Both derive from the `mtime` already returned by /api/memory — zero backend
 // changes.
 
-const SEEN_KEY = "jinwu-memory-seen-at";
+const SEEN_KEY = "jw-memory-seen-at";
 
 /** Files modified within this window are flagged "recently updated" in the panel. */
 export const MEMORY_RECENT_MS = 10 * 60 * 1000;

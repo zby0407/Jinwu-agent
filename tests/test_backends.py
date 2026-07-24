@@ -1,4 +1,4 @@
-"""Tests for EvoScientist/backends.py — validate_command, path conversion, resolve_path."""
+"""Tests for jw/backends.py — validate_command, path conversion, resolve_path."""
 
 import re
 import shlex
@@ -8,8 +8,8 @@ from pathlib import Path
 import pytest
 from blockbuster import BlockBuster
 
-from EvoScientist import backends, paths
-from EvoScientist.backends import (
+from jw import backends, paths
+from jw.backends import (
     CustomSandboxBackend,
     MemoryFilesystemBackend,
     MergedSkillsBackend,
@@ -265,7 +265,7 @@ class TestConvertVirtualPaths:
         the LAST occurrence — first-occurrence would leave the path nested.
         """
         result = convert_virtual_paths_in_command(
-            "cat /Users/xizhang/workspace/EvoSci/EvoScientist/workspace/debate_sim.py",
+            "cat /Users/xizhang/workspace/jw/jw/workspace/debate_sim.py",
             workspace_name="workspace",
         )
         assert result == "cat ./debate_sim.py"
@@ -453,16 +453,12 @@ class TestVirtualMountResolution:
     def test_bundle_owned_builtin_skill_keeps_flat_virtual_path(
         self, monkeypatch, tmp_path
     ):
-        user_dir, global_dir, builtin_dir, _ = self._setup_tiers(
-            monkeypatch, tmp_path
-        )
+        user_dir, global_dir, builtin_dir, _ = self._setup_tiers(monkeypatch, tmp_path)
         skill_dir = builtin_dir / "solar" / "skills" / "solar-cycle"
         skill_dir.mkdir(parents=True)
         (skill_dir / "SKILL.md").write_text("name: solar-cycle")
 
-        result = convert_virtual_paths_in_command(
-            "cat /skills/solar-cycle/SKILL.md"
-        )
+        result = convert_virtual_paths_in_command("cat /skills/solar-cycle/SKILL.md")
         assert _split_cmd(result) == ["cat", str(skill_dir / "SKILL.md")]
 
         merged = MergedSkillsBackend(
@@ -564,8 +560,8 @@ class TestVirtualMountResolution:
         ``validate_command`` is a pure string check, so no real
         filesystem entries are required.
         """
-        allowed = "/tmp/evosci_skills_test_prefix"
-        evil_path = "/tmp/evosci_skills_test_prefix_evil/secret.txt"
+        allowed = "/tmp/jw_skills_test_prefix"
+        evil_path = "/tmp/jw_skills_test_prefix_evil/secret.txt"
         result = validate_command(
             f"cat {evil_path}",
             allow_prefixes=(allowed,),
@@ -574,7 +570,7 @@ class TestVirtualMountResolution:
         assert "blocked" in result.lower()
         # Sanity check: a real descendant of the allowed prefix still passes,
         # so we're testing boundary semantics, not a blanket block.
-        legit_path = "/tmp/evosci_skills_test_prefix/real/file.txt"
+        legit_path = "/tmp/jw_skills_test_prefix/real/file.txt"
         assert (
             validate_command(
                 f"cat {legit_path}",
@@ -589,10 +585,10 @@ class TestVirtualMountResolution:
         neighbour-directory bypass AND admit legitimate descendants /
         exact-match paths.
         """
-        allowed_with_slash = "/tmp/evosci_skills_test_prefix/"
-        evil_path = "/tmp/evosci_skills_test_prefix_evil/x"
-        legit_descendant = "/tmp/evosci_skills_test_prefix/ok/file.txt"
-        exact_match = "/tmp/evosci_skills_test_prefix"
+        allowed_with_slash = "/tmp/jw_skills_test_prefix/"
+        evil_path = "/tmp/jw_skills_test_prefix_evil/x"
+        legit_descendant = "/tmp/jw_skills_test_prefix/ok/file.txt"
+        exact_match = "/tmp/jw_skills_test_prefix"
         assert (
             validate_command(
                 f"cat {evil_path}",
@@ -635,7 +631,7 @@ class TestVirtualMountResolution:
         self, monkeypatch, tmp_path
     ):
         """When a tier directory itself sits under a path with whitespace
-        (the realistic case: user home like ``/Users/Foo Bar/.evoscientist/skills``),
+        (the realistic case: user home like ``/Users/Foo Bar/.jw/skills``),
         the resolver must shell-quote its absolute output so the shell parses
         the command argument as a single token.
 
@@ -1056,12 +1052,12 @@ class TestResolvePath:
     def test_parent_path_contains_workspace_name(self, tmp_path):
         """Regression: cwd's parent path also contains '/<ws_name>/'.
 
-        E.g. cwd = ~/workspace/EvoSci/EvoScientist/workspace — there is a
+        E.g. cwd = ~/workspace/jw/jw/workspace — there is a
         '/workspace/' in the parent (~/workspace) AND the cwd basename is
         'workspace'. The old code used ``find()`` which matched the outer
         '/workspace/' and produced a nested write target.
         """
-        outer = tmp_path / "workspace" / "EvoSci" / "EvoScientist"
+        outer = tmp_path / "workspace" / "jw" / "JW"
         ws = outer / "workspace"
         ws.mkdir(parents=True)
         backend = CustomSandboxBackend(root_dir=str(ws), virtual_mode=True)
@@ -1149,8 +1145,8 @@ class TestSandboxId:
     def test_sandbox_has_id(self, tmp_workspace):
         backend = CustomSandboxBackend(root_dir=tmp_workspace, virtual_mode=True)
         assert isinstance(backend.id, str)
-        assert backend.id.startswith("evosci-")
-        assert len(backend.id) == len("evosci-") + 8
+        assert backend.id.startswith("jw-")
+        assert len(backend.id) == len("jw-") + 8
 
     def test_sandbox_id_is_stable(self, tmp_workspace):
         backend = CustomSandboxBackend(root_dir=tmp_workspace, virtual_mode=True)
@@ -1163,7 +1159,7 @@ class TestSandboxId:
 
     def test_sandbox_id_hex_suffix(self, tmp_workspace):
         backend = CustomSandboxBackend(root_dir=tmp_workspace, virtual_mode=True)
-        suffix = backend.id[len("evosci-") :]
+        suffix = backend.id[len("jw-") :]
         assert re.fullmatch(r"[0-9a-f]{8}", suffix)
 
 
@@ -1361,7 +1357,7 @@ class TestExecuteCwdSanitization:
 
         monkeypatch.setattr(backends.LocalShellBackend, "execute", fake_execute)
         backend = CustomSandboxBackend(root_dir=tmp_workspace, virtual_mode=True)
-        command = "echo __EVOSCI_SSH_REMOTE_0__ && ssh host 'ls /home'"
+        command = "echo __JW_SSH_REMOTE_0__ && ssh host 'ls /home'"
 
         resp = backend.execute(command, timeout=30)
 
@@ -1376,7 +1372,7 @@ class TestExecuteCwdSanitization:
         ``./<intermediate>/workspace/file.txt`` — the file existed, but not
         where the agent thinks it does.
         """
-        outer = tmp_path / "workspace" / "EvoSci" / "EvoScientist"
+        outer = tmp_path / "workspace" / "jw" / "JW"
         ws = outer / "workspace"
         ws.mkdir(parents=True)
         backend = CustomSandboxBackend(root_dir=str(ws), virtual_mode=True)
@@ -1385,10 +1381,10 @@ class TestExecuteCwdSanitization:
         resp = backend.execute(f"echo hi > {target}")
         assert resp.exit_code == 0, resp.output
 
-        # File must land at cwd/probe.txt, NOT at cwd/EvoSci/EvoScientist/workspace/probe.txt
+        # File must land at cwd/probe.txt, NOT at cwd/jw/jw/workspace/probe.txt
         assert target.is_file(), f"file not at expected location: {target}"
         assert target.read_text().strip() == "hi"
-        nested = ws / "EvoSci" / "EvoScientist" / "workspace" / "probe.txt"
+        nested = ws / "jw" / "JW" / "workspace" / "probe.txt"
         assert not nested.exists(), f"file leaked into nested path: {nested}"
 
     def test_execute_recognizes_literal_ssh_executable(
@@ -1707,7 +1703,7 @@ class TestAbsolutePathDetection:
         """dd-style if=/dev/zero — the = prevents matching."""
         # dd itself is blocked by BLOCKED_COMMANDS, but the /dev path
         # should not trigger the absolute-path check due to = prefix
-        from EvoScientist.backends import _extract_all_paths
+        from jw.backends import _extract_all_paths
 
         assert _extract_all_paths("if=/dev/zero") == []
 

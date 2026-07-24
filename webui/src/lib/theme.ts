@@ -6,7 +6,7 @@ export type ResolvedTheme = "light" | "dark";
 // module WITHOUT "use client": importing a value from a client module into the
 // server layout turns it into a client-reference stub, which corrupts the inline
 // script (it serializes as a throwing function, not the string).
-export const THEME_STORAGE_KEY = "jinwu-theme";
+export const THEME_STORAGE_KEY = "jw-theme";
 export const DARK_QUERY = "(prefers-color-scheme: dark)";
 
 /** Read the persisted theme, defaulting to "system" (also on SSR / storage errors). */

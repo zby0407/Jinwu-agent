@@ -12,7 +12,7 @@ import pytest
 from langchain_core.exceptions import ContextOverflowError
 from langchain_core.messages import AIMessage, HumanMessage
 
-from EvoScientist.middleware.model_fallback import (
+from jw.middleware.model_fallback import (
     _guard_and_fallback,
     _is_non_fallbackable,
     _try_fallbacks,
@@ -151,7 +151,7 @@ class TestTryFallbacks:
         req = _fake_request()
         invoke = AsyncMock(return_value=AI_RESPONSE)
 
-        with patch("EvoScientist.llm.models.get_chat_model") as mock_gcm:
+        with patch("jw.llm.models.get_chat_model") as mock_gcm:
             mock_gcm.return_value = MagicMock()
             result = await _try_fallbacks(req, invoke, Exception("503 boom"))
 
@@ -174,7 +174,7 @@ class TestTryFallbacks:
                 raise Exception("429 rate limited")
             return AI_RESPONSE
 
-        with patch("EvoScientist.llm.models.get_chat_model") as mock_gcm:
+        with patch("jw.llm.models.get_chat_model") as mock_gcm:
             mock_gcm.return_value = MagicMock()
             result = await _try_fallbacks(req, _invoke, Exception("503 boom"))
 
@@ -198,7 +198,7 @@ class TestTryFallbacks:
                 raise Exception("500 from fb-a")
             raise last_error
 
-        with patch("EvoScientist.llm.models.get_chat_model") as mock_gcm:
+        with patch("jw.llm.models.get_chat_model") as mock_gcm:
             mock_gcm.return_value = MagicMock()
             with pytest.raises(Exception, match="429 from fb-b") as exc_info:
                 await _try_fallbacks(req, _invoke, Exception("503 primary"))
@@ -214,7 +214,7 @@ class TestTryFallbacks:
         async def _invoke(r):
             raise Exception("400: context_length_exceeded")
 
-        with patch("EvoScientist.llm.models.get_chat_model") as mock_gcm:
+        with patch("jw.llm.models.get_chat_model") as mock_gcm:
             mock_gcm.return_value = MagicMock()
             with pytest.raises(Exception, match="context_length_exceeded"):
                 await _try_fallbacks(req, _invoke, Exception("503 primary"))
@@ -259,7 +259,7 @@ class TestGuardAndFallback:
         req = _fake_request()
         invoke = AsyncMock(return_value=AI_RESPONSE)
 
-        with patch("EvoScientist.llm.models.get_chat_model") as mock_gcm:
+        with patch("jw.llm.models.get_chat_model") as mock_gcm:
             mock_gcm.return_value = MagicMock()
             result = await _guard_and_fallback(Exception("503 overloaded"), req, invoke)
 
@@ -272,7 +272,7 @@ class TestGuardAndFallback:
         req = _fake_request()
         invoke = AsyncMock(return_value=AI_RESPONSE)
 
-        with patch("EvoScientist.llm.models.get_chat_model") as mock_gcm:
+        with patch("jw.llm.models.get_chat_model") as mock_gcm:
             mock_gcm.return_value = MagicMock()
             result = await _guard_and_fallback(
                 Exception("400 Bad Request: invalid_api_key"), req, invoke
@@ -298,7 +298,7 @@ class TestUiEmit:
         messages: list[tuple[str, str]] = []
         set_ui_emit(lambda text, style: messages.append((text, style)))
 
-        with patch("EvoScientist.llm.models.get_chat_model") as mock_gcm:
+        with patch("jw.llm.models.get_chat_model") as mock_gcm:
             mock_gcm.return_value = MagicMock()
             await _try_fallbacks(req, invoke, Exception("503 down"))
 

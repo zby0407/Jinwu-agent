@@ -1,4 +1,4 @@
-"""Tests for ``EvoScientist.middleware.async_watcher.AsyncWatcherMiddleware``.
+"""Tests for ``JW.middleware.async_watcher.AsyncWatcherMiddleware``.
 
 The middleware is the public-API replacement for the old monkey-patch on
 deepagents internals. It hooks into ``awrap_tool_call`` and only fires on
@@ -12,7 +12,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from EvoScientist.cli import async_notifier
+from jw.cli import async_notifier
 
 
 def _drain_all_notifications():
@@ -82,7 +82,7 @@ def _build_request(tool_name: str, args: dict, *, thread_id: str | None = None):
 
 def _make_middleware():
     """Build an AsyncWatcherMiddleware with a stubbed ``_ClientCache``."""
-    from EvoScientist.middleware.async_watcher import AsyncWatcherMiddleware
+    from jw.middleware.async_watcher import AsyncWatcherMiddleware
 
     fake_client = MagicMock(name="LangGraphClient")
     fake_cache = MagicMock(name="ClientCache")

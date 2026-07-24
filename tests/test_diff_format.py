@@ -1,11 +1,11 @@
-"""Tests for EvoScientist.stream.diff_format module."""
+"""Tests for JW.stream.diff_format module."""
 
 from __future__ import annotations
 
 import difflib
 from unittest import mock
 
-from EvoScientist.stream.diff_format import (
+from jw.stream.diff_format import (
     _detect_unicode_support,
     _escape_markup,
     build_edit_diff,
@@ -201,7 +201,7 @@ class TestBuildEditDiff:
 
 class TestFormatToolResultCompactEditFile:
     def test_edit_file_with_tool_args_shows_diff(self):
-        from EvoScientist.stream.display import format_tool_result_compact
+        from jw.stream.display import format_tool_result_compact
 
         result = format_tool_result_compact(
             "edit_file",
@@ -218,7 +218,7 @@ class TestFormatToolResultCompactEditFile:
         assert "+1" in plain or "world" in plain or "hello" in plain
 
     def test_edit_file_without_tool_args_falls_through(self):
-        from EvoScientist.stream.display import format_tool_result_compact
+        from jw.stream.display import format_tool_result_compact
 
         result = format_tool_result_compact(
             "edit_file",
@@ -228,7 +228,7 @@ class TestFormatToolResultCompactEditFile:
         assert len(result) >= 1
 
     def test_edit_file_error_shows_error_not_diff(self):
-        from EvoScientist.stream.display import format_tool_result_compact
+        from jw.stream.display import format_tool_result_compact
 
         result = format_tool_result_compact(
             "edit_file",
@@ -243,7 +243,7 @@ class TestFormatToolResultCompactEditFile:
         assert len(result) >= 1
 
     def test_backward_compatible_no_tool_args(self):
-        from EvoScientist.stream.display import format_tool_result_compact
+        from jw.stream.display import format_tool_result_compact
 
         # Existing calls without tool_args should still work
         result = format_tool_result_compact("read_file", "[OK] 42 lines")

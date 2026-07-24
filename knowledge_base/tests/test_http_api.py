@@ -1,7 +1,7 @@
-"""知识库只读 HTTP API 测试：starlette TestClient + 临时 db，不碰真实 ~/.evoscientist。
+"""知识库只读 HTTP API 测试：starlette TestClient + 临时 db，不碰真实 ~/.jw。
 
-被测对象是 ``EvoScientist.langgraph_dev.http:app``（langgraph.json 里挂的
-同一个 app），通过 ``EVOSCIENTIST_DATA_DIR`` 把 ``default_db_path()`` 指到
+被测对象是 ``JW.langgraph_dev.http:app``（langgraph.json 里挂的
+同一个 app），通过 ``JW_DATA_DIR`` 把 ``default_db_path()`` 指到
 临时目录，验证 knowledge_api 的条目、来源、图谱、概览和审核端点。
 """
 
@@ -22,7 +22,7 @@ for path in (str(ROOT), str(SRC)):
 
 from starlette.testclient import TestClient  # noqa: E402
 
-from EvoScientist.langgraph_dev.http import app  # noqa: E402
+from jw.langgraph_dev.http import app  # noqa: E402
 from knowledge_base import service  # noqa: E402
 from knowledge_base.store import KnowledgeStore  # noqa: E402
 
@@ -30,8 +30,8 @@ from knowledge_base.store import KnowledgeStore  # noqa: E402
 class HttpApiTestCase(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.mkdtemp(prefix="kb_http_test_")
-        self._old_env = os.environ.get("EVOSCIENTIST_DATA_DIR")
-        os.environ["EVOSCIENTIST_DATA_DIR"] = self.tmp
+        self._old_env = os.environ.get("JW_DATA_DIR")
+        os.environ["JW_DATA_DIR"] = self.tmp
         self.addCleanup(self._restore)
         self.client = TestClient(app)
         self.store = KnowledgeStore(
@@ -42,9 +42,9 @@ class HttpApiTestCase(unittest.TestCase):
 
     def _restore(self):
         if self._old_env is None:
-            os.environ.pop("EVOSCIENTIST_DATA_DIR", None)
+            os.environ.pop("JW_DATA_DIR", None)
         else:
-            os.environ["EVOSCIENTIST_DATA_DIR"] = self._old_env
+            os.environ["JW_DATA_DIR"] = self._old_env
         shutil.rmtree(self.tmp, ignore_errors=True)
 
     def _propose(self, title="极区磁场前兆", **overrides):
@@ -276,8 +276,8 @@ class TestMissingDatabase(unittest.TestCase):
 
     def test_endpoints_degrade_gracefully(self):
         tmp = tempfile.mkdtemp(prefix="kb_http_missing_")
-        old_env = os.environ.get("EVOSCIENTIST_DATA_DIR")
-        os.environ["EVOSCIENTIST_DATA_DIR"] = tmp
+        old_env = os.environ.get("JW_DATA_DIR")
+        os.environ["JW_DATA_DIR"] = tmp
         try:
             client = TestClient(app)
             for path in (
@@ -303,9 +303,9 @@ class TestMissingDatabase(unittest.TestCase):
             self.assertEqual(source_resp.status_code, 404)
         finally:
             if old_env is None:
-                os.environ.pop("EVOSCIENTIST_DATA_DIR", None)
+                os.environ.pop("JW_DATA_DIR", None)
             else:
-                os.environ["EVOSCIENTIST_DATA_DIR"] = old_env
+                os.environ["JW_DATA_DIR"] = old_env
             shutil.rmtree(tmp, ignore_errors=True)
 
 

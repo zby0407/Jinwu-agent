@@ -1,4 +1,4 @@
-"""Tests for EvoScientist onboarding wizard."""
+"""Tests for JW onboarding wizard."""
 
 import subprocess
 from contextlib import contextmanager
@@ -6,16 +6,16 @@ from unittest.mock import MagicMock, Mock, patch
 
 import pytest
 
-from EvoScientist.config import EvoScientistConfig
-from EvoScientist.config.onboard.style import (
+from jw.config import JWConfig
+from jw.config.onboard.style import (
     CONFIRM_STYLE,
     WIZARD_STYLE,
 )
-from EvoScientist.config.onboard.validators import (
+from jw.config.onboard.validators import (
     ChoiceValidator,
     IntegerValidator,
 )
-from EvoScientist.config.onboard.wizard import (
+from jw.config.onboard.wizard import (
     STEPS,
     render_progress,
 )
@@ -36,12 +36,12 @@ def _patch_all_questionary(mock_q):
     mocked side_effect sequences (platform-dependent StopIteration).
     """
     with (
-        patch("EvoScientist.config.onboard.wizard.questionary", mock_q),
-        patch("EvoScientist.config.onboard.steps.questionary", mock_q),
-        patch("EvoScientist.config.onboard.helpers.questionary", mock_q),
-        patch("EvoScientist.config.onboard.channels.questionary", mock_q),
-        patch("EvoScientist.config.onboard.style.questionary", mock_q),
-        patch("EvoScientist.config.onboard.helpers._check_npx", return_value=True),
+        patch("jw.config.onboard.wizard.questionary", mock_q),
+        patch("jw.config.onboard.steps.questionary", mock_q),
+        patch("jw.config.onboard.helpers.questionary", mock_q),
+        patch("jw.config.onboard.channels.questionary", mock_q),
+        patch("jw.config.onboard.style.questionary", mock_q),
+        patch("jw.config.onboard.helpers._check_npx", return_value=True),
     ):
         yield mock_q
 
@@ -90,7 +90,7 @@ class TestConstants:
 
 class TestSharedConstantsAlignment:
     """Drift guard: the canonical valid-value sets in
-    ``EvoScientist.config.onboard.constants`` must match the actual
+    ``JW.config.onboard.constants`` must match the actual
     ``Choice(value=...)`` ids built by the interactive step functions in
     ``steps.py``. Without this, adding a new provider to one file but not
     the other would silently break either CLI flag validation or the
@@ -102,8 +102,8 @@ class TestSharedConstantsAlignment:
         ``VALID_PROVIDERS`` — and vice versa."""
         from unittest.mock import MagicMock, patch
 
-        from EvoScientist.config.onboard.constants import VALID_PROVIDERS
-        from EvoScientist.config.onboard.steps import _step_provider
+        from jw.config.onboard.constants import VALID_PROVIDERS
+        from jw.config.onboard.steps import _step_provider
 
         # Intercept questionary.select to capture the choices list before
         # any user prompt happens.
@@ -118,10 +118,10 @@ class TestSharedConstantsAlignment:
             return fake
 
         with patch(
-            "EvoScientist.config.onboard.steps.questionary.select",
+            "jw.config.onboard.steps.questionary.select",
             side_effect=_capture,
         ):
-            _step_provider(EvoScientistConfig())
+            _step_provider(JWConfig())
 
         actual_provider_ids = {c.value for c in captured["choices"]}
         assert actual_provider_ids == set(VALID_PROVIDERS), (
@@ -131,14 +131,14 @@ class TestSharedConstantsAlignment:
         )
 
     def test_ui_constants_match_step_choices(self):
-        from EvoScientist.config.onboard.constants import VALID_UI_BACKENDS
+        from jw.config.onboard.constants import VALID_UI_BACKENDS
 
         # _step_ui_backend hard-codes "tui", "cli", and "webui" — small enough
         # to check by direct lookup against the canonical set.
         assert VALID_UI_BACKENDS == frozenset({"tui", "cli", "webui"})
 
     def test_workspace_mode_constants_match_step_choices(self):
-        from EvoScientist.config.onboard.constants import VALID_WORKSPACE_MODES
+        from jw.config.onboard.constants import VALID_WORKSPACE_MODES
 
         assert VALID_WORKSPACE_MODES == frozenset({"daemon", "run"})
 
@@ -147,8 +147,8 @@ class TestSharedConstantsAlignment:
         ``ollama``, which the wizard handles via fallbacks) must appear in
         ``_PROVIDER_KEY_ATTR`` — otherwise the auth-mode flow won't know
         which config attribute to write the validated key to."""
-        from EvoScientist.config.onboard.constants import VALID_PROVIDERS
-        from EvoScientist.config.onboard.wizard import _PROVIDER_KEY_ATTR
+        from jw.config.onboard.constants import VALID_PROVIDERS
+        from jw.config.onboard.wizard import _PROVIDER_KEY_ATTR
 
         expected = set(VALID_PROVIDERS) - {"openai", "ollama"}
         missing = expected - set(_PROVIDER_KEY_ATTR.keys())
@@ -167,10 +167,10 @@ class TestSharedConstantsAlignment:
         Verify every non-``openai`` provider in ``VALID_PROVIDERS`` has an
         explicit entry — detected by checking the returned display name is
         not the OpenAI fallback string."""
-        from EvoScientist.config.onboard.constants import VALID_PROVIDERS
-        from EvoScientist.config.onboard.helpers import _provider_key_info
+        from jw.config.onboard.constants import VALID_PROVIDERS
+        from jw.config.onboard.helpers import _provider_key_info
 
-        cfg = EvoScientistConfig()
+        cfg = JWConfig()
         for provider in VALID_PROVIDERS:
             display_name, _, _ = _provider_key_info(cfg, provider)
             if provider == "openai":
@@ -186,9 +186,9 @@ class TestSharedConstantsAlignment:
 
 class TestOAuthModeReconcile:
     def test_reconcile_preserves_auxiliary_openai_oauth(self):
-        from EvoScientist.config.onboard.wizard import _reconcile_oauth_modes
+        from jw.config.onboard.wizard import _reconcile_oauth_modes
 
-        config = EvoScientistConfig(
+        config = JWConfig(
             provider="minimax",
             auxiliary_provider="openai",
             auxiliary_model="gpt-5.5",
@@ -202,9 +202,9 @@ class TestOAuthModeReconcile:
         assert config.anthropic_auth_mode == "api_key"
 
     def test_reconcile_preserves_auxiliary_provider_without_model(self):
-        from EvoScientist.config.onboard.wizard import _reconcile_oauth_modes
+        from jw.config.onboard.wizard import _reconcile_oauth_modes
 
-        config = EvoScientistConfig(
+        config = JWConfig(
             provider="minimax",
             auxiliary_provider="openai",
             auxiliary_model="",
@@ -242,7 +242,7 @@ class TestRenderProgress:
     def test_panel_has_title(self):
         """Test that the panel has the expected title."""
         panel = render_progress(current_step=0, completed=set())
-        assert "EvoScientist Setup" in str(panel.title)
+        assert "JW Setup" in str(panel.title)
 
     def test_panel_has_blue_border(self):
         """Test that the panel has a blue border style."""
@@ -381,11 +381,11 @@ class TestChoiceValidator:
 class TestStepProvider:
     def test_returns_selected_provider(self):
         """Test that _step_provider returns selected provider."""
-        from EvoScientist.config.onboard.steps import _step_provider
+        from jw.config.onboard.steps import _step_provider
 
-        config = EvoScientistConfig()
+        config = JWConfig()
 
-        with patch("EvoScientist.config.onboard.steps.questionary") as mock_q:
+        with patch("jw.config.onboard.steps.questionary") as mock_q:
             mock_q.select.return_value.ask.return_value = "anthropic"
             result = _step_provider(config)
 
@@ -395,10 +395,10 @@ class TestStepProvider:
     def test_default_value_and_label_override(self):
         """default_value preselects a provider (re-run co-pilot default) and
         label customizes the prompt text."""
-        from EvoScientist.config.onboard.steps import _step_provider
+        from jw.config.onboard.steps import _step_provider
 
-        config = EvoScientistConfig(provider="anthropic")
-        with patch("EvoScientist.config.onboard.steps.questionary") as mock_q:
+        config = JWConfig(provider="anthropic")
+        with patch("jw.config.onboard.steps.questionary") as mock_q:
             mock_q.select.return_value.ask.return_value = "openai"
             _step_provider(config, label="co-pilot", default_value="openrouter")
 
@@ -408,11 +408,11 @@ class TestStepProvider:
 
     def test_raises_keyboard_interrupt_on_cancel(self):
         """Test that _step_provider raises KeyboardInterrupt on cancel."""
-        from EvoScientist.config.onboard.steps import _step_provider
+        from jw.config.onboard.steps import _step_provider
 
-        config = EvoScientistConfig()
+        config = JWConfig()
 
-        with patch("EvoScientist.config.onboard.steps.questionary") as mock_q:
+        with patch("jw.config.onboard.steps.questionary") as mock_q:
             mock_q.select.return_value.ask.return_value = None
             with pytest.raises(KeyboardInterrupt):
                 _step_provider(config)
@@ -465,37 +465,31 @@ class TestStepOAuthAuthMode:
         login_prompt,
     ):
         """Anthropic/OpenAI wrappers share flow but keep provider-specific IDs."""
-        from EvoScientist.config.onboard import steps as onboard_steps
+        from jw.config.onboard import steps as onboard_steps
 
-        config = EvoScientistConfig(**{config_attr: "oauth"})
+        config = JWConfig(**{config_attr: "oauth"})
         select_question = MagicMock()
         select_question.ask.return_value = "oauth"
         confirm_question = MagicMock()
         confirm_question.ask.return_value = True
 
         with (
+            patch("jw.ccproxy_manager.is_ccproxy_available", return_value=True),
             patch(
-                "EvoScientist.ccproxy_manager.is_ccproxy_available", return_value=True
-            ),
-            patch(
-                "EvoScientist.ccproxy_manager.check_ccproxy_auth",
+                "jw.ccproxy_manager.check_ccproxy_auth",
                 return_value=(False, "not authenticated"),
             ) as mock_check_auth,
+            patch("jw.config.onboard.prompter.install_navigation_keys") as mock_nav,
             patch(
-                "EvoScientist.config.onboard.prompter.install_navigation_keys"
-            ) as mock_nav,
-            patch(
-                "EvoScientist.config.onboard.steps.questionary.select",
+                "jw.config.onboard.steps.questionary.select",
                 return_value=select_question,
             ) as mock_select,
             patch(
-                "EvoScientist.config.onboard.steps.questionary.confirm",
+                "jw.config.onboard.steps.questionary.confirm",
                 return_value=confirm_question,
             ) as mock_confirm,
-            patch(
-                "EvoScientist.config.onboard.steps._prompt_ccproxy_port"
-            ) as mock_port,
-            patch("EvoScientist.config.onboard.steps._run_ccproxy_login") as mock_login,
+            patch("jw.config.onboard.steps._prompt_ccproxy_port") as mock_port,
+            patch("jw.config.onboard.steps._run_ccproxy_login") as mock_login,
         ):
             result = getattr(onboard_steps, step_name)(config)
 
@@ -524,11 +518,11 @@ class TestStepOAuthAuthMode:
 class TestStepModel:
     def test_returns_selected_model(self):
         """Test that _step_model returns selected model."""
-        from EvoScientist.config.onboard.steps import _step_model
+        from jw.config.onboard.steps import _step_model
 
-        config = EvoScientistConfig()
+        config = JWConfig()
 
-        with patch("EvoScientist.config.onboard.steps.questionary") as mock_q:
+        with patch("jw.config.onboard.steps.questionary") as mock_q:
             mock_q.select.return_value.ask.return_value = "claude-sonnet-4-6"
             result = _step_model(config, "anthropic")
 
@@ -538,12 +532,12 @@ class TestStepModel:
         """Reset/main flow: a config.model that isn't in the chosen provider's
         list (e.g. provider switched to google-genai) defaults to that
         provider's first model, NOT the custom 'Type a model name...' entry."""
-        from EvoScientist.config.onboard.steps import _step_model
-        from EvoScientist.llm.models import get_models_for_provider
+        from jw.config.onboard.steps import _step_model
+        from jw.llm.models import get_models_for_provider
 
-        config = EvoScientistConfig(model="claude-sonnet-4-6")
+        config = JWConfig(model="claude-sonnet-4-6")
         entries = get_models_for_provider("google-genai")
-        with patch("EvoScientist.config.onboard.steps.questionary") as mock_q:
+        with patch("jw.config.onboard.steps.questionary") as mock_q:
             mock_q.select.return_value.ask.return_value = entries[0][0]
             _step_model(config, "google-genai")
 
@@ -554,10 +548,10 @@ class TestStepModel:
     def test_custom_default_value_preselects_and_prefills(self):
         """Co-pilot re-run: a saved custom (non-registry) model preselects and
         prefills the 'Type a model name...' entry."""
-        from EvoScientist.config.onboard.steps import _step_model
+        from jw.config.onboard.steps import _step_model
 
-        config = EvoScientistConfig()
-        with patch("EvoScientist.config.onboard.steps.questionary") as mock_q:
+        config = JWConfig()
+        with patch("jw.config.onboard.steps.questionary") as mock_q:
             mock_q.select.return_value.ask.return_value = "__custom__"
             mock_q.text.return_value.ask.return_value = "my-private/model"
             result = _step_model(config, "openrouter", default_value="my-private/model")
@@ -568,11 +562,11 @@ class TestStepModel:
 
     def test_raises_keyboard_interrupt_on_cancel(self):
         """Test that _step_model raises KeyboardInterrupt on cancel."""
-        from EvoScientist.config.onboard.steps import _step_model
+        from jw.config.onboard.steps import _step_model
 
-        config = EvoScientistConfig()
+        config = JWConfig()
 
-        with patch("EvoScientist.config.onboard.steps.questionary") as mock_q:
+        with patch("jw.config.onboard.steps.questionary") as mock_q:
             mock_q.select.return_value.ask.return_value = None
             with pytest.raises(KeyboardInterrupt):
                 _step_model(config, "anthropic")
@@ -581,11 +575,11 @@ class TestStepModel:
 class TestStepWorkspace:
     def test_returns_daemon_mode(self):
         """Test workspace step returns selected mode."""
-        from EvoScientist.config.onboard.steps import _step_workspace
+        from jw.config.onboard.steps import _step_workspace
 
-        config = EvoScientistConfig()
+        config = JWConfig()
 
-        with patch("EvoScientist.config.onboard.steps.questionary") as mock_q:
+        with patch("jw.config.onboard.steps.questionary") as mock_q:
             mock_q.select.return_value.ask.return_value = "daemon"
             result = _step_workspace(config)
 
@@ -593,11 +587,11 @@ class TestStepWorkspace:
 
     def test_returns_run_mode(self):
         """Test workspace step returns run mode."""
-        from EvoScientist.config.onboard.steps import _step_workspace
+        from jw.config.onboard.steps import _step_workspace
 
-        config = EvoScientistConfig()
+        config = JWConfig()
 
-        with patch("EvoScientist.config.onboard.steps.questionary") as mock_q:
+        with patch("jw.config.onboard.steps.questionary") as mock_q:
             mock_q.select.return_value.ask.return_value = "run"
             result = _step_workspace(config)
 
@@ -607,13 +601,13 @@ class TestStepWorkspace:
 class TestPromptAndValidateApiKey:
     def test_keep_existing_key_still_validates(self):
         """Pressing Enter to keep current key should validate the existing key."""
-        from EvoScientist.config.onboard.helpers import _prompt_and_validate_api_key
+        from jw.config.onboard.helpers import _prompt_and_validate_api_key
 
         validate_fn = Mock(return_value=(True, "Valid"))
 
         with (
-            patch("EvoScientist.config.onboard.helpers.questionary") as mock_q,
-            patch("EvoScientist.config.onboard.helpers.console"),
+            patch("jw.config.onboard.helpers.questionary") as mock_q,
+            patch("jw.config.onboard.helpers.console"),
         ):
             mock_q.password.return_value.ask.return_value = ""  # keep existing
             result = _prompt_and_validate_api_key(
@@ -628,11 +622,11 @@ class TestPromptAndValidateApiKey:
 
     def test_new_key_still_validates(self):
         """Entering a new key should still run validation."""
-        from EvoScientist.config.onboard.helpers import _prompt_and_validate_api_key
+        from jw.config.onboard.helpers import _prompt_and_validate_api_key
 
         validate_fn = Mock(return_value=(True, "valid"))
 
-        with patch("EvoScientist.config.onboard.helpers.questionary") as mock_q:
+        with patch("jw.config.onboard.helpers.questionary") as mock_q:
             mock_q.password.return_value.ask.return_value = "new-key"
             result = _prompt_and_validate_api_key(
                 "Enter key:",
@@ -648,15 +642,15 @@ class TestPromptAndValidateApiKey:
 class TestValidateImessage:
     def test_valid_when_cli_found_with_rpc(self):
         """Test validate_imessage returns valid when imsg CLI found and RPC works."""
-        from EvoScientist.config.onboard.helpers import validate_imessage
+        from jw.config.onboard.helpers import validate_imessage
 
         version_result = Mock(returncode=0, stdout="imsg 1.2.3")
         rpc_result = Mock(returncode=0)
 
         with (
-            patch("EvoScientist.config.onboard.helpers.sys") as mock_sys,
-            patch("EvoScientist.channels.imessage.probe.shutil") as mock_shutil,
-            patch("EvoScientist.config.onboard.helpers.subprocess") as mock_sub,
+            patch("jw.config.onboard.helpers.sys") as mock_sys,
+            patch("jw.channels.imessage.probe.shutil") as mock_shutil,
+            patch("jw.config.onboard.helpers.subprocess") as mock_sub,
         ):
             mock_sys.platform = "darwin"
             mock_shutil.which.return_value = "/opt/homebrew/bin/imsg"
@@ -669,11 +663,11 @@ class TestValidateImessage:
 
     def test_invalid_when_cli_not_found(self):
         """Test validate_imessage returns not_installed when imsg CLI missing."""
-        from EvoScientist.config.onboard.helpers import validate_imessage
+        from jw.config.onboard.helpers import validate_imessage
 
         with (
-            patch("EvoScientist.config.onboard.helpers.sys") as mock_sys,
-            patch("EvoScientist.channels.imessage.probe.shutil") as mock_shutil,
+            patch("jw.config.onboard.helpers.sys") as mock_sys,
+            patch("jw.channels.imessage.probe.shutil") as mock_shutil,
         ):
             mock_sys.platform = "darwin"
             mock_shutil.which.return_value = None
@@ -684,9 +678,9 @@ class TestValidateImessage:
 
     def test_invalid_on_non_macos(self):
         """Test validate_imessage returns invalid on non-macOS."""
-        from EvoScientist.config.onboard.helpers import validate_imessage
+        from jw.config.onboard.helpers import validate_imessage
 
-        with patch("EvoScientist.config.onboard.helpers.sys") as mock_sys:
+        with patch("jw.config.onboard.helpers.sys") as mock_sys:
             mock_sys.platform = "linux"
             valid, msg = validate_imessage()
 
@@ -695,15 +689,15 @@ class TestValidateImessage:
 
     def test_invalid_when_rpc_not_supported(self):
         """Test validate_imessage returns invalid when RPC check fails."""
-        from EvoScientist.config.onboard.helpers import validate_imessage
+        from jw.config.onboard.helpers import validate_imessage
 
         version_result = Mock(returncode=0, stdout="imsg 0.1.0")
         rpc_result = Mock(returncode=1)
 
         with (
-            patch("EvoScientist.config.onboard.helpers.sys") as mock_sys,
-            patch("EvoScientist.channels.imessage.probe.shutil") as mock_shutil,
-            patch("EvoScientist.config.onboard.helpers.subprocess") as mock_sub,
+            patch("jw.config.onboard.helpers.sys") as mock_sys,
+            patch("jw.channels.imessage.probe.shutil") as mock_shutil,
+            patch("jw.config.onboard.helpers.subprocess") as mock_sub,
         ):
             mock_sys.platform = "darwin"
             mock_shutil.which.return_value = "/usr/local/bin/imsg"
@@ -717,9 +711,9 @@ class TestValidateImessage:
 class TestInstallImsg:
     def test_install_success(self):
         """Test _install_imsg returns True on success."""
-        from EvoScientist.config.onboard.helpers import _install_imsg
+        from jw.config.onboard.helpers import _install_imsg
 
-        with patch("EvoScientist.config.onboard.helpers.subprocess") as mock_sub:
+        with patch("jw.config.onboard.helpers.subprocess") as mock_sub:
             mock_sub.run.return_value = Mock(returncode=0)
             mock_sub.TimeoutExpired = subprocess.TimeoutExpired
             result = _install_imsg()
@@ -728,11 +722,11 @@ class TestInstallImsg:
 
     def test_install_brew_not_found(self):
         """Test _install_imsg handles missing Homebrew."""
-        from EvoScientist.config.onboard.helpers import _install_imsg
+        from jw.config.onboard.helpers import _install_imsg
 
         with (
-            patch("EvoScientist.config.onboard.helpers.subprocess") as mock_sub,
-            patch("EvoScientist.config.onboard.helpers.console"),
+            patch("jw.config.onboard.helpers.subprocess") as mock_sub,
+            patch("jw.config.onboard.helpers.console"),
         ):
             mock_sub.run.side_effect = FileNotFoundError()
             mock_sub.TimeoutExpired = subprocess.TimeoutExpired
@@ -742,9 +736,9 @@ class TestInstallImsg:
 
     def test_install_failure(self):
         """Test _install_imsg returns False on non-zero exit."""
-        from EvoScientist.config.onboard.helpers import _install_imsg
+        from jw.config.onboard.helpers import _install_imsg
 
-        with patch("EvoScientist.config.onboard.helpers.subprocess") as mock_sub:
+        with patch("jw.config.onboard.helpers.subprocess") as mock_sub:
             mock_sub.run.return_value = Mock(returncode=1)
             mock_sub.TimeoutExpired = subprocess.TimeoutExpired
             result = _install_imsg()
@@ -755,14 +749,14 @@ class TestInstallImsg:
 class TestSetupImessage:
     def test_already_installed(self):
         """Test _setup_imessage returns True when already installed."""
-        from EvoScientist.config.onboard.helpers import _setup_imessage
+        from jw.config.onboard.helpers import _setup_imessage
 
         with (
             patch(
-                "EvoScientist.config.onboard.helpers.validate_imessage",
+                "jw.config.onboard.helpers.validate_imessage",
                 return_value=(True, "imsg at /bin/imsg"),
             ),
-            patch("EvoScientist.config.onboard.helpers.console"),
+            patch("jw.config.onboard.helpers.console"),
         ):
             result = _setup_imessage()
 
@@ -770,14 +764,14 @@ class TestSetupImessage:
 
     def test_not_macos(self):
         """Test _setup_imessage returns False on non-macOS."""
-        from EvoScientist.config.onboard.helpers import _setup_imessage
+        from jw.config.onboard.helpers import _setup_imessage
 
         with (
             patch(
-                "EvoScientist.config.onboard.helpers.validate_imessage",
+                "jw.config.onboard.helpers.validate_imessage",
                 return_value=(False, "iMessage requires macOS"),
             ),
-            patch("EvoScientist.config.onboard.helpers.console"),
+            patch("jw.config.onboard.helpers.console"),
         ):
             result = _setup_imessage()
 
@@ -785,15 +779,13 @@ class TestSetupImessage:
 
     def test_install_then_valid(self):
         """Test _setup_imessage installs and re-validates successfully."""
-        from EvoScientist.config.onboard.helpers import _setup_imessage
+        from jw.config.onboard.helpers import _setup_imessage
 
         with (
-            patch("EvoScientist.config.onboard.helpers.validate_imessage") as mock_val,
-            patch(
-                "EvoScientist.config.onboard.helpers._install_imsg", return_value=True
-            ),
-            patch("EvoScientist.config.onboard.helpers.questionary") as mock_q,
-            patch("EvoScientist.config.onboard.helpers.console"),
+            patch("jw.config.onboard.helpers.validate_imessage") as mock_val,
+            patch("jw.config.onboard.helpers._install_imsg", return_value=True),
+            patch("jw.config.onboard.helpers.questionary") as mock_q,
+            patch("jw.config.onboard.helpers.console"),
         ):
             mock_val.side_effect = [
                 (False, "not_installed"),  # First check
@@ -806,15 +798,15 @@ class TestSetupImessage:
 
     def test_user_declines_install(self):
         """Test _setup_imessage returns False when user declines install."""
-        from EvoScientist.config.onboard.helpers import _setup_imessage
+        from jw.config.onboard.helpers import _setup_imessage
 
         with (
             patch(
-                "EvoScientist.config.onboard.helpers.validate_imessage",
+                "jw.config.onboard.helpers.validate_imessage",
                 return_value=(False, "not_installed"),
             ),
-            patch("EvoScientist.config.onboard.helpers.questionary") as mock_q,
-            patch("EvoScientist.config.onboard.helpers.console"),
+            patch("jw.config.onboard.helpers.questionary") as mock_q,
+            patch("jw.config.onboard.helpers.console"),
         ):
             mock_q.confirm.return_value.ask.return_value = False
             result = _setup_imessage()
@@ -825,16 +817,16 @@ class TestSetupImessage:
 class TestStepSkills:
     def test_returns_empty_when_none_selected(self):
         """Test skills step returns empty list when user selects nothing."""
-        from EvoScientist.config.onboard.steps import _step_skills
+        from jw.config.onboard.steps import _step_skills
 
         with (
-            patch("EvoScientist.config.onboard.style.questionary") as mock_q,
-            patch("EvoScientist.config.onboard.steps.console"),
+            patch("jw.config.onboard.style.questionary") as mock_q,
+            patch("jw.config.onboard.steps.console"),
             # Empty selection triggers the npx easter-egg check; without this
             # mock the real questionary.confirm in _ensure_npx fires on hosts
             # where npx is missing/slow (NoConsoleScreenBufferError on
             # headless Windows CI).
-            patch("EvoScientist.config.onboard.steps._ensure_npx", return_value=True),
+            patch("jw.config.onboard.steps._ensure_npx", return_value=True),
         ):
             mock_q.checkbox.return_value.ask.return_value = []
             result = _step_skills()
@@ -843,14 +835,14 @@ class TestStepSkills:
 
     def test_installs_selected_skills(self):
         """Test skills step installs selected skills and returns sources."""
-        from EvoScientist.config.onboard.steps import _RECOMMENDED_SKILLS, _step_skills
+        from jw.config.onboard.steps import _RECOMMENDED_SKILLS, _step_skills
 
         source = _RECOMMENDED_SKILLS[0]["source"]
 
         with (
-            patch("EvoScientist.config.onboard.style.questionary") as mock_q,
-            patch("EvoScientist.config.onboard.steps.console"),
-            patch("EvoScientist.tools.skills_manager.install_skill") as mock_install,
+            patch("jw.config.onboard.style.questionary") as mock_q,
+            patch("jw.config.onboard.steps.console"),
+            patch("jw.tools.skills_manager.install_skill") as mock_install,
         ):
             mock_q.checkbox.return_value.ask.return_value = [source]
             mock_install.return_value = {"success": True, "name": "test"}
@@ -861,14 +853,14 @@ class TestStepSkills:
 
     def test_handles_install_failure(self):
         """Test skills step handles installation errors gracefully."""
-        from EvoScientist.config.onboard.steps import _RECOMMENDED_SKILLS, _step_skills
+        from jw.config.onboard.steps import _RECOMMENDED_SKILLS, _step_skills
 
         source = _RECOMMENDED_SKILLS[0]["source"]
 
         with (
-            patch("EvoScientist.config.onboard.style.questionary") as mock_q,
-            patch("EvoScientist.config.onboard.steps.console"),
-            patch("EvoScientist.tools.skills_manager.install_skill") as mock_install,
+            patch("jw.config.onboard.style.questionary") as mock_q,
+            patch("jw.config.onboard.steps.console"),
+            patch("jw.tools.skills_manager.install_skill") as mock_install,
         ):
             mock_q.checkbox.return_value.ask.return_value = [source]
             mock_install.side_effect = Exception("network error")
@@ -878,9 +870,9 @@ class TestStepSkills:
 
     def test_raises_keyboard_interrupt_on_cancel(self):
         """Test skills step raises KeyboardInterrupt on cancel."""
-        from EvoScientist.config.onboard.steps import _step_skills
+        from jw.config.onboard.steps import _step_skills
 
-        with patch("EvoScientist.config.onboard.style.questionary") as mock_q:
+        with patch("jw.config.onboard.style.questionary") as mock_q:
             mock_q.checkbox.return_value.ask.return_value = None
             with pytest.raises(KeyboardInterrupt):
                 _step_skills()
@@ -888,9 +880,9 @@ class TestStepSkills:
     def test_detects_pack_via_manifest(self, tmp_path):
         """A pack source recorded in the manifest is detected as installed
         even when none of the unpacked child dir names match the source."""
-        from EvoScientist.config.onboard.steps import _RECOMMENDED_SKILLS, _step_skills
+        from jw.config.onboard.steps import _RECOMMENDED_SKILLS, _step_skills
 
-        # Recreate the EvoSkills-style layout: child dirs in GLOBAL_SKILLS_DIR
+        # Recreate the JWSkills-style layout: child dirs in GLOBAL_SKILLS_DIR
         # whose names share nothing with the pack source URL.
         global_dir = tmp_path / "global"
         global_dir.mkdir()
@@ -915,15 +907,13 @@ class TestStepSkills:
             return []
 
         with (
-            patch("EvoScientist.paths.GLOBAL_SKILLS_DIR", global_dir),
-            patch("EvoScientist.paths.USER_SKILLS_DIR", empty_user),
-            patch(
-                "EvoScientist.config.onboard.steps._checkbox_ask", side_effect=_capture
-            ),
-            patch("EvoScientist.config.onboard.steps.console"),
+            patch("jw.paths.GLOBAL_SKILLS_DIR", global_dir),
+            patch("jw.paths.USER_SKILLS_DIR", empty_user),
+            patch("jw.config.onboard.steps._checkbox_ask", side_effect=_capture),
+            patch("jw.config.onboard.steps.console"),
             # _capture returns [] (empty selection), which would otherwise
             # reach the real _ensure_npx — see test_returns_empty_when_none_selected.
-            patch("EvoScientist.config.onboard.steps._ensure_npx", return_value=True),
+            patch("jw.config.onboard.steps._ensure_npx", return_value=True),
         ):
             _step_skills()
 
@@ -933,7 +923,7 @@ class TestStepSkills:
         # packs where one child was deleted but the rest keep the entry).
         title_text = "".join(seg[1] for seg in pack_choice.title)
         assert "installed" in title_text, (
-            "EvoSkills pack should be marked as installed via the manifest "
+            "JWSkills pack should be marked as installed via the manifest "
             "even though no child dir name matches the pack source string"
         )
         assert not pack_choice.disabled, (
@@ -943,7 +933,7 @@ class TestStepSkills:
     def test_surfaces_update_available_when_upstream_moved(self, tmp_path):
         """When a pack records an install-time commit and `git ls-remote`
         reports a different SHA, the choice label should call out the update."""
-        from EvoScientist.config.onboard.steps import _RECOMMENDED_SKILLS, _step_skills
+        from jw.config.onboard.steps import _RECOMMENDED_SKILLS, _step_skills
 
         pack_source = _RECOMMENDED_SKILLS[0]["source"]
         global_dir = tmp_path / "global"
@@ -966,20 +956,18 @@ class TestStepSkills:
             return []
 
         with (
-            patch("EvoScientist.paths.GLOBAL_SKILLS_DIR", global_dir),
-            patch("EvoScientist.paths.USER_SKILLS_DIR", empty_user),
+            patch("jw.paths.GLOBAL_SKILLS_DIR", global_dir),
+            patch("jw.paths.USER_SKILLS_DIR", empty_user),
             # Upstream moved past the recorded commit.
             patch(
-                "EvoScientist.tools.skills_manager.resolve_remote_head",
+                "jw.tools.skills_manager.resolve_remote_head",
                 return_value="bbb222",
             ),
-            patch(
-                "EvoScientist.config.onboard.steps._checkbox_ask", side_effect=_capture
-            ),
-            patch("EvoScientist.config.onboard.steps.console"),
+            patch("jw.config.onboard.steps._checkbox_ask", side_effect=_capture),
+            patch("jw.config.onboard.steps.console"),
             # _capture returns [] (empty selection), which would otherwise
             # reach the real _ensure_npx — see test_returns_empty_when_none_selected.
-            patch("EvoScientist.config.onboard.steps._ensure_npx", return_value=True),
+            patch("jw.config.onboard.steps._ensure_npx", return_value=True),
         ):
             _step_skills()
 
@@ -992,7 +980,7 @@ class TestStepSkills:
     def test_no_update_hint_when_remote_check_fails(self, tmp_path):
         """If `git ls-remote` returns None (offline, timeout, etc.), the label
         must fall back to plain 'installed' — never falsely claim 'update'."""
-        from EvoScientist.config.onboard.steps import _RECOMMENDED_SKILLS, _step_skills
+        from jw.config.onboard.steps import _RECOMMENDED_SKILLS, _step_skills
 
         pack_source = _RECOMMENDED_SKILLS[0]["source"]
         global_dir = tmp_path / "global"
@@ -1014,19 +1002,17 @@ class TestStepSkills:
             return []
 
         with (
-            patch("EvoScientist.paths.GLOBAL_SKILLS_DIR", global_dir),
-            patch("EvoScientist.paths.USER_SKILLS_DIR", empty_user),
+            patch("jw.paths.GLOBAL_SKILLS_DIR", global_dir),
+            patch("jw.paths.USER_SKILLS_DIR", empty_user),
             patch(
-                "EvoScientist.tools.skills_manager.resolve_remote_head",
+                "jw.tools.skills_manager.resolve_remote_head",
                 return_value=None,
             ),
-            patch(
-                "EvoScientist.config.onboard.steps._checkbox_ask", side_effect=_capture
-            ),
-            patch("EvoScientist.config.onboard.steps.console"),
+            patch("jw.config.onboard.steps._checkbox_ask", side_effect=_capture),
+            patch("jw.config.onboard.steps.console"),
             # _capture returns [] (empty selection), which would otherwise
             # reach the real _ensure_npx — see test_returns_empty_when_none_selected.
-            patch("EvoScientist.config.onboard.steps._ensure_npx", return_value=True),
+            patch("jw.config.onboard.steps._ensure_npx", return_value=True),
         ):
             _step_skills()
 
@@ -1041,11 +1027,11 @@ class TestStepSkills:
 class TestStepChannels:
     def test_returns_disabled_when_skip(self):
         """Test channels step returns empty dict when user selects nothing."""
-        from EvoScientist.config.onboard.channels import _step_channels
+        from jw.config.onboard.channels import _step_channels
 
-        config = EvoScientistConfig()
+        config = JWConfig()
 
-        with patch("EvoScientist.config.onboard.channels.questionary") as mock_q:
+        with patch("jw.config.onboard.channels.questionary") as mock_q:
             mock_q.checkbox.return_value.ask.return_value = []
             result = _step_channels(config)
 
@@ -1053,14 +1039,14 @@ class TestStepChannels:
 
     def test_returns_enabled_when_setup_passes(self):
         """Test channels step returns enabled when iMessage setup succeeds."""
-        from EvoScientist.config.onboard.channels import _step_channels
+        from jw.config.onboard.channels import _step_channels
 
-        config = EvoScientistConfig()
+        config = JWConfig()
 
         with (
-            patch("EvoScientist.config.onboard.channels.questionary") as mock_q,
+            patch("jw.config.onboard.channels.questionary") as mock_q,
             patch(
-                "EvoScientist.config.onboard.channels._setup_imessage",
+                "jw.config.onboard.channels._setup_imessage",
                 return_value=True,
             ),
         ):
@@ -1073,14 +1059,14 @@ class TestStepChannels:
 
     def test_returns_enabled_with_senders(self):
         """Test channels step returns enabled with specific senders."""
-        from EvoScientist.config.onboard.channels import _step_channels
+        from jw.config.onboard.channels import _step_channels
 
-        config = EvoScientistConfig()
+        config = JWConfig()
 
         with (
-            patch("EvoScientist.config.onboard.channels.questionary") as mock_q,
+            patch("jw.config.onboard.channels.questionary") as mock_q,
             patch(
-                "EvoScientist.config.onboard.channels._setup_imessage",
+                "jw.config.onboard.channels._setup_imessage",
                 return_value=True,
             ),
         ):
@@ -1094,14 +1080,14 @@ class TestStepChannels:
 
     def test_setup_fails_user_declines(self):
         """Test channels step skips iMessage when setup fails and user declines."""
-        from EvoScientist.config.onboard.channels import _step_channels
+        from jw.config.onboard.channels import _step_channels
 
-        config = EvoScientistConfig()
+        config = JWConfig()
 
         with (
-            patch("EvoScientist.config.onboard.channels.questionary") as mock_q,
+            patch("jw.config.onboard.channels.questionary") as mock_q,
             patch(
-                "EvoScientist.config.onboard.channels._setup_imessage",
+                "jw.config.onboard.channels._setup_imessage",
                 return_value=False,
             ),
         ):
@@ -1114,14 +1100,14 @@ class TestStepChannels:
 
     def test_setup_fails_user_enables_anyway(self):
         """Test channels step enables iMessage when setup fails but user confirms."""
-        from EvoScientist.config.onboard.channels import _step_channels
+        from jw.config.onboard.channels import _step_channels
 
-        config = EvoScientistConfig()
+        config = JWConfig()
 
         with (
-            patch("EvoScientist.config.onboard.channels.questionary") as mock_q,
+            patch("jw.config.onboard.channels.questionary") as mock_q,
             patch(
-                "EvoScientist.config.onboard.channels._setup_imessage",
+                "jw.config.onboard.channels._setup_imessage",
                 return_value=False,
             ),
         ):
@@ -1135,20 +1121,20 @@ class TestStepChannels:
 
     def test_raises_keyboard_interrupt_on_cancel(self):
         """Test channels step raises KeyboardInterrupt on cancel."""
-        from EvoScientist.config.onboard.channels import _step_channels
+        from jw.config.onboard.channels import _step_channels
 
-        config = EvoScientistConfig()
+        config = JWConfig()
 
-        with patch("EvoScientist.config.onboard.channels.questionary") as mock_q:
+        with patch("jw.config.onboard.channels.questionary") as mock_q:
             mock_q.checkbox.return_value.ask.return_value = None
             with pytest.raises(KeyboardInterrupt):
                 _step_channels(config)
 
     def test_telegram_channel_selected(self):
         """Test channels step handles Telegram selection."""
-        from EvoScientist.config.onboard.channels import _step_channels
+        from jw.config.onboard.channels import _step_channels
 
-        config = EvoScientistConfig()
+        config = JWConfig()
 
         _real_import = (
             __builtins__.__import__
@@ -1162,8 +1148,8 @@ class TestStepChannels:
             return _real_import(name, *args, **kwargs)
 
         with (
-            patch("EvoScientist.config.onboard.channels.questionary") as mock_q,
-            patch("EvoScientist.config.onboard.channels._probe_channel"),
+            patch("jw.config.onboard.channels.questionary") as mock_q,
+            patch("jw.config.onboard.channels._probe_channel"),
             patch("builtins.__import__", side_effect=_fake_import),
         ):
             mock_q.checkbox.return_value.ask.return_value = ["telegram"]
@@ -1177,9 +1163,9 @@ class TestStepChannels:
 
     def test_discord_channel_selected(self):
         """Test channels step handles Discord selection."""
-        from EvoScientist.config.onboard.channels import _step_channels
+        from jw.config.onboard.channels import _step_channels
 
-        config = EvoScientistConfig()
+        config = JWConfig()
 
         _real_import = (
             __builtins__.__import__
@@ -1193,8 +1179,8 @@ class TestStepChannels:
             return _real_import(name, *args, **kwargs)
 
         with (
-            patch("EvoScientist.config.onboard.channels.questionary") as mock_q,
-            patch("EvoScientist.config.onboard.channels._probe_channel"),
+            patch("jw.config.onboard.channels.questionary") as mock_q,
+            patch("jw.config.onboard.channels._probe_channel"),
             patch("builtins.__import__", side_effect=_fake_import),
         ):
             mock_q.checkbox.return_value.ask.return_value = ["discord"]
@@ -1209,7 +1195,7 @@ class TestStepChannels:
 
 class TestStepMcpServersNpxFailure:
     def _make_test_servers(self):
-        from EvoScientist.mcp.registry import MCPServerEntry
+        from jw.mcp.registry import MCPServerEntry
 
         return [
             MCPServerEntry(
@@ -1230,24 +1216,24 @@ class TestStepMcpServersNpxFailure:
 
     def test_npx_failure_skips_npx_servers(self):
         """When _ensure_npx returns False, npx-dependent servers must be skipped."""
-        from EvoScientist.config.onboard.steps import _step_mcp_servers
+        from jw.config.onboard.steps import _step_mcp_servers
 
         servers = self._make_test_servers()
 
         with (
             patch(
-                "EvoScientist.mcp.registry.fetch_marketplace_index",
+                "jw.mcp.registry.fetch_marketplace_index",
                 return_value=servers,
             ),
             patch(
-                "EvoScientist.config.onboard.steps._checkbox_ask",
+                "jw.config.onboard.steps._checkbox_ask",
                 return_value=["npx-server", "url-server"],
             ),
-            patch("EvoScientist.config.onboard.steps._ensure_npx", return_value=False),
-            patch("EvoScientist.config.onboard.helpers._check_npx", return_value=False),
-            patch("EvoScientist.mcp.client._load_user_config", return_value={}),
-            patch("EvoScientist.mcp.client.add_mcp_server") as mock_add,
-            patch("EvoScientist.config.onboard.steps.console"),
+            patch("jw.config.onboard.steps._ensure_npx", return_value=False),
+            patch("jw.config.onboard.helpers._check_npx", return_value=False),
+            patch("jw.mcp.client._load_user_config", return_value={}),
+            patch("jw.mcp.client.add_mcp_server") as mock_add,
+            patch("jw.config.onboard.steps.console"),
         ):
             result = _step_mcp_servers()
 
@@ -1261,25 +1247,25 @@ class TestStepMcpServersNpxFailure:
 
     def test_npx_failure_returns_empty_when_all_npx(self):
         """When all selected servers are npx-based and npx fails, return []."""
-        from EvoScientist.config.onboard.steps import _step_mcp_servers
+        from jw.config.onboard.steps import _step_mcp_servers
 
         servers = self._make_test_servers()
         npx_names = [s.name for s in servers if s.command == "npx"]
 
         with (
             patch(
-                "EvoScientist.mcp.registry.fetch_marketplace_index",
+                "jw.mcp.registry.fetch_marketplace_index",
                 return_value=servers,
             ),
             patch(
-                "EvoScientist.config.onboard.steps._checkbox_ask",
+                "jw.config.onboard.steps._checkbox_ask",
                 return_value=npx_names,
             ),
-            patch("EvoScientist.config.onboard.steps._ensure_npx", return_value=False),
-            patch("EvoScientist.config.onboard.helpers._check_npx", return_value=False),
-            patch("EvoScientist.mcp.client._load_user_config", return_value={}),
-            patch("EvoScientist.mcp.client.add_mcp_server") as mock_add,
-            patch("EvoScientist.config.onboard.steps.console"),
+            patch("jw.config.onboard.steps._ensure_npx", return_value=False),
+            patch("jw.config.onboard.helpers._check_npx", return_value=False),
+            patch("jw.mcp.client._load_user_config", return_value={}),
+            patch("jw.mcp.client.add_mcp_server") as mock_add,
+            patch("jw.config.onboard.steps.console"),
         ):
             result = _step_mcp_servers()
 
@@ -1290,11 +1276,11 @@ class TestStepMcpServersNpxFailure:
 class TestStepThinking:
     def test_returns_show_thinking(self):
         """Test thinking step returns selected value."""
-        from EvoScientist.config.onboard.steps import _step_thinking
+        from jw.config.onboard.steps import _step_thinking
 
-        config = EvoScientistConfig()
+        config = JWConfig()
 
-        with patch("EvoScientist.config.onboard.steps.questionary") as mock_q:
+        with patch("jw.config.onboard.steps.questionary") as mock_q:
             mock_q.select.return_value.ask.return_value = True
             result = _step_thinking(config)
 
@@ -1302,11 +1288,11 @@ class TestStepThinking:
 
     def test_returns_false_when_off(self):
         """Test thinking step returns False when user selects Off."""
-        from EvoScientist.config.onboard.steps import _step_thinking
+        from jw.config.onboard.steps import _step_thinking
 
-        config = EvoScientistConfig(show_thinking=False)
+        config = JWConfig(show_thinking=False)
 
-        with patch("EvoScientist.config.onboard.steps.questionary") as mock_q:
+        with patch("jw.config.onboard.steps.questionary") as mock_q:
             mock_q.select.return_value.ask.return_value = False
             result = _step_thinking(config)
 
@@ -1321,21 +1307,21 @@ class TestStepThinking:
 class TestRunOnboard:
     def test_returns_true_on_save(self):
         """Test that run_onboard returns True when config is saved."""
-        from EvoScientist.config.onboard.wizard import run_onboard
+        from jw.config.onboard.wizard import run_onboard
 
         mock_q = MagicMock()
         with (
             _patch_all_questionary(mock_q),
-            patch("EvoScientist.config.onboard.wizard.load_config") as mock_load,
-            patch("EvoScientist.config.onboard.wizard.save_config") as mock_save,
-            patch("EvoScientist.config.onboard.wizard.console"),
-            patch("EvoScientist.config.onboard.steps.console"),
-            patch("EvoScientist.config.onboard.channels.console"),
-            patch("EvoScientist.config.onboard.helpers.console"),
-            patch("EvoScientist.config.onboard.wizard._step_tinytex"),
+            patch("jw.config.onboard.wizard.load_config") as mock_load,
+            patch("jw.config.onboard.wizard.save_config") as mock_save,
+            patch("jw.config.onboard.wizard.console"),
+            patch("jw.config.onboard.steps.console"),
+            patch("jw.config.onboard.channels.console"),
+            patch("jw.config.onboard.helpers.console"),
+            patch("jw.config.onboard.wizard._step_tinytex"),
         ):
             # Setup mock config
-            mock_load.return_value = EvoScientistConfig()
+            mock_load.return_value = JWConfig()
 
             # Mock all questionary calls — order matches the wizard's select
             # sequence: UI → Provider → Anthropic auth_mode → Model →
@@ -1379,20 +1365,20 @@ class TestRunOnboard:
     def test_auxiliary_model_enabled_collects_provider_and_key(self):
         """Enabling the auxiliary step stores its provider, model, and the
         chosen provider's API key (a different company than the main agent)."""
-        from EvoScientist.config.onboard.wizard import run_onboard
+        from jw.config.onboard.wizard import run_onboard
 
         mock_q = MagicMock()
         with (
             _patch_all_questionary(mock_q),
-            patch("EvoScientist.config.onboard.wizard.load_config") as mock_load,
-            patch("EvoScientist.config.onboard.wizard.save_config") as mock_save,
-            patch("EvoScientist.config.onboard.wizard.console"),
-            patch("EvoScientist.config.onboard.steps.console"),
-            patch("EvoScientist.config.onboard.channels.console"),
-            patch("EvoScientist.config.onboard.helpers.console"),
-            patch("EvoScientist.config.onboard.wizard._step_tinytex"),
+            patch("jw.config.onboard.wizard.load_config") as mock_load,
+            patch("jw.config.onboard.wizard.save_config") as mock_save,
+            patch("jw.config.onboard.wizard.console"),
+            patch("jw.config.onboard.steps.console"),
+            patch("jw.config.onboard.channels.console"),
+            patch("jw.config.onboard.helpers.console"),
+            patch("jw.config.onboard.wizard._step_tinytex"),
         ):
-            mock_load.return_value = EvoScientistConfig()
+            mock_load.return_value = JWConfig()
 
             mock_q.select.return_value.ask.side_effect = [
                 "tui",  # UI backend
@@ -1434,17 +1420,17 @@ class TestRunOnboard:
 
     def test_auxiliary_same_provider_reuses_main_credentials(self):
         """Same-provider co-pilot should not imply separate credentials exist."""
-        from EvoScientist.config.onboard.wizard import run_onboard
+        from jw.config.onboard.wizard import run_onboard
 
         mock_q = MagicMock()
         with (
             _patch_all_questionary(mock_q),
-            patch("EvoScientist.config.onboard.wizard.load_config") as mock_load,
-            patch("EvoScientist.config.onboard.wizard.save_config") as mock_save,
-            patch("EvoScientist.config.onboard.wizard.console"),
-            patch("EvoScientist.config.onboard.steps.console"),
+            patch("jw.config.onboard.wizard.load_config") as mock_load,
+            patch("jw.config.onboard.wizard.save_config") as mock_save,
+            patch("jw.config.onboard.wizard.console"),
+            patch("jw.config.onboard.steps.console"),
         ):
-            mock_load.return_value = EvoScientistConfig(
+            mock_load.return_value = JWConfig(
                 provider="openai",
                 model="gpt-5.5",
                 openai_api_key="sk-main-openai",
@@ -1470,21 +1456,19 @@ class TestRunOnboard:
 
     def test_auxiliary_same_provider_prompts_when_shared_key_missing(self):
         """Same-provider reuse should not hide a missing shared API key."""
-        from EvoScientist.config.onboard.wizard import run_onboard
+        from jw.config.onboard.wizard import run_onboard
 
         mock_q = MagicMock()
         with (
             _patch_all_questionary(mock_q),
-            patch("EvoScientist.config.onboard.wizard.load_config") as mock_load,
-            patch("EvoScientist.config.onboard.wizard.save_config") as mock_save,
-            patch("EvoScientist.config.onboard.wizard.console"),
-            patch("EvoScientist.config.onboard.steps.console"),
-            patch("EvoScientist.config.onboard.helpers.console"),
-            patch(
-                "EvoScientist.ccproxy_manager.is_ccproxy_available", return_value=True
-            ),
+            patch("jw.config.onboard.wizard.load_config") as mock_load,
+            patch("jw.config.onboard.wizard.save_config") as mock_save,
+            patch("jw.config.onboard.wizard.console"),
+            patch("jw.config.onboard.steps.console"),
+            patch("jw.config.onboard.helpers.console"),
+            patch("jw.ccproxy_manager.is_ccproxy_available", return_value=True),
         ):
-            mock_load.return_value = EvoScientistConfig(
+            mock_load.return_value = JWConfig(
                 provider="openai",
                 model="gpt-5.5",
                 openai_auth_mode="api_key",
@@ -1516,25 +1500,23 @@ class TestRunOnboard:
 
     def test_auxiliary_openai_oauth_skips_api_key(self):
         """Auxiliary OpenAI now uses the shared auth flow and skips keys on OAuth."""
-        from EvoScientist.config.onboard.wizard import run_onboard
+        from jw.config.onboard.wizard import run_onboard
 
         mock_q = MagicMock()
         with (
             _patch_all_questionary(mock_q),
-            patch("EvoScientist.config.onboard.wizard.load_config") as mock_load,
-            patch("EvoScientist.config.onboard.wizard.save_config") as mock_save,
-            patch("EvoScientist.config.onboard.wizard.console"),
-            patch("EvoScientist.config.onboard.steps.console"),
-            patch("EvoScientist.config.onboard.helpers.console"),
+            patch("jw.config.onboard.wizard.load_config") as mock_load,
+            patch("jw.config.onboard.wizard.save_config") as mock_save,
+            patch("jw.config.onboard.wizard.console"),
+            patch("jw.config.onboard.steps.console"),
+            patch("jw.config.onboard.helpers.console"),
+            patch("jw.ccproxy_manager.is_ccproxy_available", return_value=True),
             patch(
-                "EvoScientist.ccproxy_manager.is_ccproxy_available", return_value=True
-            ),
-            patch(
-                "EvoScientist.ccproxy_manager.check_ccproxy_auth",
+                "jw.ccproxy_manager.check_ccproxy_auth",
                 return_value=(False, "not authenticated"),
             ) as mock_auth,
         ):
-            mock_load.return_value = EvoScientistConfig()
+            mock_load.return_value = JWConfig()
             mock_q.select.return_value.ask.side_effect = [
                 "assemble",  # Auxiliary: Assemble
                 "openai",  # Auxiliary provider
@@ -1564,18 +1546,18 @@ class TestRunOnboard:
 
     def test_auxiliary_reconfigure_clears_unused_openai_oauth(self):
         """Switching co-pilot away from OpenAI clears stale OpenAI OAuth mode."""
-        from EvoScientist.config.onboard.wizard import run_onboard
+        from jw.config.onboard.wizard import run_onboard
 
         mock_q = MagicMock()
         with (
             _patch_all_questionary(mock_q),
-            patch("EvoScientist.config.onboard.wizard.load_config") as mock_load,
-            patch("EvoScientist.config.onboard.wizard.save_config") as mock_save,
-            patch("EvoScientist.config.onboard.wizard.console"),
-            patch("EvoScientist.config.onboard.steps.console"),
-            patch("EvoScientist.config.onboard.helpers.console"),
+            patch("jw.config.onboard.wizard.load_config") as mock_load,
+            patch("jw.config.onboard.wizard.save_config") as mock_save,
+            patch("jw.config.onboard.wizard.console"),
+            patch("jw.config.onboard.steps.console"),
+            patch("jw.config.onboard.helpers.console"),
         ):
-            mock_load.return_value = EvoScientistConfig(
+            mock_load.return_value = JWConfig(
                 provider="anthropic",
                 model="claude-sonnet-4-6",
                 anthropic_auth_mode="oauth",
@@ -1607,19 +1589,19 @@ class TestRunOnboard:
     def test_auxiliary_custom_provider_collects_base_url(self):
         """Regression for the custom-provider fix: a custom auxiliary provider
         collects its base URL (provider -> base URL -> key -> model order)."""
-        from EvoScientist.config.onboard.wizard import run_onboard
+        from jw.config.onboard.wizard import run_onboard
 
         mock_q = MagicMock()
         with (
             _patch_all_questionary(mock_q),
-            patch("EvoScientist.config.onboard.wizard.load_config") as mock_load,
-            patch("EvoScientist.config.onboard.wizard.save_config") as mock_save,
-            patch("EvoScientist.config.onboard.wizard.console"),
-            patch("EvoScientist.config.onboard.steps.console"),
-            patch("EvoScientist.config.onboard.channels.console"),
-            patch("EvoScientist.config.onboard.helpers.console"),
+            patch("jw.config.onboard.wizard.load_config") as mock_load,
+            patch("jw.config.onboard.wizard.save_config") as mock_save,
+            patch("jw.config.onboard.wizard.console"),
+            patch("jw.config.onboard.steps.console"),
+            patch("jw.config.onboard.channels.console"),
+            patch("jw.config.onboard.helpers.console"),
         ):
-            mock_load.return_value = EvoScientistConfig()
+            mock_load.return_value = JWConfig()
             mock_q.select.return_value.ask.side_effect = [
                 "assemble",  # Auxiliary: Assemble
                 "custom-openai",  # Auxiliary provider
@@ -1647,19 +1629,19 @@ class TestRunOnboard:
 
     def test_returns_false_on_cancel(self):
         """Test that run_onboard returns False when cancelled."""
-        from EvoScientist.config.onboard.wizard import run_onboard
+        from jw.config.onboard.wizard import run_onboard
 
         mock_q = MagicMock()
         with (
             _patch_all_questionary(mock_q),
-            patch("EvoScientist.config.onboard.wizard.load_config") as mock_load,
-            patch("EvoScientist.config.onboard.wizard.console"),
-            patch("EvoScientist.config.onboard.steps.console"),
-            patch("EvoScientist.config.onboard.channels.console"),
-            patch("EvoScientist.config.onboard.helpers.console"),
-            patch("EvoScientist.config.onboard.wizard._step_tinytex"),
+            patch("jw.config.onboard.wizard.load_config") as mock_load,
+            patch("jw.config.onboard.wizard.console"),
+            patch("jw.config.onboard.steps.console"),
+            patch("jw.config.onboard.channels.console"),
+            patch("jw.config.onboard.helpers.console"),
+            patch("jw.config.onboard.wizard._step_tinytex"),
         ):
-            mock_load.return_value = EvoScientistConfig()
+            mock_load.return_value = JWConfig()
 
             # First selection returns None (Ctrl+C)
             mock_q.select.return_value.ask.return_value = None
@@ -1670,20 +1652,20 @@ class TestRunOnboard:
 
     def test_returns_false_when_not_saving(self):
         """Test that run_onboard returns False when user declines to save."""
-        from EvoScientist.config.onboard.wizard import run_onboard
+        from jw.config.onboard.wizard import run_onboard
 
         mock_q = MagicMock()
         with (
             _patch_all_questionary(mock_q),
-            patch("EvoScientist.config.onboard.wizard.load_config") as mock_load,
-            patch("EvoScientist.config.onboard.wizard.save_config") as mock_save,
-            patch("EvoScientist.config.onboard.wizard.console"),
-            patch("EvoScientist.config.onboard.steps.console"),
-            patch("EvoScientist.config.onboard.channels.console"),
-            patch("EvoScientist.config.onboard.helpers.console"),
-            patch("EvoScientist.config.onboard.wizard._step_tinytex"),
+            patch("jw.config.onboard.wizard.load_config") as mock_load,
+            patch("jw.config.onboard.wizard.save_config") as mock_save,
+            patch("jw.config.onboard.wizard.console"),
+            patch("jw.config.onboard.steps.console"),
+            patch("jw.config.onboard.channels.console"),
+            patch("jw.config.onboard.helpers.console"),
+            patch("jw.config.onboard.wizard._step_tinytex"),
         ):
-            mock_load.return_value = EvoScientistConfig()
+            mock_load.return_value = JWConfig()
 
             mock_q.select.return_value.ask.side_effect = [
                 "tui",  # UI backend
@@ -1712,18 +1694,18 @@ class TestRunOnboard:
 
     def test_reset_then_no_restores_pre_wizard_config(self, tmp_path):
         """Regression: Reset → No must restore the original user file,
-        NOT overwrite it with ``EvoScientistConfig()`` defaults.
+        NOT overwrite it with ``JWConfig()`` defaults.
 
         Reproduces a bug where the snapshot was refreshed after Reset, so
         declining the save silently wiped the user's previous settings.
         Verifies the raw-bytes revert path introduced for CodeRabbit's
         "file absence on cancel" comment.
         """
-        from EvoScientist.config.onboard.wizard import run_onboard
-        from EvoScientist.config.settings import save_config
+        from jw.config.onboard.wizard import run_onboard
+        from jw.config.settings import save_config
 
         config_file = tmp_path / "config.yaml"
-        existing = EvoScientistConfig(
+        existing = JWConfig(
             provider="openai",
             model="gpt-5",
             openai_api_key="sk-existing",
@@ -1731,9 +1713,7 @@ class TestRunOnboard:
         )
 
         mock_q = MagicMock()
-        with patch(
-            "EvoScientist.config.settings.get_config_path", return_value=config_file
-        ):
+        with patch("jw.config.settings.get_config_path", return_value=config_file):
             save_config(existing)
             # Append a comment that ``save_config`` would strip on
             # re-serialization. The test then proves revert restored the
@@ -1746,14 +1726,14 @@ class TestRunOnboard:
             with (
                 _patch_all_questionary(mock_q),
                 patch(
-                    "EvoScientist.config.onboard.wizard.get_config_path",
+                    "jw.config.onboard.wizard.get_config_path",
                     return_value=config_file,
                 ),
-                patch("EvoScientist.config.onboard.wizard.console"),
-                patch("EvoScientist.config.onboard.steps.console"),
-                patch("EvoScientist.config.onboard.channels.console"),
-                patch("EvoScientist.config.onboard.helpers.console"),
-                patch("EvoScientist.config.onboard.wizard._step_tinytex"),
+                patch("jw.config.onboard.wizard.console"),
+                patch("jw.config.onboard.steps.console"),
+                patch("jw.config.onboard.channels.console"),
+                patch("jw.config.onboard.helpers.console"),
+                patch("jw.config.onboard.wizard._step_tinytex"),
             ):
                 mock_q.select.return_value.ask.side_effect = [
                     "reset",  # Keep/Modify/Reset → Reset
@@ -1784,7 +1764,7 @@ class TestRunOnboard:
         """Brand-new user (no config.yaml) declines the final save: the file
         created by autosaves should be deleted to match the original state.
         """
-        from EvoScientist.config.onboard.wizard import run_onboard
+        from jw.config.onboard.wizard import run_onboard
 
         config_file = tmp_path / "config.yaml"
         assert not config_file.exists()
@@ -1793,18 +1773,18 @@ class TestRunOnboard:
         with (
             _patch_all_questionary(mock_q),
             patch(
-                "EvoScientist.config.settings.get_config_path",
+                "jw.config.settings.get_config_path",
                 return_value=config_file,
             ),
             patch(
-                "EvoScientist.config.onboard.wizard.get_config_path",
+                "jw.config.onboard.wizard.get_config_path",
                 return_value=config_file,
             ),
-            patch("EvoScientist.config.onboard.wizard.console"),
-            patch("EvoScientist.config.onboard.steps.console"),
-            patch("EvoScientist.config.onboard.channels.console"),
-            patch("EvoScientist.config.onboard.helpers.console"),
-            patch("EvoScientist.config.onboard.wizard._step_tinytex"),
+            patch("jw.config.onboard.wizard.console"),
+            patch("jw.config.onboard.steps.console"),
+            patch("jw.config.onboard.channels.console"),
+            patch("jw.config.onboard.helpers.console"),
+            patch("jw.config.onboard.wizard._step_tinytex"),
         ):
             mock_q.select.return_value.ask.side_effect = [
                 "tui",
@@ -1835,20 +1815,20 @@ class TestRunOnboard:
         a rejected key raises rather than silently saving."""
         import pytest
 
-        from EvoScientist.config.onboard.prompter import NonInteractivePrompter
-        from EvoScientist.config.onboard.wizard import run_onboard
+        from jw.config.onboard.prompter import NonInteractivePrompter
+        from jw.config.onboard.wizard import run_onboard
 
         prompter = NonInteractivePrompter(answers={"tavily_key": "tvly-bad"})
 
         with (
             patch(
-                "EvoScientist.config.onboard.wizard.load_config",
-                return_value=EvoScientistConfig(),
+                "jw.config.onboard.wizard.load_config",
+                return_value=JWConfig(),
             ),
-            patch("EvoScientist.config.onboard.wizard.save_config"),
-            patch("EvoScientist.config.onboard.wizard.console"),
+            patch("jw.config.onboard.wizard.save_config"),
+            patch("jw.config.onboard.wizard.console"),
             patch(
-                "EvoScientist.config.onboard.validators.validate_tavily_key",
+                "jw.config.onboard.validators.validate_tavily_key",
                 return_value=(False, "Invalid API key"),
             ),
         ):
@@ -1861,8 +1841,8 @@ class TestRunOnboard:
 
     def test_preset_tavily_key_skips_validation_when_flagged(self):
         """``--skip-validation`` must bypass the preset tavily check."""
-        from EvoScientist.config.onboard.prompter import NonInteractivePrompter
-        from EvoScientist.config.onboard.wizard import run_onboard
+        from jw.config.onboard.prompter import NonInteractivePrompter
+        from jw.config.onboard.wizard import run_onboard
 
         prompter = NonInteractivePrompter(answers={"tavily_key": "tvly-bad"})
 
@@ -1870,14 +1850,12 @@ class TestRunOnboard:
         with (
             _patch_all_questionary(mock_q),
             patch(
-                "EvoScientist.config.onboard.wizard.load_config",
-                return_value=EvoScientistConfig(),
+                "jw.config.onboard.wizard.load_config",
+                return_value=JWConfig(),
             ),
-            patch("EvoScientist.config.onboard.wizard.save_config"),
-            patch("EvoScientist.config.onboard.wizard.console"),
-            patch(
-                "EvoScientist.config.onboard.validators.validate_tavily_key"
-            ) as mock_validate,
+            patch("jw.config.onboard.wizard.save_config"),
+            patch("jw.config.onboard.wizard.console"),
+            patch("jw.config.onboard.validators.validate_tavily_key") as mock_validate,
         ):
             mock_q.confirm.return_value.ask.side_effect = [True]  # Save? = Yes
             run_onboard(
@@ -1895,14 +1873,14 @@ class TestOnboardCliErrorPresentation:
     def test_runtime_error_becomes_clean_typer_exit(self):
         import typer
 
-        from EvoScientist.cli.commands import _run_onboard_cli
+        from jw.cli.commands import _run_onboard_cli
 
         with (
             patch(
-                "EvoScientist.config.onboard.run_onboard",
+                "jw.config.onboard.run_onboard",
                 side_effect=RuntimeError("--tavily-key rejected by validator: nope"),
             ),
-            patch("EvoScientist.cli.commands.console") as mock_console,
+            patch("jw.cli.commands.console") as mock_console,
         ):
             with pytest.raises(typer.Exit) as exc_info:
                 _run_onboard_cli(skip_validation=False)
@@ -1923,11 +1901,11 @@ class TestCheckLatexComponents:
 
     def test_all_available(self):
         """All three components found → all True."""
-        from EvoScientist.config.onboard.helpers import _check_latex_components
+        from jw.config.onboard.helpers import _check_latex_components
 
         with (
-            patch("EvoScientist.config.onboard.helpers.shutil") as mock_sh,
-            patch("EvoScientist.config.onboard.helpers.subprocess") as mock_sp,
+            patch("jw.config.onboard.helpers.shutil") as mock_sh,
+            patch("jw.config.onboard.helpers.subprocess") as mock_sp,
         ):
             mock_sh.which.return_value = "/usr/local/bin/cmd"
             mock_sp.TimeoutExpired = subprocess.TimeoutExpired
@@ -1937,11 +1915,11 @@ class TestCheckLatexComponents:
 
     def test_only_pdflatex(self):
         """Only pdflatex available."""
-        from EvoScientist.config.onboard.helpers import _check_latex_components
+        from jw.config.onboard.helpers import _check_latex_components
 
         with (
-            patch("EvoScientist.config.onboard.helpers.shutil") as mock_sh,
-            patch("EvoScientist.config.onboard.helpers.subprocess") as mock_sp,
+            patch("jw.config.onboard.helpers.shutil") as mock_sh,
+            patch("jw.config.onboard.helpers.subprocess") as mock_sp,
         ):
             mock_sh.which.side_effect = lambda cmd: (
                 "/usr/local/bin/pdflatex" if cmd == "pdflatex" else None
@@ -1957,9 +1935,9 @@ class TestCheckLatexComponents:
 
     def test_none_available(self):
         """Nothing found → all False."""
-        from EvoScientist.config.onboard.helpers import _check_latex_components
+        from jw.config.onboard.helpers import _check_latex_components
 
-        with patch("EvoScientist.config.onboard.helpers.shutil") as mock_sh:
+        with patch("jw.config.onboard.helpers.shutil") as mock_sh:
             mock_sh.which.return_value = None
             result = _check_latex_components()
             assert result == {
@@ -1974,12 +1952,12 @@ class TestAutoInstallLatexmk:
 
     def test_success(self):
         """tlmgr install latexmk succeeds."""
-        from EvoScientist.config.onboard.helpers import _auto_install_latexmk
+        from jw.config.onboard.helpers import _auto_install_latexmk
 
         with (
-            patch("EvoScientist.config.onboard.helpers.shutil") as mock_sh,
-            patch("EvoScientist.config.onboard.helpers.subprocess") as mock_sp,
-            patch("EvoScientist.config.onboard.helpers.console") as mock_con,
+            patch("jw.config.onboard.helpers.shutil") as mock_sh,
+            patch("jw.config.onboard.helpers.subprocess") as mock_sp,
+            patch("jw.config.onboard.helpers.console") as mock_con,
         ):
             mock_sh.which.side_effect = lambda cmd: f"/usr/local/bin/{cmd}"
             mock_sp.run.return_value = Mock(returncode=0)
@@ -1992,12 +1970,12 @@ class TestAutoInstallLatexmk:
 
     def test_tlmgr_not_found(self):
         """tlmgr not on PATH → does nothing."""
-        from EvoScientist.config.onboard.helpers import _auto_install_latexmk
+        from jw.config.onboard.helpers import _auto_install_latexmk
 
         with (
-            patch("EvoScientist.config.onboard.helpers.shutil") as mock_sh,
-            patch("EvoScientist.config.onboard.helpers.subprocess") as mock_sp,
-            patch("EvoScientist.config.onboard.helpers.console"),
+            patch("jw.config.onboard.helpers.shutil") as mock_sh,
+            patch("jw.config.onboard.helpers.subprocess") as mock_sp,
+            patch("jw.config.onboard.helpers.console"),
         ):
             mock_sh.which.return_value = None
             _auto_install_latexmk()
@@ -2005,12 +1983,12 @@ class TestAutoInstallLatexmk:
 
     def test_install_fails(self):
         """tlmgr install returns nonzero → warns."""
-        from EvoScientist.config.onboard.helpers import _auto_install_latexmk
+        from jw.config.onboard.helpers import _auto_install_latexmk
 
         with (
-            patch("EvoScientist.config.onboard.helpers.shutil") as mock_sh,
-            patch("EvoScientist.config.onboard.helpers.subprocess") as mock_sp,
-            patch("EvoScientist.config.onboard.helpers.console") as mock_con,
+            patch("jw.config.onboard.helpers.shutil") as mock_sh,
+            patch("jw.config.onboard.helpers.subprocess") as mock_sp,
+            patch("jw.config.onboard.helpers.console") as mock_con,
         ):
             mock_sh.which.side_effect = lambda cmd: (
                 "/usr/local/bin/tlmgr" if cmd == "tlmgr" else None
@@ -2029,11 +2007,11 @@ class TestCheckTinytex:
 
     def test_found_pdflatex(self):
         """pdflatex found and working → True."""
-        from EvoScientist.config.onboard.helpers import _check_tinytex
+        from jw.config.onboard.helpers import _check_tinytex
 
         with (
-            patch("EvoScientist.config.onboard.helpers.shutil") as mock_sh,
-            patch("EvoScientist.config.onboard.helpers.subprocess") as mock_sp,
+            patch("jw.config.onboard.helpers.shutil") as mock_sh,
+            patch("jw.config.onboard.helpers.subprocess") as mock_sp,
         ):
             mock_sh.which.return_value = "/usr/local/bin/pdflatex"
             mock_sp.TimeoutExpired = subprocess.TimeoutExpired
@@ -2042,11 +2020,11 @@ class TestCheckTinytex:
 
     def test_tlmgr_only_not_enough(self):
         """pdflatex missing but tlmgr found → False (pdflatex is required)."""
-        from EvoScientist.config.onboard.helpers import _check_tinytex
+        from jw.config.onboard.helpers import _check_tinytex
 
         with (
-            patch("EvoScientist.config.onboard.helpers.shutil") as mock_sh,
-            patch("EvoScientist.config.onboard.helpers.subprocess") as mock_sp,
+            patch("jw.config.onboard.helpers.shutil") as mock_sh,
+            patch("jw.config.onboard.helpers.subprocess") as mock_sp,
         ):
             mock_sh.which.side_effect = lambda cmd: (
                 "/usr/local/bin/tlmgr" if cmd == "tlmgr" else None
@@ -2057,19 +2035,19 @@ class TestCheckTinytex:
 
     def test_not_found(self):
         """Neither pdflatex nor tlmgr found → False."""
-        from EvoScientist.config.onboard.helpers import _check_tinytex
+        from jw.config.onboard.helpers import _check_tinytex
 
-        with patch("EvoScientist.config.onboard.helpers.shutil") as mock_sh:
+        with patch("jw.config.onboard.helpers.shutil") as mock_sh:
             mock_sh.which.return_value = None
             assert _check_tinytex() is False
 
     def test_version_timeout(self):
         """Command found but --version times out → False."""
-        from EvoScientist.config.onboard.helpers import _check_tinytex
+        from jw.config.onboard.helpers import _check_tinytex
 
         with (
-            patch("EvoScientist.config.onboard.helpers.shutil") as mock_sh,
-            patch("EvoScientist.config.onboard.helpers.subprocess") as mock_sp,
+            patch("jw.config.onboard.helpers.shutil") as mock_sh,
+            patch("jw.config.onboard.helpers.subprocess") as mock_sp,
         ):
             mock_sh.which.return_value = "/usr/local/bin/pdflatex"
             mock_sp.TimeoutExpired = subprocess.TimeoutExpired
@@ -2078,11 +2056,11 @@ class TestCheckTinytex:
 
     def test_version_nonzero(self):
         """Command found but --version returns nonzero → False."""
-        from EvoScientist.config.onboard.helpers import _check_tinytex
+        from jw.config.onboard.helpers import _check_tinytex
 
         with (
-            patch("EvoScientist.config.onboard.helpers.shutil") as mock_sh,
-            patch("EvoScientist.config.onboard.helpers.subprocess") as mock_sp,
+            patch("jw.config.onboard.helpers.shutil") as mock_sh,
+            patch("jw.config.onboard.helpers.subprocess") as mock_sp,
         ):
             mock_sp.TimeoutExpired = subprocess.TimeoutExpired
             mock_sp.run.return_value = Mock(returncode=1)
@@ -2098,11 +2076,11 @@ class TestDetectTinytexInstallMethod:
 
     def test_macos_with_curl(self):
         """macOS with curl → curl method."""
-        from EvoScientist.config.onboard.helpers import _detect_tinytex_install_method
+        from jw.config.onboard.helpers import _detect_tinytex_install_method
 
         with (
-            patch("EvoScientist.config.onboard.helpers.sys") as mock_sys,
-            patch("EvoScientist.config.onboard.helpers.shutil") as mock_sh,
+            patch("jw.config.onboard.helpers.sys") as mock_sys,
+            patch("jw.config.onboard.helpers.shutil") as mock_sh,
         ):
             mock_sys.platform = "darwin"
             mock_sh.which.side_effect = lambda cmd: (
@@ -2114,11 +2092,11 @@ class TestDetectTinytexInstallMethod:
 
     def test_linux_wget_fallback(self):
         """Linux without curl, with wget → wget method."""
-        from EvoScientist.config.onboard.helpers import _detect_tinytex_install_method
+        from jw.config.onboard.helpers import _detect_tinytex_install_method
 
         with (
-            patch("EvoScientist.config.onboard.helpers.sys") as mock_sys,
-            patch("EvoScientist.config.onboard.helpers.shutil") as mock_sh,
+            patch("jw.config.onboard.helpers.sys") as mock_sys,
+            patch("jw.config.onboard.helpers.shutil") as mock_sh,
         ):
             mock_sys.platform = "linux"
             mock_sh.which.side_effect = lambda cmd: (
@@ -2130,11 +2108,11 @@ class TestDetectTinytexInstallMethod:
 
     def test_windows_choco(self):
         """Windows with choco → choco method."""
-        from EvoScientist.config.onboard.helpers import _detect_tinytex_install_method
+        from jw.config.onboard.helpers import _detect_tinytex_install_method
 
         with (
-            patch("EvoScientist.config.onboard.helpers.sys") as mock_sys,
-            patch("EvoScientist.config.onboard.helpers.shutil") as mock_sh,
+            patch("jw.config.onboard.helpers.sys") as mock_sys,
+            patch("jw.config.onboard.helpers.shutil") as mock_sh,
         ):
             mock_sys.platform = "win32"
             mock_sh.which.side_effect = lambda cmd: (
@@ -2146,11 +2124,11 @@ class TestDetectTinytexInstallMethod:
 
     def test_windows_scoop(self):
         """Windows with scoop (no choco) → scoop method."""
-        from EvoScientist.config.onboard.helpers import _detect_tinytex_install_method
+        from jw.config.onboard.helpers import _detect_tinytex_install_method
 
         with (
-            patch("EvoScientist.config.onboard.helpers.sys") as mock_sys,
-            patch("EvoScientist.config.onboard.helpers.shutil") as mock_sh,
+            patch("jw.config.onboard.helpers.sys") as mock_sys,
+            patch("jw.config.onboard.helpers.shutil") as mock_sh,
         ):
             mock_sys.platform = "win32"
             mock_sh.which.side_effect = lambda cmd: (
@@ -2162,11 +2140,11 @@ class TestDetectTinytexInstallMethod:
 
     def test_no_tools(self):
         """No tools available → manual method."""
-        from EvoScientist.config.onboard.helpers import _detect_tinytex_install_method
+        from jw.config.onboard.helpers import _detect_tinytex_install_method
 
         with (
-            patch("EvoScientist.config.onboard.helpers.sys") as mock_sys,
-            patch("EvoScientist.config.onboard.helpers.shutil") as mock_sh,
+            patch("jw.config.onboard.helpers.sys") as mock_sys,
+            patch("jw.config.onboard.helpers.shutil") as mock_sh,
         ):
             mock_sys.platform = "linux"
             mock_sh.which.return_value = None
@@ -2180,9 +2158,9 @@ class TestInstallTinytex:
 
     def test_curl_install_success(self):
         """curl install succeeds → True."""
-        from EvoScientist.config.onboard.helpers import _install_tinytex
+        from jw.config.onboard.helpers import _install_tinytex
 
-        with patch("EvoScientist.config.onboard.helpers.subprocess") as mock_sp:
+        with patch("jw.config.onboard.helpers.subprocess") as mock_sp:
             mock_sp.run.return_value = Mock(returncode=0)
             mock_sp.TimeoutExpired = subprocess.TimeoutExpired
             assert _install_tinytex("curl", "curl -sL ... | sh") is True
@@ -2193,11 +2171,11 @@ class TestInstallTinytex:
 
     def test_curl_install_timeout(self):
         """curl install times out → False."""
-        from EvoScientist.config.onboard.helpers import _install_tinytex
+        from jw.config.onboard.helpers import _install_tinytex
 
         with (
-            patch("EvoScientist.config.onboard.helpers.subprocess") as mock_sp,
-            patch("EvoScientist.config.onboard.helpers.console"),
+            patch("jw.config.onboard.helpers.subprocess") as mock_sp,
+            patch("jw.config.onboard.helpers.console"),
         ):
             mock_sp.run.side_effect = subprocess.TimeoutExpired("curl", 300)
             mock_sp.TimeoutExpired = subprocess.TimeoutExpired
@@ -2205,11 +2183,11 @@ class TestInstallTinytex:
 
     def test_choco_install_success(self):
         """choco install succeeds → True."""
-        from EvoScientist.config.onboard.helpers import _install_tinytex
+        from jw.config.onboard.helpers import _install_tinytex
 
         with (
-            patch("EvoScientist.config.onboard.helpers.subprocess") as mock_sp,
-            patch("EvoScientist.config.onboard.helpers.shutil") as mock_sh,
+            patch("jw.config.onboard.helpers.subprocess") as mock_sp,
+            patch("jw.config.onboard.helpers.shutil") as mock_sh,
         ):
             mock_sh.which.return_value = "C:\\choco\\choco.exe"
             mock_sp.run.return_value = Mock(returncode=0)
@@ -2218,7 +2196,7 @@ class TestInstallTinytex:
 
     def test_manual_returns_false(self):
         """manual method → False immediately."""
-        from EvoScientist.config.onboard.helpers import _install_tinytex
+        from jw.config.onboard.helpers import _install_tinytex
 
         assert _install_tinytex("manual", "https://yihui.org/tinytex/") is False
 
@@ -2228,12 +2206,12 @@ class TestStepTinytex:
 
     def test_user_declines_prepare(self):
         """User says No to 'Prepare LaTeX environment?' → skipped."""
-        from EvoScientist.config.onboard.steps import _step_tinytex
+        from jw.config.onboard.steps import _step_tinytex
 
         with (
-            patch("EvoScientist.config.onboard.steps.questionary") as mock_q,
-            patch("EvoScientist.config.onboard.steps._print_step_skipped") as mock_ps,
-            patch("EvoScientist.config.onboard.steps.console"),
+            patch("jw.config.onboard.steps.questionary") as mock_q,
+            patch("jw.config.onboard.steps._print_step_skipped") as mock_ps,
+            patch("jw.config.onboard.steps.console"),
         ):
             mock_q.select.return_value.ask.return_value = False
             _step_tinytex()
@@ -2241,22 +2219,20 @@ class TestStepTinytex:
 
     def test_already_installed_all_components(self):
         """User says Yes, all components available → prints detailed status."""
-        from EvoScientist.config.onboard.steps import _step_tinytex
+        from jw.config.onboard.steps import _step_tinytex
 
         with (
-            patch("EvoScientist.config.onboard.steps.questionary") as mock_q,
+            patch("jw.config.onboard.steps.questionary") as mock_q,
             patch(
-                "EvoScientist.config.onboard.steps._check_latex_components",
+                "jw.config.onboard.steps._check_latex_components",
                 return_value={
                     "pdflatex": True,
                     "latexmk": True,
                     "tlmgr": True,
                 },
             ),
-            patch(
-                "EvoScientist.config.onboard.steps._print_latex_status"
-            ) as mock_status,
-            patch("EvoScientist.config.onboard.steps.console"),
+            patch("jw.config.onboard.steps._print_latex_status") as mock_status,
+            patch("jw.config.onboard.steps.console"),
         ):
             mock_q.select.return_value.ask.return_value = True
             _step_tinytex()
@@ -2264,23 +2240,21 @@ class TestStepTinytex:
 
     def test_already_installed_missing_latexmk(self):
         """pdflatex + tlmgr present but latexmk missing → auto-installs."""
-        from EvoScientist.config.onboard.steps import _step_tinytex
+        from jw.config.onboard.steps import _step_tinytex
 
         with (
-            patch("EvoScientist.config.onboard.steps.questionary") as mock_q,
+            patch("jw.config.onboard.steps.questionary") as mock_q,
             patch(
-                "EvoScientist.config.onboard.steps._check_latex_components",
+                "jw.config.onboard.steps._check_latex_components",
                 return_value={
                     "pdflatex": True,
                     "latexmk": False,
                     "tlmgr": True,
                 },
             ),
-            patch("EvoScientist.config.onboard.steps._print_latex_status"),
-            patch(
-                "EvoScientist.config.onboard.steps._auto_install_latexmk"
-            ) as mock_auto,
-            patch("EvoScientist.config.onboard.steps.console"),
+            patch("jw.config.onboard.steps._print_latex_status"),
+            patch("jw.config.onboard.steps._auto_install_latexmk") as mock_auto,
+            patch("jw.config.onboard.steps.console"),
         ):
             mock_q.select.return_value.ask.return_value = True
             _step_tinytex()
@@ -2288,27 +2262,27 @@ class TestStepTinytex:
 
     def test_user_installs_successfully(self):
         """Yes → not found → confirms install → succeeds → re-check passes."""
-        from EvoScientist.config.onboard.steps import _step_tinytex
+        from jw.config.onboard.steps import _step_tinytex
 
         all_false = {"pdflatex": False, "latexmk": False, "tlmgr": False}
         all_true = {"pdflatex": True, "latexmk": True, "tlmgr": True}
         with (
             patch(
-                "EvoScientist.config.onboard.steps._check_latex_components",
+                "jw.config.onboard.steps._check_latex_components",
                 side_effect=[all_false, all_true],
             ),
             patch(
-                "EvoScientist.config.onboard.steps._detect_tinytex_install_method",
+                "jw.config.onboard.steps._detect_tinytex_install_method",
                 return_value=("curl", "curl ... | sh"),
             ),
             patch(
-                "EvoScientist.config.onboard.steps._install_tinytex",
+                "jw.config.onboard.steps._install_tinytex",
                 return_value=True,
             ),
-            patch("EvoScientist.config.onboard.steps.questionary") as mock_q,
-            patch("EvoScientist.config.onboard.steps._print_step_result") as mock_pr,
-            patch("EvoScientist.config.onboard.steps._print_latex_status"),
-            patch("EvoScientist.config.onboard.steps.console"),
+            patch("jw.config.onboard.steps.questionary") as mock_q,
+            patch("jw.config.onboard.steps._print_step_result") as mock_pr,
+            patch("jw.config.onboard.steps._print_latex_status"),
+            patch("jw.config.onboard.steps.console"),
         ):
             mock_q.select.return_value.ask.return_value = True
             mock_q.confirm.return_value.ask.return_value = True
@@ -2317,21 +2291,21 @@ class TestStepTinytex:
 
     def test_user_declines_install(self):
         """Yes to prepare → not found → declines install → skipped."""
-        from EvoScientist.config.onboard.steps import _step_tinytex
+        from jw.config.onboard.steps import _step_tinytex
 
         all_false = {"pdflatex": False, "latexmk": False, "tlmgr": False}
         with (
             patch(
-                "EvoScientist.config.onboard.steps._check_latex_components",
+                "jw.config.onboard.steps._check_latex_components",
                 return_value=all_false,
             ),
             patch(
-                "EvoScientist.config.onboard.steps._detect_tinytex_install_method",
+                "jw.config.onboard.steps._detect_tinytex_install_method",
                 return_value=("curl", "curl ... | sh"),
             ),
-            patch("EvoScientist.config.onboard.steps.questionary") as mock_q,
-            patch("EvoScientist.config.onboard.steps._print_step_skipped") as mock_ps,
-            patch("EvoScientist.config.onboard.steps.console"),
+            patch("jw.config.onboard.steps.questionary") as mock_q,
+            patch("jw.config.onboard.steps._print_step_skipped") as mock_ps,
+            patch("jw.config.onboard.steps.console"),
         ):
             mock_q.select.return_value.ask.return_value = True
             mock_q.confirm.return_value.ask.return_value = False
@@ -2340,25 +2314,25 @@ class TestStepTinytex:
 
     def test_install_fails(self):
         """Yes → not found → confirms install → install fails."""
-        from EvoScientist.config.onboard.steps import _step_tinytex
+        from jw.config.onboard.steps import _step_tinytex
 
         all_false = {"pdflatex": False, "latexmk": False, "tlmgr": False}
         with (
             patch(
-                "EvoScientist.config.onboard.steps._check_latex_components",
+                "jw.config.onboard.steps._check_latex_components",
                 return_value=all_false,
             ),
             patch(
-                "EvoScientist.config.onboard.steps._detect_tinytex_install_method",
+                "jw.config.onboard.steps._detect_tinytex_install_method",
                 return_value=("curl", "curl ... | sh"),
             ),
             patch(
-                "EvoScientist.config.onboard.steps._install_tinytex",
+                "jw.config.onboard.steps._install_tinytex",
                 return_value=False,
             ),
-            patch("EvoScientist.config.onboard.steps.questionary") as mock_q,
-            patch("EvoScientist.config.onboard.steps._print_step_result") as mock_pr,
-            patch("EvoScientist.config.onboard.steps.console"),
+            patch("jw.config.onboard.steps.questionary") as mock_q,
+            patch("jw.config.onboard.steps._print_step_result") as mock_pr,
+            patch("jw.config.onboard.steps.console"),
         ):
             mock_q.select.return_value.ask.return_value = True
             mock_q.confirm.return_value.ask.return_value = True
@@ -2369,25 +2343,25 @@ class TestStepTinytex:
 
     def test_installed_but_not_in_path(self):
         """Install succeeds but pdflatex not yet in PATH → warns user."""
-        from EvoScientist.config.onboard.steps import _step_tinytex
+        from jw.config.onboard.steps import _step_tinytex
 
         all_false = {"pdflatex": False, "latexmk": False, "tlmgr": False}
         with (
             patch(
-                "EvoScientist.config.onboard.steps._check_latex_components",
+                "jw.config.onboard.steps._check_latex_components",
                 side_effect=[all_false, all_false],
             ),
             patch(
-                "EvoScientist.config.onboard.steps._detect_tinytex_install_method",
+                "jw.config.onboard.steps._detect_tinytex_install_method",
                 return_value=("curl", "curl ... | sh"),
             ),
             patch(
-                "EvoScientist.config.onboard.steps._install_tinytex",
+                "jw.config.onboard.steps._install_tinytex",
                 return_value=True,
             ),
-            patch("EvoScientist.config.onboard.steps.questionary") as mock_q,
-            patch("EvoScientist.config.onboard.steps._print_step_result") as mock_pr,
-            patch("EvoScientist.config.onboard.steps.console") as mock_con,
+            patch("jw.config.onboard.steps.questionary") as mock_q,
+            patch("jw.config.onboard.steps._print_step_result") as mock_pr,
+            patch("jw.config.onboard.steps.console") as mock_con,
         ):
             mock_q.select.return_value.ask.return_value = True
             mock_q.confirm.return_value.ask.return_value = True
@@ -2402,21 +2376,21 @@ class TestStepTinytex:
 
     def test_manual_method(self):
         """Yes to prepare → not found → manual method → prints URL, no install prompt."""
-        from EvoScientist.config.onboard.steps import _step_tinytex
+        from jw.config.onboard.steps import _step_tinytex
 
         all_false = {"pdflatex": False, "latexmk": False, "tlmgr": False}
         with (
             patch(
-                "EvoScientist.config.onboard.steps._check_latex_components",
+                "jw.config.onboard.steps._check_latex_components",
                 return_value=all_false,
             ),
             patch(
-                "EvoScientist.config.onboard.steps._detect_tinytex_install_method",
+                "jw.config.onboard.steps._detect_tinytex_install_method",
                 return_value=("manual", "https://yihui.org/tinytex/"),
             ),
-            patch("EvoScientist.config.onboard.steps.questionary") as mock_q,
-            patch("EvoScientist.config.onboard.steps._print_step_skipped") as mock_ps,
-            patch("EvoScientist.config.onboard.steps.console"),
+            patch("jw.config.onboard.steps.questionary") as mock_q,
+            patch("jw.config.onboard.steps._print_step_skipped") as mock_ps,
+            patch("jw.config.onboard.steps.console"),
         ):
             mock_q.select.return_value.ask.return_value = True
             _step_tinytex()

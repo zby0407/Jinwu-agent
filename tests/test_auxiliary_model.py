@@ -1,6 +1,6 @@
 """Tests for the auxiliary-model resolver and its middleware scoping.
 
-Covers ``EvoScientist.EvoScientist._ensure_auxiliary_chat_model`` (fallback to
+Covers ``JW.agent._ensure_auxiliary_chat_model`` (fallback to
 the main model when unset) and the wiring in ``_get_default_middleware`` that
 routes the main agent's tool selector to the auxiliary model while keeping
 context editing — and async sub-agents — on the main model.
@@ -11,7 +11,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-import EvoScientist.EvoScientist as E
+import jw.agent as E
 
 
 @pytest.fixture(autouse=True)
@@ -63,7 +63,7 @@ class TestAuxiliaryResolver:
                 auxiliary_model="aux-m", auxiliary_provider="aux-p"
             ),
         )
-        monkeypatch.setattr("EvoScientist.llm.get_chat_model", get_chat_model)
+        monkeypatch.setattr("jw.llm.get_chat_model", get_chat_model)
         assert E._ensure_auxiliary_chat_model() is fake
         get_chat_model.assert_called_once_with(model="aux-m", provider="aux-p")
 
@@ -74,16 +74,14 @@ class TestAuxiliaryResolver:
             "_ensure_config",
             lambda config=None: _cfg(auxiliary_model="aux-m", auxiliary_provider=""),
         )
-        monkeypatch.setattr("EvoScientist.llm.get_chat_model", get_chat_model)
+        monkeypatch.setattr("jw.llm.get_chat_model", get_chat_model)
         E._ensure_auxiliary_chat_model()
         get_chat_model.assert_called_once_with(model="aux-m", provider="main-p")
 
     def test_set_chat_model_resets_aux_cache(self, monkeypatch):
         monkeypatch.setattr(E, "_auxiliary_chat_model", object(), raising=False)
         monkeypatch.setattr(E, "_auxiliary_chat_model_key", ("x", "y"), raising=False)
-        monkeypatch.setattr(
-            "EvoScientist.llm.get_chat_model", MagicMock(return_value=object())
-        )
+        monkeypatch.setattr("jw.llm.get_chat_model", MagicMock(return_value=object()))
         E.set_chat_model("new-m", "new-p")
         assert E._auxiliary_chat_model is None
         assert E._auxiliary_chat_model_key is None
@@ -124,11 +122,11 @@ class TestAuxiliaryMiddlewareScope:
             patch.object(E, "_ensure_chat_model", return_value=main_model),
             patch.object(E, "_ensure_auxiliary_chat_model", return_value=aux_model),
             patch(
-                "EvoScientist.middleware.create_tool_selector_middleware",
+                "jw.middleware.create_tool_selector_middleware",
                 side_effect=fake_ts,
             ),
             patch(
-                "EvoScientist.middleware.create_context_editing_middleware",
+                "jw.middleware.create_context_editing_middleware",
                 side_effect=fake_ce,
             ),
         ):
@@ -145,11 +143,11 @@ class TestAuxiliaryMiddlewareScope:
             patch.object(E, "_ensure_chat_model", return_value=main_model),
             patch.object(E, "_ensure_auxiliary_chat_model", return_value=aux_model),
             patch(
-                "EvoScientist.middleware.create_tool_selector_middleware",
+                "jw.middleware.create_tool_selector_middleware",
                 side_effect=fake_ts,
             ),
             patch(
-                "EvoScientist.middleware.create_context_editing_middleware",
+                "jw.middleware.create_context_editing_middleware",
                 side_effect=fake_ce,
             ),
         ):
@@ -172,11 +170,11 @@ class TestAuxiliaryMiddlewareScope:
             patch.object(E, "_ensure_chat_model", side_effect=AssertionError),
             patch.object(E, "_ensure_auxiliary_chat_model", side_effect=AssertionError),
             patch(
-                "EvoScientist.middleware.create_tool_selector_middleware",
+                "jw.middleware.create_tool_selector_middleware",
                 side_effect=fake_ts,
             ),
             patch(
-                "EvoScientist.middleware.create_context_editing_middleware",
+                "jw.middleware.create_context_editing_middleware",
                 side_effect=fake_ce,
             ),
         ):
@@ -198,15 +196,13 @@ class TestAuxiliaryMiddlewareScope:
             patch.object(E, "_ensure_config", side_effect=AssertionError),
             patch.object(E, "_ensure_chat_model", side_effect=AssertionError),
             patch.object(E, "_ensure_auxiliary_chat_model", side_effect=AssertionError),
+            patch("jw.llm.get_chat_model", return_value=aux_model) as get_model,
             patch(
-                "EvoScientist.llm.get_chat_model", return_value=aux_model
-            ) as get_model,
-            patch(
-                "EvoScientist.middleware.create_tool_selector_middleware",
+                "jw.middleware.create_tool_selector_middleware",
                 side_effect=fake_ts,
             ),
             patch(
-                "EvoScientist.middleware.create_context_editing_middleware",
+                "jw.middleware.create_context_editing_middleware",
                 side_effect=fake_ce,
             ),
         ):

@@ -7,7 +7,7 @@ from langchain.agents.middleware.types import ModelRequest
 from langchain_core.exceptions import ContextOverflowError
 from langchain_core.messages import HumanMessage
 
-from EvoScientist.middleware.context_overflow import ContextOverflowMapperMiddleware
+from jw.middleware.context_overflow import ContextOverflowMapperMiddleware
 
 
 def test_is_context_limit_error_openai():

@@ -1,4 +1,4 @@
-"""Tests for EvoScientist.llm.ollama_discovery.
+"""Tests for JW.llm.ollama_discovery.
 
 Covers both the sync ``validate_ollama_connection`` (used by the onboarding
 wizard) and the async ``discover_ollama_models`` (used by the /model
@@ -13,7 +13,7 @@ from unittest.mock import MagicMock, patch
 import httpx
 import pytest
 
-from EvoScientist.llm.ollama_discovery import (
+from jw.llm.ollama_discovery import (
     discover_ollama_models,
     validate_ollama_connection,
 )

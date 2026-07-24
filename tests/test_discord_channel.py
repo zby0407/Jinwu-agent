@@ -2,8 +2,8 @@
 
 import pytest
 
-from EvoScientist.channels.base import ChannelError
-from EvoScientist.channels.discord.channel import DiscordChannel, DiscordConfig
+from jw.channels.base import ChannelError
+from jw.channels.discord.channel import DiscordChannel, DiscordConfig
 
 
 class TestDiscordChannel:
@@ -25,7 +25,7 @@ class TestDiscordChannel:
         await channel.stop()
 
     async def test_send_returns_false_without_client(self):
-        from EvoScientist.channels.base import OutboundMessage
+        from jw.channels.base import OutboundMessage
 
         config = DiscordConfig(bot_token="test")
         channel = DiscordChannel(config)

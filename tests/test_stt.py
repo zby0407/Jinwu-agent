@@ -11,7 +11,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from EvoScientist.stt import STT_MODELS, is_audio_file, transcribe_file
+from jw.stt import STT_MODELS, is_audio_file, transcribe_file
 
 # ── is_audio_file ─────────────────────────────────────────────────────
 
@@ -78,7 +78,7 @@ def _patch_whisper(whisper_model):
 
 
 async def test_transcribe_en_uses_whisper():
-    import EvoScientist.stt as stt_mod
+    import jw.stt as stt_mod
 
     stt_mod._engine = None
     with _patch_whisper(_make_whisper_mock("Hello world")):
@@ -88,7 +88,7 @@ async def test_transcribe_en_uses_whisper():
 
 
 async def test_transcribe_auto_uses_whisper():
-    import EvoScientist.stt as stt_mod
+    import jw.stt as stt_mod
 
     stt_mod._engine = None
     with _patch_whisper(_make_whisper_mock("Bonjour monde")):
@@ -98,7 +98,7 @@ async def test_transcribe_auto_uses_whisper():
 
 
 async def test_transcribe_zh_uses_whisper():
-    import EvoScientist.stt as stt_mod
+    import jw.stt as stt_mod
 
     stt_mod._engine = None
     with _patch_whisper(_make_whisper_mock("你好世界")):
@@ -109,7 +109,7 @@ async def test_transcribe_zh_uses_whisper():
 
 async def test_transcribe_custom_model_override():
     """stt_model config overrides the default model mapping."""
-    import EvoScientist.stt as stt_mod
+    import jw.stt as stt_mod
 
     stt_mod._engine = None
     captured_model_id = []
@@ -133,7 +133,7 @@ async def test_transcribe_custom_model_override():
 async def test_transcribe_missing_dep_returns_none():
     import sys
 
-    import EvoScientist.stt as stt_mod
+    import jw.stt as stt_mod
 
     stt_mod._engine = None
     saved = sys.modules.pop("faster_whisper", None)
@@ -152,7 +152,7 @@ async def test_transcribe_missing_dep_returns_none():
 
 
 def _make_channel():
-    from EvoScientist.channels.telegram.channel import TelegramChannel, TelegramConfig
+    from jw.channels.telegram.channel import TelegramChannel, TelegramConfig
 
     cfg = TelegramConfig(bot_token="dummy")
     ch = TelegramChannel(cfg)
@@ -168,7 +168,7 @@ def _make_channel():
 
 async def test_enqueue_raw_stt_prepends_transcript():
     """_enqueue_raw prepends STT transcript to raw.text when stt_enabled."""
-    from EvoScientist.channels.base import RawIncoming
+    from jw.channels.base import RawIncoming
 
     ch, captured = _make_channel()
     ch._stt_enabled = True
@@ -187,8 +187,8 @@ async def test_enqueue_raw_stt_prepends_transcript():
     )
 
     with (
-        patch("EvoScientist.stt.transcribe_file", new=AsyncMock(return_value="你好")),
-        patch("EvoScientist.stt.is_audio_file", return_value=True),
+        patch("jw.stt.transcribe_file", new=AsyncMock(return_value="你好")),
+        patch("jw.stt.is_audio_file", return_value=True),
     ):
         await ch._enqueue_raw(raw)
 
@@ -199,7 +199,7 @@ async def test_enqueue_raw_stt_prepends_transcript():
 
 async def test_enqueue_raw_stt_disabled_skips_transcription():
     """When stt_enabled=False, transcription is not called."""
-    from EvoScientist.channels.base import RawIncoming
+    from jw.channels.base import RawIncoming
 
     ch, captured = _make_channel()
     ch._stt_enabled = False
@@ -214,7 +214,7 @@ async def test_enqueue_raw_stt_disabled_skips_transcription():
 
     mock_transcribe = AsyncMock()
 
-    with patch("EvoScientist.stt.transcribe_file", mock_transcribe):
+    with patch("jw.stt.transcribe_file", mock_transcribe):
         await ch._enqueue_raw(raw)
 
     mock_transcribe.assert_not_called()
@@ -223,7 +223,7 @@ async def test_enqueue_raw_stt_disabled_skips_transcription():
 
 async def test_enqueue_raw_stt_appends_to_existing_text():
     """Transcript is prepended before any existing caption text."""
-    from EvoScientist.channels.base import RawIncoming
+    from jw.channels.base import RawIncoming
 
     ch, captured = _make_channel()
     ch._stt_enabled = True
@@ -242,10 +242,10 @@ async def test_enqueue_raw_stt_appends_to_existing_text():
 
     with (
         patch(
-            "EvoScientist.stt.transcribe_file",
+            "jw.stt.transcribe_file",
             new=AsyncMock(return_value="hello world"),
         ),
-        patch("EvoScientist.stt.is_audio_file", return_value=True),
+        patch("jw.stt.is_audio_file", return_value=True),
     ):
         await ch._enqueue_raw(raw)
 
@@ -255,19 +255,19 @@ async def test_enqueue_raw_stt_appends_to_existing_text():
 # ── Manual integration test (run by hand) ────────────────────────────
 #
 # 1. Install deps:
-#      uv pip install 'EvoScientist[stt]'
+#      uv pip install 'JW[stt]'
 #
 # 2. Enable STT:
-#      EvoSci config set stt_enabled true
-#      EvoSci config set stt_language zh   # zh / en / auto
+#      jw config set stt_enabled true
+#      jw config set stt_language zh   # zh / en / auto
 #
 # 3. Transcribe a local audio file directly:
 #      python -c "
 #      import asyncio
-#      from EvoScientist.stt import transcribe_file
+#      from jw.stt import transcribe_file
 #      print(asyncio.run(transcribe_file('sample.ogg', language='zh')))
 #      "
 #
 # 4. End-to-end via Telegram:
-#      EvoSci serve
+#      jw serve
 #      → send a voice message → bot receives transcribed text

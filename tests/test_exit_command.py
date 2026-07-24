@@ -5,8 +5,8 @@ from unittest.mock import MagicMock
 
 class TestExitCommand:
     async def test_execute_calls_force_quit(self):
-        from EvoScientist.commands.base import CommandContext
-        from EvoScientist.commands.implementation.session import ExitCommand
+        from jw.commands.base import CommandContext
+        from jw.commands.implementation.session import ExitCommand
 
         ui = MagicMock()
         ctx = CommandContext(
@@ -20,7 +20,7 @@ class TestExitCommand:
 
     def test_aliases_registered(self):
         """/quit and /q resolve to the same ExitCommand as /exit."""
-        from EvoScientist.commands.manager import manager
+        from jw.commands.manager import manager
 
         assert manager.get_command("/exit").name == "/exit"
         assert manager.get_command("/quit").name == "/exit"

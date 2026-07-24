@@ -1,11 +1,11 @@
-"""Tests for EvoScientist.background — the background-process manager."""
+"""Tests for JW.background — the background-process manager."""
 
 import sys
 import time
 
 import pytest
 
-from EvoScientist import background as bg
+from jw import background as bg
 
 
 def _sleep_cmd(seconds: int) -> str:

@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 from dataclasses import dataclass
 
-from EvoScientist.middleware.contract_tool_allowlist import (
+from jw.middleware.contract_tool_allowlist import (
     CONTRACT_TOOL_ALLOWLISTS,
     ContractToolAllowlistMiddleware,
 )
@@ -62,9 +62,7 @@ def test_contract_allowlist_blocks_disallowed_tool_at_execution() -> None:
     middleware = ContractToolAllowlistMiddleware(
         CONTRACT_TOOL_ALLOWLISTS["solar-planner"]
     )
-    request = _Request(
-        [], {"name": "write_file", "id": "call-forbidden"}
-    )
+    request = _Request([], {"name": "write_file", "id": "call-forbidden"})
     called = False
 
     def handler(_request: _Request):

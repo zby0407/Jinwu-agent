@@ -1,7 +1,7 @@
 """Tests for the serve-mode ``on_cmd_completed`` hook factory.
 
 Regression coverage for the follow-up to issue #181 — `/model` invoked
-over a channel in ``EvoSci serve`` must swap the running agent for
+over a channel in ``jw serve`` must swap the running agent for
 subsequent messages, not silently keep the stale one the while-loop
 captured at startup.
 """
@@ -13,20 +13,20 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from langgraph.graph.state import CompiledStateGraph
 
-from EvoScientist.cli.channel import (
+from jw.cli.channel import (
     ChannelMessage,
     _register_channel_request,
 )
-from EvoScientist.cli.commands import (
+from jw.cli.commands import (
     ServeRuntimeState,
     _make_serve_cmd_completed_hook,
     _make_serve_handle_session_resume_cb,
     _make_serve_start_new_session_cb,
     _serve_process_message,
 )
-from EvoScientist.commands.base import ChannelRuntime
-from EvoScientist.config import EvoScientistConfig
-from EvoScientist.gateway import RuntimeGateways, ThreadStore
+from jw.commands.base import ChannelRuntime
+from jw.config import JWConfig
+from jw.gateway import RuntimeGateways, ThreadStore
 from tests.fakes import FakeGraphGateway, FakeThreadStore
 
 
@@ -34,8 +34,8 @@ def _agent(name: str = "agent") -> CompiledStateGraph:
     return MagicMock(name=name, spec=CompiledStateGraph)
 
 
-def _config() -> EvoScientistConfig:
-    return EvoScientistConfig()
+def _config() -> JWConfig:
+    return JWConfig()
 
 
 def _thread_store(thread_id: str = "unused") -> ThreadStore:
@@ -56,7 +56,7 @@ def _runtime_state(
     agent: CompiledStateGraph | None = None,
     thread_id: str = "tid",
     workspace_dir: str | None = None,
-    config: EvoScientistConfig | None = None,
+    config: JWConfig | None = None,
     thread_store: ThreadStore | None = None,
     runtime_gateways: RuntimeGateways | None = None,
 ) -> ServeRuntimeState:
@@ -115,7 +115,7 @@ async def test_hook_syncs_channel_runtime():
 
 
 async def test_hook_noop_when_agent_unchanged():
-    """Commands like ``/evoskills`` don't touch ``ctx.agent`` — the
+    """Commands like ``/jwskills`` don't touch ``ctx.agent`` — the
     runtime state must stay put."""
     original_agent = _agent("original-agent")
     state = _runtime_state(agent=original_agent)
@@ -125,7 +125,7 @@ async def test_hook_noop_when_agent_unchanged():
     ctx.agent = original_agent  # no swap
     ctx.thread_id = state.thread_id
     cmd = MagicMock()
-    cmd.name = "/evoskills"
+    cmd.name = "/jwskills"
 
     await hook(ctx, original_agent, cmd)
 
@@ -192,11 +192,11 @@ async def test_hook_updates_workspace_dir_on_resume():
 
     with (
         patch(
-            "EvoScientist.cli.commands._sync_background_agent_server_workspace",
+            "jw.cli.commands._sync_background_agent_server_workspace",
             new=AsyncMock(),
         ) as sync_server,
         patch(
-            "EvoScientist.cli.commands._load_agent",
+            "jw.cli.commands._load_agent",
             return_value=reloaded_agent,
         ) as load_agent,
     ):
@@ -238,7 +238,7 @@ async def test_hook_noop_when_thread_id_unchanged():
     ctx.agent = agent
     ctx.thread_id = "same-tid"
     cmd = MagicMock()
-    cmd.name = "/evoskills"
+    cmd.name = "/jwskills"
 
     await hook(ctx, agent, cmd)
 
@@ -355,11 +355,11 @@ async def test_serve_resume_callback_syncs_reloads_and_adopts_workspace():
 
     with (
         patch(
-            "EvoScientist.cli.commands._sync_background_agent_server_workspace",
+            "jw.cli.commands._sync_background_agent_server_workspace",
             new=AsyncMock(side_effect=_sync_server),
         ) as sync_server,
         patch(
-            "EvoScientist.cli.commands._load_agent",
+            "jw.cli.commands._load_agent",
             side_effect=_load_agent,
         ) as load_agent,
     ):
@@ -390,11 +390,11 @@ async def test_hook_emits_resume_warning_after_resume_callback_adopts_thread():
 
     with (
         patch(
-            "EvoScientist.cli.commands._sync_background_agent_server_workspace",
+            "jw.cli.commands._sync_background_agent_server_workspace",
             new=AsyncMock(),
         ),
         patch(
-            "EvoScientist.cli.commands._load_agent",
+            "jw.cli.commands._load_agent",
             return_value=reloaded_agent,
         ),
     ):
@@ -431,14 +431,14 @@ async def test_serve_resume_callback_preserves_state_when_sync_fails():
 
     with (
         patch(
-            "EvoScientist.cli.commands._sync_background_agent_server_workspace",
+            "jw.cli.commands._sync_background_agent_server_workspace",
             new=AsyncMock(side_effect=RuntimeError("workspace conflict")),
         ),
         patch(
-            "EvoScientist.cli.commands._load_agent",
+            "jw.cli.commands._load_agent",
             return_value=loaded_but_not_adopted,
         ) as load_agent,
-        patch("EvoScientist.cli.commands.set_active_workspace") as set_active,
+        patch("jw.cli.commands.set_active_workspace") as set_active,
         pytest.raises(RuntimeError, match="workspace conflict"),
     ):
         await cb("new-tid", "/new-ws")
@@ -468,12 +468,12 @@ async def test_serve_resume_callback_load_failure_does_not_sync_or_adopt():
 
     with (
         patch(
-            "EvoScientist.cli.commands._load_agent",
+            "jw.cli.commands._load_agent",
             side_effect=RuntimeError("load failed"),
         ) as load_agent,
-        patch("EvoScientist.cli.commands.set_active_workspace") as set_active,
+        patch("jw.cli.commands.set_active_workspace") as set_active,
         patch(
-            "EvoScientist.cli.commands._sync_background_agent_server_workspace",
+            "jw.cli.commands._sync_background_agent_server_workspace",
             new=AsyncMock(),
         ) as sync_server,
         pytest.raises(RuntimeError, match="load failed"),
@@ -518,7 +518,7 @@ def test_serve_process_message_reports_slash_dispatch_error_without_fallback():
     """
     msg = ChannelMessage(
         msg_id="msg-1",
-        content="/evoskills core",
+        content="/jwskills core",
         sender="channel-user",
         channel_type="imessage",
         metadata={},
@@ -537,11 +537,11 @@ def test_serve_process_message_reports_slash_dispatch_error_without_fallback():
 
     with (
         patch(
-            "EvoScientist.cli.commands.dispatch_channel_slash_command",
+            "jw.cli.commands.dispatch_channel_slash_command",
             new=AsyncMock(side_effect=RuntimeError("slash broke")),
         ),
-        patch("EvoScientist.cli.commands._set_channel_response") as mock_set_resp,
-        patch("EvoScientist.cli.tui_runtime.run_streaming") as mock_run_streaming,
+        patch("jw.cli.commands._set_channel_response") as mock_set_resp,
+        patch("jw.cli.tui_runtime.run_streaming") as mock_run_streaming,
     ):
         _register_channel_request(msg)
         _serve_process_message(
@@ -589,14 +589,14 @@ def test_serve_process_message_uses_runtime_workspace_from_state():
 
     with (
         patch(
-            "EvoScientist.cli.commands.dispatch_channel_slash_command",
+            "jw.cli.commands.dispatch_channel_slash_command",
             new=AsyncMock(side_effect=_fake_dispatch),
         ),
         patch(
-            "EvoScientist.cli.commands.build_metadata",
+            "jw.cli.commands.build_metadata",
             side_effect=_fake_build_metadata,
         ),
-        patch("EvoScientist.cli.tui_runtime.run_streaming", return_value="ok"),
+        patch("jw.cli.tui_runtime.run_streaming", return_value="ok"),
     ):
         _register_channel_request(msg)
         _serve_process_message(

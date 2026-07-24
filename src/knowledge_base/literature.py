@@ -44,7 +44,7 @@ OPENALEX_WORKS_URL = "https://api.openalex.org/works"
 ARXIV_API_URL = "https://export.arxiv.org/api/query"
 CROSSREF_WORKS_URL = "https://api.crossref.org/works"
 MAX_REMOTE_BYTES = 512 * 1024
-USER_AGENT = "EvoScientist-KnowledgeBase/1.0 (literature pipeline)"
+USER_AGENT = "JW-KnowledgeBase/1.0 (literature pipeline)"
 
 SOURCES = ("all", "openalex", "arxiv", "crossref")
 _ATOM = "{http://www.w3.org/2005/Atom}"

@@ -1,6 +1,8 @@
 """Tests for pi session file reading."""
 
-from EvoScientist.pi_bridge.session import PiSessionReader
+import os
+
+from jw.pi_bridge.session import PiSessionReader
 
 
 class TestPiSessionReader:
@@ -13,6 +15,9 @@ class TestPiSessionReader:
         old.write_text("")
         new.write_text("")
         other.write_text("")
+        same_time = 1_700_000_000
+        os.utime(old, (same_time, same_time))
+        os.utime(new, (same_time, same_time))
         reader = PiSessionReader(session_dir)
         found = reader.find_session_file("t1")
         assert found == new

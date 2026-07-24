@@ -81,7 +81,7 @@ export function useThreads(props: {
       // Every thread carries both `graph_id` (the graph name) and
       // `assistant_id` (a deterministic UUID per graph) in its metadata.
       // A deployed UUID is matched against `assistant_id`; a graph name
-      // (the local-dev case, e.g. "EvoScientist") is matched against
+      // (the local-dev case, e.g. "JW") is matched against
       // `graph_id`.
       const isUUID =
         /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(

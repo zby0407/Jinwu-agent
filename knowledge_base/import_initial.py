@@ -4,7 +4,7 @@
 内容来源（方案 §6）：
 - ``knowledge/`` 4 个 md -> concept 类 canonical（source_type=expert，
   created_by=human，confidence=medium）
-- ``EvoScientist/skills/solar-cycle/references/llm_wiki/`` 5 个 md -> 按文件名
+- ``jw/skills/solar-cycle/references/llm_wiki/`` 5 个 md -> 按文件名
   前缀类型导入为 canonical（source_type=textbook，confidence=high）
 - ``experiment/runs/*/report.md`` 与 ``hypothesis/runs/*/hypotheses.md`` ->
   每个 run 一条 finding 类 candidate（source_type=historical_run，
@@ -30,7 +30,7 @@ from knowledge_base.export import export_entry, parse_frontmatter  # noqa: E402
 from knowledge_base.store import KnowledgeStore, utc_now  # noqa: E402
 
 KNOWLEDGE_DIR = ROOT / "knowledge"
-LLM_WIKI_DIR = ROOT / "EvoScientist" / "skills" / "solar-cycle" / "references" / "llm_wiki"
+LLM_WIKI_DIR = ROOT / "JW" / "skills" / "solar-cycle" / "references" / "llm_wiki"
 EXPERIMENT_RUNS = ROOT / "experiment" / "runs"
 HYPOTHESIS_RUNS = ROOT / "hypothesis" / "runs"
 

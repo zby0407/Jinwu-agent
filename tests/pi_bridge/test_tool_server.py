@@ -1,12 +1,18 @@
 import asyncio
 import json
+import sys
 import uuid
 from unittest.mock import MagicMock
 
 import pytest
 
-from EvoScientist.pi_bridge.tool_server import PiToolServer
-from EvoScientist.pi_bridge.tools import PiToolBridge
+from jw.pi_bridge.tool_server import PiToolServer
+from jw.pi_bridge.tools import PiToolBridge
+
+pytestmark = pytest.mark.skipif(
+    sys.platform == "win32",
+    reason="The pi tool bridge currently uses Unix domain sockets",
+)
 
 
 async def _send_request(socket_path: str, request: dict) -> dict:

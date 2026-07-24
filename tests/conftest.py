@@ -1,4 +1,4 @@
-"""Shared fixtures for EvoScientist tests."""
+"""Shared fixtures for JW tests."""
 
 import os
 
@@ -13,7 +13,7 @@ def _restore_environ():
     the process environment (``apply_config_to_env``), and some tests call
     env-mutating helpers (``setup_ccproxy_env``/``setup_codex_env``) directly.
     Without a hard restore, leaked keys such as
-    ``EVOSCIENTIST_USE_RESPONSES_API=false`` silently flip the behavior of
+    ``JW_USE_RESPONSES_API=false`` silently flip the behavior of
     unrelated tests later in the same process (e.g. ``tests/test_llm.py``
     losing its ``reasoning`` kwarg).
     """
@@ -34,7 +34,7 @@ def _reset_tool_selection_state():
     flip unrelated streaming tests later in the same process. Reset on both ends
     so order and worker sharding can't reintroduce the leak.
     """
-    from EvoScientist.middleware.tool_selector import (
+    from jw.middleware.tool_selector import (
         reset_tool_selection_state_for_tests,
     )
 
@@ -131,9 +131,9 @@ def runtime_paths(tmp_path, monkeypatch):
     Tests that need a variant of a single field can still call
     ``dataclasses.replace(runtime_paths, log_file=…)`` etc. — the
     baseline is already isolated, so forgetting a field just keeps it
-    under ``tmp_path``, never ``~/.config/evoscientist``.
+    under ``tmp_path``, never ``~/.config/jw``.
     """
-    from EvoScientist.langgraph_dev import manager
+    from jw.langgraph_dev import manager
 
     runtime = manager.LanggraphRuntimePaths.for_directory(tmp_path / "runtime")
     monkeypatch.setattr(manager, "RUNTIME", runtime)
@@ -141,7 +141,7 @@ def runtime_paths(tmp_path, monkeypatch):
 
 
 # Capture deepagents tool factories at conftest load time — BEFORE any test
-# imports EvoScientist, which can trigger ``_patch_deepagents_model_passthrough``
+# imports JW, which can trigger ``_patch_deepagents_model_passthrough``
 # during agent construction. Once captured here, the ``restore_model_passthrough_patch``
 # fixture has a stable "truly unpatched" baseline to reset to between tests, even
 # if upstream code paths apply the patch as a side effect.
@@ -166,7 +166,7 @@ def restore_model_passthrough_patch():
     known-unpatched state regardless of what other tests / agent fixtures
     did to the module before.
     """
-    from EvoScientist.llm import patches as patches_mod
+    from jw.llm import patches as patches_mod
 
     if _ds_async_subagents is None:
         # deepagents not importable — fixture is a no-op (the patch fn itself

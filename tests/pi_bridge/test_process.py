@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from EvoScientist.pi_bridge.process import PiProcessManager
+from jw.pi_bridge.process import PiProcessManager
 
 
 class TestPiProcessManager:
@@ -23,7 +23,7 @@ class TestPiProcessManager:
         mgr = PiProcessManager(cfg, pi_cli=Path("/fake/pi.js"), session_dir=tmp_path)
         cmd = mgr._build_command("thread-123")
         assert cmd[0] == "node"
-        assert cmd[1] == "/fake/pi.js"
+        assert cmd[1] == str(Path("/fake/pi.js"))
         assert "--mode" in cmd
         assert "rpc" in cmd
         assert "--provider" in cmd
@@ -34,6 +34,16 @@ class TestPiProcessManager:
         assert str(tmp_path) in cmd
         assert "--session-id" in cmd
         assert "thread-123" in cmd
+
+    def test_constructor_does_not_require_pi_on_path(self, tmp_path):
+        cfg = self._make_cfg()
+        with patch.object(
+            PiProcessManager,
+            "_find_pi_cli",
+            side_effect=AssertionError("pi lookup must be lazy"),
+        ):
+            mgr = PiProcessManager(cfg, session_dir=tmp_path)
+        assert mgr.pi_cli is None
 
     def test_resolve_provider_and_model_fallback(self, tmp_path):
         cfg = self._make_cfg()
@@ -180,8 +190,8 @@ class TestPiProcessManager:
             workspace_dir=str(tmp_path),
         )
         env = mgr._build_env("thread-123")
-        assert "EVOSCIENTIST_PI_TOOL_SOCKET" in env
-        assert env["EVOSCIENTIST_PI_TOOL_SOCKET"].endswith("thread-123.sock")
+        assert "JW_PI_TOOL_SOCKET" in env
+        assert env["JW_PI_TOOL_SOCKET"].endswith("thread-123.sock")
 
     def test_touch_updates_last_activity(self, tmp_path):
         cfg = self._make_cfg()

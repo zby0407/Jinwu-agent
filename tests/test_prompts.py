@@ -1,8 +1,8 @@
-"""Tests for EvoScientist/prompts.py."""
+"""Tests for jw/prompts.py."""
 
-from EvoScientist.prompts import (
+from jw.prompts import (
     DELEGATION_STRATEGY,
-    EVOSCIENTIST_IDENTITY,
+    JW_IDENTITY,
     EXPERIMENT_WORKFLOW,
     REPORT_TEMPLATE,
     SHELL_GUIDELINES,
@@ -19,7 +19,7 @@ class TestGetSystemPrompt:
 
     def test_contains_identity(self):
         result = get_system_prompt()
-        assert "EvoScientist" in result
+        assert "JW" in result
         assert "self-evolving" in result
 
     def test_contains_workflow(self):
@@ -74,10 +74,10 @@ class TestGetSystemPrompt:
         assert not re.search(r"Current date: \d{4}-\d{2}-\d{2}", result)
 
     def test_mentions_skill_manager_for_discovery(self):
-        """Agent must know it can browse/install skills from the EvoSkills catalog."""
+        """Agent must know it can browse/install skills from the JWSkills catalog."""
         result = get_system_prompt()
         assert "skill_manager" in result
-        assert "EvoSkills" in result
+        assert "JWSkills" in result
 
     def test_no_stale_memory_path_singular(self):
         """Backend route is `/memories/`, not `/memory/`. Catch silent-bug regressions.
@@ -97,16 +97,16 @@ class TestGetSystemPrompt:
         )
 
 
-class TestEvoScientistIdentity:
+class TestJWIdentity:
     def test_constant_not_empty(self):
-        assert len(EVOSCIENTIST_IDENTITY) > 0
+        assert len(JW_IDENTITY) > 0
 
     def test_states_role(self):
-        assert "You are EvoScientist" in EVOSCIENTIST_IDENTITY
+        assert "You are JW" in JW_IDENTITY
 
     def test_mentions_human_on_the_loop_paradigm(self):
         # Behavioral cue: agent should know it isn't asking permission for every action
-        assert "on-the-loop" in EVOSCIENTIST_IDENTITY
+        assert "on-the-loop" in JW_IDENTITY
 
 
 class TestReportTemplate:
@@ -156,7 +156,10 @@ class TestShellGuidelines:
         assert "3600" in SHELL_GUIDELINES  # per-command override ceiling
 
     def test_explains_virtual_paths_inside_program_source(self):
-        assert "rewritten only when they appear as shell path arguments" in SHELL_GUIDELINES
+        assert (
+            "rewritten only when they appear as shell path arguments"
+            in SHELL_GUIDELINES
+        )
         assert "python -m json.tool /receipts/result.json" in SHELL_GUIDELINES
         assert "Do not use command substitution or heredocs" in SHELL_GUIDELINES
 

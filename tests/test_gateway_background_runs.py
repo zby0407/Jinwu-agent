@@ -5,7 +5,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-import EvoScientist.gateway.background_runs as background_runs
+import jw.gateway.background_runs as background_runs
 
 
 def _run_payload(thread_id: str) -> background_runs.BackgroundRunPayload:
@@ -38,7 +38,7 @@ def _install_sync_launcher(
     run_create_error: Exception | None = None,
 ) -> MagicMock:
     monkeypatch.setattr(
-        "EvoScientist.langgraph_dev.manager.is_langgraph_dev_running",
+        "jw.langgraph_dev.manager.is_langgraph_dev_running",
         lambda **_kwargs: True,
     )
     fake_client = MagicMock()
@@ -182,7 +182,7 @@ async def test_async_launch_background_run_deletes_thread_when_run_creation_fail
     monkeypatch,
 ):
     monkeypatch.setattr(
-        "EvoScientist.langgraph_dev.manager.is_langgraph_dev_running",
+        "jw.langgraph_dev.manager.is_langgraph_dev_running",
         lambda **_kwargs: True,
     )
     deleted: list[str] = []

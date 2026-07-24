@@ -1,4 +1,4 @@
-// Server-only helpers for talking to the active EvoScientist deployment's
+// Server-only helpers for talking to the active JW deployment's
 // on-disk workspace. Shared by the workspace upload/list/read API routes.
 //
 // The "workspace" is the working directory of the currently running langgraph
@@ -9,19 +9,82 @@
 import { promises as fs } from "fs";
 import { homedir } from "os";
 import { basename, dirname, join, relative, resolve, sep } from "path";
-import { randomUUID } from "crypto";
+import { createHash, randomUUID } from "crypto";
 import type { NextRequest } from "next/server";
 
 export const WORKSPACE_SIDECAR = join(
   homedir(),
   ".config",
-  "evoscientist",
+  "jw",
   "langgraph_dev.workspace.json"
 );
 
 interface WorkspaceSidecar {
   workspace?: unknown;
   pid?: unknown;
+}
+
+export interface WorkspaceBinding {
+  schema_version: number;
+  thread_id: string;
+  project_id: string;
+  run_id: string;
+  base_workspace: string;
+  project_root: string;
+  project_shared: string;
+  workspace: string;
+  legacy: boolean;
+  created_at: string;
+}
+
+export const WORKSPACE_BINDINGS_DIR =
+  process.env.agent_WORKSPACE_BINDINGS_DIR ||
+  join(
+    process.env.XDG_CONFIG_HOME || join(homedir(), ".config"),
+    "jw",
+    "workspace_bindings"
+  );
+
+function bindingPath(threadId: string, baseWorkspace: string): string {
+  const digest = createHash("sha256")
+    .update(`${baseWorkspace}\0${threadId}`, "utf8")
+    .digest("hex");
+  return join(WORKSPACE_BINDINGS_DIR, `${digest}.json`);
+}
+
+function taskRunId(threadId: string): string {
+  const prefix =
+    threadId
+      .trim()
+      .replace(/[^A-Za-z0-9._-]+/g, "-")
+      .replace(/^[-._]+|[-._]+$/g, "")
+      .slice(0, 18) || "thread";
+  const digest = createHash("sha256")
+    .update(threadId, "utf8")
+    .digest("hex")
+    .slice(0, 8);
+  return `run_${prefix}_${digest}`;
+}
+
+function projectSlug(projectId: string): string {
+  return (
+    projectId
+      .trim()
+      .replace(/[^A-Za-z0-9._-]+/g, "-")
+      .replace(/^[-._]+|[-._]+$/g, "")
+      .slice(0, 48) || "default"
+  );
+}
+
+async function writeJsonIfMissing(path: string, value: unknown): Promise<void> {
+  try {
+    await fs.writeFile(path, JSON.stringify(value, null, 2) + "\n", {
+      encoding: "utf-8",
+      flag: "wx",
+    });
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+  }
 }
 
 /** True if the name contains any C0/C1 control char, DEL, or a line/paragraph
@@ -54,8 +117,8 @@ export function hasControlChar(name: string): boolean {
 
 /** Exact entry names treated as internal/noise — never research artifacts. */
 export const IGNORED_NAMES = new Set([
-  "large_tool_results", // EvoScientist: large tool outputs spilled to disk, keyed by call id
-  "conversation_history", // EvoScientist: internal conversation transcripts
+  "large_tool_results", // JW: large tool outputs spilled to disk, keyed by call id
+  "conversation_history", // JW: internal conversation transcripts
   "__pycache__", // Python bytecode cache
   "node_modules", // JS deps
   "__MACOSX", // macOS archive cruft
@@ -100,14 +163,14 @@ export function isProcessAlive(pid: number): boolean {
 }
 
 /**
- * Resolve the workspace of the *currently running* EvoScientist deployment.
+ * Resolve the workspace of the *currently running* JW deployment.
  *
  * The sidecar records `{ workspace, pid }` of the langgraph dev that owns this
  * workspace. We only trust it when that pid is still alive — a stale sidecar
  * from a crashed/previous session must not silently redirect file access to a
  * directory the live deployment no longer uses. Falls back to the launcher env.
  */
-export async function getWorkspaceDir(): Promise<string> {
+export async function getBaseWorkspaceDir(): Promise<string> {
   let workspace: string | undefined;
   try {
     const sidecar = JSON.parse(
@@ -125,10 +188,10 @@ export async function getWorkspaceDir(): Promise<string> {
     // Older/manual setups may not have a sidecar. Fall back to the launcher env.
   }
 
-  workspace ||= process.env.EVOSCIENTIST_WORKSPACE_DIR;
+  workspace ||= process.env.agent_WORKSPACE_DIR;
   if (!workspace) {
     throw new Error(
-      "No active 金乌 workspace found. Start the backend with `EvoSci deploy` first."
+      "No active 金乌 workspace found. Start the backend with `jw deploy` first."
     );
   }
 
@@ -141,6 +204,173 @@ export async function getWorkspaceDir(): Promise<string> {
   // the workspace (or a parent) may itself live under a symlink (e.g. macOS
   // /tmp -> /private/tmp), which would otherwise break startsWith() checks.
   return fs.realpath(resolved);
+}
+
+/** Read and validate the persistent thread → task-workspace binding. */
+export async function getWorkspaceBinding(
+  threadId: string,
+  baseWorkspace: string
+): Promise<WorkspaceBinding | null> {
+  if (!threadId.trim() || hasControlChar(threadId)) return null;
+  let raw: unknown;
+  try {
+    raw = JSON.parse(
+      await fs.readFile(bindingPath(threadId, baseWorkspace), "utf-8")
+    );
+  } catch {
+    return null;
+  }
+  if (!raw || typeof raw !== "object") return null;
+  const row = raw as Partial<WorkspaceBinding>;
+  if (
+    row.thread_id !== threadId ||
+    row.base_workspace !== baseWorkspace ||
+    typeof row.workspace !== "string" ||
+    typeof row.base_workspace !== "string" ||
+    typeof row.project_root !== "string" ||
+    typeof row.project_shared !== "string" ||
+    typeof row.project_id !== "string" ||
+    typeof row.run_id !== "string" ||
+    typeof row.created_at !== "string"
+  ) {
+    return null;
+  }
+  return {
+    schema_version:
+      typeof row.schema_version === "number" ? row.schema_version : 2,
+    thread_id: row.thread_id,
+    project_id: row.project_id,
+    run_id: row.run_id,
+    base_workspace: row.base_workspace,
+    project_root: row.project_root,
+    project_shared: row.project_shared,
+    workspace: row.workspace,
+    legacy: row.legacy === true,
+    created_at: row.created_at,
+  };
+}
+
+/**
+ * Create a clean task binding before first model submission (used by uploads).
+ * Python uses the same deterministic layout and treats this binding as
+ * authoritative when the run starts.
+ */
+export async function ensureThreadWorkspace(
+  threadId: string,
+  projectId = "default"
+): Promise<WorkspaceBinding> {
+  if (!threadId.trim() || hasControlChar(threadId)) {
+    throw new Error("A valid task thread is required.");
+  }
+  const base = await getBaseWorkspaceDir();
+  const existing = await getWorkspaceBinding(threadId, base);
+  if (existing) return existing;
+  const project = projectSlug(projectId);
+  const projectRoot = join(base, "projects", project);
+  const shared = join(projectRoot, "shared");
+  const runId = taskRunId(threadId);
+  const workspace = join(projectRoot, "runs", runId);
+  const createdAt = new Date().toISOString();
+  await Promise.all(
+    [
+      join(shared, "assets"),
+      join(shared, "knowledge"),
+      join(shared, "decisions"),
+      join(workspace, "inputs"),
+      join(workspace, "work"),
+      join(workspace, "outputs"),
+      join(workspace, "receipts"),
+      WORKSPACE_BINDINGS_DIR,
+    ].map((directory) => fs.mkdir(directory, { recursive: true }))
+  );
+  const binding: WorkspaceBinding = {
+    schema_version: 2,
+    thread_id: threadId,
+    project_id: project,
+    run_id: runId,
+    base_workspace: base,
+    project_root: projectRoot,
+    project_shared: shared,
+    workspace,
+    legacy: false,
+    created_at: createdAt,
+  };
+  await Promise.all([
+    writeJsonIfMissing(join(projectRoot, "project.json"), {
+      schema_version: 2,
+      project_id: project,
+      created_at: createdAt,
+      continuity_policy: {
+        shared_root: "shared",
+        task_runs_are_isolated: true,
+        prior_runs_are_not_implicitly_loaded: true,
+      },
+    }),
+    writeJsonIfMissing(join(workspace, "task.json"), {
+      schema_version: 2,
+      thread_id: threadId,
+      project_id: project,
+      run_id: runId,
+      research_question: "",
+      status: "active",
+      created_at: createdAt,
+    }),
+    writeJsonIfMissing(join(workspace, "input_manifest.json"), {
+      schema_version: 2,
+      thread_id: threadId,
+      inputs: [],
+    }),
+    writeJsonIfMissing(join(workspace, "context_snapshot.json"), {
+      schema_version: 2,
+      thread_id: threadId,
+      project_id: project,
+      project_shared_virtual_path: "/project/",
+      imported_context: [],
+      prior_runs_implicitly_loaded: false,
+    }),
+  ]);
+
+  // The filename is content-addressed by thread id. A concurrent Python writer
+  // can only choose the same deterministic paths; atomic rename avoids partial
+  // JSON while keeping either complete equivalent binding valid.
+  const target = bindingPath(threadId, base);
+  const temp = `${target}.${process.pid}.${randomUUID()}.tmp`;
+  await fs.writeFile(temp, JSON.stringify(binding, null, 2) + "\n", "utf-8");
+  await fs.rename(temp, target);
+  return binding;
+}
+
+/** Resolve the workspace for one task thread; global fallback is forbidden. */
+export async function getWorkspaceDir(
+  threadId?: string | null
+): Promise<string> {
+  if (!threadId?.trim()) {
+    throw new Error("No task selected. Start or open a research task first.");
+  }
+  const activeBase = await getBaseWorkspaceDir();
+  const binding = await getWorkspaceBinding(threadId, activeBase);
+  if (!binding) {
+    throw new Error(
+      "This task workspace is not bound yet. Send the first message or upload an input first."
+    );
+  }
+  const boundBase = await fs.realpath(resolve(binding.base_workspace));
+  if (boundBase !== activeBase) {
+    throw new Error(
+      "This task belongs to a different active project workspace."
+    );
+  }
+  const workspace = await fs.realpath(resolve(binding.workspace));
+  if (workspace !== activeBase && !workspace.startsWith(activeBase + sep)) {
+    throw new Error(
+      "The task workspace binding is outside the active project."
+    );
+  }
+  const stat = await fs.stat(workspace);
+  if (!stat.isDirectory()) {
+    throw new Error("The task workspace is not a directory.");
+  }
+  return workspace;
 }
 
 /**

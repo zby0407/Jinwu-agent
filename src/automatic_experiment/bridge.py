@@ -5,7 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
-from typing import Any, Callable
+from typing import Any
 
 from . import service
 from .contracts import ContractError

@@ -10,10 +10,10 @@ from typing import Any
 import httpx
 from langgraph_sdk.client import LangGraphClient
 
-from EvoScientist.channels.base import Channel
-from EvoScientist.channels.bus.events import InboundMessage, OutboundMessage
-from EvoScientist.commands.base import CommandUI
-from EvoScientist.gateway import (
+from jw.channels.base import Channel
+from jw.channels.bus.events import InboundMessage, OutboundMessage
+from jw.commands.base import CommandUI
+from jw.gateway import (
     GraphEvent,
     GraphGateway,
     GraphStateValues,

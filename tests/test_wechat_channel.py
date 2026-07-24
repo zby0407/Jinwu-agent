@@ -7,14 +7,14 @@ import xml.etree.ElementTree as ET
 
 import pytest
 
-from EvoScientist.channels.base import ChannelError
-from EvoScientist.channels.wechat.channel import (
+from jw.channels.base import ChannelError
+from jw.channels.wechat.channel import (
     WeChatChannel,
     WeChatMPConfig,
     WeComConfig,
     _strip_markdown,
 )
-from EvoScientist.channels.wechat.crypto import (
+from jw.channels.wechat.crypto import (
     WeChatCrypto,
     _pkcs7_pad,
     _pkcs7_unpad,
@@ -112,7 +112,7 @@ class TestWeChatChannelInit:
         await channel.stop()  # Should not raise
 
     async def test_send_returns_false_without_client(self):
-        from EvoScientist.channels.base import OutboundMessage
+        from jw.channels.base import OutboundMessage
 
         config = WeComConfig(corp_id="c", agent_id="1", secret="s")
         channel = WeChatChannel(config, backend="wecom")
@@ -447,7 +447,7 @@ class TestMessageProcessing:
 
 class TestChannelRegistration:
     def test_wechat_registered(self):
-        from EvoScientist.channels.channel_manager import available_channels
+        from jw.channels.channel_manager import available_channels
 
         channels = available_channels()
         assert "wechat" in channels

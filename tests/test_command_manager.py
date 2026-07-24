@@ -1,7 +1,7 @@
 """Tests for CommandManager subcommand metadata."""
 
-from EvoScientist.commands.base import SubCommand
-from EvoScientist.commands.manager import CommandManager
+from jw.commands.base import SubCommand
+from jw.commands.manager import CommandManager
 
 
 class TestSubCommand:
@@ -12,7 +12,7 @@ class TestSubCommand:
         assert sc.arguments == []
 
     def test_creation_with_arguments(self):
-        from EvoScientist.commands.base import Argument
+        from jw.commands.base import Argument
 
         sc = SubCommand(
             "add",
@@ -27,7 +27,7 @@ class TestCommandManagerSubcommands:
     def test_mcp_has_six_subcommands(self):
         """``/mcp`` must expose all 6 subcommands via the manager."""
         manager = CommandManager()
-        from EvoScientist.commands.implementation.mcp import MCPCommand
+        from jw.commands.implementation.mcp import MCPCommand
 
         manager.register(MCPCommand())
         scs = manager.list_subcommands("/mcp")
@@ -37,7 +37,7 @@ class TestCommandManagerSubcommands:
     def test_model_fallback_has_subcommands(self):
         """``/model-fallback`` must expose its subcommands."""
         manager = CommandManager()
-        from EvoScientist.commands.implementation.model_fallback import (
+        from jw.commands.implementation.model_fallback import (
             ModelFallbackCommand,
         )
 
@@ -49,7 +49,7 @@ class TestCommandManagerSubcommands:
     def test_channel_has_subcommands(self):
         """``/channel`` must expose status, stop, and channel type subcommands."""
         manager = CommandManager()
-        from EvoScientist.commands.implementation.channel import ChannelCommand
+        from jw.commands.implementation.channel import ChannelCommand
 
         manager.register(ChannelCommand())
         scs = manager.list_subcommands("/channel")
@@ -59,7 +59,7 @@ class TestCommandManagerSubcommands:
     def test_command_without_subcommands_returns_empty(self):
         """A command with no subcommands must return an empty list."""
         manager = CommandManager()
-        from EvoScientist.commands.implementation.general import HelpCommand
+        from jw.commands.implementation.general import HelpCommand
 
         manager.register(HelpCommand())
         assert manager.list_subcommands("/help") == []
@@ -74,7 +74,7 @@ class TestCommandManagerSubcommands:
     def test_subcommand_via_alias(self):
         """Registry by alias should still expose subcommands."""
         manager = CommandManager()
-        from EvoScientist.commands.implementation.model_fallback import (
+        from jw.commands.implementation.model_fallback import (
             ModelFallbackCommand,
         )
 

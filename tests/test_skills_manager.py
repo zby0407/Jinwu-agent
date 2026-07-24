@@ -1,11 +1,11 @@
-"""Tests for EvoScientist.tools.skills_manager module."""
+"""Tests for JW.tools.skills_manager module."""
 
 from pathlib import Path
 from unittest.mock import patch
 
 import pytest
 
-from EvoScientist.tools.skills_manager import (
+from jw.tools.skills_manager import (
     _is_github_url,
     _load_manifest,
     _parse_github_url,
@@ -35,7 +35,7 @@ def temp_skills_dir(tmp_path):
     skills_dir.mkdir()
     empty_global = tmp_path / "global_skills"
     empty_global.mkdir()
-    with patch("EvoScientist.paths.GLOBAL_SKILLS_DIR", empty_global):
+    with patch("jw.paths.GLOBAL_SKILLS_DIR", empty_global):
         yield skills_dir
 
 
@@ -282,7 +282,7 @@ class TestListSkills:
     """Tests for list_skills function."""
 
     def test_list_empty_dir(self, temp_skills_dir):
-        with patch("EvoScientist.paths.USER_SKILLS_DIR", temp_skills_dir):
+        with patch("jw.paths.USER_SKILLS_DIR", temp_skills_dir):
             skills = list_skills(include_system=False)
             assert skills == []
 
@@ -290,7 +290,7 @@ class TestListSkills:
         # Install a skill
         install_skill(str(sample_skill_dir), str(temp_skills_dir))
 
-        with patch("EvoScientist.paths.USER_SKILLS_DIR", temp_skills_dir):
+        with patch("jw.paths.USER_SKILLS_DIR", temp_skills_dir):
             skills = list_skills(include_system=False)
 
             assert len(skills) == 1
@@ -312,7 +312,7 @@ description: Skill number {i}
             )
             install_skill(str(skill_dir), str(temp_skills_dir))
 
-        with patch("EvoScientist.paths.USER_SKILLS_DIR", temp_skills_dir):
+        with patch("jw.paths.USER_SKILLS_DIR", temp_skills_dir):
             skills = list_skills(include_system=False)
 
             assert len(skills) == 3
@@ -334,7 +334,7 @@ class TestUninstallSkill:
         # Install first
         install_skill(str(sample_skill_dir), str(temp_skills_dir))
 
-        with patch("EvoScientist.paths.USER_SKILLS_DIR", temp_skills_dir):
+        with patch("jw.paths.USER_SKILLS_DIR", temp_skills_dir):
             result = uninstall_skill("sample-skill")
 
             assert result["success"] is True
@@ -344,7 +344,7 @@ class TestUninstallSkill:
             assert not skill_path.exists()
 
     def test_uninstall_nonexistent_skill(self, temp_skills_dir):
-        with patch("EvoScientist.paths.USER_SKILLS_DIR", temp_skills_dir):
+        with patch("jw.paths.USER_SKILLS_DIR", temp_skills_dir):
             result = uninstall_skill("nonexistent-skill")
 
             assert result["success"] is False
@@ -381,7 +381,7 @@ class TestInstallManifest:
         """A pack (root has no SKILL.md, multiple child skills) should record
         the same user-facing source for every child skill, so detection by
         source still works."""
-        repo = tmp_path / "evoskills-fake"
+        repo = tmp_path / "jwskills-fake"
         repo.mkdir()
         self._make_skill(repo, "paper-writing")
         self._make_skill(repo, "evo-memory")
@@ -400,7 +400,7 @@ class TestInstallManifest:
         install_skill(str(sample_skill_dir), str(temp_skills_dir))
         assert "sample-skill" in _load_manifest(temp_skills_dir)
 
-        with patch("EvoScientist.paths.USER_SKILLS_DIR", temp_skills_dir):
+        with patch("jw.paths.USER_SKILLS_DIR", temp_skills_dir):
             result = uninstall_skill("sample-skill")
 
         assert result["success"]
@@ -426,8 +426,8 @@ class TestInstallManifest:
         empty_global = tmp_path / "empty_global"
         empty_global.mkdir()
         with (
-            patch("EvoScientist.paths.USER_SKILLS_DIR", temp_skills_dir),
-            patch("EvoScientist.paths.GLOBAL_SKILLS_DIR", empty_global),
+            patch("jw.paths.USER_SKILLS_DIR", temp_skills_dir),
+            patch("jw.paths.GLOBAL_SKILLS_DIR", empty_global),
         ):
             install_skill(str(sample_skill_dir), str(temp_skills_dir))
             assert installed_sources() == {str(sample_skill_dir)}
@@ -451,9 +451,9 @@ class TestInstallManifest:
             commit="abc123def456",
         )
         with (
-            patch("EvoScientist.paths.USER_SKILLS_DIR", temp_skills_dir),
+            patch("jw.paths.USER_SKILLS_DIR", temp_skills_dir),
             patch(
-                "EvoScientist.paths.GLOBAL_SKILLS_DIR",
+                "jw.paths.GLOBAL_SKILLS_DIR",
                 temp_skills_dir.parent / "missing",
             ),
         ):
@@ -468,14 +468,14 @@ class TestResolveRemoteHead:
         assert resolve_remote_head("/tmp/some/local/path") is None
 
     def test_returns_none_when_git_unavailable(self):
-        with patch("EvoScientist.tools.skills_manager.subprocess.run") as run:
+        with patch("jw.tools.skills_manager.subprocess.run") as run:
             run.side_effect = FileNotFoundError("git not on PATH")
             assert resolve_remote_head("owner/repo@skill") is None
 
     def test_returns_none_on_timeout(self):
         import subprocess as _sp
 
-        with patch("EvoScientist.tools.skills_manager.subprocess.run") as run:
+        with patch("jw.tools.skills_manager.subprocess.run") as run:
             run.side_effect = _sp.TimeoutExpired(cmd="git", timeout=5)
             assert resolve_remote_head("owner/repo@skill") is None
 
@@ -489,9 +489,7 @@ class TestResolveRemoteHead:
                 "stderr": "",
             },
         )()
-        with patch(
-            "EvoScientist.tools.skills_manager.subprocess.run", return_value=proc
-        ):
+        with patch("jw.tools.skills_manager.subprocess.run", return_value=proc):
             sha = resolve_remote_head("owner/repo@skill")
         assert sha == "deadbeef0000000000000000000000000000abcd"
 
@@ -669,7 +667,7 @@ class TestListSkillsByTag:
         self._make_tagged_skill(temp_skills_dir, "skill-b", ["core", "research"])
         self._make_tagged_skill(temp_skills_dir, "skill-c", ["research"])
 
-        with patch("EvoScientist.paths.USER_SKILLS_DIR", temp_skills_dir):
+        with patch("jw.paths.USER_SKILLS_DIR", temp_skills_dir):
             core = list_skills_by_tag("core")
             assert len(core) == 2
             assert {s.name for s in core} == {"skill-a", "skill-b"}
@@ -685,7 +683,7 @@ class TestListSkillsByTag:
     def test_filter_case_insensitive(self, tmp_path, temp_skills_dir):
         self._make_tagged_skill(temp_skills_dir, "skill-x", ["Core", "Writing"])
 
-        with patch("EvoScientist.paths.USER_SKILLS_DIR", temp_skills_dir):
+        with patch("jw.paths.USER_SKILLS_DIR", temp_skills_dir):
             result = list_skills_by_tag("core")
             assert len(result) == 1
             assert result[0].name == "skill-x"
@@ -693,7 +691,7 @@ class TestListSkillsByTag:
     def test_filter_nonexistent_tag(self, tmp_path, temp_skills_dir):
         self._make_tagged_skill(temp_skills_dir, "skill-y", ["core"])
 
-        with patch("EvoScientist.paths.USER_SKILLS_DIR", temp_skills_dir):
+        with patch("jw.paths.USER_SKILLS_DIR", temp_skills_dir):
             result = list_skills_by_tag("nonexistent")
             assert result == []
 
@@ -721,7 +719,7 @@ class TestGetAllTags:
         self._make_tagged_skill(temp_skills_dir, "skill-b", ["core", "research"])
         self._make_tagged_skill(temp_skills_dir, "skill-c", ["research"])
 
-        with patch("EvoScientist.paths.USER_SKILLS_DIR", temp_skills_dir):
+        with patch("jw.paths.USER_SKILLS_DIR", temp_skills_dir):
             tags = get_all_tags()
 
         tag_dict = dict(tags)
@@ -730,7 +728,7 @@ class TestGetAllTags:
         assert tag_dict["writing"] == 1
 
     def test_empty_when_no_skills(self, temp_skills_dir):
-        with patch("EvoScientist.paths.USER_SKILLS_DIR", temp_skills_dir):
+        with patch("jw.paths.USER_SKILLS_DIR", temp_skills_dir):
             tags = get_all_tags()
             assert tags == []
 
@@ -767,11 +765,9 @@ class TestFetchRemoteSkillIndex:
 
             shutil.copytree(tmp_path / "repo", dest)
 
-        with patch(
-            "EvoScientist.tools.skills_manager._clone_repo", side_effect=fake_clone
-        ):
+        with patch("jw.tools.skills_manager._clone_repo", side_effect=fake_clone):
             # Clear cache to ensure fresh fetch
-            from EvoScientist.tools.skills_manager import _REMOTE_INDEX_CACHE
+            from jw.tools.skills_manager import _REMOTE_INDEX_CACHE
 
             _REMOTE_INDEX_CACHE.clear()
 
@@ -809,10 +805,8 @@ class TestFetchRemoteSkillIndex:
 
             shutil.copytree(tmp_path / "repo", dest)
 
-        with patch(
-            "EvoScientist.tools.skills_manager._clone_repo", side_effect=fake_clone
-        ):
-            from EvoScientist.tools.skills_manager import _REMOTE_INDEX_CACHE
+        with patch("jw.tools.skills_manager._clone_repo", side_effect=fake_clone):
+            from jw.tools.skills_manager import _REMOTE_INDEX_CACHE
 
             _REMOTE_INDEX_CACHE.clear()
 
@@ -846,7 +840,7 @@ class TestSkillManagerList:
 
     def test_list_user_skills_workspace(self, tmp_path):
         """Workspace-tier skills appear under 'User Skills'."""
-        from EvoScientist.tools.skill_manager import skill_manager
+        from jw.tools.skill_manager import skill_manager
 
         workspace_dir = tmp_path / "workspace"
         workspace_dir.mkdir()
@@ -856,8 +850,8 @@ class TestSkillManagerList:
         install_skill(str(tmp_path / "ws-skill"), str(workspace_dir))
 
         with (
-            patch("EvoScientist.paths.USER_SKILLS_DIR", workspace_dir),
-            patch("EvoScientist.paths.GLOBAL_SKILLS_DIR", global_dir),
+            patch("jw.paths.USER_SKILLS_DIR", workspace_dir),
+            patch("jw.paths.GLOBAL_SKILLS_DIR", global_dir),
         ):
             result = skill_manager.invoke({"action": "list", "include_system": False})
 
@@ -867,7 +861,7 @@ class TestSkillManagerList:
 
     def test_list_user_skills_global(self, tmp_path):
         """Global-tier skills appear under 'User Skills'."""
-        from EvoScientist.tools.skill_manager import skill_manager
+        from jw.tools.skill_manager import skill_manager
 
         workspace_dir = tmp_path / "workspace"
         workspace_dir.mkdir()
@@ -877,8 +871,8 @@ class TestSkillManagerList:
         install_skill(str(tmp_path / "global-skill"), str(global_dir))
 
         with (
-            patch("EvoScientist.paths.USER_SKILLS_DIR", workspace_dir),
-            patch("EvoScientist.paths.GLOBAL_SKILLS_DIR", global_dir),
+            patch("jw.paths.USER_SKILLS_DIR", workspace_dir),
+            patch("jw.paths.GLOBAL_SKILLS_DIR", global_dir),
         ):
             result = skill_manager.invoke({"action": "list", "include_system": False})
 
@@ -887,8 +881,8 @@ class TestSkillManagerList:
 
     def test_list_include_system_shows_both_sections(self, tmp_path):
         """include_system=True shows both User Skills and System Skills sections."""
-        from EvoScientist.tools.skill_manager import skill_manager
-        from EvoScientist.tools.skills_manager import SkillInfo
+        from jw.tools.skill_manager import skill_manager
+        from jw.tools.skills_manager import SkillInfo
 
         workspace_dir = tmp_path / "workspace"
         workspace_dir.mkdir()
@@ -905,10 +899,10 @@ class TestSkillManagerList:
         )
 
         with (
-            patch("EvoScientist.paths.USER_SKILLS_DIR", workspace_dir),
-            patch("EvoScientist.paths.GLOBAL_SKILLS_DIR", global_dir),
+            patch("jw.paths.USER_SKILLS_DIR", workspace_dir),
+            patch("jw.paths.GLOBAL_SKILLS_DIR", global_dir),
             patch(
-                "EvoScientist.tools.skills_manager.list_skills",
+                "jw.tools.skills_manager.list_skills",
                 return_value=[
                     SkillInfo(
                         name="user-skill",
@@ -929,7 +923,7 @@ class TestSkillManagerList:
 
     def test_list_no_user_skills_returns_message(self, tmp_path):
         """Empty workspace and global dirs return the 'no user skills' message."""
-        from EvoScientist.tools.skill_manager import skill_manager
+        from jw.tools.skill_manager import skill_manager
 
         workspace_dir = tmp_path / "workspace"
         workspace_dir.mkdir()
@@ -937,8 +931,8 @@ class TestSkillManagerList:
         global_dir.mkdir()
 
         with (
-            patch("EvoScientist.paths.USER_SKILLS_DIR", workspace_dir),
-            patch("EvoScientist.paths.GLOBAL_SKILLS_DIR", global_dir),
+            patch("jw.paths.USER_SKILLS_DIR", workspace_dir),
+            patch("jw.paths.GLOBAL_SKILLS_DIR", global_dir),
         ):
             result = skill_manager.invoke({"action": "list", "include_system": False})
 

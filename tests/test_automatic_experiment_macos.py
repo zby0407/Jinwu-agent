@@ -18,7 +18,9 @@ if str(SRC) not in sys.path:
 
 import pytest  # noqa: E402
 
-pytestmark = pytest.mark.skipif(sys.platform != "darwin", reason="macOS seatbelt backend only")
+pytestmark = pytest.mark.skipif(
+    sys.platform != "darwin", reason="macOS seatbelt backend only"
+)
 
 from automatic_experiment import service  # noqa: E402
 from automatic_experiment.contracts import (  # noqa: E402
@@ -83,7 +85,9 @@ def _design(req: dict) -> dict:
             "analysis_mode": "Deterministic technical validation.",
             "claim_scope": "The result describes only the supplied input or fixed fixture.",
             "input_evidence": [],
-            "supported_questions": ["Compute and verify the requested deterministic result."],
+            "supported_questions": [
+                "Compute and verify the requested deterministic result."
+            ],
             "deferred_questions": [],
             "assumptions": ["The declared numeric values are parseable and finite."],
             "threats_to_validity": [
@@ -269,8 +273,12 @@ def _assessment() -> dict:
             "interpretation": "The reported measurements describe the supplied input and do not imply broader population inference.",
             "evidence_strength": "Evidence is sufficient for the exact deterministic calculation but not for broader scientific inference.",
             "claim_boundary": "No causal, predictive, or population-level claim is supported by this fixture.",
-            "limitations": ["The interpretation is limited to the supplied input and requested calculation."],
-            "next_steps": ["Replay the run when an exact reproducibility check is needed."],
+            "limitations": [
+                "The interpretation is limited to the supplied input and requested calculation."
+            ],
+            "next_steps": [
+                "Replay the run when an exact reproducibility check is needed."
+            ],
         },
     }
 
@@ -293,7 +301,9 @@ class MacosBackendTests(unittest.TestCase):
         run_id = service.bind_request({"request": req})["run_id"]
         self.addCleanup(_cleanup, run_id)
         service.inspect_inputs(run_id)
-        checked = service.validate_and_store_design(run_id, _response(req), _design(req))
+        checked = service.validate_and_store_design(
+            run_id, _response(req), _design(req)
+        )
         assert checked["status"] == "design_validated"
         attempt_id = service.prepare(
             run_id,

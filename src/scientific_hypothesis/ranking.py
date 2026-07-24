@@ -54,7 +54,6 @@ def validate_ranking_request(
 
     candidate_ids = [candidate["id"] for candidate in candidates]
     candidate_set = set(candidate_ids)
-    candidate_by_id = {candidate["id"]: candidate for candidate in candidates}
 
     # rubric 块必须原样声明七维度（防模型自创维度）。
     rubric = _array(request["rubric"], "ranking request.rubric")

@@ -17,19 +17,27 @@ import {
 import { cn } from "@/lib/utils";
 import { WorkspaceFileDialog } from "@/app/components/WorkspaceFileDialog";
 import type { WorkspaceEntry } from "@/app/api/workspace/route";
+import { useQueryState } from "nuqs";
 
-async function listDir(path: string): Promise<WorkspaceEntry[]> {
-  const res = await fetch(`/api/workspace?${new URLSearchParams({ path })}`);
+async function listDir(
+  path: string,
+  threadId: string
+): Promise<WorkspaceEntry[]> {
+  const res = await fetch(
+    `/api/workspace?${new URLSearchParams({ path, threadId })}`
+  );
   const body = await res.json().catch(() => null);
   if (!res.ok) throw new Error(body?.error || "Failed to list workspace.");
   return (body?.entries ?? []) as WorkspaceEntry[];
 }
 
-async function listAll(): Promise<{
+async function listAll(threadId: string): Promise<{
   entries: WorkspaceEntry[];
   truncated: boolean;
 }> {
-  const res = await fetch("/api/workspace?recursive=1");
+  const res = await fetch(
+    `/api/workspace?${new URLSearchParams({ recursive: "1", threadId })}`
+  );
   const body = await res.json().catch(() => null);
   if (!res.ok) throw new Error(body?.error || "Failed to load workspace.");
   return {
@@ -136,9 +144,10 @@ for (const cat of CATEGORIES) {
 type ViewMode = "tree" | "type";
 
 export function WorkspacePanel() {
+  const [threadId] = useQueryState("threadId");
   const [view, setView] = useState<ViewMode>("tree");
 
-  // --- \u6811\u72b6 view state (listing cache keyed by dir path; "" = root) ---
+  // --- Tree view state (listing cache keyed by dir path; "" = root) ---
   const [children, setChildren] = useState<Record<string, WorkspaceEntry[]>>(
     {}
   );
@@ -157,31 +166,39 @@ export function WorkspacePanel() {
     size: number;
   } | null>(null);
 
-  const loadDir = useCallback(async (path: string) => {
-    setLoading((prev) => new Set(prev).add(path));
-    try {
-      const entries = await listDir(path);
-      setChildren((prev) => ({ ...prev, [path]: entries }));
-      if (path === "") setError(null);
-      return entries;
-    } catch (err) {
-      if (path === "") {
-        setError(err instanceof Error ? err.message : "Failed to load.");
+  const loadDir = useCallback(
+    async (path: string) => {
+      if (!threadId) throw new Error("Start or open a research task first.");
+      setLoading((prev) => new Set(prev).add(path));
+      try {
+        const entries = await listDir(path, threadId);
+        setChildren((prev) => ({ ...prev, [path]: entries }));
+        if (path === "") setError(null);
+        return entries;
+      } catch (err) {
+        if (path === "") {
+          setError(err instanceof Error ? err.message : "Failed to load.");
+        }
+        throw err;
+      } finally {
+        setLoading((prev) => {
+          const next = new Set(prev);
+          next.delete(path);
+          return next;
+        });
       }
-      throw err;
-    } finally {
-      setLoading((prev) => {
-        const next = new Set(prev);
-        next.delete(path);
-        return next;
-      });
-    }
-  }, []);
+    },
+    [threadId]
+  );
 
   const loadAll = useCallback(async () => {
+    if (!threadId) {
+      setError("Start or open a research task first.");
+      return;
+    }
     setTypeLoading(true);
     try {
-      const { entries, truncated } = await listAll();
+      const { entries, truncated } = await listAll(threadId);
       setAllFiles(entries);
       setTruncated(truncated);
       setError(null);
@@ -190,17 +207,25 @@ export function WorkspacePanel() {
     } finally {
       setTypeLoading(false);
     }
-  }, []);
+  }, [threadId]);
 
   // Initial tree load. loadDir surfaces root failures via `error`; catch the
   // rejection here so it doesn't become an unhandled promise rejection.
   useEffect(() => {
+    setChildren({});
+    setExpanded(new Set());
+    setAllFiles(null);
+    setSelected(null);
+    if (!threadId) {
+      setError("Start or open a research task first.");
+      setRootLoading(false);
+      return;
+    }
     setRootLoading(true);
     void loadDir("")
       .catch(() => {})
       .finally(() => setRootLoading(false));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [threadId, loadDir]);
 
   // Load the flat listing the first time the by-type view is opened.
   useEffect(() => {
@@ -368,7 +393,7 @@ export function WorkspacePanel() {
   return (
     <div className="flex min-h-0 flex-col">
       <div className="flex items-center justify-between gap-2 pb-1.5">
-        {/* \u6811\u72b6 / By-type toggle */}
+        {/* Tree / By-type toggle */}
         <div className="flex items-center gap-0.5 rounded-md bg-muted p-0.5 text-xs">
           {(["tree", "type"] as const).map((m) => (
             <button
@@ -383,25 +408,31 @@ export function WorkspacePanel() {
               )}
               aria-pressed={view === m}
             >
-              {m === "tree" ? "\u76ee\u5f55" : "\u6309\u7c7b\u578b"}
+              {m === "tree" ? "Tree" : "By type"}
             </button>
           ))}
         </div>
         <div className="flex items-center gap-0.5">
           <a
-            href="/api/workspace/download"
+            href={
+              threadId
+                ? `/api/workspace/download?${new URLSearchParams({ threadId })}`
+                : "#"
+            }
             download
             className="inline-flex items-center gap-1 rounded-md px-1.5 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-            title="\u4e0b\u8f7d\u6574\u4e2a\u5de5\u4f5c\u533a ZIP"
+            title="Download the whole workspace as a zip"
           >
-            <Download className="size-3.5" />{"\u5168\u90e8"}</a>
+            <Download className="size-3.5" />
+            All
+          </a>
           <button
             type="button"
             onClick={refresh}
             disabled={refreshing}
             className="inline-flex size-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:opacity-50"
-            aria-label="\u5237\u65b0\u5de5\u4f5c\u533a"
-            title="\u5237\u65b0"
+            aria-label="Refresh workspace"
+            title="Refresh"
           >
             <RefreshCw
               className={cn("size-3.5", refreshing && "animate-spin")}

@@ -7,7 +7,9 @@ import type { Message } from "@langchain/langgraph-sdk";
 import type {
   ActiveToolCall,
   ActiveSubAgent,
+  RealtimeActivityState,
 } from "@/providers/RealtimeActivityProvider";
+import type { TodoItem } from "@/app/types/types";
 
 function getLatestToolCalls(
   messages: Message[],
@@ -41,6 +43,63 @@ function getLatestToolCalls(
   return [];
 }
 
+function sameToolCalls(a: ActiveToolCall[], b: ActiveToolCall[]): boolean {
+  return (
+    a === b ||
+    (a.length === b.length &&
+      a.every(
+        (item, index) =>
+          item.id === b[index]?.id && item.name === b[index]?.name
+      ))
+  );
+}
+
+function sameSubAgents(a: ActiveSubAgent[], b: ActiveSubAgent[]): boolean {
+  return (
+    a === b ||
+    (a.length === b.length &&
+      a.every((item, index) => {
+        const other = b[index];
+        return (
+          item.key === other?.key &&
+          item.name === other.name &&
+          item.steps === other.steps &&
+          item.latestStep === other.latestStep
+        );
+      }))
+  );
+}
+
+function sameTodos(a: TodoItem[], b: TodoItem[]): boolean {
+  return (
+    a === b ||
+    (a.length === b.length &&
+      a.every((item, index) => {
+        const other = b[index];
+        return (
+          item.id === other?.id &&
+          item.content === other.content &&
+          item.status === other.status &&
+          item.updatedAt === other.updatedAt
+        );
+      }))
+  );
+}
+
+function sameActivityState(
+  prev: RealtimeActivityState,
+  next: RealtimeActivityState
+): boolean {
+  return (
+    prev.isLoading === next.isLoading &&
+    prev.hasInterrupt === next.hasInterrupt &&
+    prev.interruptType === next.interruptType &&
+    sameToolCalls(prev.activeToolCalls, next.activeToolCalls) &&
+    sameSubAgents(prev.subAgents, next.subAgents) &&
+    sameTodos(prev.todos, next.todos)
+  );
+}
+
 export function RealtimeActivityBridge() {
   const { isLoading, interrupt, messages, subAgentActivity, todos } =
     useChatContext();
@@ -60,19 +119,24 @@ export function RealtimeActivityBridge() {
     }));
   }, [subAgentActivity]);
 
+  const hasInterrupt = !!interrupt;
+  const interruptType = (interrupt?.value as { type?: string } | undefined)
+    ?.type;
+
   useEffect(() => {
-    setState((prev) => ({
-      ...prev,
+    const next: RealtimeActivityState = {
       isLoading,
-      hasInterrupt: !!interrupt,
-      interruptType: (interrupt?.value as { type?: string } | undefined)?.type,
+      hasInterrupt,
+      interruptType,
       activeToolCalls,
       subAgents,
       todos,
-    }));
+    };
+    setState((prev) => (sameActivityState(prev, next) ? prev : next));
   }, [
     isLoading,
-    interrupt,
+    hasInterrupt,
+    interruptType,
     activeToolCalls,
     subAgents,
     todos,

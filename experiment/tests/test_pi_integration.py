@@ -4,7 +4,6 @@ import json
 import shutil
 import subprocess
 import unittest
-from pathlib import Path
 
 from automatic_experiment.state import PROJECT_ROOT
 

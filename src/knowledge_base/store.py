@@ -1,7 +1,7 @@
 """SQLite storage for the knowledge base (plan §5.1).
 
-Database lives at ``$EVOSCIENTIST_DATA_DIR/knowledge.db`` or
-``~/.evoscientist/knowledge.db`` (same rule as ``EvoScientist/paths.py``;
+Database lives at ``$JW_DATA_DIR/knowledge.db`` or
+``~/.jw/knowledge.db`` (same rule as ``jw/paths.py``;
 re-implemented here so ``src/knowledge_base`` stays pure stdlib with no
 import side effects). WAL mode, normalized literature-family/distillation
 tables, and one FTS5 virtual table.
@@ -140,21 +140,21 @@ def utc_now() -> str:
 
 
 def default_db_path() -> Path:
-    """``~/.evoscientist/knowledge.db`` (env-overridable like paths.py)."""
+    """``~/.jw/knowledge.db`` (env-overridable like paths.py)."""
 
-    override = os.getenv("EVOSCIENTIST_DATA_DIR")
-    base = Path(override).expanduser() if override else Path.home() / ".evoscientist"
+    override = os.getenv("JW_DATA_DIR")
+    base = Path(override).expanduser() if override else Path.home() / ".jw"
     return base / "knowledge.db"
 
 
 def default_export_dir() -> Path:
     """``<repo root>/knowledge_base/`` markdown export directory.
 
-    ``EVOSCIENTIST_KB_EXPORT_DIR`` overrides the location (used by tests to
+    ``JW_KB_EXPORT_DIR`` overrides the location (used by tests to
     keep the repository export tree clean); unset keeps the P1 default.
     """
 
-    override = os.getenv("EVOSCIENTIST_KB_EXPORT_DIR")
+    override = os.getenv("JW_KB_EXPORT_DIR")
     if override:
         return Path(override).expanduser()
     return Path(__file__).resolve().parents[2] / "knowledge_base"

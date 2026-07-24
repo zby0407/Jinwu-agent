@@ -2,7 +2,7 @@
 
 from pathlib import Path
 
-from EvoScientist.cli import _deduplicate_run_name
+from jw.cli import _deduplicate_run_name
 
 # =============================================================================
 # _deduplicate_run_name

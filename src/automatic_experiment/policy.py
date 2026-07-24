@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import ast
 import re
-from typing import Any
 
 from .contracts import ContractError
 
