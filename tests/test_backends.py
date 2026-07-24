@@ -6,6 +6,7 @@ import sys
 from pathlib import Path
 
 import pytest
+from blockbuster import BlockBuster
 
 from EvoScientist import backends, paths
 from EvoScientist.backends import (
@@ -17,6 +18,24 @@ from EvoScientist.backends import (
     prepare_sandbox_command,
     validate_command,
 )
+
+
+async def test_precreated_sandbox_initialization_does_not_block_event_loop(tmp_path):
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+
+    blocker = BlockBuster(scanned_modules=backends)
+    blocker.activate()
+    try:
+        backend = CustomSandboxBackend(
+            root_dir=str(workspace.resolve()),
+            virtual_mode=True,
+            ensure_root=False,
+        )
+    finally:
+        blocker.deactivate()
+
+    assert backend.cwd == workspace.resolve()
 
 
 def _sleep_cmd(seconds: int) -> str:

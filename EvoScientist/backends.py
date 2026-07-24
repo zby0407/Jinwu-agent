@@ -1202,14 +1202,39 @@ class CustomSandboxBackend(LocalShellBackend):
             # Real paths require the legacy (non-virtual) resolution path so the
             # parent backend returns absolute paths as-is.
             virtual_mode = False
-        super().__init__(
-            root_dir=root_dir,
-            virtual_mode=virtual_mode,
-            timeout=timeout,
-            max_output_bytes=max_output_bytes,
-            env=env,
-            inherit_env=inherit_env,
-        )
+        if ensure_root:
+            super().__init__(
+                root_dir=root_dir,
+                virtual_mode=virtual_mode,
+                timeout=timeout,
+                max_output_bytes=max_output_bytes,
+                env=env,
+                inherit_env=inherit_env,
+            )
+        else:
+            # DeepAgents resolves ``root_dir`` in FilesystemBackend.__init__.
+            # On Windows, even resolving an absolute path calls os.getcwd(),
+            # which LangGraph's async blocking guard rejects. Task bindings
+            # already provide a resolved, existing absolute root, so initialize
+            # the small set of LocalShellBackend fields directly on this path.
+            cwd = Path(root_dir)
+            if not cwd.is_absolute():
+                raise ValueError(
+                    "root_dir must be absolute when ensure_root is disabled"
+                )
+            if timeout <= 0:
+                raise ValueError(f"timeout must be positive, got {timeout}")
+            self.cwd = cwd
+            self.virtual_mode = virtual_mode
+            self.max_file_size_bytes = 10 * 1024 * 1024
+            self._default_timeout = timeout
+            self._max_output_bytes = max_output_bytes
+            if inherit_env:
+                self._env = os.environ.copy()
+                if env is not None:
+                    self._env.update(env)
+            else:
+                self._env = env if env is not None else {}
         # Override parent's "local-" prefix with our own
         self._sandbox_id = f"evosci-{uuid.uuid4().hex[:8]}"
         # Ensure working directory exists. Dynamic task backends are constructed

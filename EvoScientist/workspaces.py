@@ -127,7 +127,10 @@ class WorkspaceBinding:
 
 
 def _binding_cache_key(thread_id: str, base_workspace: str | Path) -> tuple[str, str]:
-    return (str(Path(base_workspace).expanduser().resolve()), thread_id)
+    base = os.fspath(base_workspace)
+    if not os.path.isabs(base):
+        raise ValueError("base_workspace must be absolute for cache access")
+    return (os.path.normpath(base), thread_id)
 
 
 def get_cached_binding(
@@ -170,7 +173,7 @@ def preload_bindings(base_workspace: str | Path) -> int:
                     or binding_path(binding.thread_id, base) != path
                 ):
                     continue
-                _BINDING_CACHE[(base, binding.thread_id)] = binding
+                _BINDING_CACHE[_binding_cache_key(binding.thread_id, base)] = binding
                 loaded += 1
             except (OSError, ValueError, TypeError, json.JSONDecodeError):
                 continue
@@ -191,7 +194,7 @@ def read_binding(thread_id: str, base_workspace: str | Path) -> WorkspaceBinding
         if binding.thread_id != thread_id or binding.base_workspace != base:
             return None
         with _LOCK:
-            _BINDING_CACHE[(base, thread_id)] = binding
+            _BINDING_CACHE[_binding_cache_key(thread_id, base)] = binding
         return binding
     except (OSError, ValueError, TypeError, json.JSONDecodeError):
         return None
@@ -297,7 +300,7 @@ def ensure_thread_workspace(
         if existing is not None:
             if not existing.legacy:
                 _ensure_run_layout(existing, first_request)
-            _BINDING_CACHE[(str(base), thread_id)] = existing
+            _BINDING_CACHE[_binding_cache_key(thread_id, base)] = existing
             return existing
 
         project = _slug(project_id, fallback=DEFAULT_PROJECT_ID)
@@ -319,7 +322,7 @@ def ensure_thread_workspace(
         )
         _ensure_run_layout(binding, first_request)
         _atomic_write_json(binding_path(thread_id, base), asdict(binding))
-        _BINDING_CACHE[(str(base), thread_id)] = binding
+        _BINDING_CACHE[_binding_cache_key(thread_id, base)] = binding
         return binding
 
 
@@ -332,7 +335,7 @@ def create_legacy_binding(
     with _LOCK:
         existing = read_binding(thread_id, base)
         if existing is not None:
-            _BINDING_CACHE[(str(base), thread_id)] = existing
+            _BINDING_CACHE[_binding_cache_key(thread_id, base)] = existing
             return existing
         created_at = utc_now()
         binding = WorkspaceBinding(
@@ -348,7 +351,7 @@ def create_legacy_binding(
             created_at=created_at,
         )
         _atomic_write_json(binding_path(thread_id, base), asdict(binding))
-        _BINDING_CACHE[(str(base), thread_id)] = binding
+        _BINDING_CACHE[_binding_cache_key(thread_id, base)] = binding
         return binding
 
 

@@ -671,6 +671,7 @@ def _build_default_composite_backend(
     *,
     project_shared_dir: str | None = None,
     root_precreated: bool = False,
+    prebuilt_routes: dict[str, object] | None = None,
 ):
     """Build one concrete backend for a resolved task workspace.
 
@@ -702,20 +703,23 @@ def _build_default_composite_backend(
         dangerous=cfg.dangerous_mode,
         ensure_root=not root_precreated,
     )
-    sk_backend = MergedSkillsBackend(
-        primary_dir=user_skills_dir,
-        global_dir=global_skills_dir,
-        secondary_dir=SKILLS_DIR,
-        secondary_roots=tuple(str(path) for path in _BUILTIN_SKILL_ROOTS),
-    )
-    mem_backend = MemoryFilesystemBackend(
-        root_dir=memory_dir,
-        virtual_mode=True,
-    )
-    routes = {
-        "/skills/": sk_backend,
-        "/memories/": mem_backend,
-    }
+    if prebuilt_routes is None:
+        sk_backend = MergedSkillsBackend(
+            primary_dir=user_skills_dir,
+            global_dir=global_skills_dir,
+            secondary_dir=SKILLS_DIR,
+            secondary_roots=tuple(str(path) for path in _BUILTIN_SKILL_ROOTS),
+        )
+        mem_backend = MemoryFilesystemBackend(
+            root_dir=memory_dir,
+            virtual_mode=True,
+        )
+        routes = {
+            "/skills/": sk_backend,
+            "/memories/": mem_backend,
+        }
+    else:
+        routes = dict(prebuilt_routes)
     if project_shared_dir:
         routes["/project/"] = CustomSandboxBackend(
             root_dir=project_shared_dir,
@@ -765,6 +769,13 @@ def _get_scoped_backend_factory():
 
     cache: dict[tuple[str, str | None], object] = {}
     lock = threading.RLock()
+    base_backend = _build_default_composite_backend(base_workspace)
+    prebuilt_routes = {
+        route: backend
+        for route, backend in base_backend.routes.items()
+        if route in {"/skills/", "/memories/"}
+    }
+    cache[(base_workspace, None)] = base_backend
 
     def _factory(runtime):
         config = getattr(runtime, "config", None)
@@ -787,7 +798,10 @@ def _get_scoped_backend_factory():
             backend = cache.get(key)
         if backend is None:
             backend = _build_default_composite_backend(
-                key[0], project_shared_dir=key[1], root_precreated=True
+                key[0],
+                project_shared_dir=key[1],
+                root_precreated=True,
+                prebuilt_routes=prebuilt_routes,
             )
             with lock:
                 backend = cache.setdefault(key, backend)

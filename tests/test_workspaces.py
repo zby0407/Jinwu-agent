@@ -7,6 +7,7 @@ import sqlite3
 from pathlib import Path
 from types import SimpleNamespace
 
+from blockbuster import BlockBuster
 from langchain_core.messages import HumanMessage
 
 from EvoScientist.middleware.task_workspace import TaskWorkspaceMiddleware
@@ -102,6 +103,29 @@ def test_persisted_binding_can_be_preloaded_after_process_restart(
     assert get_cached_binding("resume-thread", base) is None
     assert preload_bindings(base) == 1
     assert get_cached_binding("resume-thread", base) == created
+
+
+async def test_cached_binding_lookup_does_not_block_the_event_loop(
+    tmp_path, monkeypatch
+):
+    import EvoScientist.workspaces as workspace_module
+
+    monkeypatch.setenv(
+        "EVOSCIENTIST_WORKSPACE_BINDINGS_DIR", str(tmp_path / "registry")
+    )
+    base = tmp_path / "workspace"
+    base.mkdir()
+    created = ensure_thread_workspace("async-cache-thread", base)
+    resolved_base = str(base.resolve())
+
+    blocker = BlockBuster(scanned_modules=workspace_module)
+    blocker.activate()
+    try:
+        cached = get_cached_binding("async-cache-thread", resolved_base)
+    finally:
+        blocker.deactivate()
+
+    assert cached == created
 
 
 def test_runtime_scope_prefers_parent_workspace_thread(tmp_path, monkeypatch):
