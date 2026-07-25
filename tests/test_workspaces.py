@@ -3,14 +3,19 @@
 from __future__ import annotations
 
 import json
+import os
 import sqlite3
+import threading
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
+from blockbuster import BlockBuster
 from langchain_core.messages import HumanMessage
 
 from jw.middleware.task_workspace import TaskWorkspaceMiddleware
 from jw.workspaces import (
+    binding_from_config,
     binding_path,
     bootstrap_legacy_bindings,
     ensure_thread_workspace,
@@ -98,6 +103,107 @@ def test_persisted_binding_can_be_preloaded_after_process_restart(
     assert get_cached_binding("resume-thread", base) is None
     assert preload_bindings(base) == 1
     assert get_cached_binding("resume-thread", base) == created
+
+
+async def test_cached_binding_lookup_avoids_synchronous_filesystem_calls_after_warmup(
+    tmp_path, monkeypatch
+):
+    """A warmed cache lookup avoids synchronous filesystem calls on the event loop."""
+
+    import jw.workspaces as workspace_module
+
+    base = tmp_path / "workspace"
+    base.mkdir()
+    monkeypatch.setenv("JW_WORKSPACE_BINDINGS_DIR", str(tmp_path / "registry"))
+    binding = ensure_thread_workspace("async-cache-thread", base)
+    resolved_base = str(base.resolve())
+
+    blocker = BlockBuster(scanned_modules=workspace_module)
+    blocker.activate()
+    try:
+        cached = get_cached_binding("async-cache-thread", resolved_base)
+    finally:
+        blocker.deactivate()
+
+    assert cached == binding
+
+
+def test_cached_binding_lookup_requires_absolute_workspace_path(tmp_path):
+    with pytest.raises(ValueError, match="absolute"):
+        get_cached_binding("cache-thread", tmp_path.name)
+
+
+def test_cached_binding_lookup_requires_pre_resolved_symlink_token(
+    tmp_path, monkeypatch
+):
+    real_base = tmp_path / "workspace"
+    real_base.mkdir()
+    linked_base = tmp_path / "workspace-link"
+    try:
+        linked_base.symlink_to(real_base, target_is_directory=True)
+    except OSError as exc:
+        pytest.skip(f"directory symlinks unavailable: {exc}")
+
+    monkeypatch.setenv("JW_WORKSPACE_BINDINGS_DIR", str(tmp_path / "registry"))
+    binding = ensure_thread_workspace("symlink-cache-thread", linked_base)
+
+    assert get_cached_binding("symlink-cache-thread", linked_base) is None
+    assert (
+        get_cached_binding("symlink-cache-thread", str(linked_base.resolve()))
+        == binding
+    )
+
+
+def test_binding_from_config_resolves_relative_worker_workspace(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    relative_base = Path("workspace")
+    relative_base.mkdir()
+    monkeypatch.setenv("JW_WORKSPACE_BINDINGS_DIR", str(tmp_path / "registry"))
+    binding = ensure_thread_workspace("worker-thread", relative_base)
+    config = {"configurable": {"thread_id": "worker-thread"}}
+
+    assert binding_from_config(config, relative_base) == binding
+
+
+def test_cached_binding_lookup_does_not_wait_for_registry_lock(tmp_path, monkeypatch):
+    """A warmed cache lookup does not contend with registry filesystem I/O."""
+
+    import jw.workspaces as workspace_module
+
+    base = tmp_path / "workspace"
+    base.mkdir()
+    monkeypatch.setenv("JW_WORKSPACE_BINDINGS_DIR", str(tmp_path / "registry"))
+    binding = ensure_thread_workspace("cache-lock-thread", base)
+    started = threading.Event()
+    completed = threading.Event()
+    observed: dict[str, object] = {}
+
+    def lookup() -> None:
+        started.set()
+        observed["binding"] = get_cached_binding("cache-lock-thread", base)
+        completed.set()
+
+    with workspace_module._LOCK:
+        worker = threading.Thread(target=lookup)
+        worker.start()
+        assert started.wait(timeout=1)
+        assert completed.wait(timeout=0.5)
+    worker.join(timeout=1)
+
+    assert not worker.is_alive()
+    assert observed["binding"] == binding
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Windows path semantics")
+@pytest.mark.parametrize("base_workspace", [r"\workspace", r"C:workspace"])
+def test_cached_binding_lookup_rejects_windows_non_absolute_paths(base_workspace):
+    with pytest.raises(ValueError, match="absolute"):
+        get_cached_binding("cache-thread", base_workspace)
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Windows path semantics")
+def test_cached_binding_lookup_accepts_windows_unc_path():
+    assert get_cached_binding("cache-thread", r"\\server\share\workspace") is None
 
 
 def test_runtime_scope_prefers_parent_workspace_thread(tmp_path, monkeypatch):

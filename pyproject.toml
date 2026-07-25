@@ -48,6 +48,7 @@ dependencies = [
 
 [dependency-groups]
 dev = [
+    "blockbuster>=1.5",
     "pytest>=8.0",
     "pytest-asyncio>=1.0",
     "pytest-cov>=5.0",
@@ -59,6 +60,7 @@ dev = [
 
 [project.optional-dependencies]
 dev = [
+    "blockbuster>=1.5",
     "pytest>=8.0",
     "pytest-asyncio>=1.0",
     "pytest-cov>=5.0",

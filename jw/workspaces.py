@@ -38,6 +38,7 @@ from typing import Any
 SCHEMA_VERSION = 2
 DEFAULT_PROJECT_ID = "default"
 _LOCK = threading.RLock()
+_CACHE_LOCK = threading.RLock()
 _BINDING_CACHE: dict[tuple[str, str], WorkspaceBinding] = {}
 _SAFE_ID = re.compile(r"[^A-Za-z0-9._-]+")
 
@@ -126,24 +127,45 @@ class WorkspaceBinding:
         )
 
 
-def _binding_cache_key(thread_id: str, base_workspace: str | Path) -> tuple[str, str]:
-    return (str(Path(base_workspace).expanduser().resolve()), thread_id)
+def _binding_cache_key(
+    thread_id: str, resolved_base_workspace: str | Path
+) -> tuple[str, str]:
+    """Build a cache key from an already-resolved absolute workspace path."""
+
+    base = os.fsdecode(os.fspath(resolved_base_workspace))
+    if not Path(base).is_absolute():
+        raise ValueError("resolved base workspace must be an absolute path")
+    return (os.path.normcase(os.path.normpath(base)), thread_id)
 
 
 def get_cached_binding(
-    thread_id: str, base_workspace: str | Path
+    thread_id: str, resolved_base_workspace: str | Path
 ) -> WorkspaceBinding | None:
-    """Return an in-process binding without performing filesystem I/O.
+    """Return an in-process binding without synchronous filesystem calls.
 
     Async graph nodes use this path because DeepAgents' backend factory is a
     synchronous callback even when invoked from ``abefore_agent``.  The custom
     checkpointer initializes the cache from a worker thread before graph nodes
     run, so the factory never needs to call ``mkdir`` or read JSON on the event
-    loop.
+    loop. Callers must resolve symlinks and relative components before entering
+    the event loop and pass that canonical absolute workspace path here.
     """
 
-    with _LOCK:
-        return _BINDING_CACHE.get(_binding_cache_key(thread_id, base_workspace))
+    with _CACHE_LOCK:
+        return _BINDING_CACHE.get(
+            _binding_cache_key(thread_id, resolved_base_workspace)
+        )
+
+
+def _set_cached_binding(
+    thread_id: str,
+    resolved_base_workspace: str | Path,
+    binding: WorkspaceBinding,
+) -> None:
+    """Store one binding under the short-lived cache lock."""
+
+    with _CACHE_LOCK:
+        _BINDING_CACHE[_binding_cache_key(thread_id, resolved_base_workspace)] = binding
 
 
 def preload_bindings(base_workspace: str | Path) -> int:
@@ -170,7 +192,7 @@ def preload_bindings(base_workspace: str | Path) -> int:
                     or binding_path(binding.thread_id, base) != path
                 ):
                     continue
-                _BINDING_CACHE[(base, binding.thread_id)] = binding
+                _set_cached_binding(binding.thread_id, base, binding)
                 loaded += 1
             except (OSError, ValueError, TypeError, json.JSONDecodeError):
                 continue
@@ -190,8 +212,7 @@ def read_binding(thread_id: str, base_workspace: str | Path) -> WorkspaceBinding
         binding = WorkspaceBinding.from_dict(raw)
         if binding.thread_id != thread_id or binding.base_workspace != base:
             return None
-        with _LOCK:
-            _BINDING_CACHE[(base, thread_id)] = binding
+        _set_cached_binding(thread_id, base, binding)
         return binding
     except (OSError, ValueError, TypeError, json.JSONDecodeError):
         return None
@@ -297,7 +318,7 @@ def ensure_thread_workspace(
         if existing is not None:
             if not existing.legacy:
                 _ensure_run_layout(existing, first_request)
-            _BINDING_CACHE[(str(base), thread_id)] = existing
+            _set_cached_binding(thread_id, base, existing)
             return existing
 
         project = _slug(project_id, fallback=DEFAULT_PROJECT_ID)
@@ -319,7 +340,7 @@ def ensure_thread_workspace(
         )
         _ensure_run_layout(binding, first_request)
         _atomic_write_json(binding_path(thread_id, base), asdict(binding))
-        _BINDING_CACHE[(str(base), thread_id)] = binding
+        _set_cached_binding(thread_id, base, binding)
         return binding
 
 
@@ -332,7 +353,7 @@ def create_legacy_binding(
     with _LOCK:
         existing = read_binding(thread_id, base)
         if existing is not None:
-            _BINDING_CACHE[(str(base), thread_id)] = existing
+            _set_cached_binding(thread_id, base, existing)
             return existing
         created_at = utc_now()
         binding = WorkspaceBinding(
@@ -348,7 +369,7 @@ def create_legacy_binding(
             created_at=created_at,
         )
         _atomic_write_json(binding_path(thread_id, base), asdict(binding))
-        _BINDING_CACHE[(str(base), thread_id)] = binding
+        _set_cached_binding(thread_id, base, binding)
         return binding
 
 
@@ -471,8 +492,9 @@ def binding_from_config(
     thread_id = scope_thread_id(config)
     if not thread_id:
         return None
-    return get_cached_binding(thread_id, base_workspace) or read_binding(
-        thread_id, base_workspace
+    resolved_base_workspace = Path(base_workspace).expanduser().resolve()
+    return get_cached_binding(thread_id, resolved_base_workspace) or read_binding(
+        thread_id, resolved_base_workspace
     )
 
 
