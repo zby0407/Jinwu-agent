@@ -659,6 +659,35 @@ def _platform_quote(s: str) -> str:
     return shlex.quote(s)
 
 
+_WINDOWS_MKDIR_PARENTS_RE = re.compile(
+    r"(?i)(?P<prefix>(?:^|&&|\|\||[;|&()`])\s*)"
+    r"(?P<command>mkdir)\s+"
+    r"(?:-p|--parents)(?P<space>\s+)"
+)
+
+
+def _normalize_windows_shell_command(command: str) -> str:
+    """Translate supported POSIX command flags for the local Windows shell.
+
+    ``LocalShellBackend`` executes through ``cmd.exe`` on Windows. The model
+    commonly emits ``mkdir -p`` for virtual workspace directories; ``cmd.exe``
+    already creates parent directories and treats ``-p`` as a path, so remove
+    that flag only when ``mkdir`` starts a shell command segment.
+
+    SSH remote command arguments are masked before this helper runs. Requiring
+    a command boundary also avoids rewriting quoted prose such as
+    ``echo "mkdir -p ./example"``.
+    """
+    if not _is_windows():
+        return command
+    return _WINDOWS_MKDIR_PARENTS_RE.sub(
+        lambda match: (
+            f"{match.group('prefix')}{match.group('command')}{match.group('space')}"
+        ),
+        command,
+    )
+
+
 def _resolve_virtual_mount_path(token: str) -> str | None:
     """Resolve a virtual mount token to a shell-safe token, or ``None`` when
     *token* is not a registered virtual mount.
@@ -1139,6 +1168,7 @@ def prepare_sandbox_command(
             command=command,
             workspace_name=Path(cwd_str).name,
         )
+    command = _normalize_windows_shell_command(command)
     # Skills/memory dirs must be allowlisted: the workspace-literal replace above runs
     # before the resolver, so any absolute path it later injects reaches validate unstripped.
     allow_prefixes = (
