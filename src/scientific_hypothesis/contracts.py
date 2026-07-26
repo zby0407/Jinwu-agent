@@ -53,6 +53,13 @@ HARD_NUMERIC_CUTOFF = re.compile(
     r"[^。；;.!?！？]{0,24}\d+(?:\.\d+)?"
     r"|\d+(?:\.\d+)?\s*(?:%|个|倍|年|月|天|小时|σ|sigma)\s*(?:及以上|及以下|以上|以下|之内|以内)"
 )
+# 候选主张或机制中的定量归因也必须可追溯。刻意不把“周”作为单位，
+# 避免把“第24活动周”这类编号误判为数值效应。
+QUANTITATIVE_EXPRESSION = re.compile(
+    r"(?:约|大约|近|~|≈)?\s*\d+(?:\.\d+)?"
+    r"(?:\s*[-–—~至到]\s*\d+(?:\.\d+)?)?\s*"
+    r"(?:个月|小时|sigma|%|个|倍|年|月|天|σ)"
+)
 
 # 数据覆盖范围约束（写死的核验规则，与 upstream.KNOWN_DATA_COVERAGES 对应）：
 # 材料只覆盖有限范围时，候选的可泛化表述一旦越界，置信度不得为 high。
@@ -848,6 +855,7 @@ __all__ = [
     "PERCENTAGE_EXPRESSION",
     "PORTFOLIO_VERSION",
     "PRECISE_PROBABILITY",
+    "QUANTITATIVE_EXPRESSION",
     "REQUEST_VERSION",
     "RESPONSE_KINDS",
     "RESPONSE_VERSION",

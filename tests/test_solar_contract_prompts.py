@@ -32,6 +32,13 @@ def test_parent_rejects_unreceipted_specialist_prose():
     assert "do not call the `scientific_hypothesis_*` tools from the main Agent" in text
 
 
+def test_parent_passes_bundled_hypothesis_input_without_staging_it():
+    text = _read("jw/prompts.py")
+    assert "`hypothesis/inputs/`" in text
+    assert "pass the relative path unchanged" in text
+    assert "do not create, copy, move, or stage that input" in text
+
+
 def test_knowledge_agent_requires_bound_focus_and_confidence_cap():
     text = _read("jw/subagents/solar/solar_knowledge.yaml")
     assert "lit_bind_task → lit_search → lit_fetch" in text

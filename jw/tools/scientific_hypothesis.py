@@ -336,8 +336,14 @@ def scientific_hypothesis_rank(ranking_json: str, config: RunnableConfig = None)
         checked = result.pop("_validated_ranking", None)
         result["ranking_attempt"] = state.ranking_attempts
         if result.get("status") == "ranking_ready" and isinstance(checked, dict):
-            state.validated_ranking = checked
-            state.preflight_ranking_sha256 = canonical_json_sha256(checked)
+            # ``checked`` is the normalized portfolio shape and deliberately
+            # omits the request-only ``rubric`` declaration. Freeze performs
+            # the ranking request validation once more before compiling that
+            # normalized shape, so retain the exact payload that passed
+            # preflight rather than feeding the normalized output back into
+            # the request validator.
+            state.validated_ranking = ranking
+            state.preflight_ranking_sha256 = canonical_json_sha256(ranking)
         return _ok(result)
     except Exception as exc:
         return _needs_revision(exc)

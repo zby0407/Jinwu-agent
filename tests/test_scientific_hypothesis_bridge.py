@@ -93,7 +93,13 @@ def test_rank_is_cached_and_forwarded_to_freeze(tmp_path, monkeypatch):
     state.preflight_response_sha256 = canonical_json_sha256(state.validated_response)
     ranking = {
         "schema_version": "scientific-hypothesis-ranking-v1",
+        "rubric": [{"key": key, "label": key} for key in RUBRIC_KEYS],
+        "weights": {key: 1 for key in RUBRIC_KEYS},
         "ranked": [{"candidate_id": "candidate-a", "rank": 1}],
+        "pairwise_judgments": [],
+    }
+    normalized_ranking = {
+        key: value for key, value in ranking.items() if key != "rubric"
     }
 
     def fake_preflight(
@@ -110,7 +116,9 @@ def test_rank_is_cached_and_forwarded_to_freeze(tmp_path, monkeypatch):
         assert include_validated_ranking is True
         return {
             "status": "ranking_ready",
-            "_validated_ranking": ranking,
+            # The core validator returns the normalized portfolio shape, which
+            # intentionally omits the request-only rubric declaration.
+            "_validated_ranking": normalized_ranking,
         }
 
     captured = {}

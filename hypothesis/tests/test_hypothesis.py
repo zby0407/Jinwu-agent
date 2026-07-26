@@ -567,6 +567,20 @@ class SemanticCheckTests(unittest.TestCase):
         )
         self.assertTrue(any("数值门槛" in error for error in errors))
 
+    def test_unsourced_numeric_attribution_in_candidate_claim_flagged(self):
+        request = make_request(upstream_materials=[make_experiment_material()])
+        candidate = make_candidate(statement="观测到约8个月差异，其中发电机效应贡献约4-5个月")
+        errors = collect_hypothesis_semantic_errors(
+            request,
+            validate_hypothesis_response(
+                make_response(request, candidates=[candidate, make_measure_candidate()]),
+                request,
+            ),
+            self.register,
+        )
+        self.assertTrue(any("无依据的定量主张" in error and "4-5个月" in error for error in errors))
+        self.assertFalse(any("无依据的定量主张" in error and "8个月" in error for error in errors))
+
     def test_sourced_numeric_threshold_accepted(self):
         bind_evidence(self.register)  # 摘录中含“约8个月”之外的数值不在门槛里
         candidate = make_candidate()

@@ -35,7 +35,9 @@ The commands below are domain helpers, not substitutes for an agent contract.
 - `solar-hypothesis`: bind the request; inspect every referenced automatic-experiment
   run; bind evidence; validate the complete response; submit the seven-dimension,
   evidence-anchored ranking; then freeze it. Free-form cards, unverified run summaries,
-  and portfolios without a ranking are invalid.
+  and portfolios without a ranking are invalid. A parent that receives a bundled
+  `hypothesis/inputs/` path must pass that relative path unchanged to this specialist;
+  it must not probe, copy, create, or stage the input with generic file or shell tools.
 - `solar-evidence`: use its declared evidence-review contract. Do not substitute the
   hypothesis Agent's tools or produce an unreceipted score list.
 - `solar-experiment`: bind request, inspect registered inputs, validate the design,

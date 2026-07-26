@@ -17,6 +17,7 @@ from .contracts import (
     OUTCOME_VERSION,
     PORTFOLIO_VERSION,
     PRECISE_PROBABILITY,
+    QUANTITATIVE_EXPRESSION,
     REQUEST_VERSION,
     RESPONSE_VERSION,
     ContractError,
@@ -407,7 +408,14 @@ def collect_hypothesis_semantic_errors(
                 "应保持 medium 或 low 并说明理由，不得标记 high"
             )
 
-    # 5. 文本表述：不得声称首次提出（除非后续由新颖性绑定放行），不得写精确概率。
+    grounded_corpus = json.dumps(request, ensure_ascii=False)
+    for entry in register.all():
+        if entry["verified_support"]:
+            grounded_corpus += "\n" + entry["excerpt"]
+    grounded_compact = "".join(grounded_corpus.split())
+
+    # 5. 文本表述：不得声称首次提出（除非后续由新颖性绑定放行），不得写精确概率；
+    # 候选主张与机制中的定量归因必须来自请求或已核验证据。
     texts: list[tuple[str, str]] = []
     for candidate in candidates:
         texts.append((f"候选 {candidate['id']}", candidate["statement"]))
@@ -431,12 +439,20 @@ def collect_hypothesis_semantic_errors(
             )
         if PRECISE_PROBABILITY.search(text) is not None:
             errors.append(f"{label} 使用了精确百分比表达置信度，应改为定性等级与理由")
+        for match in QUANTITATIVE_EXPRESSION.finditer(text):
+            token = "".join(match.group(0).split())
+            bare_token = token
+            for prefix in ("大约", "约", "近", "~", "≈"):
+                if bare_token.startswith(prefix):
+                    bare_token = bare_token[len(prefix) :]
+                    break
+            if token not in grounded_compact and bare_token not in grounded_compact:
+                errors.append(
+                    f"{label} 含有无依据的定量主张：“{token}”；"
+                    "请删除该数值、改为定性表述，或先绑定包含该数值的已核验证据"
+                )
 
     # 6. 数值门槛追溯：证伪条件与下一项检验中的硬数值门槛必须出现在已绑定证据或请求中。
-    grounded_corpus = json.dumps(request, ensure_ascii=False)
-    for entry in register.all():
-        if entry["verified_support"]:
-            grounded_corpus += "\n" + entry["excerpt"]
     for candidate in candidates:
         for field, values in (
             ("证伪条件", candidate["falsification_conditions"]),
