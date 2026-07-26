@@ -228,9 +228,43 @@ def build_hypothesis_brief(request_payload: dict[str, Any]) -> dict[str, Any]:
             "不执行实验、不声称获得了本次会话之外的实验结果。",
         ],
         "response_contract": _compact_response_contract(),
+        "ranking_contract": {
+            "schema_version": ranking_mod.RANKING_VERSION,
+            "rubric": deepcopy(list(ranking_mod.RUBRIC_DIMENSIONS)),
+            "grade_values": ["strong", "moderate", "weak"],
+            "weights": {
+                key: "1 到 3 的数；没有任务特定依据时使用 1"
+                for key in ranking_mod.RUBRIC_KEYS
+            },
+            "ranked_item_shape": {
+                "candidate_id": "已通过检查的候选 id",
+                "rank": "从 1 开始且连续的整数；必须覆盖全部候选",
+                "rationale": "名次理由，说明证据与七维判断",
+                "key_evidence_ids": [
+                    "该候选 supporting_evidence 中已绑定且已核验的 evidence_id"
+                ],
+                "dimension_grades": {
+                    key: "strong、moderate 或 weak" for key in ranking_mod.RUBRIC_KEYS
+                },
+                "weakest_dimensions": ["七维 key；不得重复"],
+                "confidence_note": "排序把握及主要证据缺口",
+            },
+            "pairwise_judgment_shape": {
+                "left_id": "候选 id",
+                "right_id": "另一候选 id",
+                "preferred_id": "left_id 或 right_id",
+                "basis": "成对倾向的可追溯依据",
+            },
+            "instruction": (
+                "构造一个 scientific-hypothesis-ranking-v1 对象：rubric 原样复制，"
+                "weights 为七维权重对象，ranked 覆盖全部候选，"
+                "pairwise_judgments 可为空数组。排序证据锚点不得引用未核验材料。"
+            ),
+        },
         "instruction": (
             "构造唯一一个 scientific-hypothesis-response-v1 对象，作为 response_json "
-            "字符串提交给检查工具。不要在响应对象中加入运行 id、哈希、执行结果或散文。"
+            "字符串提交给检查工具；响应检查通过后，再按 ranking_contract 构造唯一一个"
+            "排序对象。不要在响应对象中加入运行 id、哈希、执行结果或散文。"
         ),
     }
 

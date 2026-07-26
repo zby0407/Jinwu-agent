@@ -41,8 +41,10 @@ from scientific_hypothesis.harness import (  # noqa: E402
     build_hypothesis_brief,
     build_natural_hypothesis_request,
     freeze_hypothesis_portfolio,
+    preflight_hypothesis_ranking,
     preflight_hypothesis_response,
 )
+from scientific_hypothesis.upstream import inspect_experiment_run  # noqa: E402
 
 MAX_EVIDENCE_BINDS = 20
 
@@ -55,6 +57,9 @@ class _HypothesisState:
     validated_response: dict[str, Any] | None = None
     preflight_response_sha256: str | None = None
     preflight_attempts: int = 0
+    validated_ranking: dict[str, Any] | None = None
+    preflight_ranking_sha256: str | None = None
+    ranking_attempts: int = 0
 
 
 _STATES: dict[str, _HypothesisState] = {}
@@ -92,6 +97,38 @@ def _require_active_request(state: _HypothesisState) -> dict[str, Any]:
     return state.request
 
 
+def _invalidate_validated_state(state: _HypothesisState) -> None:
+    """Prevent freeze from using a response checked against older inputs."""
+
+    state.validated_response = None
+    state.preflight_response_sha256 = None
+    state.validated_ranking = None
+    state.preflight_ranking_sha256 = None
+
+
+def _resolve_request_path(value: str, config: RunnableConfig | None) -> Path:
+    """Resolve task/project inputs, then the bundled hypothesis examples only."""
+
+    candidate = resolve_scoped_path(value, config, allow_project=True)
+    if candidate.is_file():
+        return candidate
+
+    normalized = value.replace("\\", "/").lstrip("/")
+    prefix = "hypothesis/inputs/"
+    if not normalized.startswith(prefix):
+        raise FileNotFoundError(candidate)
+    relative = normalized.removeprefix(prefix)
+    bundled_root = (_PROJECT_ROOT / "hypothesis" / "inputs").resolve()
+    bundled = (bundled_root / relative).resolve()
+    try:
+        bundled.relative_to(bundled_root)
+    except ValueError as exc:
+        raise ValueError("bundled hypothesis input path escaped its root") from exc
+    if not bundled.is_file():
+        raise FileNotFoundError(candidate)
+    return bundled
+
+
 @tool(parse_docstring=True)
 def scientific_hypothesis_bind_request(
     request_input: str, config: RunnableConfig = None
@@ -116,7 +153,7 @@ def scientific_hypothesis_bind_request(
         if not supplied:
             raise ValueError("Research question must not be empty")
         if supplied.startswith("@"):
-            path = resolve_scoped_path(supplied[1:].strip(), config, allow_project=True)
+            path = _resolve_request_path(supplied[1:].strip(), config)
             payload = json.loads(path.read_text(encoding="utf-8"))
             request = validate_hypothesis_request(payload)
         else:
@@ -130,6 +167,34 @@ def scientific_hypothesis_bind_request(
                 request_sha256=brief["request_sha256"],
             )
         return _ok(brief)
+    except Exception as exc:
+        return _needs_revision(exc)
+
+
+@tool(parse_docstring=True)
+def scientific_hypothesis_inspect_upstream(
+    run_path: str, config: RunnableConfig = None
+) -> str:
+    """Verify one automatic-experiment run before using it as evidence.
+
+    The run must be inside the current task workspace or the explicit
+    ``/project/`` shared area. Hashes, finalized status, and a ``completed_*``
+    scientific outcome are checked deterministically. Blocked results must be
+    recorded only as evidence gaps.
+
+    Args:
+        run_path: Agent-visible experiment run directory.
+
+    Returns:
+        JSON string with either a verified evidence summary or a blocking reason.
+    """
+    try:
+        resolved = resolve_scoped_path(run_path, config, allow_project=True)
+        result = inspect_experiment_run(
+            {"run_path": str(resolved)},
+            workspace_root_from_config(config),
+        )
+        return _ok(result)
     except Exception as exc:
         return _needs_revision(exc)
 
@@ -182,6 +247,7 @@ def scientific_hypothesis_bind_evidence(
                 "role": role,
             }
         )
+        _invalidate_validated_state(state)
         return _ok(result)
     except Exception as exc:
         return _needs_revision(exc)
@@ -207,6 +273,7 @@ def scientific_hypothesis_validate_response(
     """
     try:
         state = _state(config)
+        _invalidate_validated_state(state)
         request = _require_active_request(state)
         response = json.loads(response_json)
         if not isinstance(response, dict):
@@ -223,9 +290,54 @@ def scientific_hypothesis_validate_response(
         if result.get("status") == "hypotheses_ready" and isinstance(checked, dict):
             state.validated_response = checked
             state.preflight_response_sha256 = canonical_json_sha256(checked)
-        else:
-            state.validated_response = None
-            state.preflight_response_sha256 = None
+        state.ranking_attempts = 0
+        return _ok(result)
+    except Exception as exc:
+        return _needs_revision(exc)
+
+
+@tool(parse_docstring=True)
+def scientific_hypothesis_rank(ranking_json: str, config: RunnableConfig = None) -> str:
+    """Validate and cache one complete seven-dimension candidate ranking.
+
+    Call this only after ``scientific_hypothesis_validate_response`` returns
+    ``hypotheses_ready``. The ranking must cover every candidate, use the
+    canonical seven dimensions, contain continuous ranks, and anchor every
+    cited item to verified supporting evidence.
+
+    Args:
+        ranking_json: One JSON string containing a
+            scientific-hypothesis-ranking-v1 object.
+
+    Returns:
+        JSON string with ranking readiness and deterministic dimension scores.
+    """
+    state = _state(config)
+    state.validated_ranking = None
+    state.preflight_ranking_sha256 = None
+    try:
+        request = _require_active_request(state)
+        if state.validated_response is None:
+            raise RuntimeError(
+                "Ranking requires a successful "
+                "scientific_hypothesis_validate_response call first."
+            )
+        ranking = json.loads(ranking_json)
+        if not isinstance(ranking, dict):
+            raise ValueError("ranking must be a JSON object")
+        state.ranking_attempts += 1
+        result = preflight_hypothesis_ranking(
+            request,
+            state.validated_response,
+            ranking,
+            state.evidence_register,
+            include_validated_ranking=True,
+        )
+        checked = result.pop("_validated_ranking", None)
+        result["ranking_attempt"] = state.ranking_attempts
+        if result.get("status") == "ranking_ready" and isinstance(checked, dict):
+            state.validated_ranking = checked
+            state.preflight_ranking_sha256 = canonical_json_sha256(checked)
         return _ok(result)
     except Exception as exc:
         return _needs_revision(exc)
@@ -261,17 +373,31 @@ def scientific_hypothesis_freeze(config: RunnableConfig = None) -> str:
             raise RuntimeError(
                 "Hypothesis response changed after validation; check the revised response first."
             )
+        if state.validated_ranking is None or state.preflight_ranking_sha256 is None:
+            raise RuntimeError(
+                "Save requires a successful scientific_hypothesis_rank call first."
+            )
+        if (
+            canonical_json_sha256(state.validated_ranking)
+            != state.preflight_ranking_sha256
+        ):
+            raise RuntimeError(
+                "Hypothesis ranking changed after validation; check the revised ranking first."
+            )
         workspace_root = workspace_root_from_config(config)
         outcome = freeze_hypothesis_portfolio(
             request,
             state.validated_response,
             state.evidence_register,
             runs_root=workspace_root / "hypothesis" / "runs",
+            ranking_payload=state.validated_ranking,
             path_root=workspace_root,
         )
         outcome["bound_request_sha256"] = state.request_sha256
         outcome["response_submissions"] = state.preflight_attempts
         outcome["contract_repairs"] = max(0, state.preflight_attempts - 1)
+        outcome["ranking_submissions"] = state.ranking_attempts
+        outcome["ranking_repairs"] = max(0, state.ranking_attempts - 1)
         return _ok(outcome)
     except Exception as exc:
         return _needs_revision(exc)
@@ -279,8 +405,10 @@ def scientific_hypothesis_freeze(config: RunnableConfig = None) -> str:
 
 SCIENTIFIC_HYPOTHESIS_TOOLS = [
     scientific_hypothesis_bind_request,
+    scientific_hypothesis_inspect_upstream,
     scientific_hypothesis_bind_evidence,
     scientific_hypothesis_validate_response,
+    scientific_hypothesis_rank,
     scientific_hypothesis_freeze,
 ]
 

@@ -507,3 +507,42 @@ class TestPreserveExistingConfig:
         assert merged["config"] == {
             "configurable": {"model": "gpt-5", "model_provider": "openai"}
         }
+
+
+class TestRuntimeConfigPrecedence:
+    """WebUI per-run model overrides must reach async specialist runs."""
+
+    def test_runtime_override_beats_startup_config(self, monkeypatch):
+        import langgraph.config
+
+        import jw.agent as agent_module
+
+        monkeypatch.setattr(
+            agent_module,
+            "_ensure_config",
+            lambda: _stub_cfg(
+                model="claude-sonnet-4-6",
+                provider="anthropic",
+            ),
+        )
+        monkeypatch.setattr(
+            langgraph.config,
+            "get_config",
+            lambda: {
+                "configurable": {
+                    "model": "deepseek-v4-pro",
+                    "model_provider": "deepseek",
+                    "thread_id": "web-thread",
+                    "project_id": "default",
+                }
+            },
+        )
+
+        configurable = patches_mod._read_cfg_configurable()
+
+        assert configurable == {
+            "model": "deepseek-v4-pro",
+            "model_provider": "deepseek",
+            "workspace_thread_id": "web-thread",
+            "project_id": "default",
+        }

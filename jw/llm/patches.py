@@ -902,7 +902,7 @@ _model_passthrough_patched = False
 
 
 def _read_cfg_configurable() -> dict[str, str]:
-    """Read live model and task-workspace context for async child runs.
+    """Read per-run model and task-workspace context for async child runs.
 
     Returns a dict suitable for inserting under
     ``RunnableConfig.configurable``. Empty dict on any failure (so the
@@ -918,6 +918,25 @@ def _read_cfg_configurable() -> dict[str, str]:
     out: dict[str, str] = {}
     model = getattr(cfg, "model", None)
     provider = getattr(cfg, "provider", None)
+    runtime_config: dict[str, Any] = {}
+    runtime_configurable: dict[str, Any] = {}
+    try:
+        from langgraph.config import get_config
+
+        candidate = get_config()
+        if isinstance(candidate, dict):
+            runtime_config = candidate
+            configurable = candidate.get("configurable")
+            if isinstance(configurable, dict):
+                runtime_configurable = configurable
+    except Exception:
+        pass
+    runtime_model = runtime_configurable.get("model")
+    runtime_provider = runtime_configurable.get("model_provider")
+    if isinstance(runtime_model, str) and runtime_model:
+        model = runtime_model
+    if isinstance(runtime_provider, str) and runtime_provider:
+        provider = runtime_provider
     if isinstance(model, str) and model:
         out["model"] = model
     if isinstance(provider, str) and provider:
@@ -926,11 +945,8 @@ def _read_cfg_configurable() -> dict[str, str]:
     # originating task's workspace scope explicitly so that remote child uses
     # the parent's run directory instead of silently creating an unrelated one.
     try:
-        from langgraph.config import get_config
-
         from jw.workspaces import project_id_from_config, scope_thread_id
 
-        runtime_config = get_config()
         parent_scope = scope_thread_id(runtime_config)
         if parent_scope:
             out["workspace_thread_id"] = parent_scope

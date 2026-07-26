@@ -98,12 +98,25 @@ def test_hypothesis_state_and_freeze_root_are_task_scoped(
     state_a.validated_response = checked
     state_a.preflight_response_sha256 = canonical_json_sha256(checked)
     state_a.preflight_attempts = 1
+    ranking = {"ranked": [{"candidate_id": "candidate-a", "rank": 1}]}
+    state_a.validated_ranking = ranking
+    state_a.preflight_ranking_sha256 = canonical_json_sha256(ranking)
+    state_a.ranking_attempts = 1
     captured: dict[str, Path] = {}
 
-    def fake_freeze(request, response, register, *, runs_root, path_root):
+    def fake_freeze(
+        request,
+        response,
+        register,
+        *,
+        runs_root,
+        ranking_payload,
+        path_root,
+    ):
         assert request == state_a.request
         assert response == checked
         assert register is state_a.evidence_register
+        assert ranking_payload == ranking
         captured["runs_root"] = runs_root
         captured["path_root"] = path_root
         return {"status": "frozen_and_valid"}

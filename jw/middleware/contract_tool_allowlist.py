@@ -43,8 +43,10 @@ CONTRACT_TOOL_ALLOWLISTS: dict[str, frozenset[str]] = {
         {
             "think_tool",
             "scientific_hypothesis_bind_request",
+            "scientific_hypothesis_inspect_upstream",
             "scientific_hypothesis_bind_evidence",
             "scientific_hypothesis_validate_response",
+            "scientific_hypothesis_rank",
             "scientific_hypothesis_freeze",
         }
     ),

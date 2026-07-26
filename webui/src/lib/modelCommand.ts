@@ -51,7 +51,8 @@ export const COMMON_MODELS: ReadonlyArray<CommonModelEntry> = [
   { model: "gpt-5-mini", model_provider: "openai" },
   { model: "gemini-2.5-pro", model_provider: "google-genai" },
   { model: "gemini-3.5-flash", model_provider: "google-genai" },
-  { model: "deepseek-v3.2", model_provider: "deepseek" },
+  { model: "deepseek-v4-pro", model_provider: "deepseek" },
+  { model: "deepseek-v4-flash", model_provider: "deepseek" },
 ];
 
 export type ModelCommand =

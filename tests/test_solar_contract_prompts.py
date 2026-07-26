@@ -29,6 +29,7 @@ def test_parent_rejects_unreceipted_specialist_prose():
     assert "Reject free-form prose" in text
     assert "successful freeze run_id/path" in text
     assert "successful finalize run_id/report path" in text
+    assert "do not call the `scientific_hypothesis_*` tools from the main Agent" in text
 
 
 def test_knowledge_agent_requires_bound_focus_and_confidence_cap():
@@ -51,6 +52,24 @@ def test_evidence_agent_uses_hypothesis_contract_tools():
         assert name in text
 
 
+def test_hypothesis_agent_uses_complete_six_tool_contract_in_order():
+    text = _read("jw/subagents/solar/solar_hypothesis.yaml")
+    tools = (
+        "scientific_hypothesis_bind_request",
+        "scientific_hypothesis_inspect_upstream",
+        "scientific_hypothesis_bind_evidence",
+        "scientific_hypothesis_validate_response",
+        "scientific_hypothesis_rank",
+        "scientific_hypothesis_freeze",
+    )
+    prompt_start = text.index("system_prompt")
+    positions = [text.index(name, prompt_start) for name in tools]
+
+    assert positions == sorted(positions)
+    assert "主 Agent" in text
+    assert "不得代写" in text
+
+
 def test_solar_cycle_skill_routes_every_specialist_to_contract():
     text = _read("jw/subagents/solar/skills/solar-cycle/SKILL.md")
     for specialist in (
@@ -62,3 +81,13 @@ def test_solar_cycle_skill_routes_every_specialist_to_contract():
     ):
         assert specialist in text
     assert "Parent agents must reject" in text
+
+
+def test_solar_cycle_skill_names_hypothesis_inspection_and_ranking():
+    text = _read("jw/subagents/solar/skills/solar-cycle/SKILL.md")
+    section = text[text.index("`solar-hypothesis`") : text.index("`solar-evidence`")]
+    normalized = " ".join(section.split())
+
+    assert "inspect every referenced automatic-experiment run" in normalized
+    assert "seven-dimension" in normalized
+    assert "evidence-anchored ranking" in normalized

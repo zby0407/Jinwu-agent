@@ -32,8 +32,12 @@ The commands below are domain helpers, not substitutes for an agent contract.
   evidence/data tools as needed, validate the complete response, and freeze it.
   A free Markdown plan or workspace file without a frozen `planner/runs/<run_id>/`
   receipt is invalid.
-- `solar-hypothesis` and `solar-evidence`: bind request and evidence, validate the
-  scientific-hypothesis response, then freeze it. Free-form cards/scores are invalid.
+- `solar-hypothesis`: bind the request; inspect every referenced automatic-experiment
+  run; bind evidence; validate the complete response; submit the seven-dimension,
+  evidence-anchored ranking; then freeze it. Free-form cards, unverified run summaries,
+  and portfolios without a ranking are invalid.
+- `solar-evidence`: use its declared evidence-review contract. Do not substitute the
+  hypothesis Agent's tools or produce an unreceipted score list.
 - `solar-experiment`: bind request, inspect registered inputs, validate the design,
   prepare/execute immutable attempts, verify results, and finalize. Embedded copies
   of unbound input data are invalid.

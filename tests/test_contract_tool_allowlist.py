@@ -108,3 +108,16 @@ def test_contract_allowlist_executes_allowed_tool() -> None:
     sentinel = object()
 
     assert middleware.wrap_tool_call(request, lambda _request: sentinel) is sentinel
+
+
+def test_hypothesis_allowlist_exposes_all_six_contract_tools() -> None:
+    allowed = CONTRACT_TOOL_ALLOWLISTS["solar-hypothesis"]
+
+    assert {
+        "scientific_hypothesis_bind_request",
+        "scientific_hypothesis_inspect_upstream",
+        "scientific_hypothesis_bind_evidence",
+        "scientific_hypothesis_validate_response",
+        "scientific_hypothesis_rank",
+        "scientific_hypothesis_freeze",
+    }.issubset(allowed)
