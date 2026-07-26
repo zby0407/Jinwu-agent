@@ -420,9 +420,12 @@ export function useChat({
         const msgs = threadRecord.values?.messages;
         const pending = latestTaskInterrupt(state.tasks);
         const stillPending = Array.isArray(state.next) && state.next.length > 0;
-        setServerPending(stillPending);
         const safePending = normalizePendingInterrupt(pending);
         if (safePending && hasActionableInterrupt(safePending)) {
+          // An actionable interrupt is waiting on the user, not the server.
+          // Keeping serverPending=true here feeds into the public isLoading
+          // value and disables Approve/Edit/Reject, deadlocking the run.
+          setServerPending(false);
           // Tool-approval interrupt reached — surface it and its matching message
           // snapshot together. Mixing live messages with fetched interrupts is the
           // race that hides approval cards for repeated execute calls.
@@ -436,6 +439,7 @@ export function useChat({
           }
           return;
         }
+        setServerPending(stillPending);
         // Backfill only after the live stream is idle. During active streaming the
         // live message list owns rendering; this recovery loop is for dropped tail
         // state after the stream has settled.

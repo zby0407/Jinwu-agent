@@ -1070,6 +1070,77 @@ class TestResolvePath:
         assert backend._resolve_path(tmp_workspace) == backend._resolve_path("/")
 
 
+class TestWindowsShellCommandNormalization:
+    def test_windows_removes_mkdir_parents_flag_after_virtual_path_rewrite(
+        self, tmp_workspace, monkeypatch
+    ):
+        monkeypatch.setattr(backends, "_is_windows", lambda: True)
+
+        prepared, error = prepare_sandbox_command(
+            "mkdir -p /inputs /work /outputs",
+            tmp_workspace,
+            virtual_mode=True,
+        )
+
+        assert error is None
+        assert prepared == "mkdir ./inputs ./work ./outputs"
+
+    def test_windows_normalizes_each_local_command_segment(
+        self, tmp_workspace, monkeypatch
+    ):
+        monkeypatch.setattr(backends, "_is_windows", lambda: True)
+
+        prepared, error = prepare_sandbox_command(
+            "echo ready && mkdir --parents /outputs",
+            tmp_workspace,
+            virtual_mode=True,
+        )
+
+        assert error is None
+        assert prepared == "echo ready && mkdir ./outputs"
+
+    def test_posix_keeps_mkdir_parents_flag(self, tmp_workspace, monkeypatch):
+        monkeypatch.setattr(backends, "_is_windows", lambda: False)
+
+        prepared, error = prepare_sandbox_command(
+            "mkdir -p /inputs",
+            tmp_workspace,
+            virtual_mode=True,
+        )
+
+        assert error is None
+        assert prepared == "mkdir -p ./inputs"
+
+    def test_windows_does_not_rewrite_quoted_prose(self, tmp_workspace, monkeypatch):
+        monkeypatch.setattr(backends, "_is_windows", lambda: True)
+
+        prepared, error = prepare_sandbox_command(
+            'echo "mkdir -p /inputs"',
+            tmp_workspace,
+            virtual_mode=True,
+        )
+
+        assert error is None
+        # Existing virtual-path handling rewrites the path inside the quoted
+        # text, but the Windows command normalizer must not remove ``-p`` there.
+        assert prepared == 'echo "mkdir -p ./inputs"'
+
+    def test_windows_does_not_rewrite_ssh_remote_command(
+        self, tmp_workspace, monkeypatch
+    ):
+        monkeypatch.setattr(backends, "_is_windows", lambda: True)
+        command = "ssh host 'mkdir -p /remote/output'"
+
+        prepared, error = prepare_sandbox_command(
+            command,
+            tmp_workspace,
+            virtual_mode=True,
+        )
+
+        assert error is None
+        assert prepared == command
+
+
 class TestResolvePathDangerous:
     """Dangerous mode passes real absolute paths through unmangled."""
 
