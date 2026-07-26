@@ -109,9 +109,7 @@ def test_verified_local_route_forces_discovery_then_read_then_compute(
         human,
         AIMessage(
             "",
-            tool_calls=[
-                {"name": "ls", "args": {"path": "/project"}, "id": "ls-1"}
-            ],
+            tool_calls=[{"name": "ls", "args": {"path": "/project"}, "id": "ls-1"}],
         ),
         ToolMessage("a.csv", tool_call_id="ls-1", name="ls"),
     ]

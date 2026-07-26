@@ -139,9 +139,7 @@ def _message_text(message: object) -> str:
         return content
     if isinstance(content, Sequence) and not isinstance(content, (str, bytes)):
         return "\n".join(
-            str(part.get("text", ""))
-            if isinstance(part, Mapping)
-            else str(part)
+            str(part.get("text", "")) if isinstance(part, Mapping) else str(part)
             for part in content
         )
     return str(content)
@@ -363,9 +361,7 @@ def _attempt_count(
     )
 
 
-class ResearchRouterMiddleware(
-    AgentMiddleware[ResearchRoutingState, Any, Any]
-):
+class ResearchRouterMiddleware(AgentMiddleware[ResearchRoutingState, Any, Any]):
     """Route each user turn and enforce the selected workflow's entry nodes."""
 
     state_schema = ResearchRoutingState
@@ -465,13 +461,10 @@ class ResearchRouterMiddleware(
             local_required = source_mode in {"local", "mixed"}
             external_required = source_mode in {"external", "mixed"}
             local_seen = bool(
-                successful_names
-                & {*_LOCAL_DISCOVERY_TOOLS, *_LOCAL_READ_TOOLS}
+                successful_names & {*_LOCAL_DISCOVERY_TOOLS, *_LOCAL_READ_TOOLS}
             )
             read_seen = bool(successful_names & set(_LOCAL_READ_TOOLS))
-            external_seen = bool(
-                successful_names & set(_EXTERNAL_EVIDENCE_TOOLS)
-            )
+            external_seen = bool(successful_names & set(_EXTERNAL_EVIDENCE_TOOLS))
             compute_seen = bool(successful_names & set(_COMPUTE_TOOLS))
 
             if local_required and not local_seen:
@@ -482,9 +475,7 @@ class ResearchRouterMiddleware(
             elif local_required and not read_seen:
                 forced_tool = _available_tool(request.tools, _LOCAL_READ_TOOLS)
             elif external_required and not external_seen:
-                forced_tool = _available_tool(
-                    request.tools, _EXTERNAL_EVIDENCE_TOOLS
-                )
+                forced_tool = _available_tool(request.tools, _EXTERNAL_EVIDENCE_TOOLS)
             elif needs_computation and not compute_seen:
                 forced_tool = _available_tool(request.tools, _COMPUTE_TOOLS)
 

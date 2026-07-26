@@ -93,7 +93,9 @@ class VirtualPathCodeGuardMiddleware(AgentMiddleware[Any, Any, Any]):
         fragments = (
             [args.get("content")] if name == "write_file" else [args.get("new_string")]
         )
-        content_fragments = [fragment for fragment in fragments if isinstance(fragment, str)]
+        content_fragments = [
+            fragment for fragment in fragments if isinstance(fragment, str)
+        ]
         blocked_reason: str | None = None
         if path == "/inputs" or path.startswith("/inputs/"):
             blocked_reason = (
@@ -101,8 +103,7 @@ class VirtualPathCodeGuardMiddleware(AgentMiddleware[Any, Any, Any]):
                 "is reserved for source data."
             )
         elif any(
-            _EMBEDDED_VIRTUAL_PATH.search(fragment)
-            for fragment in content_fragments
+            _EMBEDDED_VIRTUAL_PATH.search(fragment) for fragment in content_fragments
         ):
             blocked_reason = (
                 "Source code cannot embed /work, /inputs, /outputs, /receipts, "

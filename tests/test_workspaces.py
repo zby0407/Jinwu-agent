@@ -89,7 +89,9 @@ def test_legacy_data_is_imported_as_manifested_project_input(tmp_path, monkeypat
             "virtual_path": "/project/data/nested/observations.csv",
         }
     ]
-    run_manifest = json.loads(Path(binding.workspace, "input_manifest.json").read_text())
+    run_manifest = json.loads(
+        Path(binding.workspace, "input_manifest.json").read_text()
+    )
     assert run_manifest["project_inputs"] == [
         {
             "bytes": source.stat().st_size,
@@ -141,7 +143,9 @@ def test_legacy_code_and_outputs_are_preserved_but_not_declared_as_inputs(
         "observations.provenance.json": "provenance",
         "outputs/stats.json": "derived_artifact",
     }
-    run_manifest = json.loads(Path(binding.workspace, "input_manifest.json").read_text())
+    run_manifest = json.loads(
+        Path(binding.workspace, "input_manifest.json").read_text()
+    )
     assert [item["path"] for item in run_manifest["project_inputs"]] == [
         "/project/data/observations.csv"
     ]
@@ -167,13 +171,13 @@ def test_legacy_data_import_never_overwrites_project_conflict(tmp_path, monkeypa
     assert manifest["files"] == []
     assert manifest["conflicts"][0]["path"] == "observations.csv"
     assert manifest["conflicts"][0]["reason"] == "destination_content_differs"
-    run_manifest = json.loads(Path(binding.workspace, "input_manifest.json").read_text())
+    run_manifest = json.loads(
+        Path(binding.workspace, "input_manifest.json").read_text()
+    )
     assert run_manifest["project_inputs"] == []
 
 
-def test_removed_legacy_data_prunes_only_unchanged_managed_copy(
-    tmp_path, monkeypatch
-):
+def test_removed_legacy_data_prunes_only_unchanged_managed_copy(tmp_path, monkeypatch):
     registry = tmp_path / "registry"
     base = tmp_path / "workspace"
     data = base / "data"
@@ -197,12 +201,8 @@ def test_removed_legacy_data_prunes_only_unchanged_managed_copy(
 
     assert not removed_copy.exists()
     assert edited_copy.read_text(encoding="utf-8") == "project-owned\n"
-    manifest = json.loads(
-        Path(second.project_shared, "data_manifest.json").read_text()
-    )
-    assert manifest["pruned"] == [
-        {"path": "removed.csv", "reason": "source_removed"}
-    ]
+    manifest = json.loads(Path(second.project_shared, "data_manifest.json").read_text())
+    assert manifest["pruned"] == [{"path": "removed.csv", "reason": "source_removed"}]
     assert manifest["conflicts"] == [
         {
             "path": "edited.csv",

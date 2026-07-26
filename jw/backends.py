@@ -69,6 +69,7 @@ def _is_safe_shell_device_path(path: str) -> bool:
         _SAFE_SHELL_FD_PATTERN.fullmatch(path)
     )
 
+
 _BASH_LANGUAGE = Language(tree_sitter_bash.language())
 
 _STRUCTURED_ARTIFACT_MEDIA_TYPES = {
@@ -523,6 +524,33 @@ def _is_under_allowed_prefix(path: str, allow_prefixes: tuple[str, ...]) -> bool
     return False
 
 
+def _allowed_prefix_starts_at(
+    command: str,
+    offset: int,
+    allow_prefixes: tuple[str, ...],
+) -> bool:
+    """Return whether a trusted absolute prefix starts at ``offset``.
+
+    The fallback path regex intentionally stops at whitespace, so a trusted
+    mount such as ``/tmp/project shared`` would otherwise be misread as the
+    forbidden path ``/tmp/project``. Match the original command text before
+    applying that lossy regex result, while retaining a strict path/token
+    boundary so neighbours such as ``project shared_evil`` are not admitted.
+    """
+    token_boundaries = frozenset(" \t\r\n'\";|&<>)}]")
+    for prefix in allow_prefixes:
+        normalized = prefix.rstrip("/")
+        if not normalized or not command.startswith(normalized, offset):
+            continue
+        end = offset + len(normalized)
+        if end == len(command):
+            return True
+        following = command[end]
+        if following == "/" or following in token_boundaries:
+            return True
+    return False
+
+
 def _extract_all_paths(
     command: str,
     allow_prefixes: tuple[str, ...] = (),
@@ -552,6 +580,8 @@ def _extract_all_paths(
             continue
         extracted = m.group(1)
         if _is_safe_shell_device_path(extracted):
+            continue
+        if _allowed_prefix_starts_at(command, m.start(1), allow_prefixes):
             continue
         if _is_under_allowed_prefix(extracted, allow_prefixes):
             continue
@@ -1060,9 +1090,7 @@ def _rewrite_shell_path_arguments(
                 virtual_mounts,
             )
         if replacement is not None and replacement != raw:
-            replacements.append(
-                (candidate.start_byte, candidate.end_byte, replacement)
-            )
+            replacements.append((candidate.start_byte, candidate.end_byte, replacement))
 
     return _apply_byte_replacements(source, replacements)
 
@@ -1091,7 +1119,7 @@ def _rewrite_ssh_remote_virtual_paths(
                 (
                     int(remote["start"]),
                     int(remote["end"]),
-                    _platform_quote(rewritten),
+                    shlex.quote(rewritten),
                 )
             )
     for start, end, replacement in sorted(replacements, reverse=True):
@@ -1623,7 +1651,9 @@ def _validate_read_only_mount_command(
                 for argument in arguments
             ):
                 return error
-            operands = [argument for argument in arguments if not argument.startswith("-")]
+            operands = [
+                argument for argument in arguments if not argument.startswith("-")
+            ]
             if len(operands) < 2 or _path_under_read_only_mount(operands[-1], mounts):
                 return error
     return None

@@ -37,11 +37,11 @@ def disable_thinking(model: BaseChatModel) -> BaseChatModel:
     # Forced/object tool_choice (including structured output) is rejected while
     # that mode is active. Detect the model family and explicitly disable it on
     # the copied request model, preserving any other extra_body options.
-    model_name = str(
-        getattr(model, "model_name", None)
-        or getattr(model, "model", None)
-        or ""
-    ).casefold().rsplit("/", 1)[-1]
+    model_name = (
+        str(getattr(model, "model_name", None) or getattr(model, "model", None) or "")
+        .casefold()
+        .rsplit("/", 1)[-1]
+    )
     if model_name.startswith(("qwen", "qwq")):
         extra_body = dict(getattr(model, "extra_body", None) or {})
         extra_body["enable_thinking"] = False

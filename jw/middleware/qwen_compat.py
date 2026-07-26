@@ -231,9 +231,7 @@ class QwenToolCompatibilityMiddleware(AgentMiddleware):
         if not isinstance(content, list):
             return str(content)
         return "\n".join(
-            str(block.get("text", ""))
-            if isinstance(block, Mapping)
-            else str(block)
+            str(block.get("text", "")) if isinstance(block, Mapping) else str(block)
             for block in content
         )
 
@@ -246,7 +244,9 @@ class QwenToolCompatibilityMiddleware(AgentMiddleware):
         for index, message in enumerate(messages):
             if not isinstance(message, ToolMessage):
                 continue
-            matches = list(_ARTIFACT_MANIFEST_PATTERN.finditer(cls._message_text(message)))
+            matches = list(
+                _ARTIFACT_MANIFEST_PATTERN.finditer(cls._message_text(message))
+            )
             if not matches:
                 continue
             paths: list[str] = []

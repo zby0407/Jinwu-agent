@@ -154,9 +154,7 @@ def test_inject_subagent_adds_configured_open_source_call_limits(
 
     model_limit = _single_middleware(subs[0], "ModelCallLimitMiddleware")
     tool_limit = _single_middleware(subs[0], "ToolCallLimitMiddleware")
-    qwen_compat = _single_middleware(
-        subs[0], "QwenToolCompatibilityMiddleware"
-    )
+    qwen_compat = _single_middleware(subs[0], "QwenToolCompatibilityMiddleware")
     assert model_limit.run_limit == 13
     assert model_limit.exit_behavior == "end"
     assert tool_limit.run_limit == 9

@@ -700,6 +700,24 @@ class TestVirtualMountResolution:
             is None
         )
 
+    def test_validate_command_allowed_prefix_with_space_is_not_truncated(self):
+        allowed = "/tmp/jw project shared"
+
+        assert (
+            validate_command(
+                "cat '/tmp/jw project shared/data/sample.csv'",
+                allow_prefixes=(allowed,),
+            )
+            is None
+        )
+        assert (
+            validate_command(
+                "cat '/tmp/jw project shared_evil/data/sample.csv'",
+                allow_prefixes=(allowed,),
+            )
+            is not None
+        )
+
     def test_validate_command_empty_prefix_does_not_disable_allowlist(self):
         """An empty or root-only entry in ``allow_prefixes`` must NOT silently
         admit every absolute path. Regression guard for the empty/root-prefix
@@ -1335,8 +1353,7 @@ class TestReadOnlyProjectShellMount:
         backend, workspace, _, _ = self._backend(tmp_path)
 
         response = backend.execute(
-            "mkdir -p /inputs && "
-            "cp /project/data/sample.csv /inputs/copied.csv"
+            "mkdir -p /inputs && cp /project/data/sample.csv /inputs/copied.csv"
         )
 
         assert response.exit_code == 0
@@ -1352,7 +1369,7 @@ class TestReadOnlyProjectShellMount:
             "rm /project/data/sample.csv",
             "find /project/data -delete",
             (
-                "python3 -c \"from pathlib import Path; "
+                'python3 -c "from pathlib import Path; '
                 "Path('/project/data/sample.csv').write_text('changed')\""
             ),
         ],
@@ -1806,9 +1823,7 @@ class TestExecuteArtifactManifest:
         assert manifest["files"][0]["change"] == "modified"
         assert manifest["files"][0]["media_type"] == "text/csv"
 
-    def test_execute_does_not_emit_manifest_for_unstructured_file(
-        self, tmp_workspace
-    ):
+    def test_execute_does_not_emit_manifest_for_unstructured_file(self, tmp_workspace):
         backend = CustomSandboxBackend(root_dir=tmp_workspace, virtual_mode=True)
 
         resp = backend.execute("printf 'notes' > /notes.txt")
