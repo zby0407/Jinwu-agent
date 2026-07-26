@@ -24,26 +24,42 @@ features, run diagnostic experiments, generate structured hypotheses, and review
 
 ## Quick workflow
 
-### Closed-contract routing (mandatory for agents)
+### Research modes and contract boundaries
 
-The commands below are domain helpers, not substitutes for an agent contract.
+Use the smallest mode that matches the task:
 
-- `solar-planner`: first bind the exact request, then use the research-planner
-  evidence/data tools as needed, validate the complete response, and freeze it.
-  A free Markdown plan or workspace file without a frozen `planner/runs/<run_id>/`
-  receipt is invalid.
-- `solar-hypothesis` and `solar-evidence`: bind request and evidence, validate the
-  scientific-hypothesis response, then freeze it. Free-form cards/scores are invalid.
-- `solar-experiment`: bind request, inspect registered inputs, validate the design,
-  prepare/execute immutable attempts, verify results, and finalize. Embedded copies
-  of unbound input data are invalid.
+- **Explore**: return grounded working notes, alternatives, uncertainty, or a
+  blocker. No frozen artifact is required.
+- **Checkpoint**: use the relevant contract tools when another stage needs a
+  stable structured handoff. A failed checkpoint remains partial work.
+- **Publish/execute**: freeze a plan or hypothesis only when a durable formal
+  artifact was explicitly requested. Real experiments still use their auditable
+  bind/inspect/validate/execute/verify/finalize boundary.
+
+The commands below protect artifact and execution integrity, but they do not
+force every specialist to run:
+
+- `solar-planner`: may return a working plan in explore mode. Use the
+  research-planner contract for a requested checkpoint or published plan.
+- `solar-hypothesis` and `solar-evidence`: may return evidence-labelled draft
+  hypotheses/reviews. For continuing work, update individual candidates in the
+  mutable draft and recover that draft after interruptions; do not regenerate
+  the entire portfolio for a local edit. Bind evidence and hard-check the
+  current draft for a requested checkpoint; freeze only for explicit
+  publication.
+- `solar-experiment`: when actual execution is requested, bind the request,
+  inspect registered inputs, validate the design, prepare/execute immutable
+  attempts, verify results, and finalize. Embedded copies of unbound input data
+  are invalid.
 - `solar-knowledge`: bind the parent research question and task-supplied distillation
   focus before literature search. Use `lit_bind_task → lit_search → lit_fetch →
   lit_distill`; do not bypass it with a generic knowledge proposal.
 
-Parent agents must reject a specialist result that lacks the contract's completion
-status, run id, and saved artifact path. They must not repackage free prose as if the
-specialist had completed its contract.
+Parent agents accept honest draft, partial, checkpointed, published, and blocked
+results. They must not describe a draft as published, repackage prose as an
+execution artifact, or claim that an experiment ran without its real receipt.
+After the same validation problem appears twice, stop automatic repair and return
+the usable partial result plus the unresolved issue.
 
 For literature distillation, the task owns `distill_focus`. Keep distinctive terms
 from the research question and add source-language equivalents when necessary so
@@ -51,6 +67,20 @@ relevance can be audited. Single-source abstract candidates default to `low` and
 cannot exceed `medium`; DOI presence never makes an entry canonical.
 
 ### Domain helper workflow
+
+For exact historical cycle-extrema reproduction, do not infer boundaries or
+reimplement the 13-month smoothing formula. Run the source-preserving helper
+against SILSO's official smoothed product and official extrema table:
+
+```bash
+python /skills/solar-cycle/scripts/reproduce_silso_cycles.py \
+    --cycles 21-24 \
+    --output-dir ./artifacts/silso-cycle-reproduction
+```
+
+The helper keeps the downloaded source files and emits both the official and
+recomputed results. If they differ, report both instead of selecting one
+silently.
 
 1. **Fetch data**
    ```bash
@@ -83,6 +113,7 @@ cannot exceed `medium`; DOI presence never makes an entry canonical.
 ## Key files
 
 - `scripts/fetch_data.py` — download SILSO sunspot number and F10.7 data
+- `scripts/reproduce_silso_cycles.py` — exact official-table versus smoothed-series cycle-extrema reproduction
 - `scripts/build_features.py` — cycle-level and precursor feature engineering
 - `scripts/run_experiments.py` — backtest, ablation, drift, precursor experiments
 - `scripts/plot_cycle.py` — sunspot cycle and diagnostic visualizations

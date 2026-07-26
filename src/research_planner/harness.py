@@ -11,6 +11,12 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from research_layout import (
+    PLANNER_RESOURCE_ROOT,
+    PROJECT_ROOT,
+    contract_runs_root,
+)
+
 from .contracts import (
     CLAIM_LOCATOR_HINT,
     HARD_NUMERIC_CUTOFF,
@@ -25,9 +31,8 @@ from .contracts import (
     validate_research_plan,
 )
 
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
-SPEC_ROOT = PROJECT_ROOT / "planner" / "specs"
-RUNS_ROOT = PROJECT_ROOT / "planner" / "runs"
+SPEC_ROOT = PLANNER_RESOURCE_ROOT / "specs"
+RUNS_ROOT = contract_runs_root("planner")
 REQUEST_SCHEMA_PATH = SPEC_ROOT / "planner_request_v1.schema.json"
 RESPONSE_SCHEMA_PATH = SPEC_ROOT / "planner_response_v1.schema.json"
 PLAN_SCHEMA_PATH = SPEC_ROOT / "research_plan_v1.schema.json"

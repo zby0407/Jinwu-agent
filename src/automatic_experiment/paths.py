@@ -11,6 +11,8 @@ import subprocess
 from pathlib import Path, PurePosixPath
 from typing import Any
 
+from research_layout import contract_inputs_root, contract_runs_root
+
 from .contracts import canonical_sha256
 from .state import (
     PROJECT_ROOT,
@@ -22,8 +24,8 @@ from .state import (
     utc_now,
 )
 
-INPUTS_ROOT = PROJECT_ROOT / "experiment" / "inputs"
-RUNS_ROOT = PROJECT_ROOT / "experiment" / "runs"
+INPUTS_ROOT = contract_inputs_root("experiment")
+RUNS_ROOT = contract_runs_root("experiment")
 PROTECTED_SEGMENTS = {
     ".env",
     ".git",
@@ -141,6 +143,9 @@ def resolve_input_reference(value: str) -> Path:
         unresolved = (workspace or PROJECT_ROOT) / relative
     if not unresolved.exists():
         raise InputMissingError(f"input not found: {value}")
+    # Reject the user-selected filesystem object before resolving it. Resolving
+    # first would erase the fact that the final path is a symbolic link.
+    _reject_special(unresolved)
     resolved = unresolved.resolve(strict=True)
     allowed_inputs_root = inputs_root().resolve()
     allowed_runs_root = runs_root().resolve()
@@ -379,27 +384,35 @@ def _scientific_profile(path: Path) -> dict[str, Any] | None:
             "scientific input exceeds the metadata-inspection size limit"
         )
     inspector = PROJECT_ROOT / "src" / "automatic_experiment" / "metadata_inspector.py"
-    site_probe = subprocess.run(
-        [
-            "wsl.exe",
-            "-d",
-            "Ubuntu-E",
-            "--",
-            "python3",
-            "-I",
-            "-c",
-            "import site;print(site.getusersitepackages())",
-        ],
-        cwd=PROJECT_ROOT,
-        stdin=subprocess.DEVNULL,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-        timeout=10,
-        check=False,
-    )
+    try:
+        site_probe = subprocess.run(
+            [
+                "wsl.exe",
+                "-d",
+                "Ubuntu-E",
+                "--",
+                "python3",
+                "-I",
+                "-c",
+                "import site;print(site.getusersitepackages())",
+            ],
+            cwd=PROJECT_ROOT,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=10,
+            check=False,
+        )
+    except FileNotFoundError:
+        return {
+            "kind": "scientific_container",
+            "format": format_name,
+            "profile_complete": False,
+            "reason": "locked scientific metadata runtime is unavailable",
+        }
     site_packages = site_probe.stdout.strip()
     if site_probe.returncode != 0 or not site_packages:
         raise PathPolicyError("locked scientific metadata runtime is unavailable")

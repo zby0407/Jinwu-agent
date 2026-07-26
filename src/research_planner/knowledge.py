@@ -12,10 +12,11 @@ import urllib.request
 from pathlib import Path
 from typing import Any
 
+from research_layout import PLANNER_RESOURCE_ROOT, PROJECT_ROOT
+
 from .contracts import ContractError
 
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
-KNOWLEDGE_ROOT = PROJECT_ROOT / "knowledge"
+KNOWLEDGE_ROOT = PLANNER_RESOURCE_ROOT / "knowledge"
 OPENALEX_WORKS_URL = "https://api.openalex.org/works"
 MAX_REMOTE_BYTES = 512 * 1024
 MAX_LOCAL_EVIDENCE_BYTES = 2 * 1024 * 1024

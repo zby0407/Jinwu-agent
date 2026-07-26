@@ -1,6 +1,6 @@
 debug-agent:
   description: "Debug runtime failures and fix bugs with minimal, verifiable patches."
-  tools: [think_tool]
+  tool_bundles: [reasoning]
   skills: ["/skills/"]
   system_prompt: |
     You are the debug-agent. Reproduce failures, identify root causes, apply minimal fixes, and provide

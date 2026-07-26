@@ -22,8 +22,21 @@ def _env_path(key: str) -> Path | None:
     return _expand(value)
 
 
-# Workspace root: current working directory by default (user's project dir)
-WORKSPACE_ROOT = _env_path("JW_WORKSPACE_DIR") or Path.cwd()
+def _default_workspace_root() -> Path:
+    """Keep runtime state out of the JW source repository root.
+
+    For an ordinary user project, the current directory remains the workspace.
+    When JW itself is run from its source checkout, mutable state is contained
+    by the checkout's ``workspace/`` directory.
+    """
+
+    current = Path.cwd()
+    if (current / "pyproject.toml").is_file() and (current / "jw").is_dir():
+        return current / "workspace"
+    return current
+
+
+WORKSPACE_ROOT = _env_path("JW_WORKSPACE_DIR") or _default_workspace_root()
 
 RUNS_DIR = _env_path("JW_RUNS_DIR") or (WORKSPACE_ROOT / "runs")
 USER_SKILLS_DIR = _env_path("JW_SKILLS_DIR") or (WORKSPACE_ROOT / "skills")

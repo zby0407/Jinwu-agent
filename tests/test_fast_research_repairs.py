@@ -6,20 +6,19 @@ from pathlib import Path
 
 import pytest
 
-from jw.middleware import closed_loop_orchestration as guard_module
-from jw.middleware.closed_loop_orchestration import (
-    ClosedLoopOrchestrationGuardMiddleware,
-)
-from jw.middleware.virtual_path_code_guard import (
-    VirtualPathCodeGuardMiddleware,
-)
-from jw.middleware.task_cancellation import TaskCancellationMiddleware
-from jw.tools.automatic_experiment import _request_from_model_object
-
 from automatic_experiment import service
 from automatic_experiment.contracts import RESPONSE_VERSION, default_request
 from automatic_experiment.policy import CodePolicyError, scan_python
 from automatic_experiment.state import task_workspace
+from jw.middleware import closed_loop_orchestration as guard_module
+from jw.middleware.closed_loop_orchestration import (
+    ClosedLoopOrchestrationGuardMiddleware,
+)
+from jw.middleware.task_cancellation import TaskCancellationMiddleware
+from jw.middleware.virtual_path_code_guard import (
+    VirtualPathCodeGuardMiddleware,
+)
+from jw.tools.automatic_experiment import _request_from_model_object
 
 
 @dataclass
@@ -59,7 +58,7 @@ def _integrated_state(*, delegated: tuple[str, ...] = ()) -> dict[str, object]:
     return {"messages": messages}
 
 
-def test_natural_integrated_request_requires_data_agent_before_planner(
+def test_natural_integrated_request_allows_planner_before_data_agent(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setattr(
@@ -73,14 +72,14 @@ def test_natural_integrated_request_requires_data_agent_before_planner(
         },
         _integrated_state(),
     )
+    sentinel = object()
     result = ClosedLoopOrchestrationGuardMiddleware().wrap_tool_call(
-        request, lambda _request: object()
+        request, lambda _request: sentinel
     )
-    assert result.status == "error"
-    assert "solar-data or data-analysis-agent" in str(result.content)
+    assert result is sentinel
 
 
-def test_natural_integrated_request_blocks_main_agent_experiment_code(
+def test_natural_integrated_request_allows_adaptive_main_agent_work(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setattr(
@@ -94,11 +93,11 @@ def test_natural_integrated_request_blocks_main_agent_experiment_code(
         },
         _integrated_state(delegated=("solar-data",)),
     )
+    sentinel = object()
     result = ClosedLoopOrchestrationGuardMiddleware().wrap_tool_call(
-        request, lambda _request: object()
+        request, lambda _request: sentinel
     )
-    assert result.status == "error"
-    assert "solar-experiment" in str(result.content)
+    assert result is sentinel
 
 
 def test_virtual_path_guard_rejects_literal_work_path_in_python() -> None:
@@ -117,7 +116,109 @@ def test_virtual_path_guard_rejects_literal_work_path_in_python() -> None:
         request, lambda _request: object()
     )
     assert result.status == "error"
-    assert "VIRTUAL PATH BLOCKED" in str(result.content)
+    assert "CODE CONTRACT BLOCKED" in str(result.content)
+    assert "Write executable source under /work/" in str(result.content)
+    assert "python /work/analyze.py /inputs/data.csv" in str(result.content)
+
+
+def test_virtual_path_guard_rejects_literal_project_path_in_python() -> None:
+    request = _Request(
+        {
+            "name": "write_file",
+            "id": "project-path",
+            "args": {
+                "file_path": "/work/experiment.py",
+                "content": "open('/project/data/source.csv').read()",
+            },
+        },
+        {"messages": []},
+    )
+
+    result = VirtualPathCodeGuardMiddleware().wrap_tool_call(
+        request, lambda _request: object()
+    )
+
+    assert result.status == "error"
+    assert "/project" in str(result.content)
+    assert "sys.argv" in str(result.content)
+
+
+def test_virtual_path_guard_rejects_generated_code_under_inputs() -> None:
+    request = _Request(
+        {
+            "name": "write_file",
+            "id": "code-under-inputs",
+            "args": {
+                "file_path": "/inputs/analyze.py",
+                "content": "print('analysis')",
+            },
+        },
+        {"messages": []},
+    )
+
+    result = VirtualPathCodeGuardMiddleware().wrap_tool_call(
+        request, lambda _request: object()
+    )
+
+    assert result.status == "error"
+    assert "reserved for source data" in str(result.content)
+    assert "under /work/" in str(result.content)
+
+
+def test_virtual_path_guard_rejects_embedded_scientific_boundary_table() -> None:
+    request = _Request(
+        {
+            "name": "write_file",
+            "id": "embedded-boundaries",
+            "args": {
+                "file_path": "/work/analyze.py",
+                "content": (
+                    "import csv\n"
+                    "with open(sys.argv[1]) as handle:\n"
+                    "    rows = list(csv.reader(handle))\n"
+                    "cycle_minima = {1: 1901, 2: 1912, 3: 1923, "
+                    "4: 1934, 5: 1945}\n"
+                ),
+            },
+        },
+        {"messages": []},
+    )
+
+    result = VirtualPathCodeGuardMiddleware().wrap_tool_call(
+        request, lambda _request: object()
+    )
+
+    assert result.status == "error"
+    assert "embeds a multi-value scientific" in str(result.content)
+    assert "`cycle_minima`" in str(result.content)
+    assert "declared primary input" in str(result.content)
+
+
+def test_virtual_path_guard_allows_algorithm_and_forecast_target_constants() -> None:
+    request = _Request(
+        {
+            "name": "write_file",
+            "id": "algorithmic-analysis",
+            "args": {
+                "file_path": "/work/analyze.py",
+                "content": (
+                    "import csv\n"
+                    "with open(sys.argv[1]) as handle:\n"
+                    "    rows = list(csv.reader(handle))\n"
+                    "forecast_targets = [19, 20, 21, 22, 23, 24]\n"
+                    "print(len(rows), forecast_targets)\n"
+                ),
+            },
+        },
+        {"messages": []},
+    )
+    sentinel = object()
+
+    result = VirtualPathCodeGuardMiddleware().wrap_tool_call(
+        request, lambda _request: sentinel
+    )
+
+    assert result is sentinel
 
 
 def test_cancelled_task_blocks_new_subagent_tool_calls(

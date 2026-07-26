@@ -61,6 +61,43 @@ def test_runtime_context_injects_current_date_and_timezone():
     assert "today" in system_text
 
 
+def test_runtime_context_lists_task_bound_project_inputs(tmp_path, monkeypatch):
+    import jw.middleware.runtime_context as runtime_context_module
+    from jw.workspaces import ensure_thread_workspace
+
+    base = tmp_path / "workspace"
+    data = base / "data"
+    data.mkdir(parents=True)
+    (data / "observations.csv").write_text("date,value\n", encoding="utf-8")
+    monkeypatch.setenv(
+        "JW_WORKSPACE_BINDINGS_DIR",
+        str(tmp_path / "workspace-bindings"),
+    )
+    ensure_thread_workspace("input-thread", base)
+    monkeypatch.setattr(
+        runtime_context_module,
+        "get_config",
+        lambda: {"configurable": {"thread_id": "input-thread"}},
+    )
+    middleware = RuntimeContextMiddleware(
+        now_fn=lambda: datetime(2026, 6, 2, 12, 0, tzinfo=UTC),
+        workspace_dir=base,
+    )
+
+    system_text = _system_text(middleware.modify_request(_request()))
+
+    assert "Task-bound project inputs are available read-only" in system_text
+    assert "/project/data/observations.csv" in system_text
+    assert "Data lineage requirements:" in system_text
+    assert "matching declared raw/tabular input" in system_text
+    assert "Do not copy their embedded numeric constants" in system_text
+    assert "Dataset semantics are also evidence" in system_text
+    assert "Never guess approximate boundaries" in system_text
+    assert "Before model fitting" in system_text
+    assert "Treat prior memories and answers as hypotheses" in system_text
+    assert "first copy selected read-only project inputs into /inputs/" in system_text
+
+
 @patch(
     "jw.middleware.create_tool_selector_middleware",
     return_value=[MagicMock(), MagicMock()],

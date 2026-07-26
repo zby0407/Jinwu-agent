@@ -4,6 +4,8 @@ from typing import Literal
 
 from langchain_core.tools import tool
 
+from .registry import register_tool_bundle
+
 
 @tool(parse_docstring=True)
 def skill_manager(
@@ -157,3 +159,6 @@ def skill_manager(
 
     else:
         return f"Unknown action: {action}. Use 'install', 'list', 'browse', 'uninstall', or 'info'."
+
+
+register_tool_bundle("skill-management", [skill_manager])

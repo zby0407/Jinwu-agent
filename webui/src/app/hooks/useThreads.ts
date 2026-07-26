@@ -98,6 +98,17 @@ export function useThreads(props: {
         sortOrder: "desc" as const,
         status,
         metadata,
+        // The default response includes every thread's full state values.
+        // Research threads can carry megabytes of messages and private
+        // interpreter snapshots, even though the sidebar only needs identity,
+        // status, metadata, and interrupts.
+        select: [
+          "thread_id",
+          "updated_at",
+          "status",
+          "metadata",
+          "interrupts",
+        ],
       });
 
       return threads.map((thread): ThreadItem => {
@@ -160,6 +171,8 @@ export function useThreads(props: {
         )?.title;
         if (typeof customTitle === "string" && customTitle.trim()) {
           title = customTitle.trim();
+        } else if (title === "Untitled Thread") {
+          title = `Task ${thread.thread_id.slice(0, 8)}`;
         }
 
         // Pinned state is stored in thread metadata (like the custom title),

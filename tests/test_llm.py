@@ -102,10 +102,11 @@ class TestDefaultModel:
         """Test that DEFAULT_MODEL is a valid model in MODELS."""
         assert DEFAULT_MODEL in MODELS
 
-    def test_default_model_is_anthropic(self):
-        """Test that default model uses Anthropic."""
+    def test_default_model_is_qwen_on_dashscope(self):
+        """Fresh installations must use the production Qwen model family."""
         _, provider = MODELS[DEFAULT_MODEL]
-        assert provider == "anthropic"
+        assert DEFAULT_MODEL.startswith("qwen")
+        assert provider == "dashscope"
 
 
 # =============================================================================
@@ -161,9 +162,10 @@ class TestGetModelInfo:
 
 class TestGetChatModel:
     @patch("jw.llm.models.init_chat_model")
-    def test_uses_default_model_when_none(self, mock_init):
+    def test_uses_default_model_when_none(self, mock_init, monkeypatch):
         """Test that get_chat_model uses default model when model=None."""
         mock_init.return_value = "mock_model"
+        monkeypatch.setenv("DASHSCOPE_API_KEY", "test-key")
 
         get_chat_model()
 
@@ -172,7 +174,21 @@ class TestGetChatModel:
         # Default model should be resolved from MODELS
         expected_model_id, expected_provider = MODELS[DEFAULT_MODEL]
         assert call_kwargs["model"] == expected_model_id
-        assert call_kwargs["model_provider"] == expected_provider
+        # DashScope is OpenAI-compatible and is intentionally routed through
+        # LangChain's OpenAI adapter.
+        assert expected_provider == "dashscope"
+        assert call_kwargs["model_provider"] == "openai"
+
+    @patch("jw.llm.models.init_chat_model")
+    def test_dashscope_missing_key_has_provider_specific_error(
+        self, mock_init, monkeypatch
+    ):
+        monkeypatch.delenv("DASHSCOPE_API_KEY", raising=False)
+
+        with pytest.raises(ValueError, match="DASHSCOPE_API_KEY is required"):
+            get_chat_model("qwen3.7-plus", provider="dashscope")
+
+        mock_init.assert_not_called()
 
     @patch("jw.llm.models.init_chat_model")
     def test_resolves_short_name(self, mock_init):

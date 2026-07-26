@@ -32,6 +32,21 @@ def disable_thinking(model: BaseChatModel) -> BaseChatModel:
     if getattr(model, "reasoning", None) or "reasoning" in model_kwargs:
         updates["reasoning"] = None
 
+    # DashScope's OpenAI-compatible Qwen endpoint enables thinking server-side,
+    # so there may be no local ``thinking``/``reasoning`` field to clear.
+    # Forced/object tool_choice (including structured output) is rejected while
+    # that mode is active. Detect the model family and explicitly disable it on
+    # the copied request model, preserving any other extra_body options.
+    model_name = (
+        str(getattr(model, "model_name", None) or getattr(model, "model", None) or "")
+        .casefold()
+        .rsplit("/", 1)[-1]
+    )
+    if model_name.startswith(("qwen", "qwq")):
+        extra_body = dict(getattr(model, "extra_body", None) or {})
+        extra_body["enable_thinking"] = False
+        updates["extra_body"] = extra_body
+
     if not updates:
         return model
 

@@ -2,6 +2,8 @@
 
 from langchain_core.tools import tool
 
+from .registry import register_tool_bundle
+
 
 @tool(parse_docstring=True)
 def think_tool(reflection: str) -> str:
@@ -54,3 +56,6 @@ def think_tool(reflection: str) -> str:
         Confirmation that reflection was recorded for decision-making
     """
     return f"Reflection recorded: {reflection}"
+
+
+register_tool_bundle("reasoning", [think_tool])

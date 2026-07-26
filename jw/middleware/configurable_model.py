@@ -44,6 +44,12 @@ from langchain.agents.middleware.types import (
 logger = logging.getLogger(__name__)
 
 
+def _is_qwen_family_model(model_name: str) -> bool:
+    """Recognize both Qwen and QwQ ids, including provider-routed ids."""
+    normalized = model_name.casefold().rsplit("/", 1)[-1]
+    return normalized.startswith(("qwen", "qwq"))
+
+
 def _read_model_override() -> tuple[str | None, str | None]:
     """Pull ``(model, model_provider)`` from the active ``RunnableConfig``.
 
@@ -156,6 +162,15 @@ class ConfigurableModelMiddleware(AgentMiddleware):
         try:
             new_model = self._resolve(model_name, provider)
         except Exception:
+            if _is_qwen_family_model(model_name):
+                logger.error(
+                    "ConfigurableModelMiddleware could not activate requested "
+                    "Qwen model=%r provider=%r; refusing to run a different model",
+                    model_name,
+                    provider,
+                    exc_info=True,
+                )
+                raise
             logger.warning(
                 "ConfigurableModelMiddleware failed to resolve model=%r "
                 "provider=%r; falling back to compile-time model",
@@ -184,6 +199,15 @@ class ConfigurableModelMiddleware(AgentMiddleware):
             # lookup); the thread-pool overhead is irrelevant once warm.
             new_model = await asyncio.to_thread(self._resolve, model_name, provider)
         except Exception:
+            if _is_qwen_family_model(model_name):
+                logger.error(
+                    "ConfigurableModelMiddleware could not activate requested "
+                    "Qwen model=%r provider=%r; refusing to run a different model",
+                    model_name,
+                    provider,
+                    exc_info=True,
+                )
+                raise
             logger.warning(
                 "ConfigurableModelMiddleware failed to resolve model=%r "
                 "provider=%r; falling back to compile-time model",

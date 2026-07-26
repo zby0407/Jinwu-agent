@@ -240,7 +240,7 @@ MODELS: dict[str, tuple[str, str]] = {
     name: (model_id, provider) for name, model_id, provider in _MODEL_ENTRIES
 }
 
-DEFAULT_MODEL = "claude-sonnet-4-6"
+DEFAULT_MODEL = "qwen3.7-plus"
 
 
 def get_models_for_provider(provider: str) -> list[tuple[str, str]]:
@@ -472,6 +472,12 @@ def get_chat_model(
         api_key = os.environ.get(api_key_env, "")
         if api_key:
             kwargs["api_key"] = api_key
+        elif provider in {"dashscope", "dashscope-code"}:
+            raise ValueError(
+                "DASHSCOPE_API_KEY is required for Qwen provider "
+                f"{provider!r}; refusing to fall through to the OpenAI "
+                "adapter's misleading OPENAI_API_KEY error."
+            )
         # SiliconFlow: disable thinking — LangChain drops reasoning_content
         # from history, causing error 20015 on multi-turn requests.
         if provider == "siliconflow":

@@ -1,6 +1,7 @@
 solar-experiment:
   description: "Solar-cycle experiment agent: design, really execute, verify, and report one bounded computational experiment via the automatic-experiment 1.0 contract."
-  tools: [think_tool, automatic_experiment_bind_request, automatic_experiment_inspect_inputs, automatic_experiment_validate_design, automatic_experiment_prepare_attempt, automatic_experiment_execute_attempt, automatic_experiment_verify_result, automatic_experiment_finalize]
+  tool_bundles: [reasoning, automatic-experiment]
+  restrict_tools: true
   skills: ["/skills/"]
   system_prompt: |
     You are the solar-experiment sub-agent of Solar-Cycle Co-Scientist, carrying 自动实验 Agent 1.0. You handle exactly one explicit, auditable computational experiment task.

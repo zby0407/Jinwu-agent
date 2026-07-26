@@ -67,6 +67,13 @@ def _get_default_chat_model() -> Any:
     return _ensure_chat_model()
 
 
+def _get_configured_model_name() -> str:
+    """Read the configured model identifier without constructing a client."""
+    from ..config import load_config
+
+    return load_config().model
+
+
 def _resolve_model_name(model_name: str | None, model_obj: Any | None) -> str:
     """Best-effort model name resolution for display."""
     if model_name:
@@ -348,8 +355,12 @@ def build_status_text(
 def make_empty_status_snapshot(
     model_name: str | None = None, model_obj: Any | None = None
 ) -> SessionStatusSnapshot:
-    """Build a placeholder snapshot before async context counting completes."""
+    """Build a placeholder without initializing a provider client."""
+    if model_name is None and model_obj is None:
+        model_name = _get_configured_model_name()
     resolved_name = _resolve_model_name(model_name, model_obj)
+    if model_obj is None:
+        model_obj = type("_DisplayModel", (), {"model_name": resolved_name})()
     window = _resolve_context_window(model_obj)
     return SessionStatusSnapshot(
         model_full=resolved_name,

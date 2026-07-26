@@ -22,10 +22,19 @@ import os
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from langchain.agents.middleware import AgentMiddleware, HumanInTheLoopMiddleware
+from langchain.agents.middleware import (
+    AgentMiddleware,
+    HumanInTheLoopMiddleware,
+    ModelCallLimitMiddleware,
+    ToolCallLimitMiddleware,
+)
 
 from . import paths as _paths_mod
 from .config import (
+    DEFAULT_AGENT_MODEL_CALL_LIMIT,
+    DEFAULT_AGENT_TOOL_CALL_LIMIT,
+    DEFAULT_SUBAGENT_MODEL_CALL_LIMIT,
+    DEFAULT_SUBAGENT_TOOL_CALL_LIMIT,
     MemoryControls,
     MemoryObservationTarget,
     apply_config_to_env,
@@ -35,7 +44,8 @@ from .memory import MemorySourceType
 from .paths import set_active_workspace, set_workspace_root
 from .prompts import get_system_prompt
 
-# Suppress noisy warnings from deepagents skill loader (non-string frontmatter fields, etc.)
+# Suppress noisy warnings from deepagents skill loader
+# (non-string frontmatter fields, etc.).
 logging.getLogger("deepagents.middleware.skills").setLevel(logging.ERROR)
 
 if TYPE_CHECKING:
@@ -48,6 +58,58 @@ if TYPE_CHECKING:
 SUBAGENTS_CONFIG = Path(__file__).parent / "subagents"
 SKILLS_DIR = str(Path(__file__).parent / "subagents")
 DEFAULT_SKILL_SOURCES = ("/skills/",)
+
+
+def _positive_call_limit(value: object, fallback: int) -> int | None:
+    """Normalize a configured call budget; zero disables the limit."""
+    if isinstance(value, bool):
+        return fallback
+    if isinstance(value, int):
+        return value if value > 0 else None
+    return fallback
+
+
+def _call_limit_middleware(cfg, *, subagent: bool) -> list[AgentMiddleware]:
+    """Build LangChain's stateful loop guards from JW configuration."""
+    if subagent:
+        model_limit = _positive_call_limit(
+            getattr(cfg, "subagent_model_call_limit", None),
+            DEFAULT_SUBAGENT_MODEL_CALL_LIMIT,
+        )
+        tool_limit = _positive_call_limit(
+            getattr(cfg, "subagent_tool_call_limit", None),
+            DEFAULT_SUBAGENT_TOOL_CALL_LIMIT,
+        )
+    else:
+        model_limit = _positive_call_limit(
+            getattr(cfg, "agent_model_call_limit", None),
+            DEFAULT_AGENT_MODEL_CALL_LIMIT,
+        )
+        tool_limit = _positive_call_limit(
+            getattr(cfg, "agent_tool_call_limit", None),
+            DEFAULT_AGENT_TOOL_CALL_LIMIT,
+        )
+
+    middleware: list[AgentMiddleware] = []
+    if tool_limit is not None:
+        # Let the model see a blocked-tool result and produce a truthful partial
+        # handoff instead of ending on an opaque framework error.
+        middleware.append(
+            ToolCallLimitMiddleware(
+                run_limit=tool_limit,
+                exit_behavior="continue",
+            )
+        )
+    if model_limit is not None:
+        # Hard termination fallback if the model ignores repeated blocked-tool
+        # results and continues asking for tools.
+        middleware.append(
+            ModelCallLimitMiddleware(
+                run_limit=model_limit,
+                exit_behavior="end",
+            )
+        )
+    return middleware
 
 
 def _resolve_subagent_dirs(
@@ -332,9 +394,9 @@ def _inject_subagent_middleware(
     from .middleware import (
         ContextOverflowMapperMiddleware,
         ContractToolAllowlistMiddleware,
+        QwenToolCompatibilityMiddleware,
         TaskCancellationMiddleware,
         ToolErrorHandlerMiddleware,
-        contract_tool_allowlist,
         create_context_editing_middleware,
         create_memory_lifecycle_middleware,
         create_memory_middleware,
@@ -363,11 +425,12 @@ def _inject_subagent_middleware(
         )
         middleware = [
             TaskCancellationMiddleware(),
+            *_call_limit_middleware(cfg, subagent=True),
             # Subagents share the main agent's model: use the threaded
             # ``chat_model`` on the pure path, else defer to the factory's
             # ``_ensure_chat_model()`` fallback (when ``chat_model=None``).
             create_context_editing_middleware(chat_model),
-            create_runtime_context_middleware(),
+            create_runtime_context_middleware(workspace_dir=workspace_dir),
             ToolErrorHandlerMiddleware(),
             ContextOverflowMapperMiddleware(),
         ]
@@ -384,12 +447,20 @@ def _inject_subagent_middleware(
                     memory_scheduler=memory_scheduler,
                 )
             )
-        allowed_tools = contract_tool_allowlist(name)
-        if allowed_tools is not None:
+        restrict_tools = bool(sa.pop("_restrict_tools", False))
+        if restrict_tools:
+            allowed_tools = frozenset(
+                tool_name
+                for tool in sa.get("tools", [])
+                if isinstance((tool_name := getattr(tool, "name", None)), str)
+            )
             # Keep this last: DeepAgents prepends filesystem middleware and
             # other middleware may inject tools.  The closed-contract filter
             # must see and remove all of them before the model call.
             middleware.append(ContractToolAllowlistMiddleware(allowed_tools))
+        # Keep this last so Qwen validates the exact specialist tool set after
+        # capability filtering and can disable thinking for forced tool calls.
+        middleware.append(QwenToolCompatibilityMiddleware(default_model=cfg.model))
         sa.setdefault("middleware", []).extend(middleware)
 
 
@@ -516,45 +587,20 @@ def _build_base_kwargs(
 ):
     """Build agent kwargs *without* MCP (fast, no subprocess spawning)."""
     from .tools import (
-        AUTOMATIC_EXPERIMENT_TOOLS,
-        KB_TOOLS,
-        RESEARCH_PLANNER_TOOLS,
-        SCIENTIFIC_HYPOTHESIS_TOOLS,
-        SOLAR_FEATURE_TOOLS,
-        skill_manager,
-        tavily_search,
-        think_tool,
+        get_builtin_tool_registry,
+        get_main_agent_tools,
+        get_tool_bundles,
     )
     from .utils import load_subagents
 
     cfg = cfg if cfg is not None else _ensure_config()
-    # tavily_search now includes a DuckDuckGo HTML fallback when no
-    # TAVILY_API_KEY is set, so it is always registered.
-    tool_registry = {
-        "think_tool": think_tool,
-        "tavily_search": tavily_search,
-        "skill_manager": skill_manager,
-    }
-    for _t in (
-        SOLAR_FEATURE_TOOLS
-        + SCIENTIFIC_HYPOTHESIS_TOOLS
-        + AUTOMATIC_EXPERIMENT_TOOLS
-        + RESEARCH_PLANNER_TOOLS
-        + KB_TOOLS
-    ):
-        tool_registry[_t.name] = _t
-    base_tools = (
-        [think_tool, skill_manager]
-        + SOLAR_FEATURE_TOOLS
-        + SCIENTIFIC_HYPOTHESIS_TOOLS
-        + AUTOMATIC_EXPERIMENT_TOOLS
-        + RESEARCH_PLANNER_TOOLS
-        + KB_TOOLS
-    )
+    tool_registry = get_builtin_tool_registry()
+    base_tools = get_main_agent_tools()
 
     subs = load_subagents(
         _resolve_subagent_dirs(),
         tool_registry=tool_registry,
+        tool_bundles=get_tool_bundles(),
     )
     _ensure_general_purpose_subagent(subs)
     _inject_subagent_middleware(
@@ -596,14 +642,9 @@ def load_mcp_and_build_kwargs(
             ``_ensure_chat_model()`` (which would write module globals).
     """
     from .tools import (
-        AUTOMATIC_EXPERIMENT_TOOLS,
-        KB_TOOLS,
-        RESEARCH_PLANNER_TOOLS,
-        SCIENTIFIC_HYPOTHESIS_TOOLS,
-        SOLAR_FEATURE_TOOLS,
-        skill_manager,
-        tavily_search,
-        think_tool,
+        get_builtin_tool_registry,
+        get_main_agent_tools,
+        get_tool_bundles,
     )
     from .utils import load_subagents
 
@@ -618,29 +659,8 @@ def load_mcp_and_build_kwargs(
             workspace_dir=workspace_dir,
         )
 
-    # tavily_search now includes a DuckDuckGo HTML fallback when no
-    # TAVILY_API_KEY is set, so it is always registered.
-    tool_registry = {
-        "think_tool": think_tool,
-        "tavily_search": tavily_search,
-        "skill_manager": skill_manager,
-    }
-    for _t in (
-        SOLAR_FEATURE_TOOLS
-        + SCIENTIFIC_HYPOTHESIS_TOOLS
-        + AUTOMATIC_EXPERIMENT_TOOLS
-        + RESEARCH_PLANNER_TOOLS
-        + KB_TOOLS
-    ):
-        tool_registry[_t.name] = _t
-    base_tools = (
-        [think_tool, skill_manager]
-        + SOLAR_FEATURE_TOOLS
-        + SCIENTIFIC_HYPOTHESIS_TOOLS
-        + AUTOMATIC_EXPERIMENT_TOOLS
-        + RESEARCH_PLANNER_TOOLS
-        + KB_TOOLS
-    )
+    tool_registry = get_builtin_tool_registry()
+    base_tools = get_main_agent_tools()
 
     # Fresh tool registry — start from base tools + MCP tools
     registry = dict(tool_registry)
@@ -653,6 +673,7 @@ def load_mcp_and_build_kwargs(
     subs = load_subagents(
         _resolve_subagent_dirs(),
         tool_registry=registry,
+        tool_bundles=get_tool_bundles(),
     )
 
     _ensure_general_purpose_subagent(subs)
@@ -698,13 +719,18 @@ def _build_default_composite_backend(
     *,
     project_shared_dir: str | None = None,
     root_precreated: bool = False,
+    skills_backend=None,
+    memory_backend=None,
 ):
     """Build one concrete backend for a resolved task workspace.
 
     ``project_shared_dir`` is mounted explicitly at ``/project/``.  Previous
     task runs are deliberately not mounted, so continuity is opt-in through
     stable project assets rather than accidental visibility of old scratch
-    files.
+    files.  ``skills_backend`` and ``memory_backend`` may be shared across
+    task-scoped composites: they are stateless, point at deployment-wide
+    roots, and constructing them in a synchronous DeepAgents backend callback
+    can otherwise perform symlink resolution on the ASGI event loop.
     """
     from deepagents.backends import CompositeBackend
 
@@ -713,6 +739,7 @@ def _build_default_composite_backend(
         CustomSandboxBackend,
         MemoryFilesystemBackend,
         MergedSkillsBackend,
+        ReadOnlyFilesystemBackend,
     )
 
     cfg = _ensure_config()
@@ -728,28 +755,36 @@ def _build_default_composite_backend(
         timeout=cfg.sandbox_execute_timeout,
         dangerous=cfg.dangerous_mode,
         ensure_root=not root_precreated,
+        read_only_mounts=(
+            {"/project": project_shared_dir} if project_shared_dir else None
+        ),
     )
-    sk_backend = MergedSkillsBackend(
-        primary_dir=user_skills_dir,
-        global_dir=global_skills_dir,
-        secondary_dir=SKILLS_DIR,
-        secondary_roots=tuple(str(path) for path in _BUILTIN_SKILL_ROOTS),
+    sk_backend = (
+        skills_backend
+        if skills_backend is not None
+        else MergedSkillsBackend(
+            primary_dir=user_skills_dir,
+            global_dir=global_skills_dir,
+            secondary_dir=SKILLS_DIR,
+            secondary_roots=tuple(str(path) for path in _BUILTIN_SKILL_ROOTS),
+        )
     )
-    mem_backend = MemoryFilesystemBackend(
-        root_dir=memory_dir,
-        virtual_mode=True,
+    mem_backend = (
+        memory_backend
+        if memory_backend is not None
+        else MemoryFilesystemBackend(
+            root_dir=memory_dir,
+            virtual_mode=True,
+        )
     )
     routes = {
         "/skills/": sk_backend,
         "/memories/": mem_backend,
     }
     if project_shared_dir:
-        routes["/project/"] = CustomSandboxBackend(
+        routes["/project/"] = ReadOnlyFilesystemBackend(
             root_dir=project_shared_dir,
             virtual_mode=True,
-            timeout=cfg.sandbox_execute_timeout,
-            dangerous=False,
-            ensure_root=False,
         )
     return CompositeBackend(
         default=ws_backend,
@@ -771,7 +806,7 @@ def _get_scoped_backend_factory():
 
     from .workspaces import (
         bootstrap_legacy_bindings,
-        get_cached_binding,
+        get_cached_binding_for_resolved_base,
         preload_bindings,
         scope_thread_id,
     )
@@ -790,13 +825,56 @@ def _get_scoped_backend_factory():
         )
     preload_bindings(base_workspace)
 
+    # DeepAgents resolves backend factories from its async ``before_agent``
+    # node, but the factory protocol itself is synchronous.  Construct the
+    # deployment-wide routes now, while the graph is loading outside that
+    # event loop.  FilesystemBackend.__init__ calls Path.resolve(); a symlinked
+    # workspace or skill root would otherwise trigger Blockbuster's os.readlink
+    # guard before Qwen ever receives the user turn.
+    from .backends import (
+        _BUILTIN_SKILL_ROOTS,
+        MemoryFilesystemBackend,
+        MergedSkillsBackend,
+    )
+
+    shared_skills_backend = MergedSkillsBackend(
+        primary_dir=str(_paths_mod.USER_SKILLS_DIR),
+        global_dir=str(_paths_mod.GLOBAL_SKILLS_DIR),
+        secondary_dir=SKILLS_DIR,
+        secondary_roots=tuple(str(path) for path in _BUILTIN_SKILL_ROOTS),
+    )
+    shared_memory_backend = MemoryFilesystemBackend(
+        root_dir=str(_paths_mod.MEMORIES_DIR),
+        virtual_mode=True,
+    )
+
     cache: dict[tuple[str, str | None], object] = {}
     lock = threading.RLock()
 
     def _factory(runtime):
         config = getattr(runtime, "config", None)
         thread_id = scope_thread_id(config if isinstance(config, dict) else None)
-        binding = get_cached_binding(thread_id, base_workspace) if thread_id else None
+        if not thread_id:
+            # LangGraph's ToolRuntime view may not carry configurable values in
+            # before_agent nodes even though the context config already does.
+            # Use the same canonical fallback as TaskWorkspaceMiddleware so
+            # prewarming and later SkillsMiddleware resolution select one key.
+            from langgraph.config import get_config
+
+            try:
+                current = get_config()
+            except RuntimeError:
+                current = None
+            if isinstance(current, dict):
+                context_thread_id = scope_thread_id(current)
+                if context_thread_id:
+                    config = current
+                    thread_id = context_thread_id
+        binding = (
+            get_cached_binding_for_resolved_base(thread_id, base_workspace)
+            if thread_id
+            else None
+        )
         if thread_id and binding is None:
             raise RuntimeError(
                 "Task workspace binding was not initialized before backend "
@@ -811,8 +889,23 @@ def _get_scoped_backend_factory():
         with lock:
             backend = cache.get(key)
         if backend is None:
+            try:
+                import asyncio
+
+                asyncio.get_running_loop()
+            except RuntimeError:
+                pass
+            else:
+                raise RuntimeError(
+                    "Task backend was not prepared before async SkillsMiddleware "
+                    f"resolution (thread_id={thread_id or '<none>'})."
+                )
             backend = _build_default_composite_backend(
-                key[0], project_shared_dir=key[1], root_precreated=True
+                key[0],
+                project_shared_dir=key[1],
+                root_precreated=True,
+                skills_backend=shared_skills_backend,
+                memory_backend=shared_memory_backend,
             )
             with lock:
                 backend = cache.setdefault(key, backend)
@@ -828,6 +921,10 @@ def _get_default_middleware(
     cfg=None,
     chat_model=None,
     memory_source_agent: str = "JW",
+    allowed_tools: frozenset[str] | None = None,
+    backend_factory=None,
+    skills_backend=None,
+    skill_sources: list[str] | None = None,
 ):
     """Build the default middleware list.
 
@@ -847,6 +944,9 @@ def _get_default_middleware(
             (avoids writing module globals on the pure path).
         memory_source_agent: Attribution name for profile/observation writes.
             Async sub-agent factories pass their deployed agent name here.
+        allowed_tools: Optional exact tool boundary for a deployed specialist.
+            The async factory derives this from the same resolved YAML
+            capability bundles used by the synchronous sub-agent.
     """
     from .middleware import (
         ClosedLoopOrchestrationGuardMiddleware,
@@ -854,11 +954,12 @@ def _get_default_middleware(
         ContextOverflowMapperMiddleware,
         ContractToolAllowlistMiddleware,
         ModelFallbackMiddleware,
-        TaskWorkspaceMiddleware,
+        QwenToolCompatibilityMiddleware,
+        ResearchRouterMiddleware,
         TaskCancellationMiddleware,
+        TaskWorkspaceMiddleware,
         ToolErrorHandlerMiddleware,
         VirtualPathCodeGuardMiddleware,
-        contract_tool_allowlist,
         create_code_interpreter_middleware,
         create_context_editing_middleware,
         create_memory_lifecycle_middleware,
@@ -919,29 +1020,52 @@ def _get_default_middleware(
 
             tool_selector_model = get_chat_model(model=aux_model, provider=aux_provider)
     mw = [
-        TaskWorkspaceMiddleware(workspace_dir),
-        *([TaskCancellationMiddleware()] if for_async_subagent else []),
-        VirtualPathCodeGuardMiddleware(),
-        *([ClosedLoopOrchestrationGuardMiddleware()] if not for_async_subagent else []),
-        ConfigurableModelMiddleware(),
-        create_context_editing_middleware(model),
-        ModelFallbackMiddleware(),
-        ContextOverflowMapperMiddleware(),
-        ToolErrorHandlerMiddleware(),
-        *create_tool_selector_middleware(
-            model=tool_selector_model,
-            track_stream_selection=not for_async_subagent,
-        ),
-        # Interpreter prompt must land before runtime/memory context, so this
-        # middleware sits ahead of runtime_context in the stack.
-        create_code_interpreter_middleware(
-            timeout=cfg.code_interpreter_timeout,
-            max_result_chars=cfg.code_interpreter_max_result_chars,
-        ),
+        TaskWorkspaceMiddleware(workspace_dir, backend_factory=backend_factory),
+        *_call_limit_middleware(cfg, subagent=for_async_subagent),
     ]
+    if skills_backend is not None and skill_sources:
+        # DeepAgents normally prepends SkillsMiddleware ahead of every custom
+        # middleware.  For a task-scoped synchronous backend factory that is
+        # too early: the workspace/backend has not yet been prepared off the
+        # ASGI event loop.  Suppress the built-in instance at graph creation
+        # and place the equivalent middleware immediately after preparation.
+        from deepagents.middleware.skills import SkillsMiddleware
+
+        mw.append(SkillsMiddleware(backend=skills_backend, sources=skill_sources))
+    mw.extend(
+        [
+            *([TaskCancellationMiddleware()] if for_async_subagent else []),
+            VirtualPathCodeGuardMiddleware(),
+            *(
+                [ResearchRouterMiddleware(model=model)]
+                if not for_async_subagent
+                else []
+            ),
+            *(
+                [ClosedLoopOrchestrationGuardMiddleware()]
+                if not for_async_subagent
+                else []
+            ),
+            ConfigurableModelMiddleware(),
+            create_context_editing_middleware(model),
+            ModelFallbackMiddleware(),
+            ContextOverflowMapperMiddleware(),
+            ToolErrorHandlerMiddleware(),
+            *create_tool_selector_middleware(
+                model=tool_selector_model,
+                track_stream_selection=not for_async_subagent,
+            ),
+            # Interpreter prompt must land before runtime/memory context, so this
+            # middleware sits ahead of runtime_context in the stack.
+            create_code_interpreter_middleware(
+                timeout=cfg.code_interpreter_timeout,
+                max_result_chars=cfg.code_interpreter_max_result_chars,
+            ),
+        ]
+    )
     if cfg.enable_scheduler and not for_async_subagent:
         mw.append(create_scheduler_middleware())
-    mw.append(create_runtime_context_middleware())
+    mw.append(create_runtime_context_middleware(workspace_dir=workspace_dir))
     if memory_controls.memory_enabled:
         mw.append(memory_middleware)
     if memory_controls.worker_needed(worker_target):
@@ -969,11 +1093,14 @@ def _get_default_middleware(
 
         mw.append(BackgroundExecutionMiddleware())
 
-    allowed_tools = contract_tool_allowlist(memory_source_agent)
     if allowed_tools is not None:
         # Async specialists are root graphs, so apply the same hard boundary
         # that inline specialist specs receive in _inject_subagent_middleware.
         mw.append(ContractToolAllowlistMiddleware(allowed_tools))
+
+    # Keep this last: Qwen must validate the exact tool set that survives all
+    # registries, middleware injection, selection, and specialist allowlists.
+    mw.append(QwenToolCompatibilityMiddleware(default_model=cfg.model))
 
     return mw
 
@@ -1007,7 +1134,11 @@ def _get_default_agent():
 
         cfg = _ensure_config()
         be = _get_scoped_backend_factory()
-        mw = _get_default_middleware()
+        mw = _get_default_middleware(
+            backend_factory=be,
+            skills_backend=be,
+            skill_sources=list(DEFAULT_SKILL_SOURCES),
+        )
 
         # HITL on main agent only (mirrors create_cli_agent). Use middleware,
         # not interrupt_on= kwarg — the kwarg propagates to every subagent and
@@ -1043,6 +1174,10 @@ def _get_default_agent():
                 workspace_dir=str(_paths_mod.WORKSPACE_ROOT),
             )
 
+        # SkillsMiddleware is deliberately placed after TaskWorkspaceMiddleware
+        # above.  Passing this through would make DeepAgents prepend a duplicate
+        # instance before task backend preparation.
+        kwargs["skills"] = None
         _jw_agent = create_deep_agent(
             **kwargs,
         ).with_config({"recursion_limit": cfg.recursion_limit})

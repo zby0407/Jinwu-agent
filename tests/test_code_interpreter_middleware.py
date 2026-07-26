@@ -12,6 +12,7 @@ import pytest
 
 from jw.middleware.code_interpreter import (
     _DEFAULT_PTC_ALLOWLIST,
+    REPL_TOOL_NAME,
     create_code_interpreter_middleware,
 )
 
@@ -39,9 +40,11 @@ def test_filter_tools_for_ptc_accepts_default_allowlist():
         return "ok"
 
     _ptc.filter_tools_for_ptc(
-        [task], _DEFAULT_PTC_ALLOWLIST, self_tool_name="code_interpreter"
+        [task], _DEFAULT_PTC_ALLOWLIST, self_tool_name=REPL_TOOL_NAME
     )
 
 
 def test_create_code_interpreter_middleware_builds():
-    assert create_code_interpreter_middleware() is not None
+    middleware = create_code_interpreter_middleware()
+    assert middleware._tool_name == "eval"
+    assert middleware._tool_name not in {"code_interpreter", "search"}

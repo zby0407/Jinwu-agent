@@ -18,6 +18,8 @@ from pathlib import Path
 
 from langchain_core.tools import tool
 
+from .registry import register_tool_bundle
+
 # ---------------------------------------------------------------------------
 # Make the solar feature agent modules importable.
 # ---------------------------------------------------------------------------
@@ -110,8 +112,10 @@ def engineer_solar_features(csv_path: str) -> str:
         from chat_session import ChatSession
         from solar_feature_agent.workflows import (
             audit_solar_data,
-            engineer_solar_features as _engineer,
             ingest_align_solar_data,
+        )
+        from solar_feature_agent.workflows import (
+            engineer_solar_features as _engineer,
         )
 
         session = ChatSession()
@@ -149,9 +153,11 @@ def prepare_solar_experiment(csv_path: str) -> str:
         from chat_session import ChatSession
         from solar_feature_agent.workflows import (
             audit_solar_data,
-            engineer_solar_features as _engineer,
             ingest_align_solar_data,
             prepare_experiment_handoff,
+        )
+        from solar_feature_agent.workflows import (
+            engineer_solar_features as _engineer,
         )
 
         session = ChatSession()
@@ -207,3 +213,13 @@ def dataset_statistics(csv_path: str, columns: str = "") -> str:
         return _to_json(result)
     except Exception as exc:
         return _error_json("dataset_statistics", exc)
+
+
+SOLAR_FEATURE_TOOLS = [
+    audit_solar_data_quality,
+    engineer_solar_features,
+    prepare_solar_experiment,
+    dataset_statistics,
+]
+
+register_tool_bundle("solar-features", SOLAR_FEATURE_TOOLS)

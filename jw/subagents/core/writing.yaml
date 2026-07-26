@@ -1,6 +1,6 @@
 writing-agent:
   description: "Draft a paper-ready Markdown experiment report (no fabricated results/citations)."
-  tools: [think_tool]
+  tool_bundles: [reasoning]
   skills: ["/skills/"]
   # Long-running (typically 30-180s for full report). Routed through langgraph
   # dev as an AsyncSubAgent when config.enable_async_subagents is set.

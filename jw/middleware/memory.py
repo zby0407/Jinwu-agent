@@ -102,6 +102,13 @@ whether to read the full observation.
 Distill reusable insight rather than saving raw task output or a transcript of
 what happened.
 
+A quantitative or scientific result is verified only when the trajectory contains
+successful tool evidence from the declared primary input and identifies the source
+path plus the transformation or command that produced it. A value copied from
+prior memory, reference code, a report, or embedded constants is not verified.
+If required tool calls failed, were blocked, or the provenance check did not
+complete, record only the failed approach or blocker—never the claimed result.
+
 Use procedural/global for general tool or platform behavior that can recur
 outside this workspace; use project scope only for workspace-specific facts,
 commands, resources, evaluation setup, or configuration. Do not hand-write

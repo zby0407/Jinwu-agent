@@ -38,9 +38,11 @@ from langchain_quickjs import CodeInterpreterMiddleware
 _DEFAULT_TIMEOUT_SECONDS: float = 60.0
 _DEFAULT_MAX_RESULT_CHARS: int = 10000
 
+REPL_TOOL_NAME = "eval"
+
 _MEMORY_FIRST_INTERPRETER_PROMPT = (
     "\n\nWhen memory tools (search_observations, read_memory) are available, use "
-    "them before `code_interpreter` for workspace inspection or implementation work."
+    f"them before `{REPL_TOOL_NAME}` for workspace inspection or implementation work."
 )
 
 
@@ -99,5 +101,8 @@ def create_code_interpreter_middleware(
         ptc=_DEFAULT_PTC_ALLOWLIST,
         timeout=timeout,
         max_result_chars=max_result_chars,
-        tool_name="code_interpreter",
+        # Keep the upstream portable default.  In particular, Qwen reserves
+        # ``code_interpreter`` for its provider-hosted built-in and rejects a
+        # user-defined function with that name before the model can respond.
+        tool_name=REPL_TOOL_NAME,
     )

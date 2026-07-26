@@ -122,8 +122,8 @@ class TestJWConfig:
         assert config.anthropic_api_key == ""
         assert config.openai_api_key == ""
         assert config.tavily_api_key == ""
-        assert config.provider == "anthropic"
-        assert config.model == "claude-sonnet-4-6"
+        assert config.provider == "dashscope"
+        assert config.model == "qwen3.7-plus"
         assert config.default_mode == "daemon"
         assert config.default_workdir == ""
         assert config.show_thinking is True
@@ -231,8 +231,8 @@ class TestLoadSaveReset:
     def test_load_returns_defaults_when_no_file(self, temp_config_dir, clean_env):
         """Test that load returns defaults when config file doesn't exist."""
         config = load_config()
-        assert config.provider == "anthropic"
-        assert config.model == "claude-sonnet-4-6"
+        assert config.provider == "dashscope"
+        assert config.model == "qwen3.7-plus"
 
     def test_save_creates_file(self, temp_config_dir, clean_env):
         """Test that save creates the config file."""
@@ -514,7 +514,7 @@ class TestPriorityChain:
         ]:
             monkeypatch.delenv(key, raising=False)
         config = get_effective_config()
-        assert config.provider == "anthropic"
+        assert config.provider == "dashscope"
         assert config.default_mode == "daemon"
 
     def test_file_overrides_defaults(self, temp_config_dir, clean_env):
@@ -606,6 +606,28 @@ class TestPriorityChain:
         config = get_effective_config()
         assert config.sandbox_execute_timeout == 600
         assert isinstance(config.sandbox_execute_timeout, int)
+
+    def test_agent_call_budget_defaults(self, temp_config_dir, clean_env):
+        config = JWConfig()
+        assert config.agent_model_call_limit == 64
+        assert config.agent_tool_call_limit == 48
+        assert config.subagent_model_call_limit == 24
+        assert config.subagent_tool_call_limit == 20
+
+    def test_agent_call_budgets_can_be_overridden_by_env(
+        self, temp_config_dir, monkeypatch
+    ):
+        monkeypatch.setenv("JW_AGENT_MODEL_CALL_LIMIT", "80")
+        monkeypatch.setenv("JW_AGENT_TOOL_CALL_LIMIT", "60")
+        monkeypatch.setenv("JW_SUBAGENT_MODEL_CALL_LIMIT", "30")
+        monkeypatch.setenv("JW_SUBAGENT_TOOL_CALL_LIMIT", "25")
+
+        config = get_effective_config()
+
+        assert config.agent_model_call_limit == 80
+        assert config.agent_tool_call_limit == 60
+        assert config.subagent_model_call_limit == 30
+        assert config.subagent_tool_call_limit == 25
 
     def test_sandbox_execute_timeout_invalid_falls_back(self):
         """Non-positive / non-int values fall back to the default (would

@@ -30,7 +30,15 @@ from automatic_experiment.contracts import (  # noqa: E402
     REQUEST_VERSION,
     RESPONSE_VERSION,
 )
-from automatic_experiment.state import RUNS_ROOT  # noqa: E402
+from automatic_experiment.state import runs_root, task_workspace  # noqa: E402
+
+
+@pytest.fixture(autouse=True)
+def _isolated_test_state(tmp_path, monkeypatch):
+    monkeypatch.setenv("JW_DATA_DIR", str(tmp_path / "global_state"))
+    monkeypatch.setenv("JW_KB_EXPORT_DIR", str(tmp_path / "knowledge_export"))
+    with task_workspace(tmp_path / "workspace"):
+        yield
 
 
 def _request(task_name: str = "macos_smoke", wall_seconds: int = 30) -> dict:
@@ -284,8 +292,9 @@ def _assessment() -> dict:
 
 
 def _cleanup(run_id: str) -> None:
-    root = (RUNS_ROOT / run_id).resolve()
-    if root.parent == RUNS_ROOT.resolve() and root.name.startswith("macos_"):
+    root_dir = runs_root()
+    root = (root_dir / run_id).resolve()
+    if root.parent == root_dir.resolve() and root.name.startswith("macos_"):
         shutil.rmtree(root, ignore_errors=True)
 
 
@@ -325,7 +334,7 @@ class MacosBackendTests(unittest.TestCase):
         verified = service.verify(run_id, attempt_id, _assessment())
         assert verified["outcome"] == "completed_interpretable"
         finalized = service.finalize(run_id)
-        run_root = RUNS_ROOT / run_id
+        run_root = runs_root() / run_id
         assert (run_root / "report.md").is_file()
         assert (run_root / "audit.md").is_file()
         assert "report.md" in finalized["report_path"]

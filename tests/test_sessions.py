@@ -8,7 +8,7 @@ import unittest
 import uuid
 from datetime import UTC
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from langchain_core.messages import AIMessage, HumanMessage, RemoveMessage
@@ -2169,7 +2169,13 @@ class TestCreateCheckpointerForLanggraphApi(unittest.IsolatedAsyncioTestCase):
                         await cp.aput(config, checkpoint, metadata, {})
 
                 # --- Second "process": read back the checkpoint ---
-                with _patch():
+                with (
+                    _patch(),
+                    patch(
+                        "jw.sessions._api_workspace_dir_async",
+                        new=AsyncMock(return_value=td),
+                    ),
+                ):
                     async with create_checkpointer_for_langgraph_api() as cp2:
                         result = await cp2.aget_tuple(
                             {

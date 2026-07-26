@@ -48,6 +48,7 @@ from jw.memory.observations import (
     read_observation_id_from_path,
     record_observation_file,
     search_observation_files,
+    write_observation_document,
 )
 from jw.memory.types import ObservationRelation
 from jw.middleware import memory_lifecycle
@@ -717,6 +718,83 @@ def test_legacy_observation_source_without_session_id_still_reads(tmp_path):
     assert read is not None
     assert read["observation_id"] == "O-legacy"
     assert hits[0]["observation_id"] == "O-legacy"
+
+
+def test_invalidated_observation_is_excluded_from_index_search_read_and_links(
+    tmp_path,
+):
+    memories = tmp_path / "memories"
+    source = record_observation_file(
+        memory_dir=memories,
+        project_id="P-project",
+        memory_type=MemoryType.PROCEDURAL,
+        summary="Active source remains available.",
+        observation="The active source links to an invalidated result.",
+        why_it_matters="Invalidated memories must not leak through relation expansion.",
+        scope=MemoryScope.PROJECT,
+        source_type=MemorySourceType.TURN,
+        source_session_id="thread-1",
+        source_agent="JW",
+    )
+    invalid = record_observation_file(
+        memory_dir=memories,
+        project_id="P-project",
+        memory_type=MemoryType.SEMANTIC,
+        summary="Unsupported quantitative result.",
+        observation="This result was copied from secondary code.",
+        why_it_matters="It must not influence future analysis.",
+        scope=MemoryScope.PROJECT,
+        source_type=MemorySourceType.TURN,
+        source_session_id="thread-1",
+        source_agent="JW",
+    )
+    link_observation_files(
+        memory_dir=memories,
+        project_id="P-project",
+        source_observation_id=source["observation_id"],
+        target_observation_id=invalid["observation_id"],
+        reason="The source originally linked to the unsupported result.",
+        relation=ObservationRelation.COMPLEMENTS,
+        bidirectional=False,
+    )
+    invalid_path = (
+        memories
+        / "observations"
+        / "projects"
+        / "P-project"
+        / f"{invalid['observation_id']}.md"
+    )
+    document = read_observation_document(invalid_path)
+    assert document is not None
+    metadata, body = document
+    metadata.status = "invalidated"
+    write_observation_document(invalid_path, metadata=metadata, body=body)
+
+    documents = list_observation_documents(
+        memory_dir=memories,
+        project_id="P-project",
+    )
+    hits = search_observation_files(
+        memory_dir=memories,
+        project_id="P-project",
+        query="copied from secondary code",
+    )
+    invalid_read = read_observation_file(
+        memory_dir=memories,
+        project_id="P-project",
+        observation_id=invalid["observation_id"],
+    )
+    source_read = read_observation_file(
+        memory_dir=memories,
+        project_id="P-project",
+        observation_id=source["observation_id"],
+    )
+
+    assert [item.observation_id for item in documents] == [source["observation_id"]]
+    assert hits == []
+    assert invalid_read is None
+    assert source_read is not None
+    assert "related_observations" not in source_read
 
 
 def test_unquoted_naive_yaml_timestamp_does_not_claim_utc(tmp_path):

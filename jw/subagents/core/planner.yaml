@@ -1,6 +1,6 @@
 planner-agent:
   description: "Plan experiments: stages, success signals, and dependencies (no web search, no implementation)."
-  tools: [think_tool]
+  tool_bundles: [reasoning]
   skills: ["/skills/"]
   system_prompt: |
     You are the planner-agent. You do NOT implement code. You create and update experimental plans

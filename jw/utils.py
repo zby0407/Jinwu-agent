@@ -6,6 +6,7 @@ notebooks, and lightweight configuration loaders used by the agent runtime.
 
 import json
 import logging
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
@@ -46,7 +47,8 @@ def format_message_content(message):
     else:
         parts.append(str(message.content))
 
-    # Handle tool calls attached to the message (OpenAI format) - only if not already processed
+    # Handle tool calls attached to the message (OpenAI format) only when the
+    # content traversal above did not already process them.
     if (
         not tool_calls_processed
         and hasattr(message, "tool_calls")
@@ -113,6 +115,7 @@ def load_subagents(
     config_path: Path | list[Path] | tuple[Path, ...],
     *,
     tool_registry: dict[str, Any],
+    tool_bundles: Mapping[str, Sequence[Any]] | None = None,
     prompt_refs: dict[str, str] | None = None,
 ) -> list[dict[str, Any]]:
     """Load subagent definitions from one or more directories of YAML files.
@@ -145,11 +148,16 @@ def load_subagents(
             ...
         research-agent:
           description: "..."
-          tools: [tavily_search, think_tool]
+          tool_bundles: [reasoning, web-search]
           system_prompt: |
             ...
+
+    ``tool_bundles`` is the preferred capability-level declaration. The
+    legacy ``tools`` list remains supported for one-off or externally supplied
+    tools such as MCP entries.
     """
     prompt_refs = prompt_refs or {}
+    tool_bundles = tool_bundles or {}
 
     # Normalise to a list of directories. Accepting a single Path keeps the
     # original call-sites working unchanged.
@@ -249,16 +257,57 @@ def load_subagents(
         if "skills" in spec:
             subagent["skills"] = spec["skills"]
 
-        if "tools" in spec:
-            resolved = []
-            for t in spec["tools"]:
+        if "tool_bundles" in spec or "tools" in spec:
+            resolved: list[Any] = []
+            bundle_names = spec.get("tool_bundles", [])
+            if not isinstance(bundle_names, list) or not all(
+                isinstance(bundle_name, str) for bundle_name in bundle_names
+            ):
+                raise ValueError(
+                    f"Subagent {name!r}: 'tool_bundles' must be a list of strings"
+                )
+            for bundle_name in bundle_names:
+                bundle_tools = tool_bundles.get(bundle_name)
+                if bundle_tools is None:
+                    raise ValueError(
+                        f"Subagent {name!r}: unknown tool bundle {bundle_name!r}"
+                    )
+                resolved.extend(bundle_tools)
+
+            tool_names = spec.get("tools", [])
+            if not isinstance(tool_names, list) or not all(
+                isinstance(tool_name, str) for tool_name in tool_names
+            ):
+                raise ValueError(
+                    f"Subagent {name!r}: 'tools' must be a list of strings"
+                )
+            for t in tool_names:
                 if t in tool_registry:
                     resolved.append(tool_registry[t])
                 else:
                     logger.warning(
                         "Subagent %r: tool %r not in registry, skipping", name, t
                     )
-            subagent["tools"] = resolved
+            deduplicated: dict[str, Any] = {}
+            for resolved_tool in resolved:
+                tool_name = getattr(resolved_tool, "name", None)
+                if not isinstance(tool_name, str) or not tool_name:
+                    raise ValueError(
+                        f"Subagent {name!r}: resolved tool has no valid .name"
+                    )
+                existing = deduplicated.get(tool_name)
+                if existing is not None and existing is not resolved_tool:
+                    raise ValueError(
+                        f"Subagent {name!r}: tool {tool_name!r} resolves to "
+                        "multiple implementations"
+                    )
+                deduplicated[tool_name] = resolved_tool
+            subagent["tools"] = list(deduplicated.values())
+
+        restrict_tools = spec.get("restrict_tools", False)
+        if not isinstance(restrict_tools, bool):
+            raise ValueError(f"Subagent {name!r}: 'restrict_tools' must be a boolean")
+        subagent["_restrict_tools"] = restrict_tools
 
         # Internal field: carries the ``async:`` yaml flag through to
         # ``_maybe_swap_async_subagents`` so the swap doesn't need a second
@@ -288,12 +337,14 @@ def load_subagent(
     name: str,
     *,
     tool_registry: dict[str, Any],
+    tool_bundles: Mapping[str, Sequence[Any]] | None = None,
     prompt_refs: dict[str, str] | None = None,
 ) -> dict[str, Any]:
     """Load a single sub-agent by name from YAML."""
     for agent in load_subagents(
         config_path,
         tool_registry=tool_registry,
+        tool_bundles=tool_bundles,
         prompt_refs=prompt_refs,
     ):
         if agent.get("name") == name:

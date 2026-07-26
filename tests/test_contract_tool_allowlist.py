@@ -3,10 +3,8 @@ from __future__ import annotations
 import asyncio
 from dataclasses import dataclass
 
-from jw.middleware.contract_tool_allowlist import (
-    CONTRACT_TOOL_ALLOWLISTS,
-    ContractToolAllowlistMiddleware,
-)
+from jw.middleware.contract_tool_allowlist import ContractToolAllowlistMiddleware
+from jw.tools import get_tool_bundles
 
 
 @dataclass
@@ -27,8 +25,15 @@ class _Request:
         return _Request(tools, self.tool_call)
 
 
+def _bundle_allowlist(*bundle_names: str) -> frozenset[str]:
+    bundles = get_tool_bundles()
+    return frozenset(
+        tool.name for bundle_name in bundle_names for tool in bundles[bundle_name]
+    )
+
+
 def test_contract_allowlist_removes_injected_filesystem_and_shell_tools() -> None:
-    allowed = CONTRACT_TOOL_ALLOWLISTS["solar-experiment"]
+    allowed = _bundle_allowlist("reasoning", "automatic-experiment")
     middleware = ContractToolAllowlistMiddleware(allowed)
     request = _Request(
         [
@@ -47,20 +52,19 @@ def test_contract_allowlist_removes_injected_filesystem_and_shell_tools() -> Non
     ]
 
 
-def test_every_closed_specialist_excludes_generic_mutation_tools() -> None:
+def test_capability_derived_boundaries_exclude_generic_mutation_tools() -> None:
     forbidden = {"write_file", "edit_file", "execute", "task"}
-    assert set(CONTRACT_TOOL_ALLOWLISTS) == {
-        "solar-planner",
-        "solar-hypothesis",
-        "solar-experiment",
-    }
-    for allowed in CONTRACT_TOOL_ALLOWLISTS.values():
+    for allowed in (
+        _bundle_allowlist("reasoning", "research-planner"),
+        _bundle_allowlist("reasoning", "scientific-hypothesis"),
+        _bundle_allowlist("reasoning", "automatic-experiment"),
+    ):
         assert allowed.isdisjoint(forbidden)
 
 
 def test_contract_allowlist_blocks_disallowed_tool_at_execution() -> None:
     middleware = ContractToolAllowlistMiddleware(
-        CONTRACT_TOOL_ALLOWLISTS["solar-planner"]
+        _bundle_allowlist("reasoning", "research-planner")
     )
     request = _Request([], {"name": "write_file", "id": "call-forbidden"})
     called = False
@@ -80,7 +84,7 @@ def test_contract_allowlist_blocks_disallowed_tool_at_execution() -> None:
 
 def test_contract_allowlist_blocks_disallowed_async_tool_at_execution() -> None:
     middleware = ContractToolAllowlistMiddleware(
-        CONTRACT_TOOL_ALLOWLISTS["solar-experiment"]
+        _bundle_allowlist("reasoning", "automatic-experiment")
     )
     request = _Request([], {"name": "execute", "id": "call-forbidden-async"})
     called = False
@@ -99,7 +103,7 @@ def test_contract_allowlist_blocks_disallowed_async_tool_at_execution() -> None:
 
 def test_contract_allowlist_executes_allowed_tool() -> None:
     middleware = ContractToolAllowlistMiddleware(
-        CONTRACT_TOOL_ALLOWLISTS["solar-hypothesis"]
+        _bundle_allowlist("reasoning", "scientific-hypothesis")
     )
     request = _Request(
         [],

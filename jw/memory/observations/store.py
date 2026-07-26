@@ -12,6 +12,7 @@ import json
 from dataclasses import replace
 from datetime import UTC, date, datetime
 from pathlib import Path
+from typing import Literal
 
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
@@ -95,6 +96,7 @@ class ObservationFrontmatter(BaseModel):
     summary: str = Field(min_length=1, strict=True)
     memory_type: MemoryType
     scope: MemoryScope
+    status: Literal["active", "invalidated"] = "active"
     project_id: str | None = Field(default=None, min_length=1, strict=True)
     source: ObservationSourceFrontmatter | None = None
     related_observations: list[RelatedObservationEntry] = Field(default_factory=list)
@@ -127,6 +129,8 @@ class ObservationFrontmatter(BaseModel):
         payload["summary"] = self.summary
         payload["memory_type"] = self.memory_type.value
         payload["scope"] = self.scope.value
+        if self.status != "active":
+            payload["status"] = self.status
         if self.project_id is not None:
             payload["project_id"] = self.project_id
         if self.source is not None:
@@ -311,6 +315,8 @@ def _parse_observation_search_document(
     if document is None:
         return None
     metadata, body, text = document
+    if metadata.status != "active":
+        return None
     try:
         memory_path = "/" + path.relative_to(root).as_posix()
     except ValueError:
