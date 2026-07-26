@@ -22,11 +22,7 @@ from .context_editing import (
     create_context_editing_middleware,
 )
 from .context_overflow import ContextOverflowMapperMiddleware
-from .contract_tool_allowlist import (
-    CONTRACT_TOOL_ALLOWLISTS,
-    ContractToolAllowlistMiddleware,
-    contract_tool_allowlist,
-)
+from .contract_tool_allowlist import ContractToolAllowlistMiddleware
 from .memory import (
     JWMemoryMiddleware,
     create_memory_middleware,
@@ -37,13 +33,20 @@ from .memory_lifecycle import (
     default_memory_scheduler,
 )
 from .model_fallback import ModelFallbackMiddleware, load_fallback_chain
+from .qwen_compat import (
+    QwenToolCompatibilityMiddleware,
+    QwenToolSchemaError,
+    is_qwen_model,
+    validate_qwen_tool_schema,
+)
+from .research_router import ResearchRouterMiddleware, ResearchRoutingState
 from .runtime_context import RuntimeContextMiddleware, create_runtime_context_middleware
 from .scheduler import (
     SchedulerMiddleware,
     create_scheduler_middleware,
 )
-from .task_workspace import TaskWorkspaceMiddleware
 from .task_cancellation import TaskCancellationMiddleware
+from .task_workspace import TaskWorkspaceMiddleware
 from .tool_error_handler import ToolErrorHandlerMiddleware
 from .tool_selector import create_tool_selector_middleware
 from .utils import disable_thinking
@@ -54,24 +57,26 @@ __all__ = [
     "AskUserRequest",
     "AskUserWidgetResult",
     "Choice",
-    "ConfigurableModelMiddleware",
-    "CONTRACT_TOOL_ALLOWLISTS",
-    "ContractToolAllowlistMiddleware",
     "ClosedLoopOrchestrationGuardMiddleware",
+    "ConfigurableModelMiddleware",
     "ContextOverflowMapperMiddleware",
+    "ContractToolAllowlistMiddleware",
     "JWMemoryLifecycleMiddleware",
     "JWMemoryMiddleware",
     "ModelFallbackMiddleware",
     "Question",
+    "QwenToolCompatibilityMiddleware",
+    "QwenToolSchemaError",
+    "ResearchRouterMiddleware",
+    "ResearchRoutingState",
     "RuntimeContextMiddleware",
     "SchedulerMiddleware",
-    "TaskWorkspaceMiddleware",
     "TaskCancellationMiddleware",
+    "TaskWorkspaceMiddleware",
     "ToolErrorHandlerMiddleware",
     "VirtualPathCodeGuardMiddleware",
-    "compute_context_editing_trigger",
-    "contract_tool_allowlist",
     "closed_loop_receipts",
+    "compute_context_editing_trigger",
     "create_code_interpreter_middleware",
     "create_context_editing_middleware",
     "create_memory_lifecycle_middleware",
@@ -81,5 +86,7 @@ __all__ = [
     "create_tool_selector_middleware",
     "default_memory_scheduler",
     "disable_thinking",
+    "is_qwen_model",
     "load_fallback_chain",
+    "validate_qwen_tool_schema",
 ]

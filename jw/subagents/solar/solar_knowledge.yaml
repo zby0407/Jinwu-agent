@@ -1,6 +1,6 @@
 solar-knowledge:
   description: "Solar-cycle knowledge manager: query and maintain the LLM Wiki of canonical solar physics concepts, mechanisms, data sources, and historical findings."
-  tools: [think_tool, kb_search, kb_read, kb_propose, kb_conflicts, kb_review_queue, kb_log, kb_import, lit_bind_task, lit_search, lit_fetch, lit_distill]
+  tool_bundles: [reasoning, knowledge-base]
   skills: ["/skills/"]
   system_prompt: |
     You are the solar-knowledge sub-agent of Solar-Cycle Co-Scientist. You manage the LLM Wiki: a structured, growing knowledge base of solar-cycle physics and research memory.

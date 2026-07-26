@@ -1,6 +1,6 @@
 data-analysis-agent:
   description: "Analyze experiment outputs: compute metrics, make plots, summarize insights."
-  tools: [think_tool, audit_solar_data_quality, engineer_solar_features, dataset_statistics]
+  tool_bundles: [reasoning, solar-features]
   skills: ["/skills/"]
   # Long-running (typically 30-120s for compute + plots). Routed through
   # langgraph dev as an AsyncSubAgent when config.enable_async_subagents is set.

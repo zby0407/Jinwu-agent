@@ -78,6 +78,10 @@ class MemorySkillSynthesisCadence(StrEnum):
 DEFAULT_MEMORY_OBSERVATION_WRITER = MemoryObservationWriter.ALL
 DEFAULT_MEMORY_SKILL_SYNTHESIS_MODE = MemorySkillSynthesisMode.REVIEW
 DEFAULT_MEMORY_SKILL_SYNTHESIS_CADENCE = MemorySkillSynthesisCadence.WEEKLY
+DEFAULT_AGENT_MODEL_CALL_LIMIT = 64
+DEFAULT_AGENT_TOOL_CALL_LIMIT = 48
+DEFAULT_SUBAGENT_MODEL_CALL_LIMIT = 24
+DEFAULT_SUBAGENT_TOOL_CALL_LIMIT = 20
 DEFAULT_MEMORY_SKILL_SYNTHESIS_TIME = "03:00"
 
 
@@ -169,8 +173,10 @@ class JWConfig:
     tavily_api_key: str = ""
 
     # LLM Settings
-    provider: str = "anthropic"
-    model: str = "claude-sonnet-4-6"
+    # JW is a Qwen-first research agent. Other models remain selectable for
+    # diagnostics, but fresh installations start on the production family.
+    provider: str = "dashscope"
+    model: str = "qwen3.7-plus"
     model_fallbacks: str = ""  # "model:provider,model:provider" fallback chain
     # Optional auxiliary model for background/helper LLM calls (memory workers +
     # tool selector). Empty = fall back to the main model/provider.
@@ -239,6 +245,17 @@ class JWConfig:
     # rate limits, context overflow, or API quota errors would trip first.
     # Lower (e.g., 5000) if you want a tighter safety net against runaway loops.
     recursion_limit: int = 1_000_000
+
+    # Stateful call budgets from LangChain's open-source limit middleware.
+    # These are per uninterrupted graph run; HITL resumes start a fresh run
+    # budget. The tool limit blocks further execution and gives the model a
+    # chance to report partial findings, while the slightly larger model limit
+    # guarantees termination if it keeps trying. Set either value to 0 to
+    # disable that limit.
+    agent_model_call_limit: int = DEFAULT_AGENT_MODEL_CALL_LIMIT
+    agent_tool_call_limit: int = DEFAULT_AGENT_TOOL_CALL_LIMIT
+    subagent_model_call_limit: int = DEFAULT_SUBAGENT_MODEL_CALL_LIMIT
+    subagent_tool_call_limit: int = DEFAULT_SUBAGENT_TOOL_CALL_LIMIT
 
     # Memory Settings
     # Profile memory injects and maintains `/memories/profile/...` files.
@@ -788,6 +805,10 @@ _ENV_MAPPINGS = {
     "langgraph_dev_file_persistence": "JW_LANGGRAPH_DEV_FILE_PERSISTENCE",
     "langgraph_dev_jobs_per_worker": "JW_LANGGRAPH_DEV_JOBS_PER_WORKER",
     "recursion_limit": "JW_RECURSION_LIMIT",
+    "agent_model_call_limit": "JW_AGENT_MODEL_CALL_LIMIT",
+    "agent_tool_call_limit": "JW_AGENT_TOOL_CALL_LIMIT",
+    "subagent_model_call_limit": "JW_SUBAGENT_MODEL_CALL_LIMIT",
+    "subagent_tool_call_limit": "JW_SUBAGENT_TOOL_CALL_LIMIT",
     "memory_profile_enabled": "JW_MEMORY_PROFILE_ENABLED",
     "memory_observations_enabled": "JW_MEMORY_OBSERVATIONS_ENABLED",
     "memory_observation_writer": "JW_MEMORY_OBSERVATION_WRITER",

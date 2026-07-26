@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+import hashlib
 import json
 import sqlite3
 from pathlib import Path
@@ -55,6 +57,158 @@ def test_new_threads_get_stable_distinct_run_workspaces(tmp_path, monkeypatch):
     assert task["research_question"] == "Question one?"
     context = json.loads(Path(first.workspace, "context_snapshot.json").read_text())
     assert context["prior_runs_implicitly_loaded"] is False
+
+
+def test_legacy_data_is_imported_as_manifested_project_input(tmp_path, monkeypatch):
+    registry = tmp_path / "registry"
+    base = tmp_path / "workspace"
+    data = base / "data"
+    data.mkdir(parents=True)
+    source = data / "nested" / "observations.csv"
+    source.parent.mkdir()
+    source.write_text("date,value\n2026-01,72.4\n", encoding="utf-8")
+    monkeypatch.setenv("JW_WORKSPACE_BINDINGS_DIR", str(registry))
+
+    binding = ensure_thread_workspace("data-thread", base)
+
+    imported = Path(binding.project_shared) / "data/nested/observations.csv"
+    assert imported.read_bytes() == source.read_bytes()
+    expected_sha256 = hashlib.sha256(source.read_bytes()).hexdigest()
+    shared_manifest = json.loads(
+        Path(binding.project_shared, "data_manifest.json").read_text()
+    )
+    assert shared_manifest["mode"] == "non_destructive_copy"
+    assert shared_manifest["conflicts"] == []
+    assert shared_manifest["files"] == [
+        {
+            "bytes": source.stat().st_size,
+            "path": "nested/observations.csv",
+            "role": "primary_data",
+            "sha256": expected_sha256,
+            "status": "imported",
+            "virtual_path": "/project/data/nested/observations.csv",
+        }
+    ]
+    run_manifest = json.loads(Path(binding.workspace, "input_manifest.json").read_text())
+    assert run_manifest["project_inputs"] == [
+        {
+            "bytes": source.stat().st_size,
+            "path": "/project/data/nested/observations.csv",
+            "role": "primary_data",
+            "sha256": expected_sha256,
+            "source": "project_shared_data",
+        }
+    ]
+    context = json.loads(Path(binding.workspace, "context_snapshot.json").read_text())
+    assert context["project_data_virtual_path"] == "/project/data/"
+    assert context["project_input_count"] == 1
+
+
+def test_legacy_code_and_outputs_are_preserved_but_not_declared_as_inputs(
+    tmp_path, monkeypatch
+):
+    registry = tmp_path / "registry"
+    base = tmp_path / "workspace"
+    data = base / "data"
+    (data / "outputs").mkdir(parents=True)
+    (data / "observations.csv").write_text("date,value\n", encoding="utf-8")
+    (data / "analyze.py").write_text("print('reference')\n", encoding="utf-8")
+    (data / "example_observations.csv").write_text(
+        "date,value\n2026-01,1\n", encoding="utf-8"
+    )
+    (data / "F107_estimated.csv").write_text(
+        "date,value\n2026-01,72.4\n", encoding="utf-8"
+    )
+    (data / "observations.provenance.json").write_text(
+        '{"source_url":"https://example.test/observations"}\n',
+        encoding="utf-8",
+    )
+    (data / "outputs/stats.json").write_text('{"mae": 12.3}\n', encoding="utf-8")
+    monkeypatch.setenv("JW_WORKSPACE_BINDINGS_DIR", str(registry))
+
+    binding = ensure_thread_workspace("classified-input-thread", base)
+
+    shared = Path(binding.project_shared)
+    assert (shared / "data/analyze.py").is_file()
+    assert (shared / "data/outputs/stats.json").is_file()
+    manifest = json.loads((shared / "data_manifest.json").read_text())
+    roles = {item["path"]: item["role"] for item in manifest["files"]}
+    assert roles == {
+        "analyze.py": "reference_code",
+        "example_observations.csv": "test_fixture",
+        "F107_estimated.csv": "derived_artifact",
+        "observations.csv": "primary_data",
+        "observations.provenance.json": "provenance",
+        "outputs/stats.json": "derived_artifact",
+    }
+    run_manifest = json.loads(Path(binding.workspace, "input_manifest.json").read_text())
+    assert [item["path"] for item in run_manifest["project_inputs"]] == [
+        "/project/data/observations.csv"
+    ]
+
+
+def test_legacy_data_import_never_overwrites_project_conflict(tmp_path, monkeypatch):
+    registry = tmp_path / "registry"
+    base = tmp_path / "workspace"
+    (base / "data").mkdir(parents=True)
+    (base / "data/observations.csv").write_text("legacy\n", encoding="utf-8")
+    project_data = base / "projects/default/shared/data"
+    project_data.mkdir(parents=True)
+    destination = project_data / "observations.csv"
+    destination.write_text("project-owned\n", encoding="utf-8")
+    monkeypatch.setenv("JW_WORKSPACE_BINDINGS_DIR", str(registry))
+
+    binding = ensure_thread_workspace("conflict-thread", base)
+
+    assert destination.read_text(encoding="utf-8") == "project-owned\n"
+    manifest = json.loads(
+        Path(binding.project_shared, "data_manifest.json").read_text()
+    )
+    assert manifest["files"] == []
+    assert manifest["conflicts"][0]["path"] == "observations.csv"
+    assert manifest["conflicts"][0]["reason"] == "destination_content_differs"
+    run_manifest = json.loads(Path(binding.workspace, "input_manifest.json").read_text())
+    assert run_manifest["project_inputs"] == []
+
+
+def test_removed_legacy_data_prunes_only_unchanged_managed_copy(
+    tmp_path, monkeypatch
+):
+    registry = tmp_path / "registry"
+    base = tmp_path / "workspace"
+    data = base / "data"
+    data.mkdir(parents=True)
+    removed_source = data / "removed.csv"
+    removed_source.write_text("date,value\n2026-01,1\n", encoding="utf-8")
+    edited_source = data / "edited.csv"
+    edited_source.write_text("date,value\n2026-01,2\n", encoding="utf-8")
+    monkeypatch.setenv("JW_WORKSPACE_BINDINGS_DIR", str(registry))
+
+    first = ensure_thread_workspace("first-thread", base)
+    project_data = Path(first.project_shared) / "data"
+    removed_copy = project_data / "removed.csv"
+    edited_copy = project_data / "edited.csv"
+    assert removed_copy.is_file()
+    edited_copy.write_text("project-owned\n", encoding="utf-8")
+    removed_source.unlink()
+    edited_source.unlink()
+
+    second = ensure_thread_workspace("second-thread", base)
+
+    assert not removed_copy.exists()
+    assert edited_copy.read_text(encoding="utf-8") == "project-owned\n"
+    manifest = json.loads(
+        Path(second.project_shared, "data_manifest.json").read_text()
+    )
+    assert manifest["pruned"] == [
+        {"path": "removed.csv", "reason": "source_removed"}
+    ]
+    assert manifest["conflicts"] == [
+        {
+            "path": "edited.csv",
+            "reason": "source_removed_destination_modified",
+        }
+    ]
 
 
 def test_binding_filename_cannot_be_controlled_by_thread_id(tmp_path, monkeypatch):
@@ -159,22 +313,79 @@ def test_task_workspace_middleware_hydrates_precreated_blank_task(
     base.mkdir()
     monkeypatch.setenv("JW_WORKSPACE_BINDINGS_DIR", str(tmp_path / "registry"))
     binding = ensure_thread_workspace("middleware-thread", base)
-    runtime = SimpleNamespace(
-        config={
-            "configurable": {
-                "thread_id": "middleware-thread",
-                "workspace_thread_id": "middleware-thread",
-            }
+    graph_config = {
+        "configurable": {
+            "thread_id": "middleware-thread",
+            "workspace_thread_id": "middleware-thread",
         }
-    )
-    monkeypatch.setattr(task_workspace_module, "get_config", lambda: runtime.config)
+    }
+    # LangGraph's Runtime view can lag the context config during the first
+    # before_agent pass; workspace routing must use the latter.
+    runtime = SimpleNamespace(config={})
+    monkeypatch.setattr(task_workspace_module, "get_config", lambda: graph_config)
 
-    TaskWorkspaceMiddleware(base).before_agent(
-        {"messages": [HumanMessage(content="hydrated question")]}, runtime
-    )
+    prepared = []
+    TaskWorkspaceMiddleware(
+        base,
+        backend_factory=lambda active_runtime: prepared.append(active_runtime),
+    ).before_agent({"messages": [HumanMessage(content="hydrated question")]}, runtime)
 
     task = json.loads(Path(binding.workspace, "task.json").read_text())
     assert task["research_question"] == "hydrated question"
+    assert len(prepared) == 1
+    assert prepared[0].config == graph_config
+
+
+def test_scoped_backend_factory_avoids_filesystem_resolution_on_event_loop(
+    tmp_path, monkeypatch
+):
+    """Static skill/memory routes are prepared before DeepAgents calls the factory."""
+    from blockbuster import BlockBuster
+
+    import jw.agent as agent_module
+
+    real_workspace = tmp_path / "real-workspace"
+    real_workspace.mkdir()
+    linked_workspace = tmp_path / "linked-workspace"
+    linked_workspace.symlink_to(real_workspace, target_is_directory=True)
+    data_dir = tmp_path / "data"
+    memories_dir = data_dir / "memories"
+    global_skills_dir = data_dir / "skills"
+    memories_dir.mkdir(parents=True)
+    global_skills_dir.mkdir()
+
+    monkeypatch.setenv("JW_WORKSPACE_BINDINGS_DIR", str(tmp_path / "registry"))
+    monkeypatch.setattr(agent_module._paths_mod, "WORKSPACE_ROOT", linked_workspace)
+    monkeypatch.setattr(
+        agent_module._paths_mod, "USER_SKILLS_DIR", linked_workspace / "skills"
+    )
+    monkeypatch.setattr(agent_module._paths_mod, "GLOBAL_SKILLS_DIR", global_skills_dir)
+    monkeypatch.setattr(agent_module._paths_mod, "MEMORIES_DIR", memories_dir)
+    monkeypatch.setattr(agent_module._paths_mod, "DATA_DIR", data_dir)
+    monkeypatch.setattr(
+        agent_module,
+        "_ensure_config",
+        lambda *_args, **_kwargs: SimpleNamespace(
+            sandbox_execute_timeout=30,
+            dangerous_mode=False,
+        ),
+    )
+
+    factory = agent_module._get_scoped_backend_factory()
+    runtime = SimpleNamespace(config={})
+    factory(runtime)
+
+    async def resolve_from_async_node():
+        blocker = BlockBuster()
+        blocker.activate()
+        try:
+            return factory(runtime)
+        finally:
+            blocker.deactivate()
+
+    backend = asyncio.run(resolve_from_async_node())
+    assert backend.routes["/skills/"]._primary.cwd == real_workspace / "skills"
+    assert backend.routes["/memories/"].cwd == memories_dir
 
 
 def test_legacy_bootstrap_preserves_existing_threads_and_is_idempotent(

@@ -43,9 +43,7 @@ def _json(path: Path, payload: dict[str, object]) -> None:
     path.write_text(json.dumps(payload), encoding="utf-8")
 
 
-def test_blocks_hypothesis_before_real_planner_freeze(
-    tmp_path: Path, monkeypatch
-) -> None:
+def test_allows_hypothesis_without_planner_freeze(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setattr(
         guard_module, "workspace_root_from_config", lambda _config: tmp_path
     )
@@ -58,18 +56,11 @@ def test_blocks_hypothesis_before_real_planner_freeze(
         },
         _state(),
     )
-    called = False
+    sentinel = object()
 
-    def handler(_request: _Request):
-        nonlocal called
-        called = True
-        return object()
+    result = middleware.wrap_tool_call(request, lambda _request: sentinel)
 
-    result = middleware.wrap_tool_call(request, handler)
-
-    assert called is False
-    assert result.status == "error"
-    assert "frozen planner artifact" in str(result.content)
+    assert result is sentinel
 
 
 def test_allows_hypothesis_after_real_planner_freeze(
@@ -96,7 +87,80 @@ def test_allows_hypothesis_after_real_planner_freeze(
     assert middleware.wrap_tool_call(request, lambda _request: sentinel) is sentinel
 
 
-def test_blocks_false_completed_todo_and_false_receipt(
+def test_real_data_experiment_still_requires_staged_input(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.setattr(
+        guard_module, "workspace_root_from_config", lambda _config: tmp_path
+    )
+    middleware = ClosedLoopOrchestrationGuardMiddleware()
+    state = {
+        "messages": [
+            {
+                "type": "human",
+                "content": (
+                    "请基于现有 CSV 数据完成完整研究、计划、假设、实验和报告。"
+                ),
+            }
+        ]
+    }
+    request = _Request(
+        {
+            "name": "task",
+            "id": "call-experiment",
+            "args": {
+                "subagent_type": "solar-experiment",
+                "description": "run the experiment",
+            },
+        },
+        state,
+    )
+
+    result = middleware.wrap_tool_call(request, lambda _request: object())
+
+    assert result.status == "error"
+    assert "no immutable input is staged" in str(result.content)
+
+
+def test_router_selected_full_research_activates_closed_loop_guard(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.setattr(
+        guard_module, "workspace_root_from_config", lambda _config: tmp_path
+    )
+    middleware = ClosedLoopOrchestrationGuardMiddleware()
+    state = {
+        "research_route": {
+            "mode": "full_research",
+            "source_mode": "local",
+            "needs_computation": True,
+        },
+        "messages": [
+            {
+                "type": "human",
+                "content": "请分析本地数据 CSV 并形成研究产物。",
+            }
+        ],
+    }
+    request = _Request(
+        {
+            "name": "task",
+            "id": "call-experiment",
+            "args": {
+                "subagent_type": "solar-experiment",
+                "description": "run the data experiment",
+            },
+        },
+        state,
+    )
+
+    result = middleware.wrap_tool_call(request, lambda _request: object())
+
+    assert result.status == "error"
+    assert "no immutable input is staged" in str(result.content)
+
+
+def test_allows_partial_todo_but_blocks_false_receipt(
     tmp_path: Path, monkeypatch
 ) -> None:
     _json(
@@ -123,9 +187,11 @@ def test_blocks_false_completed_todo_and_false_receipt(
         },
         _state(),
     )
-    todo_result = middleware.wrap_tool_call(todo_request, lambda _request: object())
-    assert todo_result.status == "error"
-    assert "cannot mark solar-hypothesis completed" in str(todo_result.content)
+    todo_sentinel = object()
+    todo_result = middleware.wrap_tool_call(
+        todo_request, lambda _request: todo_sentinel
+    )
+    assert todo_result is todo_sentinel
 
     receipt_request = _Request(
         {
@@ -206,6 +272,6 @@ def test_async_preflight_runs_filesystem_checks_off_event_loop(
         return await middleware.awrap_tool_call(request, handler)
 
     result = asyncio.run(run())
-    assert result.status == "error"
+    assert result is not None
     assert preflight_thread is not None
     assert preflight_thread != event_loop_thread

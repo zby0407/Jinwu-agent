@@ -1,5 +1,6 @@
 """Tests for jw/backends.py — validate_command, path conversion, resolve_path."""
 
+import json
 import re
 import shlex
 import sys
@@ -178,6 +179,113 @@ class TestConvertVirtualPaths:
     def test_no_op_no_paths(self):
         result = convert_virtual_paths_in_command("echo hello")
         assert result == "echo hello"
+
+    def test_python_inline_source_rewrites_workspace_virtual_path(self):
+        command = (
+            'python3 -c "from pathlib import Path; '
+            "print(Path('/outputs/results.csv').read_text())\""
+        )
+
+        result = convert_virtual_paths_in_command(command)
+        argv = shlex.split(result)
+
+        assert argv[:2] == ["python3", "-c"]
+        assert "Path('./outputs/results.csv')" in argv[2]
+        assert "Path('/outputs/results.csv')" not in argv[2]
+
+    def test_python_inline_source_resolves_registered_skill_path(
+        self, monkeypatch, tmp_path
+    ):
+        builtin_dir = tmp_path / "builtin_skills"
+        skill_script = builtin_dir / "demo" / "script.py"
+        skill_script.parent.mkdir(parents=True)
+        skill_script.write_text("print('ok')")
+        monkeypatch.setattr(backends, "_BUILTIN_SKILLS_DIR", builtin_dir)
+        monkeypatch.setattr(backends, "_BUILTIN_SKILL_ROOTS", (builtin_dir,))
+        monkeypatch.setattr(paths, "USER_SKILLS_DIR", tmp_path / "user_skills")
+        monkeypatch.setattr(paths, "GLOBAL_SKILLS_DIR", tmp_path / "global_skills")
+
+        result = convert_virtual_paths_in_command(
+            """python -c "from pathlib import Path; """
+            """print(Path('/skills/demo/script.py').read_text())\""""
+        )
+        source = shlex.split(result)[2]
+
+        assert str(skill_script) in source
+        assert "Path('/skills/demo/script.py')" not in source
+
+    def test_non_interpreter_quoted_text_remains_opaque(self):
+        command = """echo "open('/outputs/results.csv')\""""
+
+        assert convert_virtual_paths_in_command(command) == command
+
+    def test_python_inline_source_preserves_division_operator(self):
+        command = (
+            'python3 -c "from pathlib import Path; '
+            "ratio = 6 / 3; "
+            "print(ratio, Path('/outputs/results.csv'))\""
+        )
+
+        result = convert_virtual_paths_in_command(command)
+        source = shlex.split(result)[2]
+
+        assert "6 / 3" in source
+        assert "6 . 3" not in source
+        assert "Path('./outputs/results.csv')" in source
+
+    def test_python_heredoc_body_is_not_path_rewritten(self):
+        command = (
+            "python3 - <<'PY'\n"
+            "from pathlib import Path\n"
+            "ratio = 6 / 3\n"
+            "path = Path('/outputs/results.csv')\n"
+            "print(ratio, path)\n"
+            "PY\n"
+        )
+
+        result = convert_virtual_paths_in_command(command)
+
+        assert result == command
+        assert "6 / 3" in result
+        assert "6 . 3" not in result
+
+    def test_piped_heredoc_body_preserves_division_operator(self):
+        command = (
+            "cat <<'PY' | python3\n"
+            "def slope(num, dx, dy):\n"
+            "    return num / (dx * dy)\n"
+            "PY\n"
+        )
+
+        result = convert_virtual_paths_in_command(command)
+
+        assert result == command
+        assert "num / (dx * dy)" in result
+
+    def test_shell_argument_before_heredoc_is_still_rewritten(self):
+        command = "python3 /main.py <<'EOF'\nvalue = 6 / 3\nEOF\n"
+
+        result = convert_virtual_paths_in_command(command)
+
+        assert result.startswith("python3 ./main.py <<'EOF'")
+        assert "value = 6 / 3" in result
+
+    @pytest.mark.parametrize(
+        "device",
+        ["/dev/null", "/dev/stdin", "/dev/stdout", "/dev/stderr", "/dev/fd/2"],
+    )
+    def test_safe_shell_device_paths_are_not_rewritten(self, device):
+        command = f"echo ok 2>{device}"
+        assert convert_virtual_paths_in_command(command) == command
+
+    def test_dev_null_redirect_is_allowed_by_sandbox_validation(self):
+        command = "find . -name '*.csv' 2>/dev/null"
+        assert validate_command(command) is None
+
+    def test_other_dev_paths_remain_blocked(self):
+        result = validate_command("cat /dev/random")
+        assert result is not None
+        assert "/dev/random" in result
 
     def test_system_path_with_workspace_converted(self):
         """Hallucinated system path containing workspace dir should be fixed."""
@@ -1190,6 +1298,92 @@ class TestResolvePathDangerous:
         assert prepared == "cat ./file.txt"
 
 
+@pytest.mark.skipif(
+    sys.platform == "win32",
+    reason="read-only project shell mounts use POSIX inspection commands",
+)
+class TestReadOnlyProjectShellMount:
+    def _backend(self, tmp_path):
+        workspace = tmp_path / "run"
+        project = tmp_path / "project shared"
+        (workspace / "inputs").mkdir(parents=True)
+        (project / "data").mkdir(parents=True)
+        source = project / "data" / "sample.csv"
+        source.write_text("month,value\n2026-01,42\n", encoding="utf-8")
+        backend = CustomSandboxBackend(
+            root_dir=str(workspace),
+            virtual_mode=True,
+            read_only_mounts={"/project": project},
+        )
+        return backend, workspace, project, source
+
+    def test_reads_virtual_project_path_from_shell(self, tmp_path):
+        backend, _, _, _ = self._backend(tmp_path)
+
+        response = backend.execute(
+            'head -n 1 /project/data/sample.csv && echo "---" && '
+            "wc -l /project/data/sample.csv"
+        )
+
+        assert response.exit_code == 0
+        lines = response.output.splitlines()
+        assert lines[0] == "month,value"
+        assert lines[1] == "---"
+        assert lines[2].split()[0] == "2"
+
+    def test_copies_project_input_into_task_inputs(self, tmp_path):
+        backend, workspace, _, _ = self._backend(tmp_path)
+
+        response = backend.execute(
+            "mkdir -p /inputs && "
+            "cp /project/data/sample.csv /inputs/copied.csv"
+        )
+
+        assert response.exit_code == 0
+        assert (workspace / "inputs" / "copied.csv").read_text(
+            encoding="utf-8"
+        ) == "month,value\n2026-01,42\n"
+
+    @pytest.mark.parametrize(
+        "command",
+        [
+            "echo changed > /project/data/sample.csv",
+            "cp /inputs/replacement.csv /project/data/sample.csv",
+            "rm /project/data/sample.csv",
+            "find /project/data -delete",
+            (
+                "python3 -c \"from pathlib import Path; "
+                "Path('/project/data/sample.csv').write_text('changed')\""
+            ),
+        ],
+    )
+    def test_blocks_mutations_through_virtual_mount(self, tmp_path, command):
+        backend, workspace, _, source = self._backend(tmp_path)
+        (workspace / "inputs" / "replacement.csv").write_text(
+            "replacement\n",
+            encoding="utf-8",
+        )
+
+        response = backend.execute(command)
+
+        assert response.exit_code == 1
+        assert "read-only input mount" in response.output
+        assert source.read_text(encoding="utf-8") == "month,value\n2026-01,42\n"
+
+    def test_real_project_path_obeys_same_read_only_boundary(self, tmp_path):
+        backend, _, _, source = self._backend(tmp_path)
+        quoted_source = shlex.quote(str(source))
+
+        read_response = backend.execute(f"wc -l {quoted_source}")
+        write_response = backend.execute(f"echo changed > {quoted_source}")
+
+        assert read_response.exit_code == 0
+        assert read_response.output.split()[0] == "2"
+        assert write_response.exit_code == 1
+        assert "read-only input mount" in write_response.output
+        assert source.read_text(encoding="utf-8") == "month,value\n2026-01,42\n"
+
+
 # === CustomSandboxBackend.id ===
 
 
@@ -1219,6 +1413,27 @@ class TestSandboxId:
 
 
 class TestExecuteCwdSanitization:
+    def test_inline_python_virtual_path_reaches_shell_as_workspace_relative(
+        self, tmp_workspace, monkeypatch
+    ):
+        captured = {}
+
+        def fake_execute(_self, command, *, timeout=None):
+            captured["command"] = command
+            return backends.ExecuteResponse(output="ok", exit_code=0, truncated=False)
+
+        monkeypatch.setattr(backends.LocalShellBackend, "execute", fake_execute)
+        backend = CustomSandboxBackend(root_dir=tmp_workspace, virtual_mode=True)
+
+        response = backend.execute(
+            """python3 -c "from pathlib import Path; """
+            """print(Path('/outputs/results.csv').read_text())\""""
+        )
+        source = shlex.split(captured["command"])[2]
+
+        assert response.exit_code == 0
+        assert "Path('./outputs/results.csv')" in source
+
     def test_literal_workspace_path_replaced(self, tmp_workspace, monkeypatch):
         """``prepare_sandbox_command`` must rewrite a literal workspace-root
         absolute path to ``./`` before the command reaches the shell backend.
@@ -1540,6 +1755,66 @@ class TestExecuteTruncation:
         resp = backend.execute("echo hello")
         assert resp.truncated is False
         assert "truncated" not in resp.output.lower()
+
+
+# === execute() structured artifact lineage ===
+
+
+class TestExecuteArtifactManifest:
+    @staticmethod
+    def _manifest(output: str) -> dict:
+        match = re.search(
+            r"<artifact_manifest>\n(?P<payload>.+)\n</artifact_manifest>",
+            output,
+        )
+        assert match is not None, output
+        return json.loads(match.group("payload"))
+
+    def test_execute_reports_created_structured_artifact(self, tmp_workspace):
+        backend = CustomSandboxBackend(root_dir=tmp_workspace, virtual_mode=True)
+
+        resp = backend.execute(
+            """python -c "from pathlib import Path; """
+            """Path('derived.json').write_text('{\\\"value\\\": 3}')\""""
+        )
+
+        assert resp.exit_code == 0
+        manifest = self._manifest(resp.output)
+        assert manifest["version"] == 1
+        assert manifest["files"] == [
+            {
+                "path": "/derived.json",
+                "change": "created",
+                "media_type": "application/json",
+                "bytes": 12,
+                "sha256": manifest["files"][0]["sha256"],
+            }
+        ]
+        assert len(manifest["files"][0]["sha256"]) == 64
+        assert "must read these artifact paths directly" in resp.output
+
+    def test_execute_reports_modified_structured_artifact(self, tmp_workspace):
+        target = Path(tmp_workspace) / "measurements.csv"
+        target.write_text("x,y\n1,2\n")
+        backend = CustomSandboxBackend(root_dir=tmp_workspace, virtual_mode=True)
+
+        resp = backend.execute("printf 'x,y\\n3,4\\n' > /measurements.csv")
+
+        assert resp.exit_code == 0
+        manifest = self._manifest(resp.output)
+        assert manifest["files"][0]["path"] == "/measurements.csv"
+        assert manifest["files"][0]["change"] == "modified"
+        assert manifest["files"][0]["media_type"] == "text/csv"
+
+    def test_execute_does_not_emit_manifest_for_unstructured_file(
+        self, tmp_workspace
+    ):
+        backend = CustomSandboxBackend(root_dir=tmp_workspace, virtual_mode=True)
+
+        resp = backend.execute("printf 'notes' > /notes.txt")
+
+        assert resp.exit_code == 0
+        assert "<artifact_manifest>" not in resp.output
 
 
 # === execute() stderr attribution ===

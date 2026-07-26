@@ -11,6 +11,8 @@ from __future__ import annotations
 from contextlib import contextmanager
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from jw.middleware.configurable_model import (
     ConfigurableModelMiddleware,
     _read_model_override,
@@ -328,6 +330,59 @@ class TestResolveFailure:
 
         assert result == "ok"
         assert called == [req]
+
+    def test_sync_qwen_override_failure_never_silently_changes_model(self):
+        mw = ConfigurableModelMiddleware()
+        req = _make_request()
+        handler = MagicMock(return_value="wrong-model")
+
+        with (
+            _patched_config({"model": "qwen3.7-plus", "model_provider": "openrouter"}),
+            patch(
+                "jw.llm.get_chat_model",
+                side_effect=ValueError("missing OpenRouter key"),
+            ),
+            pytest.raises(ValueError, match="missing OpenRouter key"),
+        ):
+            mw.wrap_model_call(req, handler)
+
+        handler.assert_not_called()
+        req.override.assert_not_called()
+
+    async def test_async_qwen_override_failure_never_silently_changes_model(self):
+        mw = ConfigurableModelMiddleware()
+        req = _make_request()
+
+        async def handler(_request):
+            return "wrong-model"
+
+        with (
+            _patched_config({"model": "qwen3.7-plus", "model_provider": "dashscope"}),
+            patch(
+                "jw.llm.get_chat_model",
+                side_effect=ValueError("missing DashScope key"),
+            ),
+            pytest.raises(ValueError, match="missing DashScope key"),
+        ):
+            await mw.awrap_model_call(req, handler)
+
+    def test_qwq_override_failure_never_silently_changes_model(self):
+        mw = ConfigurableModelMiddleware()
+        req = _make_request()
+        handler = MagicMock(return_value="wrong-model")
+
+        with (
+            _patched_config({"model": "qwq-plus", "model_provider": "dashscope"}),
+            patch(
+                "jw.llm.get_chat_model",
+                side_effect=ValueError("missing DashScope key"),
+            ),
+            pytest.raises(ValueError, match="missing DashScope key"),
+        ):
+            mw.wrap_model_call(req, handler)
+
+        handler.assert_not_called()
+        req.override.assert_not_called()
 
 
 # =============================================================================

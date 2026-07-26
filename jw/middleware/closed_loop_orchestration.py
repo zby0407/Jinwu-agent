@@ -1,12 +1,9 @@
-"""Deterministic ordering gates for declared scientific closed loops.
+"""Safety boundaries for explicitly declared end-to-end research tasks.
 
-The main agent can maintain a correct-looking todo list while accidentally
-skipping a specialist call or accepting a prose-only result.  Prompt guidance
-cannot make those transitions trustworthy.  This middleware activates only
-when the user or the agent's own todo history explicitly declares the full
-``solar-planner -> solar-hypothesis -> solar-experiment`` workflow, then checks
-the task-local contract artifacts before allowing downstream delegation or a
-``completed`` todo transition.
+The middleware deliberately does *not* prescribe a planner → hypothesis →
+experiment sequence. Research stages may be skipped, revisited, or returned as
+partial work. The remaining deterministic checks protect real execution inputs
+and prevent a receipt from claiming an artifact that does not exist.
 """
 
 from __future__ import annotations
@@ -28,8 +25,6 @@ if TYPE_CHECKING:
     from langchain.agents.middleware.types import ToolCallRequest
 
 _SPECIALISTS = ("solar-planner", "solar-hypothesis", "solar-experiment")
-_DATA_SPECIALISTS = ("solar-data", "data-analysis-agent")
-
 _CLOSED_LOOP_MARKERS = (
     "完整研究",
     "完整整合",
@@ -52,19 +47,6 @@ _DATA_DEPENDENT = re.compile(
     r"(?:数据|文件|data|file).{0,20}(?:分析|读取|使用|检验|预测|analy|read|use|test|predict)|"
     r"\.(?:csv|tsv|parquet|json|fits?|nc|h5)\b",
     re.IGNORECASE,
-)
-_COMPUTE_COMMAND = re.compile(
-    r"(?:^|[;&|]\s*)(?:python\d*|pytest|Rscript|jupyter|ipython|matlab|octave)\b",
-    re.IGNORECASE,
-)
-_CODE_SUFFIXES = (".py", ".ipynb", ".r", ".jl", ".m")
-_REPORT_NAMES = (
-    "final_report",
-    "research_report",
-    "paper",
-    "manuscript",
-    "论文",
-    "完整报告",
 )
 
 
@@ -109,26 +91,6 @@ def _state_text(state: object) -> str:
     return " ".join(chunks)
 
 
-def _delegated_agent_types(state: object) -> set[str]:
-    if not isinstance(state, Mapping):
-        return set()
-    delegated: set[str] = set()
-    messages = state.get("messages", [])
-    if not isinstance(messages, Sequence) or isinstance(messages, (str, bytes)):
-        return delegated
-    for message in messages:
-        calls = _field(message, "tool_calls", [])
-        if not isinstance(calls, Sequence) or isinstance(calls, (str, bytes)):
-            continue
-        for call in calls:
-            if _field(call, "name", "") != "task":
-                continue
-            args = _field(call, "args", {})
-            if isinstance(args, Mapping):
-                delegated.add(str(args.get("subagent_type") or ""))
-    return delegated
-
-
 def _natural_closed_loop_intent(text: str) -> bool:
     folded = text.casefold()
     if not any(marker in folded for marker in _CLOSED_LOOP_MARKERS):
@@ -143,6 +105,9 @@ def _natural_closed_loop_intent(text: str) -> bool:
 def _declares_full_closed_loop(state: object) -> bool:
     if not isinstance(state, Mapping):
         return False
+    route = state.get("research_route")
+    if isinstance(route, Mapping) and route.get("mode") == "full_research":
+        return True
     chunks = [_todo_text(state.get("todos"))]
     messages = state.get("messages", [])
     if isinstance(messages, Sequence) and not isinstance(messages, (str, bytes)):
@@ -247,7 +212,7 @@ def _claims_success(value: object) -> bool:
 
 
 class ClosedLoopOrchestrationGuardMiddleware(AgentMiddleware[Any, Any, Any]):
-    """Fail closed on impossible transitions in a declared three-stage loop."""
+    """Protect execution boundaries without forcing a fixed research route."""
 
     def _blocked(self, request: ToolCallRequest, reason: str) -> ToolMessage:
         name = str(request.tool_call.get("name") or "unknown_tool")
@@ -266,7 +231,6 @@ class ClosedLoopOrchestrationGuardMiddleware(AgentMiddleware[Any, Any, Any]):
         config = getattr(request.runtime, "config", None)
         workspace_root = workspace_root_from_config(config)
         receipts = closed_loop_receipts(workspace_root)
-        delegated = _delegated_agent_types(request.state)
         state_text = _state_text(request.state)
         name = str(request.tool_call.get("name") or "")
         args = request.tool_call.get("args", {})
@@ -274,32 +238,6 @@ class ClosedLoopOrchestrationGuardMiddleware(AgentMiddleware[Any, Any, Any]):
 
         if name == "task":
             specialist = str(args.get("subagent_type") or "")
-            if (
-                specialist == "solar-planner"
-                and _DATA_DEPENDENT.search(state_text)
-                and not delegated.intersection(_DATA_SPECIALISTS)
-            ):
-                return self._blocked(
-                    request,
-                    "this complete data-dependent workflow must first make a real "
-                    "task call to solar-data or data-analysis-agent. Main-agent prose "
-                    "or an ad-hoc script is not a data-analysis stage.",
-                )
-            if specialist == "solar-hypothesis" and receipts["solar-planner"] is None:
-                return self._blocked(
-                    request,
-                    "solar-hypothesis requires a real frozen planner artifact in "
-                    "this task workspace; a prose result or todo update is not a receipt.",
-                )
-            if (
-                specialist == "solar-experiment"
-                and receipts["solar-hypothesis"] is None
-            ):
-                return self._blocked(
-                    request,
-                    "solar-experiment requires a real frozen hypothesis artifact in "
-                    "this task workspace. Invoke solar-hypothesis and obtain freeze first.",
-                )
             if (
                 specialist == "solar-experiment"
                 and _DATA_DEPENDENT.search(state_text)
@@ -315,64 +253,8 @@ class ClosedLoopOrchestrationGuardMiddleware(AgentMiddleware[Any, Any, Any]):
                     "solar-experiment task description.",
                 )
 
-        if name == "execute" and receipts["solar-experiment"] is None:
-            command = str(args.get("command") or "")
-            if _COMPUTE_COMMAND.search(command):
-                return self._blocked(
-                    request,
-                    "do not run the integrated experiment from the main agent. Complete "
-                    "solar-planner, solar-hypothesis, and solar-experiment through real "
-                    "task calls and verified contract artifacts.",
-                )
-
-        if name == "write_todos":
-            todos = args.get("todos", [])
-            if isinstance(todos, Sequence) and not isinstance(todos, (str, bytes)):
-                for todo in todos:
-                    if (
-                        not isinstance(todo, Mapping)
-                        or todo.get("status") != "completed"
-                    ):
-                        continue
-                    content = str(todo.get("content", "")).casefold()
-                    for specialist in _SPECIALISTS:
-                        if specialist in content and receipts[specialist] is None:
-                            return self._blocked(
-                                request,
-                                f"cannot mark {specialist} completed: its verified "
-                                "task-local freeze/finalize artifact does not exist.",
-                            )
-                if todos and all(
-                    isinstance(todo, Mapping) and todo.get("status") == "completed"
-                    for todo in todos
-                ):
-                    missing = [item for item in _SPECIALISTS if receipts[item] is None]
-                    if missing:
-                        return self._blocked(
-                            request,
-                            "cannot complete the integrated workflow before verified "
-                            f"specialist artifacts exist: {missing}.",
-                        )
-
         if name == "write_file":
             file_path = str(args.get("file_path") or args.get("path") or "")
-            folded_path = file_path.casefold()
-            if receipts["solar-experiment"] is None and folded_path.endswith(
-                _CODE_SUFFIXES
-            ):
-                return self._blocked(
-                    request,
-                    "do not implement integrated experiment code in the main agent; "
-                    "delegate the validated experiment to solar-experiment.",
-                )
-            if any(marker in folded_path for marker in _REPORT_NAMES):
-                missing = [item for item in _SPECIALISTS if receipts[item] is None]
-                if missing:
-                    return self._blocked(
-                        request,
-                        "final report creation requires verified specialist artifacts; "
-                        f"missing: {missing}.",
-                    )
             if file_path.rstrip("/").endswith("receipts/closed_loop_receipts.json"):
                 try:
                     summary = json.loads(str(args.get("content") or ""))

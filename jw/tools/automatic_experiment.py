@@ -33,6 +33,7 @@ from automatic_experiment.contracts import (  # noqa: E402
     default_request,
 )
 from automatic_experiment.state import task_workspace  # noqa: E402
+from jw.tools.registry import register_tool_bundle  # noqa: E402
 from jw.workspaces import (  # noqa: E402
     resolve_scoped_path,
     workspace_root_from_config,
@@ -393,5 +394,7 @@ AUTOMATIC_EXPERIMENT_TOOLS = [
     automatic_experiment_verify_result,
     automatic_experiment_finalize,
 ]
+
+register_tool_bundle("automatic-experiment", AUTOMATIC_EXPERIMENT_TOOLS)
 
 __all__ = ["AUTOMATIC_EXPERIMENT_TOOLS"] + [t.name for t in AUTOMATIC_EXPERIMENT_TOOLS]

@@ -15,6 +15,7 @@ from jw.cli.status_bar import (
     build_session_status_snapshot,
     build_status_fragments,
     build_status_text,
+    make_empty_status_snapshot,
     make_usage_status_snapshot,
     shorten_model_name,
     status_style_name,
@@ -225,6 +226,22 @@ def test_status_style_name_thresholds():
     assert status_style_name(80) == "warn"
     assert status_style_name(81) == "bad"
     assert status_style_name(95) == "critical"
+
+
+def test_empty_status_snapshot_does_not_construct_provider_client(monkeypatch):
+    monkeypatch.setattr(
+        "jw.cli.status_bar._get_configured_model_name",
+        lambda: "qwen3.7-plus",
+    )
+    monkeypatch.setattr(
+        "jw.cli.status_bar._get_default_chat_model",
+        lambda: (_ for _ in ()).throw(AssertionError("provider client initialized")),
+    )
+
+    snapshot = make_empty_status_snapshot()
+
+    assert snapshot.model_full == "qwen3.7-plus"
+    assert snapshot.context_window == 1_000_000
 
 
 def test_build_status_text_uses_rich_styles():

@@ -13,14 +13,15 @@ import sys
 from pathlib import Path
 from typing import Any
 
-_PROJECT_ROOT = Path("/Users/zhuanz/Desktop/tb2/JW")
+_PROJECT_ROOT = Path(__file__).resolve().parents[2]
 _SRC = _PROJECT_ROOT / "src"
 if str(_SRC) not in sys.path:
     sys.path.insert(0, str(_SRC))
 
-from langchain_core.tools import tool  # noqa: E402
 from langchain_core.runnables import RunnableConfig  # noqa: E402
+from langchain_core.tools import tool  # noqa: E402
 
+from jw.tools.registry import register_tool_bundle  # noqa: E402
 from knowledge_base import literature, service  # noqa: E402
 from knowledge_base.store import KnowledgeStore  # noqa: E402
 
@@ -382,7 +383,7 @@ def kb_import(path: str = "") -> str:
 
     Args:
         path: A markdown file or a directory of markdown files; empty uses
-            the default ``knowledge_base/`` export directory.
+            the active ``<workspace>/knowledge_base/`` export directory.
 
     Returns:
         JSON string with imported/updated id lists and per-file errors.
@@ -479,8 +480,8 @@ def lit_fetch(source_id: str) -> str:
 
     The task-readable copy goes to ``workspace/literature/`` (falling back to
     ``<DATA_DIR>/literature``); an immutable Wiki copy goes to
-    ``knowledge_base/raw/sources/``. Idempotent: an already-fetched source
-    returns the existing file with ``cached=true``.
+    ``<workspace>/knowledge_base/raw/sources/``. Idempotent: an already-fetched
+    source returns the existing file with ``cached=true``.
 
     Args:
         source_id: Cached source id from ``lit_search``, like ``openalex:W123``.
@@ -576,5 +577,7 @@ KB_TOOLS = [
     lit_fetch,
     lit_distill,
 ]
+
+register_tool_bundle("knowledge-base", KB_TOOLS)
 
 __all__ = ["KB_TOOLS"] + [t.name for t in KB_TOOLS]

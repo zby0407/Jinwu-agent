@@ -11,6 +11,8 @@ from typing import Any
 
 from jsonschema import Draft202012Validator
 
+from research_layout import EXPERIMENT_RESOURCE_ROOT
+
 from .attempts import prepare_attempt, verify_attempt_immutable
 from .contracts import (
     AMBIGUOUS_FLAGGED_RETENTION_LANGUAGE,
@@ -57,7 +59,6 @@ from .paths import (
 from .policy import validate_code_files, verify_dependencies
 from .reporting import finalize_report
 from .state import (
-    PROJECT_ROOT,
     atomic_write_json,
     checkpoint,
     create_run,
@@ -692,7 +693,11 @@ def _design_schema_issues(
 ) -> list[dict[str, str]]:
     """Return all independently visible shape and cross-field issues in one response."""
 
-    schema_path = PROJECT_ROOT / "experiment" / "specs" / "automatic_experiment_design_v1.schema.json"
+    schema_path = (
+        EXPERIMENT_RESOURCE_ROOT
+        / "specs"
+        / "automatic_experiment_design_v1.schema.json"
+    )
     schema = json.loads(schema_path.read_text(encoding="utf-8"))
     validator = Draft202012Validator(schema)
     issues: list[dict[str, str]] = []

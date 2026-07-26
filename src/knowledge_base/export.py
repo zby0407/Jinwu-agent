@@ -1,7 +1,8 @@
 """Markdown export / re-import for knowledge entries (plan §5.1).
 
-Every store write is mirrored to ``knowledge_base/<type>/<id>.md`` at the
-repository root: YAML frontmatter carrying all metadata fields, body
+Every store write is mirrored to
+``<workspace>/knowledge_base/<type>/<id>.md``: YAML frontmatter carrying all
+metadata fields, body
 carrying the per-type content sub-fields as ``## <field>`` sections (list
 fields rendered as ``- `` bullets). Frontmatter values are JSON-serialized
 scalars/arrays — valid YAML 1.2 and round-trippable without a YAML

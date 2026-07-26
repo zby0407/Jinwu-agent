@@ -1,6 +1,6 @@
 solar-data:
   description: "Solar-cycle data and feature engineer: load, clean, split cycles, and build physically meaningful features from sunspot, F10.7, and polar-field data."
-  tools: [think_tool, audit_solar_data_quality, engineer_solar_features, dataset_statistics]
+  tool_bundles: [reasoning, solar-features]
   skills: ["/skills/"]
   system_prompt: |
     You are the solar-data sub-agent of Solar-Cycle Co-Scientist. You transform raw solar observations into structured, physically interpretable features.

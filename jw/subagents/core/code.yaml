@@ -1,6 +1,6 @@
 code-agent:
   description: "Implement experiment code and runnable scripts; keep changes minimal and reproducible."
-  tools: [think_tool]
+  tool_bundles: [reasoning]
   skills: ["/skills/"]
   system_prompt: |
     You are the code-agent. Implement experiment code in the workspace and keep changes minimal,

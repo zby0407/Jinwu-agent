@@ -13,10 +13,18 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterator
 
+from research_layout import (
+    PROJECT_ROOT as PROJECT_ROOT,
+)
+from research_layout import (
+    contract_inputs_root,
+    contract_runs_root,
+)
+
 from .contracts import SESSION_VERSION, canonical_sha256
 
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
-RUNS_ROOT = PROJECT_ROOT / "experiment" / "runs"
+RUNS_ROOT = contract_runs_root("experiment")
+INPUTS_ROOT = contract_inputs_root("experiment")
 _TASK_WORKSPACE_ROOT: ContextVar[Path | None] = ContextVar(
     "automatic_experiment_task_workspace_root", default=None
 )
@@ -61,11 +69,7 @@ def runs_root() -> Path:
 
 def inputs_root() -> Path:
     workspace = current_task_workspace()
-    return (
-        (workspace / "inputs")
-        if workspace
-        else (PROJECT_ROOT / "experiment" / "inputs")
-    )
+    return (workspace / "inputs") if workspace else INPUTS_ROOT
 
 
 def utc_now() -> str:

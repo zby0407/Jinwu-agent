@@ -9,13 +9,14 @@
 ├── jw/                 # Python 主程序与智能体运行时
 ├── webui/              # Next.js WebUI（与后端共用本仓库）
 ├── tests/              # 后端测试
-├── src/                # 独立科研工作流模块
-├── planner/            # 研究规划器
-├── hypothesis/         # 科学假设工作流
-├── experiment/         # 自动实验工作流
-├── knowledge_base/     # 知识库
+├── src/                # 独立科研工作流源码
+├── research/           # 科研合同、规范、示例与开发资源
+├── workspace/          # 数据、项目任务、运行产物与知识库导出
 └── pi-mcp-bridge/      # Pi Agent MCP 桥接
 ```
+
+`research/` 是版本化的只读资源层；所有可变状态统一写入
+`workspace/`（可通过 `JW_WORKSPACE_DIR` 迁移到其他位置）。
 
 项目根目录是唯一 Git 仓库，`webui/` 不包含独立的 Git 元数据。
 
@@ -77,6 +78,7 @@ docker compose run --rm jw
 
 - [贡献指南](./CONTRIBUTING.md)
 - [项目文档](./docs/)
+- [项目目录与数据位置](./docs/PROJECT_LAYOUT.md)
 - [WebUI 说明](./webui/README.md)
 - [中文说明](./README.zh-CN.md)
 

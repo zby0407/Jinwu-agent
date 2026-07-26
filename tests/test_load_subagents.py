@@ -139,3 +139,48 @@ def test_non_dict_spec_error_includes_filename_and_name(tmp_path):
     )
     with pytest.raises(ValueError, match=r"weird\.yaml.*weird-agent"):
         load_subagents(config_path, tool_registry={})
+
+
+def test_tool_bundle_expands_without_copying_individual_names(tmp_path):
+    class _Tool:
+        def __init__(self, name: str) -> None:
+            self.name = name
+
+    first = _Tool("first_tool")
+    second = _Tool("second_tool")
+    config_path = _write_yaml(
+        tmp_path,
+        "bundled.yaml",
+        """
+        bundled-agent:
+          description: Uses one capability
+          system_prompt: ""
+          tool_bundles: [example-capability]
+          restrict_tools: true
+        """,
+    )
+
+    subagent = load_subagents(
+        config_path,
+        tool_registry={},
+        tool_bundles={"example-capability": (first, second)},
+    )[0]
+
+    assert subagent["tools"] == [first, second]
+    assert subagent["_restrict_tools"] is True
+
+
+def test_unknown_tool_bundle_fails_loud(tmp_path):
+    config_path = _write_yaml(
+        tmp_path,
+        "unknown.yaml",
+        """
+        broken-agent:
+          description: ""
+          system_prompt: ""
+          tool_bundles: [missing-capability]
+        """,
+    )
+
+    with pytest.raises(ValueError, match=r"unknown tool bundle 'missing-capability'"):
+        load_subagents(config_path, tool_registry={}, tool_bundles={})

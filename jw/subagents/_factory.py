@@ -36,7 +36,6 @@ def build_async_subagent_graph(name: str) -> Any:
     # at package import.
     from deepagents import create_deep_agent
 
-    from jw.config import apply_config_to_env, get_effective_config
     from jw.agent import (
         SUBAGENTS_CONFIG,
         _ensure_auxiliary_chat_model,
@@ -47,16 +46,8 @@ def build_async_subagent_graph(name: str) -> Any:
         _inject_subagent_middleware,
         _resolve_subagent_dirs,
     )
-    from jw.tools import (
-        AUTOMATIC_EXPERIMENT_TOOLS,
-        KB_TOOLS,
-        RESEARCH_PLANNER_TOOLS,
-        SCIENTIFIC_HYPOTHESIS_TOOLS,
-        SOLAR_FEATURE_TOOLS,
-        skill_manager,
-        tavily_search,
-        think_tool,
-    )
+    from jw.config import apply_config_to_env, get_effective_config
+    from jw.tools import get_builtin_tool_registry, get_tool_bundles
     from jw.utils import load_subagents
 
     # Surface API keys as env vars so downstream SDKs (openai, anthropic, …)
@@ -64,28 +55,15 @@ def build_async_subagent_graph(name: str) -> Any:
     cfg = get_effective_config()
     apply_config_to_env(cfg)
 
-    # Mirror the tool registry constructed in JW._build_base_kwargs.
-    # tavily_search now includes a DuckDuckGo HTML fallback when no
-    # TAVILY_API_KEY is set, so it is always registered.
-    tool_registry = {
-        "think_tool": think_tool,
-        "tavily_search": tavily_search,
-        "skill_manager": skill_manager,
-    }
-    for _t in (
-        SOLAR_FEATURE_TOOLS
-        + SCIENTIFIC_HYPOTHESIS_TOOLS
-        + AUTOMATIC_EXPERIMENT_TOOLS
-        + RESEARCH_PLANNER_TOOLS
-        + KB_TOOLS
-    ):
-        tool_registry[_t.name] = _t
+    # Main, CLI, Web/LangGraph, and async sub-agents share this exact registry.
+    tool_registry = get_builtin_tool_registry()
 
     # Use the official loader so resolved tools, prompt_refs, and skills are
     # all wired the same way as the in-process sync version.
     specs = load_subagents(
         _resolve_subagent_dirs(),
         tool_registry=tool_registry,
+        tool_bundles=get_tool_bundles(),
     )
     spec = next((s for s in specs if s.get("name") == name), None)
     if spec is None:
@@ -124,9 +102,19 @@ def build_async_subagent_graph(name: str) -> Any:
     _ensure_general_purpose_subagent(subagents)
     _inject_subagent_middleware(subagents)
 
+    backend = _get_scoped_backend_factory()
+    skill_sources = spec.get("skills")
     middleware = _get_default_middleware(
         for_async_subagent=True,
         memory_source_agent=name,
+        backend_factory=backend,
+        skills_backend=backend,
+        skill_sources=list(skill_sources) if skill_sources else None,
+        allowed_tools=(
+            frozenset(tool.name for tool in spec.get("tools", []))
+            if spec.pop("_restrict_tools", False)
+            else None
+        ),
     )
 
     # Scheduler is an unattended timer task → use the cheaper auxiliary model.
@@ -139,8 +127,10 @@ def build_async_subagent_graph(name: str) -> Any:
         model=model,
         system_prompt=spec.get("system_prompt", ""),
         tools=spec.get("tools", []) + agent_mcp_tools,
-        skills=spec.get("skills"),
-        backend=_get_scoped_backend_factory(),
+        # The equivalent SkillsMiddleware is ordered after task workspace
+        # preparation in ``_get_default_middleware``.
+        skills=None,
+        backend=backend,
         middleware=middleware,
         subagents=subagents,
     ).with_config({"recursion_limit": cfg.recursion_limit})

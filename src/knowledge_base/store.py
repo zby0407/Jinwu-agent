@@ -25,6 +25,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from research_layout import knowledge_export_root
+
 from .fts import query_to_match, tokenize
 from .literature_identity import (
     first_author_key,
@@ -148,16 +150,16 @@ def default_db_path() -> Path:
 
 
 def default_export_dir() -> Path:
-    """``<repo root>/knowledge_base/`` markdown export directory.
+    """Return the live Markdown export directory under the active workspace.
 
     ``JW_KB_EXPORT_DIR`` overrides the location (used by tests to
-    keep the repository export tree clean); unset keeps the P1 default.
+    keep the real export tree clean).
     """
 
     override = os.getenv("JW_KB_EXPORT_DIR")
     if override:
         return Path(override).expanduser()
-    return Path(__file__).resolve().parents[2] / "knowledge_base"
+    return knowledge_export_root()
 
 
 def _content_text(entry: dict[str, Any]) -> str:

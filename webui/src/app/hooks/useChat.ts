@@ -170,12 +170,24 @@ function formatStreamError(error: unknown): string {
 }
 
 function hasHttpStatus(error: unknown, status: number): boolean {
-  return (
-    !!error &&
-    typeof error === "object" &&
-    "status" in error &&
-    (error as { status?: unknown }).status === status
-  );
+  if (typeof error === "string") {
+    return (
+      error.includes(`HTTP ${status}`) ||
+      error.includes(`"status":${status}`) ||
+      error.includes(`"status": ${status}`)
+    );
+  }
+  if (!error || typeof error !== "object") return false;
+  const value = error as {
+    status?: unknown;
+    message?: unknown;
+    error?: unknown;
+  };
+  if (value.status === status) return true;
+  if (typeof value.message === "string" && hasHttpStatus(value.message, status)) {
+    return true;
+  }
+  return value.error !== error && hasHttpStatus(value.error, status);
 }
 
 export function useChat({
@@ -189,6 +201,82 @@ export function useChat({
 }) {
   const [threadId, setThreadId] = useQueryState("threadId");
   const client = useClient();
+  // Never hand an unverified URL id to useStream. The SDK starts hydration
+  // immediately and a missing thread rejects an internal promise before its
+  // onError callback can fully contain it. Preflighting the record keeps a
+  // stale post-restart URL out of the streaming state machine altogether.
+  const [streamThreadId, setStreamThreadId] = useState<string | null>(null);
+  const [streamThreadMetadata, setStreamThreadMetadata] = useState<Record<
+    string,
+    unknown
+  > | null>(null);
+  const missingThreadIdsRef = useRef<Set<string>>(new Set());
+  const recoverMissingThread = useCallback(
+    (missingThreadId: string) => {
+      // LangGraph dev can legitimately lose an in-memory thread after restart.
+      // A stale URL must not leave useStream hydrating forever: detach the dead
+      // id and return to a clean composer. Keep the notification idempotent
+      // because SDK hydration, metadata loading, and recovery polling can all
+      // observe the same 404 concurrently.
+      if (threadId === missingThreadId) {
+        void setThreadId(null);
+      }
+      setStreamThreadId((current) =>
+        current === missingThreadId ? null : current
+      );
+      setStreamThreadMetadata(null);
+      if (!missingThreadIdsRef.current.has(missingThreadId)) {
+        missingThreadIdsRef.current.add(missingThreadId);
+        toast.warning("原任务已在服务重启后失效，已切换到新任务。");
+      }
+      onHistoryRevalidate?.();
+    },
+    [onHistoryRevalidate, setThreadId, threadId]
+  );
+  useEffect(() => {
+    if (!threadId) {
+      setStreamThreadId(null);
+      setStreamThreadMetadata(null);
+      return;
+    }
+    if (streamThreadId === threadId) return;
+
+    let cancelled = false;
+    void client.threads
+      .search({
+        ids: [threadId],
+        limit: 1,
+        select: ["thread_id", "metadata"],
+      })
+      .then((matches) => {
+        if (cancelled) return;
+        const match = matches.find((item) => item.thread_id === threadId);
+        if (!match) {
+          recoverMissingThread(threadId);
+          return;
+        }
+        setStreamThreadMetadata(
+          (match.metadata as Record<string, unknown> | undefined) ?? {}
+        );
+        setStreamThreadId(threadId);
+      })
+      .catch((error) => {
+        if (!cancelled) {
+          toast.error(formatStreamError(error));
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [client, recoverMissingThread, streamThreadId, threadId]);
+  const handleStreamThreadId = useCallback(
+    (createdThreadId: string) => {
+      setStreamThreadId(createdThreadId);
+      setStreamThreadMetadata({});
+      void setThreadId(createdThreadId);
+    },
+    [setThreadId]
+  );
 
   // Live sub-agent activity captured from subgraph stream events, keyed by the
   // subgraph namespace (e.g. "tools:<id>"). Ephemeral: it resets when the chat
@@ -201,11 +289,14 @@ export function useChat({
     assistantId: activeAssistant?.assistant_id || "",
     client: client ?? undefined,
     reconnectOnMount: true,
-    threadId: threadId ?? null,
-    onThreadId: setThreadId,
+    threadId: streamThreadId,
+    onThreadId: handleStreamThreadId,
     defaultHeaders: { "x-auth-scheme": "langsmith" },
-    // Enable fetching state history when switching to existing threads
-    fetchStateHistory: true,
+    // The SDK default (`true`) downloads 10 complete checkpoints. A research
+    // thread can carry multi-megabyte private interpreter snapshots in every
+    // checkpoint, making one conversation take seconds to open. Keep its
+    // supported history/branch API enabled, but fetch only the current head.
+    fetchStateHistory: { limit: 1 },
     // Revalidate thread list when stream finishes, errors, or creates new
     // thread. Errors additionally surface a toast with the SDK's payload -
     // without this the user only sees React's generic "An internal error
@@ -214,10 +305,10 @@ export function useChat({
     onFinish: onHistoryRevalidate,
     onError: (error) => {
       onHistoryRevalidate?.();
-      // A missing in-memory dev thread is recoverable on the next submit (see
-      // sendMessage below). Do not show a fatal-looking toast while the
-      // composer is already unlocking for that recovery path.
-      if (hasHttpStatus(error, 404)) return;
+      if (hasHttpStatus(error, 404) && threadId) {
+        recoverMissingThread(threadId);
+        return;
+      }
       toast.error(formatStreamError(error));
     },
     onCreated: onHistoryRevalidate,
@@ -277,6 +368,12 @@ export function useChat({
   // so a refresh cannot unlock the composer while the original run is active.
   const [serverPending, setServerPending] = useState(false);
   const recoveryRunRef = useRef(0);
+  // Recovery polling is only for a live run whose SSE tail may have been
+  // dropped. Initial conversation hydration already comes from useStream's
+  // latest-state request; polling again there downloads the same large state
+  // plus the full thread record for no benefit.
+  const recoveryNeededRef = useRef(false);
+  const recoveryThreadRef = useRef<string | null>(null);
 
   // Per-thread model override. When set, gets folded into
   // `configurable.model` on every `stream.submit` — the backend's
@@ -297,7 +394,7 @@ export function useChat({
   );
   const pendingOverrideRef = useRef<ModelOverride | null>(null);
   useEffect(() => {
-    if (!threadId) {
+    if (!threadId || streamThreadId !== threadId) {
       // Don't clobber a pending pre-thread override — `buildRunConfig` still
       // needs to read it for the first send.
       if (!pendingOverrideRef.current) setModelOverrideState(null);
@@ -320,38 +417,24 @@ export function useChat({
       })();
       return;
     }
-    let cancelled = false;
-    void (async () => {
-      try {
-        const t = (await client.threads.get(threadId)) as {
-          metadata?: Record<string, unknown>;
-        };
-        if (cancelled) return;
-        const raw = (t.metadata ?? {})[MODEL_OVERRIDE_METADATA_KEY];
-        if (
-          raw &&
-          typeof raw === "object" &&
-          typeof (raw as { model?: unknown }).model === "string"
-        ) {
-          const r = raw as { model: string; model_provider?: unknown };
-          setModelOverrideState({
-            model: r.model,
-            model_provider:
-              typeof r.model_provider === "string"
-                ? r.model_provider
-                : undefined,
-          });
-        } else {
-          setModelOverrideState(null);
-        }
-      } catch {
-        if (!cancelled) setModelOverrideState(null);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [client, threadId]);
+    const raw = (streamThreadMetadata ?? {})[MODEL_OVERRIDE_METADATA_KEY];
+    if (
+      raw &&
+      typeof raw === "object" &&
+      typeof (raw as { model?: unknown }).model === "string"
+    ) {
+      const r = raw as { model: string; model_provider?: unknown };
+      setModelOverrideState({
+        model: r.model,
+        model_provider:
+          typeof r.model_provider === "string"
+            ? r.model_provider
+            : undefined,
+      });
+    } else {
+      setModelOverrideState(null);
+    }
+  }, [streamThreadId, streamThreadMetadata, threadId]);
 
   // Persist + apply locally. When the thread row exists, writes metadata
   // first so a reload keeps the choice. Pre-thread (new chat with no
@@ -372,7 +455,9 @@ export function useChat({
   );
   const streamInterruptKey = interruptValueKey(stream.interrupt);
   useEffect(() => {
-    if (!threadId) {
+    if (!threadId || streamThreadId !== threadId) {
+      recoveryThreadRef.current = threadId;
+      recoveryNeededRef.current = false;
       setFetchedInterrupt(undefined);
       setFetchedMessages(null);
       setFetchedThreadId(null);
@@ -380,12 +465,19 @@ export function useChat({
       setServerPending(false);
       return;
     }
+    if (recoveryThreadRef.current !== threadId) {
+      recoveryThreadRef.current = threadId;
+      recoveryNeededRef.current = false;
+    }
     if (stream.isLoading) {
+      recoveryNeededRef.current = true;
       recoveryRunRef.current += 1;
       setFetchedInterrupt(undefined);
       setServerPending(false);
       return;
     }
+    if (!recoveryNeededRef.current) return;
+    recoveryNeededRef.current = false;
     // The live stream count at the moment it settled. If the server's persisted
     // state has MORE messages than this, the stream ended early and dropped the
     // tail — either the final assistant text, or the `execute` tool-call message
@@ -472,6 +564,7 @@ export function useChat({
         if (hasHttpStatus(error, 404)) {
           setServerPending(false);
           setFetchedInterrupt(undefined);
+          recoverMissingThread(threadId);
           return;
         }
         if (
@@ -491,7 +584,14 @@ export function useChat({
     // Precise deps on purpose: re-running on the whole `stream` object (new each
     // render) would loop the getState fetch.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [threadId, streamInterruptKey, stream.isLoading, client]);
+  }, [
+    threadId,
+    streamInterruptKey,
+    stream.isLoading,
+    client,
+    recoverMissingThread,
+    streamThreadId,
+  ]);
 
   // Show the live interrupt unless it's the exact one the server told us was
   // resolved (then fall through to the fetched one, usually undefined → composer
@@ -576,11 +676,12 @@ export function useChat({
       setServerPending(true);
       void (async () => {
         if (threadId) {
-          try {
-            await client.threads.get(threadId);
-          } catch (error) {
-            if (!hasHttpStatus(error, 404)) throw error;
-
+          const matches = await client.threads.search({
+            ids: [threadId],
+            limit: 1,
+            select: ["thread_id"],
+          });
+          if (!matches.some((item) => item.thread_id === threadId)) {
             // Recreate only the missing server-side shell. Restore the visible
             // conversation, but deliberately do NOT restore async_tasks or
             // other execution state: those belong to the dead backend process
@@ -588,7 +689,10 @@ export function useChat({
             await client.threads.create({
               threadId,
               graphId: activeAssistant?.graph_id,
-              metadata: { project_id: "default" },
+              metadata: {
+                project_id: "default",
+                title: content.trim().slice(0, 80),
+              },
               ifExists: "do_nothing",
             });
             if (stream.messages.length > 0) {
@@ -606,6 +710,13 @@ export function useChat({
               messages: [...(prev.messages ?? []), newMessage],
             }),
             config: buildRunConfig(),
+            metadata:
+              threadId === null
+                ? {
+                    project_id: "default",
+                    title: content.trim().slice(0, 80),
+                  }
+                : undefined,
             streamSubgraphs: true,
             streamMode: ["updates"],
             streamResumable: true,
@@ -694,7 +805,9 @@ export function useChat({
     setFiles,
     messages,
     isLoading: stream.isLoading || serverPending,
-    isThreadLoading: stream.isThreadLoading,
+    isThreadLoading:
+      stream.isThreadLoading ||
+      (threadId !== null && streamThreadId !== threadId),
     interrupt,
     sendMessage,
     stopStream,

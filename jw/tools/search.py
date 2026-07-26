@@ -17,6 +17,8 @@ from langchain_core.tools import InjectedToolArg, tool
 from markdownify import markdownify
 from tavily import TavilyClient
 
+from .registry import register_tool_bundle
+
 # Lazy initialization - only create client when needed
 _tavily_client = None
 
@@ -185,3 +187,6 @@ async def tavily_search(
     return f"""Found {len(result_texts)} result(s) for '{query}' {source_note}:
 
 {"".join(result_texts)}"""
+
+
+register_tool_bundle("web-search", [tavily_search], include_in_main=False)

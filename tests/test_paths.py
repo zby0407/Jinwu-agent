@@ -34,6 +34,19 @@ def _restore_paths():
     paths._active_workspace = orig["_active_workspace"]
 
 
+def test_source_checkout_default_is_contained_by_workspace(
+    tmp_path, monkeypatch
+) -> None:
+    (tmp_path / "pyproject.toml").write_text(
+        "[project]\nname='jw-agent'\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "jw").mkdir()
+    monkeypatch.chdir(tmp_path)
+
+    assert paths._default_workspace_root() == tmp_path / "workspace"
+
+
 class TestSetWorkspaceRoot:
     """Tests for set_workspace_root()."""
 

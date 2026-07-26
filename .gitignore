@@ -67,16 +67,8 @@ coverage/
 *.tsbuildinfo
 *.tgz
 
-# Research planner runtime artifacts
-planner/runs/
-
-# Hypothesis / experiment agent runtime artifacts
-hypothesis/runs/
-experiment/runs/
-
 # Locked macOS sandbox environment for the experiment agent
 .venv-sandbox/
 
-# Agent workspace / contract test runtime artifacts
-runs/
-projects/
+# Mutable datasets, project tasks, contract runs, and knowledge exports
+# are all contained by workspace/.

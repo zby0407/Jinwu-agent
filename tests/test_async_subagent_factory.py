@@ -41,7 +41,7 @@ def _assert_subagent_memory_middleware(subagent: dict, *, source_agent: str) -> 
 @patch("deepagents.create_deep_agent")
 @patch("jw.agent._load_mcp_tools_cached", return_value={})
 @patch("jw.agent._get_default_middleware", return_value=[])
-@patch("jw.agent._get_default_backend")
+@patch("jw.agent._get_scoped_backend_factory")
 @patch("jw.agent._ensure_chat_model")
 @patch("jw.agent._ensure_config")
 @patch("jw.utils.load_subagents")
@@ -100,7 +100,12 @@ def test_factory_requests_async_safe_middleware(
     mock_get_mw.assert_called_once_with(
         for_async_subagent=True,
         memory_source_agent="writing-agent",
+        backend_factory=mock_backend.return_value,
+        skills_backend=mock_backend.return_value,
+        skill_sources=None,
+        allowed_tools=None,
     )
+    assert mock_create.call_args.kwargs["skills"] is None
     subagents = mock_create.call_args.kwargs["subagents"]
     assert subagents[0]["name"] == "general-purpose"
     _assert_subagent_memory_middleware(
@@ -122,6 +127,41 @@ def test_inject_subagent_adds_memory_middleware(mock_model, tmp_path):
     _inject_subagent_middleware(subs, workspace_dir=workspace)
 
     _assert_subagent_memory_middleware(subs[0], source_agent="test-agent")
+
+
+@patch("jw.agent._ensure_chat_model")
+@patch("jw.agent._ensure_config")
+def test_inject_subagent_adds_configured_open_source_call_limits(
+    mock_config, mock_model, tmp_path
+):
+    mock_model.return_value = MagicMock(profile={"max_input_tokens": 200_000})
+    cfg = MagicMock()
+    cfg.model = "qwen3.7-plus"
+    cfg.subagent_model_call_limit = 13
+    cfg.subagent_tool_call_limit = 9
+    cfg.memory_profile_enabled = False
+    cfg.memory_observations_enabled = False
+    cfg.memory_observation_writer = MemoryObservationWriter.OFF
+    cfg.memory_workers_enabled = False
+    mock_config.return_value = cfg
+
+    from jw.agent import _inject_subagent_middleware
+
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    subs = [{"name": "test-agent"}]
+    _inject_subagent_middleware(subs, workspace_dir=workspace)
+
+    model_limit = _single_middleware(subs[0], "ModelCallLimitMiddleware")
+    tool_limit = _single_middleware(subs[0], "ToolCallLimitMiddleware")
+    qwen_compat = _single_middleware(
+        subs[0], "QwenToolCompatibilityMiddleware"
+    )
+    assert model_limit.run_limit == 13
+    assert model_limit.exit_behavior == "end"
+    assert tool_limit.run_limit == 9
+    assert tool_limit.exit_behavior == "continue"
+    assert qwen_compat._default_model == "qwen3.7-plus"
 
 
 @patch("jw.agent._ensure_chat_model")

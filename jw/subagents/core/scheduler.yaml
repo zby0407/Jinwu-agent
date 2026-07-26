@@ -3,7 +3,7 @@ scheduler:
   # write_file / read_file / edit_file / ls / execute are DeepAgents built-ins (always present).
   # tavily_search is always available: it uses Tavily when TAVILY_API_KEY is set,
   # otherwise it falls back to a DuckDuckGo HTML search.
-  tools: [think_tool, tavily_search, skill_manager]
+  tool_bundles: [reasoning, web-search, skill-management]
   skills: ["/skills/"]
   # Fired by langgraph-dev crons (client.crons.create). One run = one task.
   # Deployment graph: JW.langgraph_dev.graphs:scheduler

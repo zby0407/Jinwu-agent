@@ -13,7 +13,7 @@ from pathlib import Path
 from threading import RLock
 from typing import Any
 
-_PROJECT_ROOT = Path("/Users/zhuanz/Desktop/tb2/JW")
+_PROJECT_ROOT = Path(__file__).resolve().parents[2]
 _SRC = _PROJECT_ROOT / "src"
 if str(_SRC) not in sys.path:
     sys.path.insert(0, str(_SRC))
@@ -21,6 +21,7 @@ if str(_SRC) not in sys.path:
 from langchain_core.runnables import RunnableConfig  # noqa: E402
 from langchain_core.tools import tool  # noqa: E402
 
+from jw.tools.registry import register_tool_bundle  # noqa: E402
 from jw.workspaces import (  # noqa: E402
     resolve_scoped_path,
     workspace_context_key,
@@ -380,5 +381,7 @@ RESEARCH_PLANNER_TOOLS = [
     research_planner_validate_plan,
     research_planner_freeze_plan,
 ]
+
+register_tool_bundle("research-planner", RESEARCH_PLANNER_TOOLS)
 
 __all__ = ["RESEARCH_PLANNER_TOOLS"] + [t.name for t in RESEARCH_PLANNER_TOOLS]

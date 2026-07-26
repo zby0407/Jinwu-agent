@@ -1,13 +1,17 @@
 """Custom backends for JW agent."""
 
+import hashlib
+import json
 import os
 import posixpath
 import re
 import shlex
 import sys
 import uuid
+from collections.abc import Mapping
 from pathlib import Path
 
+import tree_sitter_bash
 from deepagents.backends import FilesystemBackend, LocalShellBackend
 from deepagents.backends.protocol import (
     BackendProtocol,
@@ -20,6 +24,7 @@ from deepagents.backends.protocol import (
     LsResult,
     WriteResult,
 )
+from tree_sitter import Language, Node, Parser
 
 from . import paths
 
@@ -44,6 +49,56 @@ _SYSTEM_PATH_PREFIXES = (
     "/sys/",
     "/root/",
 )
+
+# Safe character devices that shell programs conventionally use for
+# redirection. They are not workspace files and must neither be rewritten to
+# ``./dev/...`` nor rejected as an escaped host path.
+_SAFE_SHELL_DEVICE_PATHS = frozenset(
+    {
+        "/dev/null",
+        "/dev/stdin",
+        "/dev/stdout",
+        "/dev/stderr",
+    }
+)
+_SAFE_SHELL_FD_PATTERN = re.compile(r"^/dev/fd/[0-9]+$")
+
+
+def _is_safe_shell_device_path(path: str) -> bool:
+    return path in _SAFE_SHELL_DEVICE_PATHS or bool(
+        _SAFE_SHELL_FD_PATTERN.fullmatch(path)
+    )
+
+_BASH_LANGUAGE = Language(tree_sitter_bash.language())
+
+_STRUCTURED_ARTIFACT_MEDIA_TYPES = {
+    ".arrow": "application/vnd.apache.arrow.file",
+    ".csv": "text/csv",
+    ".db": "application/vnd.sqlite3",
+    ".feather": "application/vnd.apache.arrow.file",
+    ".json": "application/json",
+    ".jsonl": "application/x-ndjson",
+    ".ndjson": "application/x-ndjson",
+    ".parquet": "application/vnd.apache.parquet",
+    ".sqlite": "application/vnd.sqlite3",
+    ".sqlite3": "application/vnd.sqlite3",
+    ".tsv": "text/tab-separated-values",
+    ".xml": "application/xml",
+    ".yaml": "application/yaml",
+    ".yml": "application/yaml",
+}
+_ARTIFACT_SCAN_SKIP_DIRS = {
+    ".git",
+    ".mypy_cache",
+    ".pytest_cache",
+    ".ruff_cache",
+    ".venv",
+    ".venv-sandbox",
+    "__pycache__",
+    "node_modules",
+}
+_ARTIFACT_MANIFEST_MAX_FILES = 25
+_ARTIFACT_HASH_MAX_BYTES = 64 * 1024 * 1024
 
 # Path-confinement patterns: keep the agent inside the workspace. These are
 # bypassed in dangerous mode (real-filesystem access).
@@ -496,6 +551,8 @@ def _extract_all_paths(
         if m.start(1) in exe_offsets:
             continue
         extracted = m.group(1)
+        if _is_safe_shell_device_path(extracted):
+            continue
         if _is_under_allowed_prefix(extracted, allow_prefixes):
             continue
         paths.append(extracted)
@@ -688,9 +745,14 @@ def _normalize_windows_shell_command(command: str) -> str:
     )
 
 
-def _resolve_virtual_mount_path(token: str) -> str | None:
+def _resolve_virtual_mount_path(
+    token: str,
+    virtual_mounts: Mapping[str, Path] | None = None,
+) -> str | None:
     """Resolve a virtual mount token to a shell-safe token, or ``None`` when
     *token* is not a registered virtual mount.
+
+    Task-scoped read-only mounts such as ``/project/...`` are resolved first.
 
     For ``/skills/...``: walks ``_skills_tier_paths()`` priority (USER →
     GLOBAL → BUILTIN), returning :func:`_platform_quote` of the first tier
@@ -704,6 +766,15 @@ def _resolve_virtual_mount_path(token: str) -> str | None:
     absolute and :func:`_platform_quote`-wrapped. Memories live outside the
     workspace, so a relative form would point at an unrelated location.
     """
+    for mount, root in (virtual_mounts or {}).items():
+        normalized_mount = "/" + mount.strip("/")
+        rel = _subpath_under_mount(token, normalized_mount)
+        if rel is not None:
+            return _platform_quote(str(root / rel))
+        root_text = str(root).rstrip("/")
+        if token == root_text or token.startswith(root_text + "/"):
+            return _platform_quote(token)
+
     rel = _subpath_under_mount(token, "/skills")
     if rel is not None:
         user_tier, global_tier, builtin_tier = _skills_tier_paths()
@@ -735,9 +806,19 @@ def _guard_bare_absolute(result: str | None) -> str | None:
     return result
 
 
+_QUOTED_VIRTUAL_PATH_TOKEN = re.compile(
+    r"(?P<prefix>^|\s)"
+    r"(?P<path>/(?:work|inputs|outputs|receipts|skills|memories|project)"
+    r"(?:/[^\s'\";|&<>)]*)?)"
+    r"(?=$|\s)",
+    re.IGNORECASE,
+)
+
+
 def _rewrite_quoted_path(
     path: str,
     workspace_name: str | None,
+    virtual_mounts: Mapping[str, Path] | None = None,
 ) -> str | None:
     """Return the shell-quoted replacement for *path* (the decoded
     content of a quoted ``"..."`` or ``'...'`` argument),
@@ -746,9 +827,18 @@ def _rewrite_quoted_path(
     if not path or "://" in path[max(0, len(path) - 10) :]:
         return None
     if not path.startswith("/"):
+        rewritten = _QUOTED_VIRTUAL_PATH_TOKEN.sub(
+            lambda match: (
+                f"{match.group('prefix')}"
+                f"{_inline_virtual_path(match.group('path'), virtual_mounts)}"
+            ),
+            path,
+        )
+        return _platform_quote(rewritten) if rewritten != path else None
+    if _is_safe_shell_device_path(path):
         return None
 
-    resolved = _resolve_virtual_mount_path(path)
+    resolved = _resolve_virtual_mount_path(path, virtual_mounts)
     if resolved is not None:
         return _guard_bare_absolute(resolved)  # already shlex.quoted
 
@@ -770,71 +860,351 @@ def _rewrite_quoted_path(
     return None
 
 
+_INLINE_CODE_VIRTUAL_LITERAL = re.compile(
+    r"(?P<quote>['\"])(?P<path>/(?:work|inputs|outputs|receipts|skills|memories|project)"
+    r"(?:/[^'\"\r\n]*)?)(?P=quote)",
+    re.IGNORECASE,
+)
+
+
+def _parse_shell(command: str) -> tuple[bytes, Node]:
+    """Parse *command* with the maintained tree-sitter Bash grammar."""
+    source = command.encode("utf-8")
+    return source, Parser(_BASH_LANGUAGE).parse(source).root_node
+
+
+def _node_text(source: bytes, node: Node) -> str:
+    return source[node.start_byte : node.end_byte].decode("utf-8")
+
+
+def _decoded_shell_word(source: bytes, node: Node) -> str | None:
+    """Decode one complete shell word without evaluating expansions."""
+    raw = _node_text(source, node)
+    try:
+        values = shlex.split(raw)
+    except ValueError:
+        return None
+    return values[0] if len(values) == 1 else None
+
+
+def _apply_byte_replacements(
+    source: bytes,
+    replacements: list[tuple[int, int, str]],
+) -> str:
+    """Splice non-overlapping tree-sitter byte ranges into UTF-8 source."""
+    for start, end, replacement in sorted(replacements, reverse=True):
+        source = source[:start] + replacement.encode("utf-8") + source[end:]
+    return source.decode("utf-8")
+
+
+def _walk_nodes(root: Node):
+    """Yield a tree-sitter node and all descendants depth-first."""
+    yield root
+    for child in root.children:
+        yield from _walk_nodes(child)
+
+
+def _inline_code_executable_flag(executable: str) -> str | None:
+    """Return the inline-source flag for a supported interpreter."""
+    name = posixpath.basename(executable).casefold()
+    if re.fullmatch(r"python(?:\d+(?:\.\d+)*)?", name):
+        return "-c"
+    if name in {"node", "ruby", "perl"}:
+        return "-e"
+    return None
+
+
+def _inline_virtual_path(
+    path: str,
+    virtual_mounts: Mapping[str, Path] | None = None,
+) -> str:
+    """Resolve a virtual path for use inside source executed from workspace cwd."""
+    resolved = _resolve_virtual_mount_path(path, virtual_mounts)
+    if resolved is None:
+        return "." + path
+    if _is_windows():
+        return resolved.strip('"')
+    try:
+        tokens = shlex.split(resolved)
+    except ValueError:
+        return resolved.strip("'\"")
+    return tokens[0] if len(tokens) == 1 else resolved.strip("'\"")
+
+
+def _rewrite_inline_code_virtual_paths(
+    command: str,
+    virtual_mounts: Mapping[str, Path] | None = None,
+) -> str:
+    """Rewrite virtual path literals inside ``python -c``-style source.
+
+    Shell-level conversion intentionally treats a quoted argument as opaque.
+    For inline interpreters, however, that argument is source code and virtual
+    path literals inside it must resolve relative to the task workspace (or to
+    the registered skills/memories mounts) just like ordinary shell arguments.
+    """
+    source, root = _parse_shell(command)
+    replacements: list[tuple[int, int, str]] = []
+
+    for node in _walk_nodes(root):
+        if node.type != "command":
+            continue
+        name_node = node.child_by_field_name("name")
+        if name_node is None:
+            continue
+        flag = _inline_code_executable_flag(_node_text(source, name_node))
+        if flag is None:
+            continue
+        arguments = list(node.children_by_field_name("argument"))
+        for index, argument in enumerate(arguments[:-1]):
+            if _decoded_shell_word(source, argument) != flag:
+                continue
+            source_node = arguments[index + 1]
+            inline_source = _decoded_shell_word(source, source_node)
+            if inline_source is None:
+                break
+            rewritten = _INLINE_CODE_VIRTUAL_LITERAL.sub(
+                lambda match: (
+                    f"{match.group('quote')}"
+                    f"{_inline_virtual_path(match.group('path'), virtual_mounts)}"
+                    f"{match.group('quote')}"
+                ),
+                inline_source,
+            )
+            if rewritten != inline_source:
+                replacements.append(
+                    (
+                        source_node.start_byte,
+                        source_node.end_byte,
+                        _platform_quote(rewritten),
+                    )
+                )
+            break
+
+    return _apply_byte_replacements(source, replacements)
+
+
+def _rewrite_unquoted_path(
+    path: str,
+    workspace_name: str | None,
+    virtual_mounts: Mapping[str, Path] | None = None,
+) -> str | None:
+    """Return a shell-level path replacement, never source-code text."""
+    if not path.startswith("/") or "://" in path:
+        return None
+    if _is_safe_shell_device_path(path):
+        return None
+
+    resolved = _resolve_virtual_mount_path(path, virtual_mounts)
+    if resolved is not None:
+        return resolved
+
+    if workspace_name:
+        for prefix in _SYSTEM_PATH_PREFIXES:
+            if path.startswith(prefix):
+                marker = f"/{workspace_name}/"
+                idx = path.rfind(marker)
+                if idx != -1:
+                    relative = path[idx + len(marker) :]
+                    return "./" + relative if relative else "."
+                if path.endswith(f"/{workspace_name}"):
+                    return "."
+                break
+
+    return "." if path == "/" else "." + path
+
+
+def _rewrite_shell_path_arguments(
+    command: str,
+    workspace_name: str | None,
+    virtual_mounts: Mapping[str, Path] | None = None,
+) -> str:
+    """Rewrite only Bash AST nodes that are command or redirect arguments.
+
+    In particular, ``heredoc_body`` and quoted interpreter source are not
+    arguments to be searched with a path regex. This is the boundary that
+    prevents division operators and source literals from being corrupted.
+    """
+    source, root = _parse_shell(command)
+    candidates: dict[tuple[int, int], Node] = {}
+
+    for node in _walk_nodes(root):
+        if node.type == "command":
+            name = node.child_by_field_name("name")
+            if name is not None:
+                candidates[(name.start_byte, name.end_byte)] = name
+            for argument in node.children_by_field_name("argument"):
+                candidates[(argument.start_byte, argument.end_byte)] = argument
+        elif node.type == "file_redirect":
+            destination = node.child_by_field_name("destination")
+            if destination is not None:
+                candidates[(destination.start_byte, destination.end_byte)] = destination
+
+    replacements: list[tuple[int, int, str]] = []
+    for candidate in candidates.values():
+        raw = _node_text(source, candidate)
+        if candidate.type in {"string", "raw_string", "ansi_c_string"}:
+            decoded = _decoded_shell_word(source, candidate)
+            replacement = (
+                _rewrite_quoted_path(
+                    decoded,
+                    workspace_name,
+                    virtual_mounts,
+                )
+                if decoded is not None
+                else None
+            )
+        else:
+            replacement = _rewrite_unquoted_path(
+                raw,
+                workspace_name,
+                virtual_mounts,
+            )
+        if replacement is not None and replacement != raw:
+            replacements.append(
+                (candidate.start_byte, candidate.end_byte, replacement)
+            )
+
+    return _apply_byte_replacements(source, replacements)
+
+
+def _rewrite_ssh_remote_virtual_paths(
+    command: str,
+    workspace_name: str | None,
+) -> str:
+    """Preserve the direct helper's legacy handling of quoted SSH commands.
+
+    Production execution masks SSH remote commands before local path
+    conversion. The public conversion helper historically rewrote them, so
+    retain that behavior without scanning arbitrary quoted strings.
+    """
+    replacements: list[tuple[int, int, str]] = []
+    for words, _, _, remote_idx, _ in _ssh_invocations(command):
+        if remote_idx is None:
+            continue
+        remote = words[remote_idx]
+        rewritten = _rewrite_shell_path_arguments(
+            str(remote.get("value", "")),
+            workspace_name,
+        )
+        if rewritten != remote.get("value"):
+            replacements.append(
+                (
+                    int(remote["start"]),
+                    int(remote["end"]),
+                    _platform_quote(rewritten),
+                )
+            )
+    for start, end, replacement in sorted(replacements, reverse=True):
+        command = command[:start] + replacement + command[end:]
+    return command
+
+
 def convert_virtual_paths_in_command(
     command: str,
     workspace_name: str | None = None,
+    virtual_mounts: Mapping[str, Path] | None = None,
 ) -> str:
     """Convert virtual paths (starting with ``/``) in commands to relative paths.
 
     Also auto-corrects hallucinated system absolute paths that reference the
     workspace directory (e.g. ``/Users/.../myproject/file.py`` → ``./file.py``).
 
-    Pre-process: quoted arguments whose content resolves to a virtual
-    mount (``/skills/...``, ``/memories/...``) or a workspace-prefixed
-    system path are rewritten as a single shell token — this fixes #237
-    where ``python "/skills/my skill/main.py"`` was truncated at the
-    embedded space.  Bare quoted ``/...`` paths (e.g. ``echo "/hi"``)
-    are left untouched since their semantics are ambiguous.
-    After pre-processing, the original regex handles unquoted
-    paths and workspace-name correction as before.
+    Bash syntax is parsed before rewriting, so only command arguments and
+    redirect destinations are considered. Heredoc bodies, inline source, and
+    other language text remain opaque. Quoted registered mounts and
+    workspace-prefixed system paths are still resolved as a single shell token.
     """
-    # Pre-process: rewrite quoted paths whose decoded content starts with /
-    command = re.sub(
-        r'(["\'])((?:\\.|(?!\1).)*?)\1',
-        lambda m: (
-            _rewrite_quoted_path(
-                re.sub(r"\\(.)", r"\1", m.group(2)),
-                workspace_name,
-            )
-            or m.group(0)
-        ),
+    command = _rewrite_inline_code_virtual_paths(command, virtual_mounts)
+    command = _rewrite_ssh_remote_virtual_paths(command, workspace_name)
+    return _rewrite_shell_path_arguments(
         command,
+        workspace_name,
+        virtual_mounts,
     )
 
-    def replace_virtual_path(match: re.Match[str]) -> str:
-        path = match.group(0)
 
-        # Skip content that looks like a URL
-        if "://" in command[max(0, match.start() - 10) : match.end() + 10]:
-            return path
+def _structured_artifact_snapshot(root: Path) -> dict[str, tuple[int, int]]:
+    """Return cheap change signatures for structured files below *root*."""
+    snapshot: dict[str, tuple[int, int]] = {}
+    if not root.is_dir():
+        return snapshot
 
-        resolved = _resolve_virtual_mount_path(path)
-        if resolved is not None:
-            return resolved
+    for dirpath, dirnames, filenames in os.walk(root):
+        dirnames[:] = sorted(
+            name
+            for name in dirnames
+            if name not in _ARTIFACT_SCAN_SKIP_DIRS
+            and not (Path(dirpath) / name).is_symlink()
+        )
+        for filename in sorted(filenames):
+            path = Path(dirpath) / filename
+            if path.suffix.casefold() not in _STRUCTURED_ARTIFACT_MEDIA_TYPES:
+                continue
+            try:
+                if path.is_symlink() or not path.is_file():
+                    continue
+                stat = path.stat()
+                relative = path.relative_to(root).as_posix()
+            except OSError:
+                continue
+            snapshot[relative] = (stat.st_mtime_ns, stat.st_size)
+    return snapshot
 
-        # Fix hallucinated system absolute paths that reference the workspace.
-        if workspace_name:
-            for prefix in _SYSTEM_PATH_PREFIXES:
-                if path.startswith(prefix):
-                    marker = f"/{workspace_name}/"
-                    idx = path.rfind(marker)
-                    if idx != -1:
-                        relative = path[idx + len(marker) :]
-                        return "./" + relative if relative else "."
-                    elif path.endswith(f"/{workspace_name}"):
-                        return "."
-                    break  # Matched system prefix but no workspace → fall through
 
-        # Convert virtual path
-        if path == "/":
-            return "."
-        return "." + path
+def _sha256_file(path: Path, size: int) -> str | None:
+    """Hash bounded artifacts so later computations can name exact inputs."""
+    if size > _ARTIFACT_HASH_MAX_BYTES:
+        return None
+    digest = hashlib.sha256()
+    try:
+        with path.open("rb") as file:
+            for chunk in iter(lambda: file.read(1024 * 1024), b""):
+                digest.update(chunk)
+    except OSError:
+        return None
+    return digest.hexdigest()
 
-    # Match pattern: paths starting with / (but not URLs)
-    pattern = r'(?<=\s)/[^\s;|&<>\'"`]*|^/[^\s;|&<>\'"`]*'
-    converted = re.sub(pattern, replace_virtual_path, command)
 
-    return converted
+def _structured_artifact_manifest(
+    root: Path,
+    before: dict[str, tuple[int, int]],
+    after: dict[str, tuple[int, int]],
+) -> str | None:
+    """Render a bounded, machine-readable manifest for changed data artifacts."""
+    changed = [
+        relative
+        for relative, signature in after.items()
+        if before.get(relative) != signature
+    ]
+    if not changed:
+        return None
+
+    files: list[dict[str, object]] = []
+    for relative in sorted(changed)[:_ARTIFACT_MANIFEST_MAX_FILES]:
+        _, size = after[relative]
+        path = root / relative
+        item: dict[str, object] = {
+            "path": "/" + relative,
+            "change": "created" if relative not in before else "modified",
+            "media_type": _STRUCTURED_ARTIFACT_MEDIA_TYPES[path.suffix.casefold()],
+            "bytes": size,
+        }
+        sha256 = _sha256_file(path, size)
+        if sha256 is not None:
+            item["sha256"] = sha256
+        files.append(item)
+
+    payload: dict[str, object] = {"version": 1, "files": files}
+    if len(changed) > len(files):
+        payload["omitted_file_count"] = len(changed) - len(files)
+    encoded = json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
+    return (
+        "<artifact_manifest>\n"
+        f"{encoded}\n"
+        "</artifact_manifest>\n"
+        "Downstream code must read these artifact paths directly; do not "
+        "transcribe their rows or numeric values into source code."
+    )
 
 
 class ReadOnlyFilesystemBackend(FilesystemBackend):
@@ -1134,8 +1504,138 @@ class MergedSkillsBackend(BackendProtocol):
         return self._primary.upload_files(files)
 
 
+_READ_ONLY_MOUNT_COMMANDS = frozenset(
+    {
+        "cat",
+        "cmp",
+        "cp",
+        "cut",
+        "diff",
+        "du",
+        "file",
+        "find",
+        "grep",
+        "head",
+        "ls",
+        "md5",
+        "rg",
+        "shasum",
+        "stat",
+        "tail",
+        "wc",
+    }
+)
+_FIND_WRITE_ACTIONS = frozenset(
+    {
+        "-delete",
+        "-exec",
+        "-execdir",
+        "-fls",
+        "-fprintf",
+        "-fprint",
+        "-ok",
+        "-okdir",
+    }
+)
+
+
+def _path_under_read_only_mount(
+    path: str,
+    mounts: Mapping[str, Path],
+) -> bool:
+    for mount, root in mounts.items():
+        virtual = "/" + mount.strip("/")
+        real = str(root).rstrip("/")
+        if path == virtual or path.startswith(virtual + "/"):
+            return True
+        if path == real or path.startswith(real + "/"):
+            return True
+    return False
+
+
+def _validate_read_only_mount_command(
+    command: str,
+    mounts: Mapping[str, Path],
+) -> str | None:
+    """Allow shell access to mounted inputs without permitting mutation."""
+
+    if not mounts:
+        return None
+    mount_markers = tuple(
+        marker
+        for mount, root in mounts.items()
+        for marker in ("/" + mount.strip("/"), str(root).rstrip("/"))
+    )
+    if not any(marker and marker in command for marker in mount_markers):
+        return None
+
+    error = (
+        "Command blocked: /project is a read-only input mount. Use read-only "
+        "commands (ls, find, cat, head, tail, wc, grep, rg, stat, file, du, "
+        "cut, diff, cmp, checksums), or copy selected files into /inputs with "
+        "`cp /project/... /inputs/...` before running code."
+    )
+    source, root = _parse_shell(command)
+    for node in _walk_nodes(root):
+        if node.type == "file_redirect":
+            destination = node.child_by_field_name("destination")
+            decoded = (
+                _decoded_shell_word(source, destination)
+                if destination is not None
+                else None
+            )
+            if decoded and _path_under_read_only_mount(decoded, mounts):
+                raw = _node_text(source, node).lstrip()
+                raw = re.sub(r"^[0-9]+", "", raw)
+                if not raw.startswith("<") or raw.startswith("<>"):
+                    return error
+            continue
+        if node.type != "command":
+            continue
+        command_text = _node_text(source, node)
+        if not any(marker and marker in command_text for marker in mount_markers):
+            # A compound shell line may mix a mounted read/copy with ordinary
+            # workspace setup or presentation commands, for example:
+            # ``mkdir -p /inputs && cp /project/data.csv /inputs/`` or
+            # ``head /project/data.csv && echo --- && wc -l /project/data.csv``.
+            # Enforce the mount policy on the simple command that actually
+            # references it, not on unrelated siblings.
+            continue
+        name_node = node.child_by_field_name("name")
+        if name_node is None:
+            continue
+        name = _decoded_shell_word(source, name_node) or _node_text(source, name_node)
+        executable = posixpath.basename(name).casefold()
+        if executable not in _READ_ONLY_MOUNT_COMMANDS:
+            return error
+        arguments = [
+            decoded
+            for argument in node.children_by_field_name("argument")
+            if (decoded := _decoded_shell_word(source, argument)) is not None
+        ]
+        if executable == "find" and any(
+            argument.casefold() in _FIND_WRITE_ACTIONS for argument in arguments
+        ):
+            return error
+        if executable == "cp":
+            if any(
+                argument == "-t" or argument.startswith("--target-directory")
+                for argument in arguments
+            ):
+                return error
+            operands = [argument for argument in arguments if not argument.startswith("-")]
+            if len(operands) < 2 or _path_under_read_only_mount(operands[-1], mounts):
+                return error
+    return None
+
+
 def prepare_sandbox_command(
-    command: str, cwd: str | Path, *, virtual_mode: bool = True, dangerous: bool = False
+    command: str,
+    cwd: str | Path,
+    *,
+    virtual_mode: bool = True,
+    dangerous: bool = False,
+    read_only_mounts: Mapping[str, Path] | None = None,
 ) -> tuple[str, str | None]:
     """Normalize workspace paths in ``command`` and validate it for the sandbox.
 
@@ -1151,6 +1651,10 @@ def prepare_sandbox_command(
         return command, ssh_error
 
     command, ssh_replacements = _mask_ssh_remote_commands(command)
+    mounts = dict(read_only_mounts or {})
+    mount_error = _validate_read_only_mount_command(command, mounts)
+    if mount_error:
+        return _restore_spans(command, ssh_replacements), mount_error
 
     cwd_str = str(cwd).rstrip("/")
     # Replace literal workspace-root absolute paths with ./ after SSH masking so
@@ -1167,6 +1671,7 @@ def prepare_sandbox_command(
         command = convert_virtual_paths_in_command(
             command=command,
             workspace_name=Path(cwd_str).name,
+            virtual_mounts=mounts,
         )
     command = _normalize_windows_shell_command(command)
     # Skills/memory dirs must be allowlisted: the workspace-literal replace above runs
@@ -1176,6 +1681,7 @@ def prepare_sandbox_command(
         str(paths.GLOBAL_SKILLS_DIR),
         str(paths.MEMORIES_DIR),
         str(_BUILTIN_SKILLS_DIR),
+        *(str(root) for root in mounts.values()),
     )
     error = validate_command(
         command, allow_prefixes=allow_prefixes, dangerous=dangerous
@@ -1208,6 +1714,7 @@ class CustomSandboxBackend(LocalShellBackend):
         inherit_env: bool = True,
         dangerous: bool = False,
         ensure_root: bool = True,
+        read_only_mounts: Mapping[str, str | Path] | None = None,
     ):
         """
         Initialize custom sandbox backend.
@@ -1226,8 +1733,15 @@ class CustomSandboxBackend(LocalShellBackend):
             ensure_root: Create ``root_dir`` during construction. Task-scoped
                 deployments pass False because the binding layer already creates
                 it away from the async event loop.
+            read_only_mounts: Virtual shell mounts mapped to concrete roots.
+                Commands may inspect these roots or copy files into the task,
+                but may not execute code against or mutate the mounted content.
         """
         self._dangerous = dangerous
+        self._read_only_mounts = {
+            "/" + mount.strip("/"): Path(root).expanduser().resolve()
+            for mount, root in (read_only_mounts or {}).items()
+        }
         if dangerous:
             # Real paths require the legacy (non-virtual) resolution path so the
             # parent backend returns absolute paths as-is.
@@ -1312,10 +1826,19 @@ class CustomSandboxBackend(LocalShellBackend):
         Then delegates to LocalShellBackend.execute() for actual execution.
         """
         command, error = prepare_sandbox_command(
-            command, self.cwd, virtual_mode=self.virtual_mode, dangerous=self._dangerous
+            command,
+            self.cwd,
+            virtual_mode=self.virtual_mode,
+            dangerous=self._dangerous,
+            read_only_mounts=self._read_only_mounts,
         )
         if error:
             return ExecuteResponse(output=error, exit_code=1, truncated=False)
+
+        track_artifacts = self.virtual_mode and not self._dangerous
+        artifacts_before = (
+            _structured_artifact_snapshot(Path(self.cwd)) if track_artifacts else {}
+        )
 
         # Delegate to parent for subprocess execution
         response = super().execute(command, timeout=timeout)
@@ -1342,6 +1865,20 @@ class CustomSandboxBackend(LocalShellBackend):
                 exit_code=response.exit_code,
                 truncated=response.truncated,
             )
+
+        if track_artifacts:
+            artifacts_after = _structured_artifact_snapshot(Path(self.cwd))
+            manifest = _structured_artifact_manifest(
+                Path(self.cwd),
+                artifacts_before,
+                artifacts_after,
+            )
+            if manifest is not None:
+                response = ExecuteResponse(
+                    output=f"{response.output.rstrip()}\n\n{manifest}",
+                    exit_code=response.exit_code,
+                    truncated=response.truncated,
+                )
 
         return response
 

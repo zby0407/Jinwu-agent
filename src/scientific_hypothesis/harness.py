@@ -10,6 +10,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from research_layout import PROJECT_ROOT, contract_runs_root
+
 from . import ranking as ranking_mod
 from .contracts import (
     HARD_NUMERIC_CUTOFF,
@@ -27,8 +29,7 @@ from .contracts import (
     validate_hypothesis_response,
 )
 
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
-RUNS_ROOT = PROJECT_ROOT / "hypothesis" / "runs"
+RUNS_ROOT = contract_runs_root("hypothesis")
 
 NOVELTY_STATUSES = {"unverified", "likely_novel", "known", "not_assessed"}
 NOVELTY_CLAIMED_STATUSES = {"likely_novel", "known"}
@@ -229,8 +230,9 @@ def build_hypothesis_brief(request_payload: dict[str, Any]) -> dict[str, Any]:
         ],
         "response_contract": _compact_response_contract(),
         "instruction": (
-            "构造唯一一个 scientific-hypothesis-response-v1 对象，作为 response_json "
-            "字符串提交给检查工具。不要在响应对象中加入运行 id、哈希、执行结果或散文。"
+            "探索阶段可以逐个形成和修改候选，不必一次提交完整组合。只有需要结构化交接或"
+            "正式发布时，才补齐 scientific-hypothesis-response-v1 合同并创建检查点。"
+            "不要在响应对象中加入运行 id、哈希、执行结果或散文。"
         ),
     }
 
@@ -474,7 +476,8 @@ def preflight_hypothesis_response(
     if semantic_errors:
         formatted = "\n".join(f"- {error}" for error in semantic_errors)
         raise ContractError(
-            f"科学语义检查发现 {len(semantic_errors)} 组问题，请一次性修正：\n{formatted}"
+            f"科学语义检查发现 {len(semantic_errors)} 组问题，请逐项修正后再检查：\n"
+            f"{formatted}"
         )
     result: dict[str, Any] = {
         "schema_version": "scientific-hypothesis-preflight-v1",
