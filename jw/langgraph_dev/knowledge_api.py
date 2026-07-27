@@ -31,6 +31,7 @@ from collections import Counter, defaultdict
 from pathlib import Path
 from typing import Any
 
+import yaml
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 from starlette.routing import Route
@@ -59,6 +60,18 @@ _ENTRY_LIST_COLUMNS = (
 _DEFAULT_LIMIT = 50
 _MAX_LIMIT = 200
 _GRAPH_MAX_NODES = 300
+_BUILTIN_WIKI_DIR = (
+    _REPO_ROOT
+    / "jw"
+    / "subagents"
+    / "solar"
+    / "skills"
+    / "solar-cycle"
+    / "references"
+    / "llm_wiki"
+)
+_BUILTIN_WIKI_MANIFEST = _BUILTIN_WIKI_DIR / "_meta" / "manifest.yaml"
+_BUILTIN_WIKI_CATALOG = _BUILTIN_WIKI_DIR / "_meta" / "entry_catalog.yaml"
 
 
 def _empty_overview() -> dict[str, Any]:
@@ -118,6 +131,180 @@ def _parse_json(raw: Any, fallback: Any) -> Any:
         except json.JSONDecodeError:
             return fallback
     return fallback if raw is None else raw
+
+
+def _load_yaml_mapping(path: Path) -> dict[str, Any]:
+    if not path.is_file():
+        return {}
+    parsed = yaml.safe_load(path.read_text(encoding="utf-8"))
+    return parsed if isinstance(parsed, dict) else {}
+
+
+def _markdown_title(relative_path: str) -> str:
+    path = _BUILTIN_WIKI_DIR / relative_path
+    if not path.is_file():
+        return Path(relative_path).stem
+    for line in path.read_text(encoding="utf-8").splitlines():
+        if line.startswith("# "):
+            return line[2:].strip()
+    return Path(relative_path).stem
+
+
+def _fetch_live_entry_summaries(entry_ids: list[str]) -> dict[str, dict[str, Any]]:
+    conn = _connect_ro()
+    if conn is None or not entry_ids:
+        return {}
+    try:
+        placeholders = ", ".join("?" for _ in entry_ids)
+        rows = conn.execute(
+            f"SELECT {_ENTRY_LIST_COLUMNS} FROM entries WHERE id IN ({placeholders})",
+            entry_ids,
+        ).fetchall()
+        return {str(row["id"]): dict(row) for row in rows}
+    except sqlite3.Error:
+        return {}
+    finally:
+        conn.close()
+
+
+def _fetch_builtin_wiki() -> dict[str, Any]:
+    """Compile the current built-in solar Wiki manifest for the WebUI.
+
+    The static manifest/catalog define deterministic task bundles and planned
+    knowledge gaps. The live SQLite lookup only annotates whether each seeded
+    page is currently available to agents; it never changes the static source
+    of truth.
+    """
+
+    try:
+        manifest = _load_yaml_mapping(_BUILTIN_WIKI_MANIFEST)
+        catalog = _load_yaml_mapping(_BUILTIN_WIKI_CATALOG)
+    except (OSError, UnicodeError, yaml.YAMLError) as exc:
+        return {
+            "available": False,
+            "error": str(exc),
+            "task_bundles": [],
+            "catalog_entries": [],
+            "stats": {},
+        }
+    if not manifest or not catalog:
+        return {
+            "available": False,
+            "error": "built-in Wiki manifest or catalog is missing",
+            "task_bundles": [],
+            "catalog_entries": [],
+            "stats": {},
+        }
+
+    raw_entries = catalog.get("entries")
+    catalog_entries = (
+        [dict(item) for item in raw_entries if isinstance(item, dict)]
+        if isinstance(raw_entries, list)
+        else []
+    )
+    entry_ids = [str(item.get("id") or "") for item in catalog_entries]
+    live_by_id = _fetch_live_entry_summaries(
+        [entry_id for entry_id in entry_ids if entry_id]
+    )
+    path_index: dict[str, dict[str, Any]] = {}
+    state_counts: Counter[str] = Counter()
+    module_counts: dict[str, Counter[str]] = defaultdict(Counter)
+    normalized_entries: list[dict[str, Any]] = []
+    for entry in catalog_entries:
+        entry_id = str(entry.get("id") or "")
+        state = str(entry.get("state") or "planned")
+        module = str(entry.get("module") or "unassigned")
+        normalized = {
+            "id": entry_id,
+            "type": str(entry.get("type") or ""),
+            "module": module,
+            "title_zh": str(entry.get("title_zh") or entry_id),
+            "state": state,
+            "priority": str(entry.get("priority") or ""),
+            "path": str(entry.get("path") or ""),
+            "live": live_by_id.get(entry_id),
+        }
+        normalized_entries.append(normalized)
+        state_counts[state] += 1
+        module_counts[module][state] += 1
+        if normalized["path"]:
+            path_index[normalized["path"]] = normalized
+
+    raw_bundles = manifest.get("task_bundles")
+    task_bundles: list[dict[str, Any]] = []
+    if isinstance(raw_bundles, dict):
+        for bundle_id, raw_bundle in raw_bundles.items():
+            bundle = raw_bundle if isinstance(raw_bundle, dict) else {}
+            raw_seed_paths = bundle.get("seed_entries")
+            seed_paths = (
+                [str(path) for path in raw_seed_paths]
+                if isinstance(raw_seed_paths, list)
+                else []
+            )
+            seed_entries = [
+                path_index[path] for path in seed_paths if path in path_index
+            ]
+            task_bundles.append(
+                {
+                    "id": str(bundle_id),
+                    "title_zh": str(bundle.get("title_zh") or bundle_id),
+                    "purpose_zh": str(bundle.get("purpose_zh") or ""),
+                    "modules": list(bundle.get("modules") or []),
+                    "seed_entries": seed_entries,
+                    "missing_seed_paths": [
+                        path for path in seed_paths if path not in path_index
+                    ],
+                    "live_count": sum(
+                        1 for entry in seed_entries if entry.get("live") is not None
+                    ),
+                }
+            )
+
+    always_load = [
+        {
+            "path": str(path),
+            "title": _markdown_title(str(path)),
+        }
+        for path in list(manifest.get("always_load") or [])
+    ]
+    seeded_total = int(state_counts.get("seeded", 0))
+    seeded_live = sum(
+        1
+        for entry in normalized_entries
+        if entry["state"] == "seeded" and entry["live"] is not None
+    )
+    canonical_live = sum(
+        1
+        for entry in normalized_entries
+        if entry["state"] == "seeded"
+        and entry["live"] is not None
+        and entry["live"].get("status") == "canonical"
+    )
+    return {
+        "available": True,
+        "wiki_id": str(manifest.get("wiki_id") or ""),
+        "version": str(manifest.get("version") or ""),
+        "status": str(manifest.get("status") or ""),
+        "language": str(manifest.get("language") or ""),
+        "design_basis": str(manifest.get("design_basis") or ""),
+        "purpose": dict(manifest.get("purpose") or {}),
+        "scope": dict(manifest.get("scope") or {}),
+        "always_load": always_load,
+        "task_bundles": task_bundles,
+        "catalog_entries": normalized_entries,
+        "stats": {
+            "catalog_total": len(normalized_entries),
+            "seeded_total": seeded_total,
+            "seeded_live": seeded_live,
+            "canonical_live": canonical_live,
+            "planned_total": int(state_counts.get("planned", 0)),
+            "task_bundle_total": len(task_bundles),
+            "state_counts": dict(state_counts),
+            "module_counts": {
+                module: dict(counts) for module, counts in module_counts.items()
+            },
+        },
+    }
 
 
 def _fetch_entries(
@@ -693,6 +880,12 @@ async def list_entries(request: Request) -> JSONResponse:
     return _json(entries)
 
 
+async def get_builtin_wiki(request: Request) -> JSONResponse:
+    """Return the deterministic built-in solar Wiki task bundles and catalog."""
+
+    return _json(await asyncio.to_thread(_fetch_builtin_wiki))
+
+
 async def get_overview(request: Request) -> JSONResponse:
     """Return source and page coverage with actionable knowledge gaps."""
 
@@ -761,6 +954,7 @@ async def list_usage(request: Request) -> JSONResponse:
 
 
 KB_ROUTES = [
+    Route("/api/kb/builtin", get_builtin_wiki, methods=["GET"]),
     Route("/api/kb/overview", get_overview, methods=["GET"]),
     Route("/api/kb/entries", list_entries, methods=["GET"]),
     Route("/api/kb/entries/{entry_id}", get_entry, methods=["GET"]),

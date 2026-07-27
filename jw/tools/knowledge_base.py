@@ -92,6 +92,69 @@ def _human_gate_active() -> bool:
         return False
 
 
+def _query_knowledge_base(
+    query: str,
+    *,
+    type: str = "",
+    status: str = "",
+    confidence: str = "",
+    valid_range: str = "",
+    limit: int = 8,
+) -> str:
+    """Shared deterministic search implementation for KB query tools."""
+
+    try:
+        return _ok(
+            service.search(
+                _get_store(),
+                query,
+                entry_type=type,
+                status=status,
+                confidence=confidence,
+                valid_range=valid_range,
+                limit=limit,
+            )
+        )
+    except Exception as exc:
+        return _err(str(exc))
+
+
+@tool(parse_docstring=True)
+def kb_query(
+    query: str,
+    type: str = "",
+    status: str = "",
+    confidence: str = "",
+    valid_range: str = "",
+    limit: int = 8,
+) -> str:
+    """Query knowledge-entry metadata without creating or changing entries.
+
+    Query results are discovery records, not the full evidence content. Call
+    ``kb_read`` for every entry that will be used to ground a claim.
+
+    Args:
+        query: Keyword query (Chinese and English supported); empty lists all.
+        type: Optional entry type filter (concept/mechanism/data_source/
+            experiment_paradigm/hypothesis_template/finding/counterexample).
+        status: Optional status filter (candidate/canonical/deprecated/superseded).
+        confidence: Optional confidence filter (high/medium/low).
+        valid_range: Optional substring filter on the entry's valid range.
+        limit: Maximum number of results (1-50, default 8).
+
+    Returns:
+        JSON string with ranked entry metadata and provenance fields.
+    """
+    return _query_knowledge_base(
+        query,
+        type=type,
+        status=status,
+        confidence=confidence,
+        valid_range=valid_range,
+        limit=limit,
+    )
+
+
 @tool(parse_docstring=True)
 def kb_search(
     query: str,
@@ -119,20 +182,14 @@ def kb_search(
     Returns:
         JSON string with ranked matching entries and their provenance fields.
     """
-    try:
-        return _ok(
-            service.search(
-                _get_store(),
-                query,
-                entry_type=type,
-                status=status,
-                confidence=confidence,
-                valid_range=valid_range,
-                limit=limit,
-            )
-        )
-    except Exception as exc:  # noqa: BLE001
-        return _err(str(exc))
+    return _query_knowledge_base(
+        query,
+        type=type,
+        status=status,
+        confidence=confidence,
+        valid_range=valid_range,
+        limit=limit,
+    )
 
 
 @tool(parse_docstring=True)
@@ -578,6 +635,18 @@ KB_TOOLS = [
     lit_distill,
 ]
 
-register_tool_bundle("knowledge-base", KB_TOOLS)
+KB_READONLY_TOOLS = [
+    kb_query,
+    kb_read,
+]
 
-__all__ = ["KB_TOOLS"] + [t.name for t in KB_TOOLS]
+register_tool_bundle("knowledge-base", KB_TOOLS)
+register_tool_bundle(
+    "knowledge-base-readonly",
+    KB_READONLY_TOOLS,
+    include_in_main=False,
+)
+
+__all__ = ["KB_READONLY_TOOLS", "KB_TOOLS"] + [
+    t.name for t in (*KB_TOOLS, *KB_READONLY_TOOLS)
+]

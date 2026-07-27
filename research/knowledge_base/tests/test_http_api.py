@@ -167,6 +167,26 @@ class TestWikiOverviewAndSourcesApi(HttpApiTestCase):
         self.assertEqual(body["coverage"]["distillation_rate"], 1.0)
         self.assertIn("candidate_backlog", {gap["code"] for gap in body["gaps"]})
 
+    def test_builtin_wiki_exposes_current_task_bundles_and_catalog(self):
+        resp = self.client.get("/api/kb/builtin")
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.headers["cache-control"], "no-store")
+        body = resp.json()
+        self.assertTrue(body["available"])
+        self.assertEqual(body["purpose"]["primary_stage"], "hypothesis_generation")
+        self.assertEqual(
+            body["purpose"]["loading_strategy"],
+            "deterministic_task_bundle",
+        )
+        bundle_ids = {bundle["id"] for bundle in body["task_bundles"]}
+        self.assertIn("cycle26_prediction", bundle_ids)
+        self.assertIn("polar_precursor_review", bundle_ids)
+        entry_ids = {entry["id"] for entry in body["catalog_entries"]}
+        self.assertIn("kb_concept_f107_flux_001", entry_ids)
+        self.assertIn("kb_mechanism_hemispheric_coupling_001", entry_ids)
+        self.assertGreater(body["stats"]["seeded_total"], 0)
+        self.assertGreater(body["stats"]["planned_total"], 0)
+
     def test_sources_list_detail_and_state_filter(self):
         source, entry = self._source_backed_entry()
         rows = self.client.get("/api/kb/sources?state=distilled").json()
@@ -296,6 +316,10 @@ class TestMissingDatabase(unittest.TestCase):
             graph = client.get("/api/kb/graph")
             self.assertEqual(graph.status_code, 200)
             self.assertEqual(graph.json()["nodes"], [])
+            builtin = client.get("/api/kb/builtin")
+            self.assertEqual(builtin.status_code, 200)
+            self.assertTrue(builtin.json()["available"])
+            self.assertEqual(builtin.json()["stats"]["seeded_live"], 0)
             resp = client.get("/api/kb/entries/kb_whatever_0001")
             self.assertEqual(resp.status_code, 404)
             self.assertIn("error", resp.json())

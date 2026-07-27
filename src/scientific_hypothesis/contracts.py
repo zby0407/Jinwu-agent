@@ -48,10 +48,18 @@ PERCENTAGE_EXPRESSION = re.compile(
     r"\d+(?:\.\d+)?\s*(?:[-–—~至到]\s*\d+(?:\.\d+)?\s*)?%"
 )
 # 没有来源支撑的硬数值门槛（用于检验陈述、证伪条件、预测文本）。
+#
+# The original pattern only caught prose such as “超过6个月”.  It missed the
+# forms models most often emit in structured cards: “≥15%”, “p<0.05”,
+# “偏差≥1σ”, and “1–3年”.  These are still hard decision thresholds and must
+# be traceable to the request or a bound, verified source.
 HARD_NUMERIC_CUTOFF = re.compile(
     r"(?:至少|至多|不少于|不多于|不超过|不低于|不高于|超过|高于|低于|大于|小于|达到)"
-    r"[^。；;.!?！？]{0,24}\d+(?:\.\d+)?"
+    r"[^。；;.!?！？]{0,24}\d+(?:\.\d+)?\s*(?:%|个|倍|年|月|天|小时|σ|sigma)"
     r"|\d+(?:\.\d+)?\s*(?:%|个|倍|年|月|天|小时|σ|sigma)\s*(?:及以上|及以下|以上|以下|之内|以内)"
+    r"|(?:p\s*)?(?:<=|>=|<|>|≤|≥)\s*\d+(?:\.\d+)?\s*(?:%|个|倍|年|月|天|小时|σ|sigma)?"
+    r"|\d+(?:\.\d+)?\s*(?:%|σ|sigma)\s*(?:偏差|变化|下降|上升|增加|减少|差异|门槛|阈值)"
+    r"|\d+(?:\.\d+)?\s*[-–—~至到]\s*\d+(?:\.\d+)?\s*(?:%|个|倍|年|月|天|小时|σ|sigma)"
 )
 
 # 数据覆盖范围约束（写死的核验规则，与 upstream.KNOWN_DATA_COVERAGES 对应）：
@@ -60,7 +68,9 @@ DATA_COVERAGE_RULES: tuple[dict[str, Any], ...] = (
     {
         "product": "JW-FD 磁图数据集",
         "material_pattern": re.compile(r"JW-FD|JW_FD", re.IGNORECASE),
-        "scope_pattern": re.compile(r"跨周期|所有活动周|普遍成立|任意活动周|每个活动周"),
+        "scope_pattern": re.compile(
+            r"跨周期|所有活动周|普遍成立|任意活动周|每个活动周"
+        ),
         "coverage": "仅覆盖 2011 年前后个别活动区（AR 系列）的短时磁图观测",
     },
 )
@@ -97,7 +107,9 @@ def _object(value: object, label: str) -> dict[str, Any]:
     return value
 
 
-def _array(value: object, label: str, *, min_items: int = 0, max_items: int = 10**6) -> list[Any]:
+def _array(
+    value: object, label: str, *, min_items: int = 0, max_items: int = 10**6
+) -> list[Any]:
     if not isinstance(value, list):
         raise ContractError(f"{label} 必须是 JSON 数组")
     if len(value) < min_items:
@@ -142,7 +154,9 @@ def _enum(value: object, allowed: set[str], label: str) -> str:
 def _id(value: object, label: str) -> str:
     text = _text(value, label, max_length=64)
     if SAFE_ID.match(text) is None:
-        raise ContractError(f"{label} 必须是以字母开头、只含字母数字下划线或连字符的短 id")
+        raise ContractError(
+            f"{label} 必须是以字母开头、只含字母数字下划线或连字符的短 id"
+        )
     return text
 
 
@@ -155,7 +169,10 @@ def _string_list(
     item_max_length: int = 1_000,
 ) -> list[str]:
     items = _array(value, label, min_items=min_items, max_items=max_items)
-    return [_text(item, f"{label}[{index}]", max_length=item_max_length) for index, item in enumerate(items)]
+    return [
+        _text(item, f"{label}[{index}]", max_length=item_max_length)
+        for index, item in enumerate(items)
+    ]
 
 
 def _unique_strings(values: list[str], label: str) -> list[str]:
@@ -177,6 +194,7 @@ def _sha256_optional(value: object, label: str) -> str | None:
 # 请求合同
 # ---------------------------------------------------------------------------
 
+
 def validate_hypothesis_request(payload: object) -> dict[str, Any]:
     request = _object(payload, "hypothesis request")
     _exact_fields(
@@ -197,7 +215,10 @@ def validate_hypothesis_request(payload: object) -> dict[str, Any]:
         "schema_version": REQUEST_VERSION,
         "task_name": _text(request["task_name"], "task_name", max_length=200),
         "research_question": _text(
-            request["research_question"], "research_question", min_length=8, max_length=4_000
+            request["research_question"],
+            "research_question",
+            min_length=8,
+            max_length=4_000,
         ),
         "upstream_materials": [],
         "prior_hypotheses": [],
@@ -219,10 +240,19 @@ def validate_hypothesis_request(payload: object) -> dict[str, Any]:
         material = _object(item, label)
         _exact_fields(
             material,
-            {"id", "material_kind", "title", "locator", "content_notes", "experiment_summary"},
+            {
+                "id",
+                "material_kind",
+                "title",
+                "locator",
+                "content_notes",
+                "experiment_summary",
+            },
             label,
         )
-        kind = _enum(material["material_kind"], MATERIAL_KINDS, f"{label}.material_kind")
+        kind = _enum(
+            material["material_kind"], MATERIAL_KINDS, f"{label}.material_kind"
+        )
         row: dict[str, Any] = {
             "id": _id(material["id"], f"{label}.id"),
             "material_kind": kind,
@@ -267,7 +297,9 @@ def validate_hypothesis_request(payload: object) -> dict[str, Any]:
                         ),
                     }
                 )
-            outcome = _enum(summary["outcome"], EXPERIMENT_OUTCOMES, f"{slabel}.outcome")
+            outcome = _enum(
+                summary["outcome"], EXPERIMENT_OUTCOMES, f"{slabel}.outcome"
+            )
             if kind != "experiment_result":
                 raise ContractError(f"{slabel} 只允许出现在 experiment_result 材料上")
             if not summary["execution_completed"] and outcome != "technical_failure":
@@ -281,7 +313,9 @@ def validate_hypothesis_request(payload: object) -> dict[str, Any]:
             if outcome == "technical_failure" and metric_rows:
                 raise ContractError(f"{slabel} 技术失败记录不得携带指标")
             if summary["execution_completed"] and not metric_rows:
-                raise ContractError(f"{slabel} 已完成执行的结果必须携带至少一项原始指标")
+                raise ContractError(
+                    f"{slabel} 已完成执行的结果必须携带至少一项原始指标"
+                )
             row["experiment_summary"] = {
                 "execution_completed": summary["execution_completed"],
                 "outcome": outcome,
@@ -296,7 +330,9 @@ def validate_hypothesis_request(payload: object) -> dict[str, Any]:
                 ),
             }
         elif kind == "experiment_result":
-            raise ContractError(f"{label} 为 experiment_result 时必须提供 experiment_summary")
+            raise ContractError(
+                f"{label} 为 experiment_result 时必须提供 experiment_summary"
+            )
         validated["upstream_materials"].append(row)
     _unique_strings(
         [material["id"] for material in validated["upstream_materials"]],
@@ -314,7 +350,9 @@ def validate_hypothesis_request(payload: object) -> dict[str, Any]:
         validated["prior_hypotheses"].append(
             {
                 "id": _id(prior["id"], f"{label}.id"),
-                "statement": _text(prior["statement"], f"{label}.statement", max_length=1_000),
+                "statement": _text(
+                    prior["statement"], f"{label}.statement", max_length=1_000
+                ),
                 "version": version,
                 "notes": _text(prior["notes"], f"{label}.notes", max_length=2_000),
             }
@@ -328,6 +366,7 @@ def validate_hypothesis_request(payload: object) -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 # 响应合同
 # ---------------------------------------------------------------------------
+
 
 def _validate_confidence(value: object, label: str) -> dict[str, Any]:
     confidence = _object(value, label)
@@ -357,8 +396,12 @@ def _validate_prediction(value: object, label: str) -> dict[str, Any]:
     )
     return {
         "id": _id(prediction["id"], f"{label}.id"),
-        "statement": _text(prediction["statement"], f"{label}.statement", max_length=1_000),
-        "observable": _text(prediction["observable"], f"{label}.observable", max_length=1_000),
+        "statement": _text(
+            prediction["statement"], f"{label}.statement", max_length=1_000
+        ),
+        "observable": _text(
+            prediction["observable"], f"{label}.observable", max_length=1_000
+        ),
         "distinguishes_from": distinguishes,
         "would_weaken_if": _text(
             prediction["would_weaken_if"], f"{label}.would_weaken_if", max_length=1_000
@@ -371,7 +414,9 @@ def _validate_evidence_link(value: object, label: str) -> dict[str, Any]:
     _exact_fields(link, {"evidence_id", "relation_note"}, label)
     return {
         "evidence_id": _id(link["evidence_id"], f"{label}.evidence_id"),
-        "relation_note": _text(link["relation_note"], f"{label}.relation_note", max_length=1_000),
+        "relation_note": _text(
+            link["relation_note"], f"{label}.relation_note", max_length=1_000
+        ),
     }
 
 
@@ -414,12 +459,18 @@ def _validate_candidate(
 
     mechanism = _object(candidate["mechanism"], f"{label}.mechanism")
     _exact_fields(
-        mechanism, {"summary", "physical_basis", "required_premises"}, f"{label}.mechanism"
+        mechanism,
+        {"summary", "physical_basis", "required_premises"},
+        f"{label}.mechanism",
     )
     mechanism_row = {
-        "summary": _text(mechanism["summary"], f"{label}.mechanism.summary", max_length=2_000),
+        "summary": _text(
+            mechanism["summary"], f"{label}.mechanism.summary", max_length=2_000
+        ),
         "physical_basis": _text(
-            mechanism["physical_basis"], f"{label}.mechanism.physical_basis", max_length=2_000
+            mechanism["physical_basis"],
+            f"{label}.mechanism.physical_basis",
+            max_length=2_000,
         ),
         "required_premises": _string_list(
             mechanism["required_premises"],
@@ -432,7 +483,12 @@ def _validate_candidate(
     predictions = [
         _validate_prediction(item, f"{label}.predictions[{index}]")
         for index, item in enumerate(
-            _array(candidate["predictions"], f"{label}.predictions", min_items=1, max_items=6)
+            _array(
+                candidate["predictions"],
+                f"{label}.predictions",
+                min_items=1,
+                max_items=6,
+            )
         )
     ]
     _unique_strings([p["id"] for p in predictions], f"{label}.predictions.id")
@@ -440,11 +496,18 @@ def _validate_candidate(
     next_test = _object(candidate["next_test"], f"{label}.next_test")
     _exact_fields(
         next_test,
-        {"objective", "discriminating_power", "expected_signals", "candidate_ids_distinguished"},
+        {
+            "objective",
+            "discriminating_power",
+            "expected_signals",
+            "candidate_ids_distinguished",
+        },
         f"{label}.next_test",
     )
     next_test_row = {
-        "objective": _text(next_test["objective"], f"{label}.next_test.objective", max_length=1_000),
+        "objective": _text(
+            next_test["objective"], f"{label}.next_test.objective", max_length=1_000
+        ),
         "discriminating_power": _text(
             next_test["discriminating_power"],
             f"{label}.next_test.discriminating_power",
@@ -482,7 +545,9 @@ def _validate_candidate(
 
     return {
         "id": candidate_id,
-        "statement": _text(candidate["statement"], f"{label}.statement", max_length=1_000),
+        "statement": _text(
+            candidate["statement"], f"{label}.statement", max_length=1_000
+        ),
         "applicability": _text(
             candidate["applicability"], f"{label}.applicability", max_length=1_000
         ),
@@ -494,13 +559,21 @@ def _validate_candidate(
         "supporting_evidence": [
             _validate_evidence_link(item, f"{label}.supporting_evidence[{index}]")
             for index, item in enumerate(
-                _array(candidate["supporting_evidence"], f"{label}.supporting_evidence", max_items=12)
+                _array(
+                    candidate["supporting_evidence"],
+                    f"{label}.supporting_evidence",
+                    max_items=12,
+                )
             )
         ],
         "opposing_evidence": [
             _validate_evidence_link(item, f"{label}.opposing_evidence[{index}]")
             for index, item in enumerate(
-                _array(candidate["opposing_evidence"], f"{label}.opposing_evidence", max_items=12)
+                _array(
+                    candidate["opposing_evidence"],
+                    f"{label}.opposing_evidence",
+                    max_items=12,
+                )
             )
         ],
         "evidence_gaps": _string_list(
@@ -522,7 +595,9 @@ def _validate_candidate(
             max_items=8,
         ),
         "next_test": next_test_row,
-        "confidence": _validate_confidence(candidate["confidence"], f"{label}.confidence"),
+        "confidence": _validate_confidence(
+            candidate["confidence"], f"{label}.confidence"
+        ),
         "evidence_update": update_row,
         "prior_version_id": prior_version_id,
     }
@@ -566,16 +641,24 @@ def validate_hypothesis_response(
         for index, item in enumerate(questions):
             label = f"questions[{index}]"
             item = _object(item, label)
-            _exact_fields(item, {"id", "question", "why_it_matters", "expected_answer"}, label)
+            _exact_fields(
+                item, {"id", "question", "why_it_matters", "expected_answer"}, label
+            )
             rows.append(
                 {
                     "id": _id(item["id"], f"{label}.id"),
-                    "question": _text(item["question"], f"{label}.question", max_length=1_000),
+                    "question": _text(
+                        item["question"], f"{label}.question", max_length=1_000
+                    ),
                     "why_it_matters": _text(
-                        item["why_it_matters"], f"{label}.why_it_matters", max_length=1_000
+                        item["why_it_matters"],
+                        f"{label}.why_it_matters",
+                        max_length=1_000,
                     ),
                     "expected_answer": _text(
-                        item["expected_answer"], f"{label}.expected_answer", max_length=1_000
+                        item["expected_answer"],
+                        f"{label}.expected_answer",
+                        max_length=1_000,
                     ),
                 }
             )
@@ -589,14 +672,18 @@ def validate_hypothesis_response(
         for index, item in enumerate(blockers):
             label = f"blockers[{index}]"
             item = _object(item, label)
-            _exact_fields(item, {"id", "code", "reason", "recoverable", "resolution"}, label)
+            _exact_fields(
+                item, {"id", "code", "reason", "recoverable", "resolution"}, label
+            )
             if not isinstance(item["recoverable"], bool):
                 raise ContractError(f"{label}.recoverable 必须是布尔值")
             rows.append(
                 {
                     "id": _id(item["id"], f"{label}.id"),
                     "code": _enum(item["code"], BLOCKER_CODES, f"{label}.code"),
-                    "reason": _text(item["reason"], f"{label}.reason", max_length=1_000),
+                    "reason": _text(
+                        item["reason"], f"{label}.reason", max_length=1_000
+                    ),
                     "recoverable": item["recoverable"],
                     "resolution": _text(
                         item["resolution"], f"{label}.resolution", max_length=1_000
@@ -643,14 +730,20 @@ def validate_hypothesis_response(
                     f"{label} 的下一项检验引用了不存在的候选：{distinguished}"
                 )
         if len(candidate["next_test"]["candidate_ids_distinguished"]) > 1:
-            if candidate["id"] not in candidate["next_test"]["candidate_ids_distinguished"]:
+            if (
+                candidate["id"]
+                not in candidate["next_test"]["candidate_ids_distinguished"]
+            ):
                 raise ContractError(
                     f"{label} 的下一项检验声称区分多个候选时，必须包含该候选自身"
                 )
-        if candidate["prior_version_id"] is not None and candidate["evidence_update"] is None:
+        if (
+            candidate["prior_version_id"] is not None
+            and candidate["evidence_update"] is None
+        ):
             raise ContractError(
                 f"{label} 声明更新已有假设时必须填写 evidence_update 说明更新原因"
-                )
+            )
         # 数据覆盖范围核验规则：候选陈述或适用范围的泛化越出所绑定材料的
         # 已知覆盖范围时，置信度不得为 high（写死规则，不靠模型自觉）。
         if candidate["confidence"]["level"] == "high":
@@ -659,7 +752,9 @@ def validate_hypothesis_response(
             for link in candidate["supporting_evidence"]:
                 # evidence_id 与 material_id 是不同命名空间：先按 evidence_id 在
                 # 登记簿精确查其 material_id，再按 id 重合约定回退（handoff 常用同一短名）。
-                entry = register.get(link["evidence_id"]) if register is not None else None
+                entry = (
+                    register.get(link["evidence_id"]) if register is not None else None
+                )
                 material_id = (
                     entry["material_id"] if entry is not None else link["evidence_id"]
                 )
@@ -735,11 +830,19 @@ def validate_hypothesis_response(
 # 证据绑定与组合合同
 # ---------------------------------------------------------------------------
 
+
 def validate_evidence_bind(payload: object) -> dict[str, Any]:
     bind = _object(payload, "evidence bind")
     _exact_fields(
         bind,
-        {"evidence_id", "evidence_kind", "material_id", "excerpt", "verified_support", "role"},
+        {
+            "evidence_id",
+            "evidence_kind",
+            "material_id",
+            "excerpt",
+            "verified_support",
+            "role",
+        },
         "evidence bind",
     )
     kind = _enum(bind["evidence_kind"], EVIDENCE_KINDS, "evidence bind.evidence_kind")
@@ -794,17 +897,27 @@ def validate_hypothesis_portfolio(payload: object) -> dict[str, Any]:
             raise ContractError(f"{field} 必须是 64 位小写 sha256")
     if not portfolio["candidates"]:
         raise ContractError("hypothesis portfolio 至少包含一个候选假设")
-    candidate_ids = {c.get("id") for c in portfolio["candidates"] if isinstance(c, dict)}
+    candidate_ids = {
+        c.get("id") for c in portfolio["candidates"] if isinstance(c, dict)
+    }
 
     ranking = portfolio["ranking"]
     if ranking is not None:
         rlabel = "hypothesis portfolio.ranking"
         ranking = _object(ranking, rlabel)
-        _exact_fields(ranking, {"schema_version", "weights", "ranked", "pairwise_judgments"}, rlabel)
+        _exact_fields(
+            ranking,
+            {"schema_version", "weights", "ranked", "pairwise_judgments"},
+            rlabel,
+        )
         if ranking["schema_version"] != "scientific-hypothesis-ranking-v1":
-            raise ContractError(f"{rlabel}.schema_version 必须为 scientific-hypothesis-ranking-v1")
+            raise ContractError(
+                f"{rlabel}.schema_version 必须为 scientific-hypothesis-ranking-v1"
+            )
         ranked_ids = []
-        for index, item in enumerate(_array(ranking["ranked"], f"{rlabel}.ranked", min_items=1)):
+        for index, item in enumerate(
+            _array(ranking["ranked"], f"{rlabel}.ranked", min_items=1)
+        ):
             row = _object(item, f"{rlabel}.ranked[{index}]")
             for field in ("candidate_id", "rank", "rationale", "key_evidence_ids"):
                 if field not in row:
@@ -824,10 +937,19 @@ def validate_hypothesis_portfolio(payload: object) -> dict[str, Any]:
         _exact_fields(table, {"rows", "notes"}, tlabel)
         for index, item in enumerate(_array(table["rows"], f"{tlabel}.rows")):
             row = _object(item, f"{tlabel}.rows[{index}]")
-            _exact_fields(row, {"candidate_id", "kind", "summary", "evidence_id"}, f"{tlabel}.rows[{index}]")
+            _exact_fields(
+                row,
+                {"candidate_id", "kind", "summary", "evidence_id"},
+                f"{tlabel}.rows[{index}]",
+            )
             if row["kind"] not in {"counterexample", "conflict"}:
-                raise ContractError(f"{tlabel}.rows[{index}].kind 只允许 counterexample 或 conflict")
-            if row["candidate_id"] is not None and row["candidate_id"] not in candidate_ids:
+                raise ContractError(
+                    f"{tlabel}.rows[{index}].kind 只允许 counterexample 或 conflict"
+                )
+            if (
+                row["candidate_id"] is not None
+                and row["candidate_id"] not in candidate_ids
+            ):
                 raise ContractError(
                     f"{tlabel}.rows[{index}].candidate_id 未指向任何候选：{row['candidate_id']}"
                 )

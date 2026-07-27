@@ -2,8 +2,12 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from types import SimpleNamespace
+
+import pytest
 
 from jw import paths
+from jw.tools import knowledge_base as knowledge_tools
 from jw.tools import scientific_hypothesis as hypothesis_tools
 from jw.workspaces import ensure_thread_workspace
 from scientific_hypothesis.contracts import canonical_json_sha256
@@ -40,6 +44,25 @@ def _update(
                 "payload_json": json.dumps(payload, ensure_ascii=False),
             },
             config=config,
+        )
+    )
+
+
+def _wiki_store_with_read_receipt(thread_id: str, entry_id: str) -> SimpleNamespace:
+    return SimpleNamespace(
+        provenance_for_run=lambda run_id: (
+            [
+                {
+                    "id": 17,
+                    "run_id": thread_id,
+                    "agent": "solar-hypothesis",
+                    "entry_id": entry_id,
+                    "purpose": "candidate grounding",
+                    "ts": "2026-07-27T00:00:00+00:00",
+                }
+            ]
+            if run_id == thread_id
+            else []
         )
     )
 
@@ -97,6 +120,237 @@ def test_rebinding_different_question_starts_new_working_state() -> None:
     assert outcome["working_state_preserved"] is False
     assert new_state is not old_state
     assert new_state.preflight_attempts == 0
+
+
+def test_undeclared_verified_evidence_is_rejected_without_mutating_state() -> None:
+    config = _config("hypothesis-ghost-evidence")
+    hypothesis_tools._STATES.pop("hypothesis-ghost-evidence", None)
+    hypothesis_tools.scientific_hypothesis_bind_request.invoke(
+        {"request_input": "Explain this solar-cycle observation."},
+        config=config,
+    )
+
+    outcome = json.loads(
+        hypothesis_tools.scientific_hypothesis_bind_evidence.invoke(
+            {
+                "evidence_id": "ev_ghost",
+                "evidence_kind": "upstream",
+                "material_id": "project-constraints",
+                "excerpt": "remembered from an earlier run",
+                "verified_support": True,
+                "role": "supports",
+            },
+            config=config,
+        )
+    )
+    state = hypothesis_tools._STATES["hypothesis-ghost-evidence"]
+
+    assert outcome["status"] == "needs_revision"
+    assert "未在本轮 upstream_materials 中声明" in outcome["validation_error"]
+    assert len(state.evidence_register) == 0
+
+
+def test_canonical_wiki_binding_persists_mechanism_receipt(monkeypatch) -> None:
+    config = _config("hypothesis-wiki-binding")
+    hypothesis_tools._STATES.pop("hypothesis-wiki-binding", None)
+    hypothesis_tools.scientific_hypothesis_bind_request.invoke(
+        {"request_input": "How could polar-field memory affect the next cycle?"},
+        config=config,
+    )
+    entry = {
+        "id": "kb_mechanism_polar-memory_001",
+        "type": "mechanism",
+        "title": "Polar-field memory",
+        "content": {
+            "mechanism": "Poloidal flux seeds the following toroidal-field cycle."
+        },
+        "source_type": "literature",
+        "source_ref": "doi:10.0000/example",
+        "confidence": "medium",
+        "status": "canonical",
+        "valid_range": "solar cycles with comparable polar-field measurements",
+        "related_ids": [],
+        "provenance": {"human_reviewed": True},
+        "version": 3,
+    }
+    monkeypatch.setattr(
+        knowledge_tools,
+        "_get_store",
+        lambda: _wiki_store_with_read_receipt(
+            "hypothesis-wiki-binding",
+            entry["id"],
+        ),
+    )
+    monkeypatch.setattr(
+        knowledge_tools.service,
+        "read",
+        lambda *_args, **_kwargs: {"status": "ok", "entry": entry},
+    )
+
+    outcome = json.loads(
+        hypothesis_tools.scientific_hypothesis_bind_wiki_evidence.invoke(
+            {"entry_id": entry["id"]},
+            config=config,
+        )
+    )
+    bound = hypothesis_tools._STATES["hypothesis-wiki-binding"].evidence_register.get(
+        entry["id"]
+    )
+
+    assert outcome["status"] == "bound"
+    assert outcome["wiki_grounding"]["version"] == 3
+    assert bound is not None
+    assert bound["role"] == "limits"
+    assert bound["material_id"] == entry["id"]
+    assert '"status":"canonical"' in bound["excerpt"]
+    assert "provenance_sha256" in bound["excerpt"]
+    assert "human_reviewed" in bound["excerpt"]
+    assert '"kb_read_receipt"' in bound["excerpt"]
+    assert outcome["kb_read_receipt"]["log_id"] == 17
+
+
+@pytest.mark.parametrize(
+    ("entry_type", "entry_id", "source_type"),
+    [
+        ("data_source", "kb_data_source_polar-field_001", "dataset_doc"),
+        (
+            "experiment_paradigm",
+            "kb_experiment_paradigm_leave-one-cycle-out_001",
+            "textbook",
+        ),
+    ],
+)
+def test_stable_wiki_data_and_method_entries_can_be_bound_as_limits(
+    monkeypatch,
+    entry_type: str,
+    entry_id: str,
+    source_type: str,
+) -> None:
+    thread_id = f"hypothesis-wiki-{entry_type}"
+    config = _config(thread_id)
+    hypothesis_tools._STATES.pop(thread_id, None)
+    hypothesis_tools.scientific_hypothesis_bind_request.invoke(
+        {"request_input": "Which data and backtest limits constrain this hypothesis?"},
+        config=config,
+    )
+    entry = {
+        "id": entry_id,
+        "type": entry_type,
+        "title": "Bounded Wiki entry",
+        "content": {"summary": "A reviewed scope or method boundary."},
+        "source_type": source_type,
+        "source_ref": "reviewed-source",
+        "confidence": "medium",
+        "status": "canonical",
+        "valid_range": "the documented data product and evaluation design",
+        "related_ids": [],
+        "provenance": {"human_reviewed": True},
+        "version": 2,
+    }
+    monkeypatch.setattr(
+        knowledge_tools,
+        "_get_store",
+        lambda: _wiki_store_with_read_receipt(thread_id, entry_id),
+    )
+    monkeypatch.setattr(
+        knowledge_tools.service,
+        "read",
+        lambda *_args, **_kwargs: {"status": "ok", "entry": entry},
+    )
+
+    outcome = json.loads(
+        hypothesis_tools.scientific_hypothesis_bind_wiki_evidence.invoke(
+            {"entry_id": entry_id},
+            config=config,
+        )
+    )
+
+    assert outcome["status"] == "bound"
+    assert outcome["wiki_grounding"]["type"] == entry_type
+    bound = hypothesis_tools._STATES[thread_id].evidence_register.get(entry_id)
+    assert bound is not None
+    assert bound["role"] == "limits"
+
+
+def test_wiki_binding_requires_prior_read_receipt(monkeypatch) -> None:
+    thread_id = "hypothesis-wiki-missing-read"
+    config = _config(thread_id)
+    hypothesis_tools._STATES.pop(thread_id, None)
+    hypothesis_tools.scientific_hypothesis_bind_request.invoke(
+        {"request_input": "Could this Wiki mechanism constrain the hypothesis?"},
+        config=config,
+    )
+    entry_id = "kb_mechanism_unread_001"
+    store = SimpleNamespace(provenance_for_run=lambda _run_id: [])
+    monkeypatch.setattr(knowledge_tools, "_get_store", lambda: store)
+    service_called = False
+
+    def should_not_read(*_args, **_kwargs):
+        nonlocal service_called
+        service_called = True
+        raise AssertionError("binding must fail before its server-side re-read")
+
+    monkeypatch.setattr(knowledge_tools.service, "read", should_not_read)
+
+    outcome = json.loads(
+        hypothesis_tools.scientific_hypothesis_bind_wiki_evidence.invoke(
+            {"entry_id": entry_id},
+            config=config,
+        )
+    )
+
+    assert service_called is False
+    assert outcome["status"] == "needs_revision"
+    assert "No prior kb_read receipt exists" in outcome["validation_error"]
+    assert len(hypothesis_tools._STATES[thread_id].evidence_register) == 0
+
+
+def test_noncanonical_wiki_binding_is_rejected(monkeypatch) -> None:
+    config = _config("hypothesis-wiki-candidate")
+    hypothesis_tools._STATES.pop("hypothesis-wiki-candidate", None)
+    hypothesis_tools.scientific_hypothesis_bind_request.invoke(
+        {"request_input": "Could this candidate Wiki mechanism explain the cycle?"},
+        config=config,
+    )
+    entry = {
+        "id": "kb_mechanism_unreviewed_001",
+        "type": "mechanism",
+        "title": "Unreviewed mechanism",
+        "content": {"mechanism": "An unreviewed mechanism."},
+        "source_type": "derived",
+        "source_ref": "draft",
+        "confidence": "low",
+        "status": "candidate",
+        "valid_range": "",
+        "related_ids": [],
+        "provenance": {},
+        "version": 1,
+    }
+    monkeypatch.setattr(
+        knowledge_tools,
+        "_get_store",
+        lambda: _wiki_store_with_read_receipt(
+            "hypothesis-wiki-candidate",
+            entry["id"],
+        ),
+    )
+    monkeypatch.setattr(
+        knowledge_tools.service,
+        "read",
+        lambda *_args, **_kwargs: {"status": "ok", "entry": entry},
+    )
+
+    outcome = json.loads(
+        hypothesis_tools.scientific_hypothesis_bind_wiki_evidence.invoke(
+            {"entry_id": entry["id"]},
+            config=config,
+        )
+    )
+    state = hypothesis_tools._STATES["hypothesis-wiki-candidate"]
+
+    assert outcome["status"] == "needs_revision"
+    assert "只有 canonical 条目" in outcome["validation_error"]
+    assert len(state.evidence_register) == 0
 
 
 def test_repeated_checkpoint_failure_preserves_checkpoint_and_stops_retry() -> None:
@@ -197,8 +451,8 @@ def test_publish_refuses_evidence_added_after_checkpoint() -> None:
         {
             "evidence_id": "ev_new",
             "evidence_kind": "user",
-            "material_id": "user_note",
-            "excerpt": "The user supplied a new observation after checkpointing.",
+            "material_id": "user_request",
+            "excerpt": "Explain this observation.",
             "verified_support": True,
             "role": "supports",
         },
@@ -345,6 +599,31 @@ def test_incremental_candidate_patch_preserves_other_fields_and_resets_retry() -
     assert draft["candidates"][0]["statement"].startswith("A measurement change")
     assert draft["candidates"][0]["confidence"]["level"] == "low"
     assert draft["candidates"][0]["evidence_gaps"]
+
+
+def test_draft_update_warns_about_unbound_numeric_thresholds() -> None:
+    config = _config("hypothesis-draft-numeric-warning")
+    hypothesis_tools._STATES.pop("hypothesis-draft-numeric-warning", None)
+    hypothesis_tools.scientific_hypothesis_bind_request.invoke(
+        {"request_input": "Explain this observation without invented cutoffs."},
+        config=config,
+    )
+    state = hypothesis_tools._STATES["hypothesis-draft-numeric-warning"]
+    response = make_response(state.request)
+    response["candidates"][0]["falsification_conditions"] = [
+        "当相关系数 r > 0.85 时放弃该候选"
+    ]
+
+    outcome = _update(config, "replace", response)
+    threshold_warnings = [
+        warning
+        for warning in outcome["soft_warnings"]
+        if warning["code"] == "ungrounded_numeric_threshold"
+    ]
+
+    assert threshold_warnings
+    assert threshold_warnings[0]["candidate_id"] == "cand_dynamo"
+    assert "0.85" in threshold_warnings[0]["message"]
 
 
 def test_remove_candidate_cleans_pairwise_distinctions() -> None:

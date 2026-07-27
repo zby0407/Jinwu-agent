@@ -1,0 +1,426 @@
+schema_version: llm-wiki-entry-catalog-v1
+catalog_status: scaffold
+state_values:
+  - seeded
+  - planned
+  - candidate
+  - canonical
+  - deprecated
+  - superseded
+priority_values:
+  - P0
+  - P1
+  - P2
+
+entries:
+  # Module 10: solar-cycle state and morphology
+  - id: kb_concept_sunspot_cycle_001
+    type: concept
+    module: solar_cycle
+    title_zh: 约11年太阳黑子活动周
+    state: seeded
+    priority: P0
+    path: concept_sunspot_cycle.md
+  - id: kb_concept_cycle_phase_001
+    type: concept
+    module: solar_cycle
+    title_zh: 活动周阶段与边界
+    state: planned
+    priority: P0
+  - id: kb_concept_cycle_strength_001
+    type: concept
+    module: solar_cycle
+    title_zh: 活动周强度与形态指标
+    state: planned
+    priority: P0
+  - id: kb_concept_hale_cycle_001
+    type: concept
+    module: solar_cycle
+    title_zh: Hale 22年磁周期
+    state: planned
+    priority: P0
+  - id: kb_concept_waldmeier_effect_001
+    type: concept
+    module: solar_cycle
+    title_zh: Waldmeier效应
+    state: planned
+    priority: P0
+  - id: kb_concept_cycle_length_relation_001
+    type: concept
+    module: solar_cycle
+    title_zh: 活动周长度与强度关系
+    state: planned
+    priority: P1
+  - id: kb_concept_hemispheric_asymmetry_001
+    type: concept
+    module: solar_cycle
+    title_zh: 太阳活动南北半球不对称
+    state: planned
+    priority: P1
+  - id: kb_concept_long_term_modulation_001
+    type: concept
+    module: solar_cycle
+    title_zh: 太阳活动的长期调制
+    state: planned
+    priority: P2
+
+  # Module 20: dynamo and polar field
+  - id: kb_mechanism_babcock_leighton_001
+    type: mechanism
+    module: dynamo_and_polar_field
+    title_zh: Babcock-Leighton太阳发电机
+    state: seeded
+    priority: P0
+    path: mechanism_babcock_leighton.md
+  - id: kb_concept_poloidal_toroidal_field_001
+    type: concept
+    module: dynamo_and_polar_field
+    title_zh: 极向场与环向场
+    state: planned
+    priority: P0
+  - id: kb_mechanism_differential_rotation_001
+    type: mechanism
+    module: dynamo_and_polar_field
+    title_zh: 差分旋转与Omega效应
+    state: planned
+    priority: P0
+  - id: kb_mechanism_active_region_tilt_001
+    type: mechanism
+    module: dynamo_and_polar_field
+    title_zh: 活动区倾角与极向场再生
+    state: planned
+    priority: P0
+  - id: kb_mechanism_surface_flux_transport_001
+    type: mechanism
+    module: dynamo_and_polar_field
+    title_zh: 太阳表面磁通输运
+    state: planned
+    priority: P0
+  - id: kb_mechanism_polar_field_reversal_001
+    type: mechanism
+    module: dynamo_and_polar_field
+    title_zh: 极区磁场反转与重建
+    state: planned
+    priority: P0
+  - id: kb_mechanism_polar_precursor_001
+    type: mechanism
+    module: dynamo_and_polar_field
+    title_zh: 极区场前兆与下一活动周强度
+    state: planned
+    priority: P0
+  - id: kb_mechanism_meridional_circulation_001
+    type: mechanism
+    module: dynamo_and_polar_field
+    title_zh: 子午环流的发电机作用
+    state: planned
+    priority: P1
+  - id: kb_mechanism_stochastic_flux_emergence_001
+    type: mechanism
+    module: dynamo_and_polar_field
+    title_zh: 随机磁通涌现与活动周不确定性
+    state: planned
+    priority: P1
+  - id: kb_mechanism_hemispheric_coupling_001
+    type: mechanism
+    module: dynamo_and_polar_field
+    title_zh: 跨赤道耦合与半球同步
+    state: seeded
+    priority: P2
+    path: mechanism_hemispheric_coupling.md
+
+  # Module 30: indicators and features
+  - id: kb_concept_sunspot_number_proxy_001
+    type: concept
+    module: indicators_and_features
+    title_zh: 太阳黑子数的物理含义与代理边界
+    state: planned
+    priority: P0
+  - id: kb_concept_f107_flux_001
+    type: concept
+    module: indicators_and_features
+    title_zh: F10.7厘米射电流量
+    state: seeded
+    priority: P0
+    path: concept_f107_flux.md
+  - id: kb_concept_polar_field_observable_001
+    type: concept
+    module: indicators_and_features
+    title_zh: 极区磁场观测量与代理
+    state: seeded
+    priority: P0
+    path: concept_polar_field_observable.md
+  - id: kb_concept_cycle_peak_feature_001
+    type: concept
+    module: indicators_and_features
+    title_zh: 活动周峰值强度特征
+    state: planned
+    priority: P0
+  - id: kb_concept_rise_time_slope_001
+    type: concept
+    module: indicators_and_features
+    title_zh: 上升期时长与上升斜率
+    state: planned
+    priority: P0
+  - id: kb_concept_cycle_length_feature_001
+    type: concept
+    module: indicators_and_features
+    title_zh: 活动周长度特征
+    state: planned
+    priority: P0
+  - id: kb_concept_integrated_activity_001
+    type: concept
+    module: indicators_and_features
+    title_zh: 活动周积分活动量
+    state: planned
+    priority: P1
+  - id: kb_concept_hemispheric_asymmetry_index_001
+    type: concept
+    module: indicators_and_features
+    title_zh: 半球不对称指标
+    state: planned
+    priority: P1
+  - id: kb_concept_proxy_relationship_drift_001
+    type: concept
+    module: indicators_and_features
+    title_zh: 太阳活动代理指标关系漂移
+    state: seeded
+    priority: P0
+    path: concept_proxy_relationship_drift.md
+  - id: kb_concept_forecast_time_availability_001
+    type: concept
+    module: indicators_and_features
+    title_zh: 预测时点可用性与特征泄漏
+    state: planned
+    priority: P0
+
+  # Module 40: active regions and flares
+  - id: kb_concept_solar_active_region_001
+    type: concept
+    module: active_regions_and_flares
+    title_zh: 太阳活动区
+    state: planned
+    priority: P1
+  - id: kb_concept_solar_flare_001
+    type: concept
+    module: active_regions_and_flares
+    title_zh: 太阳耀斑
+    state: planned
+    priority: P1
+  - id: kb_mechanism_magnetic_reconnection_001
+    type: mechanism
+    module: active_regions_and_flares
+    title_zh: 耀斑能量释放中的磁重联
+    state: planned
+    priority: P1
+  - id: kb_concept_goes_flare_class_001
+    type: concept
+    module: active_regions_and_flares
+    title_zh: GOES软X射线耀斑等级
+    state: planned
+    priority: P1
+  - id: kb_concept_flare_energy_measures_001
+    type: concept
+    module: active_regions_and_flares
+    title_zh: 耀斑峰值、持续时间、积分通量与总能量
+    state: planned
+    priority: P2
+  - id: kb_concept_flare_cycle_relation_001
+    type: concept
+    module: active_regions_and_flares
+    title_zh: 耀斑发生率与太阳活动周
+    state: seeded
+    priority: P1
+    path: concept_flare_cycle_relation.md
+  - id: kb_concept_flare_cme_boundary_001
+    type: concept
+    module: active_regions_and_flares
+    title_zh: 耀斑、CME与活动周指标的关系边界
+    state: planned
+    priority: P2
+
+  # Module 50: data sources
+  - id: kb_data_source_silso_001
+    type: data_source
+    module: data_sources
+    title_zh: SILSO国际太阳黑子数
+    state: seeded
+    priority: P0
+    path: data_source_silso.md
+  - id: kb_data_source_f107_001
+    type: data_source
+    module: data_sources
+    title_zh: F10.7射电流量数据产品
+    state: planned
+    priority: P0
+  - id: kb_data_source_polar_field_001
+    type: data_source
+    module: data_sources
+    title_zh: 极区磁场观测数据
+    state: planned
+    priority: P0
+  - id: kb_data_source_polar_proxy_001
+    type: data_source
+    module: data_sources
+    title_zh: 历史极区前兆代理数据
+    state: planned
+    priority: P0
+  - id: kb_data_source_cycle_extrema_001
+    type: data_source
+    module: data_sources
+    title_zh: 太阳活动周极小与极大元数据
+    state: planned
+    priority: P0
+  - id: kb_data_source_hemispheric_sunspot_001
+    type: data_source
+    module: data_sources
+    title_zh: 南北半球太阳黑子活动数据
+    state: planned
+    priority: P1
+  - id: kb_data_source_goes_flare_catalog_001
+    type: data_source
+    module: data_sources
+    title_zh: GOES耀斑事件目录
+    state: planned
+    priority: P1
+
+  # Module 60: experiment paradigms
+  - id: kb_experiment_paradigm_backtest_001
+    type: experiment_paradigm
+    module: experiment_paradigms
+    title_zh: 跨活动周回测
+    state: seeded
+    priority: P0
+    path: experiment_paradigm_backtest.md
+  - id: kb_experiment_paradigm_statistical_baseline_001
+    type: experiment_paradigm
+    module: experiment_paradigms
+    title_zh: 可解释统计基线
+    state: planned
+    priority: P0
+  - id: kb_experiment_paradigm_cycle_similarity_001
+    type: experiment_paradigm
+    module: experiment_paradigms
+    title_zh: 历史活动周相似性分析
+    state: planned
+    priority: P1
+  - id: kb_experiment_paradigm_feature_ablation_001
+    type: experiment_paradigm
+    module: experiment_paradigms
+    title_zh: 特征消融与单代理依赖检查
+    state: seeded
+    priority: P0
+    path: experiment_paradigm_feature_ablation.md
+  - id: kb_experiment_paradigm_polar_precursor_001
+    type: experiment_paradigm
+    module: experiment_paradigms
+    title_zh: 极区前兆历史验证
+    state: planned
+    priority: P0
+  - id: kb_experiment_paradigm_waldmeier_001
+    type: experiment_paradigm
+    module: experiment_paradigms
+    title_zh: Waldmeier效应检验
+    state: planned
+    priority: P0
+  - id: kb_experiment_paradigm_indicator_drift_001
+    type: experiment_paradigm
+    module: experiment_paradigms
+    title_zh: F10.7与黑子数关系漂移检验
+    state: seeded
+    priority: P0
+    path: experiment_paradigm_indicator_drift.md
+  - id: kb_experiment_paradigm_hemispheric_asymmetry_001
+    type: experiment_paradigm
+    module: experiment_paradigms
+    title_zh: 半球不对称诊断实验
+    state: planned
+    priority: P1
+  - id: kb_experiment_paradigm_robustness_001
+    type: experiment_paradigm
+    module: experiment_paradigms
+    title_zh: 稳健性与不确定性分析
+    state: planned
+    priority: P0
+  - id: kb_experiment_paradigm_mechanism_diagnostic_001
+    type: experiment_paradigm
+    module: experiment_paradigms
+    title_zh: 机制诊断与替代解释比较
+    state: planned
+    priority: P1
+
+  # Module 70: hypothesis templates
+  - id: kb_hypothesis_template_polar_precursor_001
+    type: hypothesis_template
+    module: hypothesis_templates
+    title_zh: 极区前兆假设模板
+    state: seeded
+    priority: P0
+    path: hypothesis_template_polar_precursor.md
+  - id: kb_hypothesis_template_waldmeier_constraint_001
+    type: hypothesis_template
+    module: hypothesis_templates
+    title_zh: Waldmeier约束假设模板
+    state: planned
+    priority: P0
+  - id: kb_hypothesis_template_proxy_drift_001
+    type: hypothesis_template
+    module: hypothesis_templates
+    title_zh: 代理指标漂移假设模板
+    state: planned
+    priority: P0
+  - id: kb_hypothesis_template_cycle_length_state_001
+    type: hypothesis_template
+    module: hypothesis_templates
+    title_zh: 活动周长度状态假设模板
+    state: planned
+    priority: P1
+  - id: kb_hypothesis_template_hemispheric_asymmetry_001
+    type: hypothesis_template
+    module: hypothesis_templates
+    title_zh: 半球不对称扰动假设模板
+    state: planned
+    priority: P1
+
+  # Module 80: evidence review and self-correction
+  - id: kb_concept_evidence_classes_001
+    type: concept
+    module: evidence_review
+    title_zh: 观测、统计、模型与机制证据分级
+    state: planned
+    priority: P0
+  - id: kb_concept_correlation_mechanism_boundary_001
+    type: concept
+    module: evidence_review
+    title_zh: 相关关系、预测能力与物理机制边界
+    state: planned
+    priority: P0
+  - id: kb_concept_small_cycle_sample_001
+    type: concept
+    module: evidence_review
+    title_zh: 少活动周样本的不确定性
+    state: planned
+    priority: P0
+  - id: kb_experiment_paradigm_evidence_scoring_001
+    type: experiment_paradigm
+    module: evidence_review
+    title_zh: 假设证据评分与降权规则
+    state: planned
+    priority: P0
+  - id: kb_experiment_paradigm_conflict_review_001
+    type: experiment_paradigm
+    module: evidence_review
+    title_zh: Canonical知识冲突审查
+    state: planned
+    priority: P0
+  - id: kb_concept_forecast_wording_risk_001
+    type: concept
+    module: evidence_review
+    title_zh: 趋势判断、预测与官方预报的表述边界
+    state: planned
+    priority: P0
+  - id: kb_concept_knowledge_gap_001
+    type: concept
+    module: evidence_review
+    title_zh: 知识缺口与下一步验证
+    state: planned
+    priority: P1

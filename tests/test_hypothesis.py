@@ -29,6 +29,12 @@ from scientific_hypothesis.harness import (  # noqa: E402
     preflight_hypothesis_response,
     render_nonportfolio_response_markdown,
 )
+from scientific_hypothesis.ranking import (  # noqa: E402
+    RANKING_VERSION,
+    RUBRIC_DIMENSIONS,
+    RUBRIC_KEYS,
+    validate_ranking_request,
+)
 
 
 def make_request(**overrides):
@@ -523,6 +529,35 @@ class SemanticCheckTests(unittest.TestCase):
         )
         self.assertEqual(errors, [])
 
+    def test_undeclared_registered_evidence_is_flagged(self):
+        self.register.bind(
+            {
+                "evidence_id": "ev_ghost",
+                "evidence_kind": "upstream",
+                "material_id": "project-constraints",
+                "excerpt": "remembered from another run",
+                "verified_support": True,
+                "role": "supports",
+            }
+        )
+        response = validate_hypothesis_response(
+            make_response(
+                self.request,
+                candidates=[make_candidate(), make_measure_candidate()],
+            ),
+            self.request,
+        )
+
+        errors = collect_hypothesis_semantic_errors(
+            self.request, response, self.register
+        )
+
+        self.assertTrue(any("来源无效" in error for error in errors), errors)
+        self.assertTrue(
+            any("未在本轮 upstream_materials 中声明" in error for error in errors),
+            errors,
+        )
+
     def test_opposing_role_mismatch_flagged(self):
         bind_evidence(self.register, role="supports")
         candidate = make_candidate()
@@ -611,6 +646,74 @@ class SemanticCheckTests(unittest.TestCase):
             self.register,
         )
         self.assertTrue(any("数值门槛" in error for error in errors))
+
+    def test_numeric_thresholds_in_predictions_premises_and_assumptions_flagged(self):
+        candidate = make_candidate()
+        candidate["mechanism"]["required_premises"] = ["关系达到p<0.05才成立"]
+        candidate["assumptions"] = ["活动周相位偏差不超过1–3年"]
+        candidate["predictions"][0]["statement"] = "极区磁通变化幅度≥15%"
+        candidate["predictions"][0]["would_weaken_if"] = "变化幅度<20%"
+
+        errors = collect_hypothesis_semantic_errors(
+            self.request,
+            validate_hypothesis_response(
+                make_response(
+                    self.request,
+                    candidates=[candidate, make_measure_candidate()],
+                ),
+                self.request,
+            ),
+            self.register,
+        )
+
+        for token in ("p<0.05", "1–3年", "≥15%", "<20%"):
+            with self.subTest(token=token):
+                self.assertTrue(any(token in error for error in errors), errors)
+
+    def test_wiki_grounding_does_not_count_as_empirical_high_confidence_support(self):
+        wiki_id = "kb_mechanism_polar-memory_001"
+        self.register.bind(
+            {
+                "evidence_id": wiki_id,
+                "evidence_kind": "literature",
+                "material_id": wiki_id,
+                "excerpt": (
+                    '{"id":"kb_mechanism_polar-memory_001",'
+                    '"status":"canonical","version":2}'
+                ),
+                "verified_support": True,
+                "role": "limits",
+            }
+        )
+        candidate = make_candidate()
+        candidate["supporting_evidence"] = [
+            {
+                "evidence_id": wiki_id,
+                "relation_note": "约束候选机制和适用范围",
+            }
+        ]
+        candidate["evidence_gaps"] = []
+        candidate["confidence"] = {
+            "level": "high",
+            "basis": "Wiki 中存在可用的机制条目",
+        }
+
+        errors = collect_hypothesis_semantic_errors(
+            self.request,
+            validate_hypothesis_response(
+                make_response(
+                    self.request,
+                    candidates=[candidate, make_measure_candidate()],
+                ),
+                self.request,
+            ),
+            self.register,
+        )
+
+        self.assertTrue(
+            any("非 Wiki 支持证据" in error for error in errors),
+            errors,
+        )
 
     def test_sourced_numeric_threshold_accepted(self):
         bind_evidence(self.register)  # 摘录中含“约8个月”之外的数值不在门槛里
@@ -831,6 +934,47 @@ class BriefTests(unittest.TestCase):
         self.assertIn("model_owned", brief)
         self.assertIn("harness_owned", brief)
         self.assertEqual(len(brief["request_sha256"]), 64)
+
+
+class RankingBoundaryTests(unittest.TestCase):
+    def test_wiki_only_anchor_cannot_receive_strong_data_support(self):
+        wiki_id = "kb_mechanism_polar-memory_001"
+        register = EvidenceRegister()
+        register.bind(
+            {
+                "evidence_id": wiki_id,
+                "evidence_kind": "literature",
+                "material_id": wiki_id,
+                "excerpt": (
+                    '{"id":"kb_mechanism_polar-memory_001",'
+                    '"status":"canonical","version":2}'
+                ),
+                "verified_support": True,
+                "role": "limits",
+            }
+        )
+        grades = {key: "moderate" for key in RUBRIC_KEYS}
+        grades["data_support"] = "strong"
+        payload = {
+            "schema_version": RANKING_VERSION,
+            "rubric": [dict(row) for row in RUBRIC_DIMENSIONS],
+            "weights": {key: 1 for key in RUBRIC_KEYS},
+            "ranked": [
+                {
+                    "candidate_id": "cand_dynamo",
+                    "rank": 1,
+                    "rationale": "Wiki mechanism is physically plausible.",
+                    "key_evidence_ids": [wiki_id],
+                    "dimension_grades": grades,
+                    "weakest_dimensions": ["uncertainty"],
+                    "confidence_note": "No empirical observation is bound.",
+                }
+            ],
+            "pairwise_judgments": [],
+        }
+
+        with self.assertRaisesRegex(ContractError, "不能替代已核验的观测/实验支持"):
+            validate_ranking_request(payload, [make_candidate()], register)
 
 
 if __name__ == "__main__":

@@ -1,0 +1,177 @@
+schema_version: llm-wiki-source-catalog-v1
+catalog_status: scaffold
+collection:
+  name: JSONbook
+  root_hint: /Users/zhuanz/Desktop/wiki/JSONbook/JSONbook
+  parsed_directory: parsed_results1
+  retrieval_chunk_directory: output_json_files
+  runtime_use: offline_wiki_authoring_only
+  redistribution_default: local_reference_only
+
+sources:
+  - source_id: book_solar_physics_intro_zh
+    title: 太阳物理导论
+    file_stem: 1-太阳物理导论
+    language: zh-CN
+    authority_role:
+      - core_solar_cycle
+      - observables
+      - solar_structure
+    planned_modules:
+      - solar_cycle
+      - indicators_and_features
+      - active_regions_and_flares
+    page_review_status: not_started
+
+  - source_id: book_the_sun_important
+    title: The Sun
+    file_stem: 2-The Sun_book_important
+    language: en
+    authority_role:
+      - core_solar_physics
+      - cross_source_check
+    planned_modules:
+      - solar_cycle
+      - dynamo_and_polar_field
+      - active_regions_and_flares
+    page_review_status: not_started
+
+  - source_id: book_quiet_sun_gibson
+    title: 宁静太阳
+    file_stem: 2-宁静太阳 吉布森
+    language: zh-CN
+    authority_role:
+      - background_solar_atmosphere
+      - contrast_with_activity
+    planned_modules:
+      - indicators_and_features
+      - active_regions_and_flares
+    page_review_status: not_started
+
+  - source_id: book_solar_active_region_physics
+    title: 太阳活动区物理
+    file_stem: 3-太阳活动区物理
+    language: zh-CN
+    authority_role:
+      - active_region_physics
+      - magnetic_emergence
+    planned_modules:
+      - dynamo_and_polar_field
+      - active_regions_and_flares
+    page_review_status: not_started
+
+  - source_id: book_physics_of_sun_first_course
+    title: Physics of the Sun — A First Course, 2nd Edition
+    file_stem: 5-Physics of the Sun A First Course, 2nd Edition
+    language: en
+    authority_role:
+      - core_solar_physics
+      - terminology_cross_check
+    planned_modules:
+      - solar_cycle
+      - dynamo_and_polar_field
+      - indicators_and_features
+    page_review_status: not_started
+
+  - source_id: book_sun_space_weather
+    title: The Sun and Space Weather
+    file_stem: 7-The Sun and Space Weather ( (Z-Library)
+    language: en
+    authority_role:
+      - activity_manifestations
+      - space_weather_boundary
+    planned_modules:
+      - active_regions_and_flares
+      - indicators_and_features
+    page_review_status: not_started
+
+  - source_id: book_heliophysics_activity_climate
+    title: Heliophysics — Evolving Solar Activity and the Climates of Space and Earth
+    file_stem: 8-Heliophysics - Evolving Solar Activity and the Climates of Space and Earth. (Carolus J. Schrijver, George L. Siscoe) (Z-Library)
+    language: en
+    authority_role:
+      - solar_activity_context
+      - heliophysics_boundary
+    planned_modules:
+      - solar_cycle
+      - active_regions_and_flares
+    page_review_status: not_started
+
+  - source_id: book_sun_ye_shihui
+    title: 太阳
+    file_stem: 太阳 (叶式辉著)
+    language: zh-CN
+    authority_role:
+      - general_solar_physics
+      - chinese_terminology
+    planned_modules:
+      - solar_cycle
+      - indicators_and_features
+    page_review_status: not_started
+
+  - source_id: book_solar_flares_zh
+    title: 太阳耀斑
+    file_stem: 太阳耀斑 (胡文瑞等编著)
+    language: zh-CN
+    authority_role:
+      - flare_physics
+      - chinese_flare_terminology
+    planned_modules:
+      - active_regions_and_flares
+    page_review_status: not_started
+    formula_table_review_required: true
+
+  - source_id: book_coronal_physics_zh
+    title: 日冕物理
+    file_stem: 日冕物理 (章振大著)
+    language: zh-CN
+    authority_role:
+      - coronal_context
+      - flare_cme_boundary
+    planned_modules:
+      - active_regions_and_flares
+      - indicators_and_features
+    page_review_status: not_started
+    formula_table_review_required: true
+
+  - source_id: book_solar_radio_emission_zh
+    title: 太阳射电辐射理论
+    file_stem: 太阳射电辐射理论 (赵仁扬著)
+    language: zh-CN
+    authority_role:
+      - radio_emission_context
+      - f107_physical_context
+    planned_modules:
+      - indicators_and_features
+      - data_sources
+    page_review_status: not_started
+    formula_table_review_required: true
+
+  - source_id: book_space_weather_physics_effects
+    title: Space Weather Physics and Effects
+    file_stem: 6-space weather physics and effects
+    language: en
+    authority_role:
+      - space_weather_boundary
+      - flare_cme_context
+    planned_modules:
+      - active_regions_and_flares
+    page_review_status: not_started
+
+  - source_id: catalog_observatories_facilities
+    title: 天文观测台站与空间设施名录
+    file_stem: 天文观测台站与空间设施名录
+    language: zh-CN
+    source_kind: catalog
+    authority_role:
+      - facility_discovery
+    planned_modules:
+      - data_sources
+    page_review_status: not_started
+
+source_selection_rules:
+  - Prefer the smallest set of sources that covers an entry's material fields.
+  - Use a second independent source for mechanism boundaries and terminology checks.
+  - Verify formulas, units, tables, and numerical thresholds against page images or original PDFs.
+  - Record edition and publication year before accepting time-sensitive claims.
+  - Do not package raw source text into the built-in Wiki without confirmed redistribution rights.

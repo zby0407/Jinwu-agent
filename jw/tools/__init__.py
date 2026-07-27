@@ -5,7 +5,7 @@ to work unchanged thanks to these re-exports.
 """
 
 from .automatic_experiment import AUTOMATIC_EXPERIMENT_TOOLS
-from .knowledge_base import KB_TOOLS
+from .knowledge_base import KB_READONLY_TOOLS, KB_TOOLS
 from .registry import (
     TOOL_BUNDLE_ENTRY_POINT_GROUP,
     ToolBundle,
@@ -30,6 +30,7 @@ from .think import think_tool
 
 __all__ = [
     "AUTOMATIC_EXPERIMENT_TOOLS",
+    "KB_READONLY_TOOLS",
     "KB_TOOLS",
     "RESEARCH_PLANNER_TOOLS",
     "SCIENTIFIC_HYPOTHESIS_TOOLS",

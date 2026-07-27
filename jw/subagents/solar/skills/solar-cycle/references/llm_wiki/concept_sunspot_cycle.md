@@ -1,24 +1,36 @@
 ---
 id: kb_concept_sunspot_cycle_001
 type: concept
-title: The ~11-Year Sunspot Cycle
-source_type: textbook
-source_ref: "Charbonneau, P. 2010, Living Reviews in Solar Physics 7, 3"
+title: 约11年太阳黑子活动周
+source_type: literature
+source_ref: "Hathaway, D. H. 2015, Living Reviews in Solar Physics 12, 4, doi:10.1007/lrsp-2015-4"
 confidence: high
 status: canonical
-valid_range: all observed solar cycles
-related_ids: [kb_mechanism_babcock_leighton_001, kb_concept_hale_cycle_001]
+valid_range: 采用明确太阳黑子数版本、平滑规则和活动周边界定义的历史活动周
+related_ids: [kb_mechanism_babcock_leighton_001, kb_concept_proxy_relationship_drift_001, kb_experiment_paradigm_backtest_001]
 ---
 
-The sunspot cycle is the quasi-periodic variation of solar magnetic activity with a mean period of about 11 years, observed most famously through the count of sunspots on the solar disk. Each cycle is characterized by a minimum, a rising phase, a maximum (peak), and a declining phase. The cycle is a surface manifestation of the solar dynamo, which converts kinetic energy of plasma motions into magnetic energy and back.
+太阳黑子数呈现平均约 11 年的准周期变化，通常划分为极小期、上升期、极大期和下降期。
+“约 11 年”是统计描述，不是固定周期；活动周的长度、峰值、上升速度、双峰结构和南北半球
+相位差都会变化。太阳黑子数是光球活动的经验代理，不是太阳内部磁场或全部太阳活动的直接
+测量。
 
-Key quantitative descriptors:
-- Peak amplitude (smoothed sunspot number at maximum)
-- Cycle length (time between consecutive minima)
-- Rise time (minimum to maximum)
-- Decay time (maximum to next minimum)
-- Rise slope (peak amplitude / rise time)
+## 对假设生成有用的区分
 
-Important caveats:
-- The cycle is not strictly periodic; lengths and amplitudes vary.
-- Sunspot number is an empirical proxy, not a direct measure of the internal magnetic field.
+- **强度**：峰值黑子数、活动周积分量和高活动持续时间不是同一估计目标。
+- **形态**：上升时间、峰值时刻、双峰和下降速度应与峰值强度分开建模。
+- **相位**：按日历时间比较不同活动周，会把相位差误当作强度差或代理漂移。
+- **半球**：全日面总量可能掩盖南北半球的相位领先和振幅不对称。
+
+## 观测与预测边界
+
+- 活动周极小和极大日期会随数据版本与平滑规则修订。
+- 居中的 13 个月平滑值使用未来月份，不能在实时预测时点当作已知输入。
+- 以活动周为独立样本时，现代观测可用的样本数很小；不能把月度点数当作独立活动周数。
+- “前一周更长所以下一周更强”之类主张，必须固定预测时点并排除后见信息。
+
+## 可证伪使用
+
+每个活动周假设至少要声明：活动周边界、预测起点、目标量、数据版本和基线。若候选机制在
+逐活动周留出、只使用当时可获得数据的回测中不能优于简单基线，或结论对边界和平滑规则
+高度敏感，则其跨活动周预测主张应被削弱。

@@ -5,12 +5,13 @@
 - ``research/planner/knowledge/`` 4 个 md -> concept 类 canonical（source_type=expert，
   created_by=human，confidence=medium）
 - ``jw/subagents/solar/skills/solar-cycle/references/llm_wiki/`` -> 按文件名
-  前缀类型导入为 canonical（source_type=textbook，confidence=high）
+  前缀类型导入，并保留文件 frontmatter 中的 source_type、confidence 与 status
 - ``workspace/archive/legacy_contract_runs/`` 中的实验与假设产物 ->
   每个 run 一条 finding 类 candidate（source_type=historical_run，
   source_ref=run_id，confidence=low）
 
-幂等：按 (source_ref, title) 判重，重复运行不产生重复条目。
+幂等：按 (source_ref, title) 判重。内容或边界元数据变化时更新现有条目并
+递增版本，完全相同时跳过，重复运行不产生重复条目。
 用法：``PYTHONPATH=src .venv/bin/python research/knowledge_base/import_initial.py``
 """
 
@@ -66,12 +67,64 @@ def _insert_once(
     entry: dict,
     stats: dict,
 ) -> None:
-    """校验 + 判重 + 写库 + 导出；重复条目计入 skipped。"""
+    """校验并同步一个种子。相同条目跳过，变化条目保留版本后更新。"""
 
     entry = validate_entry(entry)
-    if store.find_entry_by_source(entry["source_ref"], entry["title"]) is not None:
-        stats["skipped"] += 1
+    existing_by_id = store.get_entry(entry["id"])
+    existing_by_source = store.find_entry_by_source(entry["source_ref"], entry["title"])
+    if (
+        existing_by_id is not None
+        and existing_by_source is not None
+        and existing_by_id.get("id") != existing_by_source.get("id")
+    ):
+        raise ValueError(
+            f"seed identity conflict for {entry['id']}: "
+            f"source/title belongs to {existing_by_source.get('id')}"
+        )
+    existing = existing_by_id or existing_by_source
+    if existing is not None:
+        if existing.get("id") != entry["id"]:
+            raise ValueError(
+                f"seed identity mismatch for {entry['source_ref']}: "
+                f"stored id={existing.get('id')}, seed id={entry['id']}"
+            )
+        compared_fields = (
+            "type",
+            "title",
+            "content",
+            "source_type",
+            "source_ref",
+            "confidence",
+            "status",
+            "valid_range",
+            "related_ids",
+        )
+        if all(existing.get(key) == entry.get(key) for key in compared_fields):
+            stats["skipped"] += 1
+            return
+        entry["version"] = int(existing.get("version") or 0) + 1
+        entry["created_at"] = existing.get("created_at") or entry["created_at"]
+        entry["created_by"] = existing.get("created_by") or entry["created_by"]
+        entry["updated_at"] = utc_now()
+        provenance = dict(existing.get("provenance") or {})
+        provenance.update(entry.get("provenance") or {})
+        provenance["sync_reason"] = "seed source or frontmatter changed"
+        entry["provenance"] = provenance
+        entry = validate_entry(entry)
+        store.update_entry(
+            entry,
+            changed_by="import_initial",
+            reason="seed source sync",
+        )
+        export_entry(entry, store.export_dir)
+        stats["updated"] += 1
+        key = f"{entry['type']}/{entry['status']}"
+        stats["by_type_status"][key] = stats["by_type_status"].get(key, 0) + 1
         return
+    if store.get_entry(entry["id"]) is not None:
+        raise ValueError(
+            f"seed id collision for {entry['id']}: source/title do not match"
+        )
     store.create_entry(entry, changed_by=entry["created_by"], reason="initial import")
     export_entry(entry, store.export_dir)
     stats["inserted"] += 1
@@ -172,9 +225,11 @@ def import_llm_wiki(store: KnowledgeStore, stats: dict) -> None:
         entry_id = item["new_id"]
         title = str(meta.get("title") or item["fallback_title"])
         related = meta.get("related_ids")
-        related_ids = [
-            aliases.get(str(ref), str(ref)) for ref in related
-        ] if isinstance(related, list) else []
+        related_ids = (
+            [aliases.get(str(ref), str(ref)) for ref in related]
+            if isinstance(related, list)
+            else []
+        )
         _insert_once(
             store,
             _entry(
@@ -182,10 +237,10 @@ def import_llm_wiki(store: KnowledgeStore, stats: dict) -> None:
                 entry_type=item["entry_type"],
                 title=title,
                 content={item["required_field"]: item["body"].strip()},
-                source_type="textbook",
+                source_type=str(meta.get("source_type") or "textbook"),
                 source_ref=str(meta.get("source_ref") or item["fallback_ref"]),
-                confidence="high",
-                status="canonical",
+                confidence=str(meta.get("confidence") or "medium"),
+                status=str(meta.get("status") or "canonical"),
                 created_by="import_initial",
                 valid_range=str(meta.get("valid_range") or ""),
                 related_ids=related_ids,
@@ -201,7 +256,7 @@ def _first_heading(text: str) -> str:
 
 def _section_outline(text: str, limit: int = 5) -> str:
     headings = [match.group("title") for match in _HEADING.finditer(text)]
-    return "；".join(headings[:limit])
+    return " / ".join(headings[:limit])
 
 
 def import_runs(store: KnowledgeStore, stats: dict) -> None:
@@ -223,12 +278,19 @@ def import_runs(store: KnowledgeStore, stats: dict) -> None:
             if outline:
                 statement += f"章节：{outline}。"
             prefix = f"kb_finding_{_slugify(run_id)}_"
+            title = f"{label}：{run_id}"
+            existing = store.find_entry_by_source(run_id, title)
+            entry_id = (
+                str(existing["id"])
+                if existing is not None
+                else f"{prefix}{store.next_seq(prefix):03d}"
+            )
             _insert_once(
                 store,
                 _entry(
-                    entry_id=f"{prefix}{store.next_seq(prefix):03d}",
+                    entry_id=entry_id,
                     entry_type="finding",
-                    title=f"{label}：{run_id}",
+                    title=title,
                     content={"statement": statement, "run_id": run_id},
                     source_type="historical_run",
                     source_ref=run_id,
@@ -242,7 +304,12 @@ def import_runs(store: KnowledgeStore, stats: dict) -> None:
 
 def main() -> None:
     store = KnowledgeStore()
-    stats: dict = {"inserted": 0, "skipped": 0, "by_type_status": {}}
+    stats: dict = {
+        "inserted": 0,
+        "updated": 0,
+        "skipped": 0,
+        "by_type_status": {},
+    }
     try:
         import_knowledge_dir(store, stats)
         import_llm_wiki(store, stats)
@@ -253,7 +320,10 @@ def main() -> None:
         store.close()
     print(f"db: {db_path}")
     print(f"export: {export_dir}")
-    print(f"inserted: {stats['inserted']}  skipped(duplicate): {stats['skipped']}")
+    print(
+        f"inserted: {stats['inserted']}  updated: {stats['updated']}  "
+        f"skipped(unchanged): {stats['skipped']}"
+    )
     for key in sorted(stats["by_type_status"]):
         print(f"  {key}: {stats['by_type_status'][key]}")
 

@@ -1,27 +1,36 @@
 ---
 id: kb_experiment_paradigm_backtest_001
 type: experiment_paradigm
-title: Cross-Cycle Backtest for Solar-Cycle Prediction
+title: 跨活动周留一回测
 source_type: derived
 source_ref: "Solar-Cycle Co-Scientist internal paradigm"
 confidence: medium
 status: canonical
-valid_range: cycle-level feature tables with >=4 cycles
-related_ids: [kb_concept_sunspot_cycle_001, kb_mechanism_babcock_leighton_001]
+valid_range: 活动周级特征表；4个活动周只足以机械运行，不能支持稳定的泛化精度结论
+related_ids: [kb_concept_sunspot_cycle_001, kb_mechanism_babcock_leighton_001, kb_experiment_paradigm_feature_ablation_001]
 ---
 
-A cross-cycle backtest evaluates a prediction model by holding out one historical cycle, training on the remaining cycles, and predicting the held-out cycle's peak amplitude (or other target). This is the appropriate validation strategy for solar-cycle data because:
+跨活动周回测模拟“站在历史预测时点，只用当时已知信息预测尚未完成的活动周”。它的分析
+单位是活动周，而不是把同一活动周内的月值随机拆到训练集和测试集。
 
-- Cycles are not independent random samples; time-series cross-validation would leak information.
-- The goal is to estimate out-of-cycle generalization.
+## 最小设计
 
-Recommended procedure:
-1. Build cycle-level features (length, rise time, minimum, rise slope, precursor proxies).
-2. For each cycle i: train on all cycles except i, predict cycle i's peak.
-3. Report MAE, RMSE, and per-cycle residuals.
-4. Examine whether errors correlate with cycle morphology (e.g., anomalous rise time).
+1. 预先固定预测起点、目标量和数据冻结规则。
+2. 每次留出一个完整活动周作为外层测试周；更严格的历史预测可采用时间前推，只训练更早周。
+3. 缺失值处理、标准化、特征选择和超参数选择必须在每个外层训练折内重新完成。
+4. 与可解释的简单基线比较，例如历史均值、前一活动周或只含单一极区前兆的模型。
+5. 报告每个留出周的预测、残差和预测区间，再汇总 MAE/RMSE；不能只报一个平均分。
+6. 记录某一候选在哪些活动周失败，并检查失败是否与双峰、半球错相或观测版本有关。
 
-Caveats:
-- Small sample size leads to high variance in error estimates.
-- A model that fits historical cycles well may still fail for an future unusual cycle.
-- Do not optimize hyperparameters on the same leave-one-cycle-out loop without nested validation.
+## 结果解释边界
+
+- 活动周样本极少，留一分数的方差很大；一个异常周就可能改变模型排序。
+- 同一数据上尝试大量特征、算法和窗口再挑最好结果，会产生选择偏差。
+- 好的回测表现说明候选信息可能具有跨周泛化价值，不证明对应物理机制为真。
+- 空结果也是科学结果：若复杂模型不能稳定优于简单基线，应降低主张而不是继续搜索切分方式。
+
+## 对假设的区分力
+
+回测应让不同机制产生不同预期。例如极区种子场候选预期极小期极区量在多周中提供稳定增益；
+代理漂移候选预期增益随活动水平、阶段或数据版本变化；无新增信息候选预期复杂特征在外层
+留出后失去优势。

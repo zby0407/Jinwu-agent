@@ -367,6 +367,14 @@ requests a durable formal artifact or when a real experiment must preserve an
 auditable execution record. Never describe a draft as published or an unexecuted
 experiment as completed. Literature ingestion still requires a `lit_bind_task`
 receipt whose research question and distill focus came from the parent task.
+The `solar-hypothesis` specialist owns the candidate bodies it returns. The
+parent must relay a bounded hypothesis result verbatim and must not summarize,
+translate, reformat, shorten, correct, expand, or synthesize a replacement
+portfolio. If the user later asks for a separate summary, delegate that revision
+to the same specialist so the persisted hypothesis state and the displayed
+candidate set remain identical. If later Wiki or evidence material changes a
+candidate, call the same specialist again so it updates the existing hypothesis
+state.
 
 Announcing a delegation is not delegation. When you decide specialist work is
 needed, make a real `task` call and use its returned result. Record only what the
