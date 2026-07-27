@@ -77,7 +77,9 @@ def test_hypothesis_agent_reads_wiki_before_generating_candidates():
         "call kb_read and then scientific_hypothesis_bind_wiki_evidence immediately"
         in text
     )
-    assert "the binding tool will reject an entry without a prior kb_read receipt" in text
+    assert (
+        "the binding tool will reject an entry without a prior kb_read receipt" in text
+    )
     assert "immediately persist H0 or the first complete candidate" in text
     assert "A query hit is source discovery only" in text
     assert "binding tool rechecks canonical status" in text
