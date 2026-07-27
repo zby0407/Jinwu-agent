@@ -776,6 +776,12 @@ def scientific_hypothesis_bind_evidence(
                 "请使用 scientific_hypothesis_bind_wiki_evidence，"
                 "由服务端核对 canonical 状态和读取回执"
             )
+        if material_id.startswith("litbundle_"):
+            raise ValueError(
+                "任务文献包不能通过通用证据入口绑定。"
+                "请使用 scientific_hypothesis_bind_literature_evidence，"
+                "由服务端核对冻结快照和逐字引文"
+            )
         row = {
             "evidence_id": evidence_id,
             "evidence_kind": evidence_kind,
@@ -904,6 +910,129 @@ def scientific_hypothesis_bind_wiki_evidence(
                     "purpose": read_receipt.get("purpose"),
                     "ts": read_receipt.get("ts"),
                 },
+                "state_persistence": (
+                    "workspace" if state_path is not None else "memory_only"
+                ),
+                "persistence_warning": state.persistence_warning,
+            }
+        )
+        return _ok(result)
+    except Exception as exc:
+        return _needs_revision(exc)
+
+
+@tool(parse_docstring=True)
+def scientific_hypothesis_bind_literature_evidence(
+    bundle_id: str,
+    source_id: str,
+    role: str,
+    quote: str,
+    claim: str,
+    config: RunnableConfig = None,
+) -> str:
+    """Bind one verified quote from a frozen task literature bundle.
+
+    Unlike reusable Wiki grounding, task literature may support, oppose, or
+    limit a candidate. The service checks the active research question, bundle
+    membership, retraction flag, source fingerprint, and verbatim quote before
+    adding evidence.
+
+    Args:
+        bundle_id: Frozen bundle id returned by lit_bundle_build.
+        source_id: Source id contained in that exact bundle.
+        role: supports, opposes, or limits.
+        quote: Verbatim abstract quote of at most 40 words.
+        claim: Bounded description of the candidate claim the quote bears on.
+
+    Returns:
+        JSON string with the bound evidence id and immutable source receipt.
+    """
+    try:
+        from jw.tools.knowledge_base import _get_store, _run_context
+        from knowledge_base.contracts import QUOTE_MAX_WORDS, quote_is_grounded
+
+        state = _state(config)
+        request = _require_active_request(state)
+        if len(state.evidence_register) >= MAX_EVIDENCE_BINDS:
+            return _ok(
+                {
+                    "schema_version": "scientific-hypothesis-evidence-bound-v1",
+                    "status": "budget_reached",
+                    "message": "本次任务的证据绑定已达上限。请把其余内容列为证据缺口。",
+                }
+            )
+        normalized_role = str(role or "").strip().lower()
+        if normalized_role not in {"supports", "opposes", "limits"}:
+            raise ValueError("role 必须是 supports、opposes 或 limits")
+        normalized_quote = " ".join(str(quote or "").split())
+        if not normalized_quote or len(normalized_quote.split()) > QUOTE_MAX_WORDS:
+            raise ValueError(f"quote 必须是缓存摘要中 1-{QUOTE_MAX_WORDS} 词的逐字引文")
+        normalized_claim = " ".join(str(claim or "").split())
+        if not normalized_claim or len(normalized_claim) > 500:
+            raise ValueError("claim 必须是 1-500 字符的候选主张说明")
+        store = _get_store()
+        bundle = store.get_lit_task_bundle(str(bundle_id or "").strip())
+        if bundle is None:
+            raise ValueError(f"任务文献包不存在：{bundle_id}")
+        active_question = " ".join(str(request["research_question"]).split())
+        bundle_question = " ".join(str(bundle["research_question"]).split())
+        if active_question != bundle_question:
+            raise ValueError(
+                "任务文献包绑定的研究问题与当前假设请求不一致；"
+                "请用当前问题重新调用 lit_bundle_build"
+            )
+        _, run_id = _run_context(config)
+        bundle_run_id = str(bundle.get("run_id") or "")
+        if bundle_run_id and run_id and bundle_run_id != run_id:
+            raise ValueError("任务文献包属于另一个运行，不能跨任务绑定")
+        snapshot = next(
+            (
+                item
+                for item in bundle["source_snapshots"]
+                if str(item.get("source_id") or "") == str(source_id or "").strip()
+            ),
+            None,
+        )
+        if snapshot is None:
+            raise ValueError(f"来源 {source_id} 不在任务文献包 {bundle_id} 中")
+        if bool(snapshot.get("is_retracted")):
+            raise ValueError("撤稿来源不能绑定为假设证据")
+        if not quote_is_grounded(normalized_quote, str(snapshot.get("abstract") or "")):
+            raise ValueError("quote 无法在冻结摘要快照中逐字定位")
+        receipt_payload = {
+            "status": "verified",
+            "bundle_id": bundle["bundle_id"],
+            "source_id": snapshot["source_id"],
+            "family_id": snapshot.get("family_id", ""),
+            "title": snapshot.get("title", ""),
+            "doi": snapshot.get("doi", ""),
+            "source_version": snapshot.get("source_version", ""),
+            "content_fingerprint": snapshot.get("content_fingerprint", ""),
+            "role": normalized_role,
+            "quote": normalized_quote,
+            "claim": normalized_claim,
+        }
+        receipt = json.dumps(
+            receipt_payload,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+        evidence_id = "litevidence_" + canonical_json_sha256(receipt_payload)[:32]
+        row = {
+            "evidence_id": evidence_id,
+            "evidence_kind": "literature",
+            "material_id": bundle["bundle_id"],
+            "excerpt": receipt,
+            "verified_support": True,
+            "role": normalized_role,
+        }
+        validate_evidence_provenance(request, row)
+        result = state.evidence_register.bind(row)
+        state_path = _persist_state(config, state)
+        result.update(
+            {
+                "literature_evidence": receipt_payload,
                 "state_persistence": (
                     "workspace" if state_path is not None else "memory_only"
                 ),
@@ -1312,6 +1441,7 @@ SCIENTIFIC_HYPOTHESIS_TOOLS = [
     scientific_hypothesis_bind_request,
     scientific_hypothesis_bind_evidence,
     scientific_hypothesis_bind_wiki_evidence,
+    scientific_hypothesis_bind_literature_evidence,
     scientific_hypothesis_update_draft,
     scientific_hypothesis_get_draft,
     scientific_hypothesis_validate_response,

@@ -76,6 +76,11 @@ export interface KbOverview {
   fetched_sources: number;
   distilled_sources: number;
   distillations: number;
+  literature_deltas: number;
+  literature_baseline_sources: number;
+  literature_task_bundles: number;
+  literature_impacts: number;
+  pending_wiki_patches: number;
   pending_reviews: number;
   usage_reads: number;
   by_type: Record<string, number>;
@@ -151,13 +156,18 @@ export interface KbSourceSummary {
   canonical_source_id: string;
   provider: string;
   source_version: string;
+  content_fingerprint: string;
   title: string;
   authors: string[];
   year: number | null;
+  publication_date: string;
   doi: string;
   url: string;
+  is_refereed: boolean;
+  is_retracted: boolean;
   abstract_chars: number;
   fetched_at: string | null;
+  first_seen_at: string | null;
   last_seen_at: string | null;
   distillation_count: number;
   stage: "cached" | "fetched" | "distilled";
@@ -176,6 +186,105 @@ export interface KbSourceDetail extends KbSourceSummary {
     entry_status: string | null;
     entry_confidence: string | null;
   }>;
+}
+
+export interface KbLiteratureFeedRun {
+  id: number;
+  feed_id: string;
+  providers: string[];
+  status: "ok" | "partial" | "unavailable";
+  result_count: number;
+  new_source_count: number;
+  new_family_count: number;
+  diagnostics: Record<string, unknown>;
+  started_at: string;
+  completed_at: string;
+}
+
+export interface KbLiteratureFeed {
+  id: string;
+  title_zh: string;
+  query: string;
+  providers: string[];
+  lookback_years: number;
+  sort: "relevance" | "recent";
+  limit: number;
+  enabled: boolean;
+  source_count: number;
+  latest_run: KbLiteratureFeedRun | null;
+}
+
+export interface KbLiteratureFeedCatalog {
+  status: "ok" | "unavailable";
+  schema_version?: string;
+  total_sources: number;
+  feeds: KbLiteratureFeed[];
+  notice?: string;
+  diagnostic?: string;
+}
+
+export interface KbLiteratureDelta {
+  id: number;
+  event_key: string;
+  event_type:
+    | "baseline_source"
+    | "new_source"
+    | "new_version"
+    | "metadata_updated"
+    | "source_retracted"
+    | "feed_discovered"
+    | "feed_removed"
+    | string;
+  source_id: string;
+  family_id: string;
+  feed_id: string;
+  prior_source_version: string;
+  source_version: string;
+  prior_fingerprint: string;
+  source_fingerprint: string;
+  payload: Record<string, unknown>;
+  detected_at: string;
+}
+
+export interface KbLiteratureImpact {
+  id: number;
+  source_id: string;
+  family_id: string;
+  entry_id: string;
+  relation: "supports" | "contradicts" | "qualifies" | "extends" | string;
+  affected_fields: string[];
+  scope: Record<string, unknown>;
+  quote: string;
+  location: string;
+  rationale: string;
+  confidence: "low" | "medium" | string;
+  status: string;
+  entry_title?: string;
+  source_title?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface KbWikiCandidatePatch {
+  patch_id: string;
+  target_entry_id: string;
+  base_version: number;
+  source_id: string;
+  family_id: string;
+  impact_id: number;
+  relation: string;
+  patch: {
+    content?: Record<string, unknown>;
+    valid_range?: string | null;
+    rationale?: string;
+  };
+  patch_sha256: string;
+  status: "pending" | "applied" | "rejected" | "stale" | string;
+  review_queue_id: number | null;
+  entry_title?: string;
+  source_title?: string;
+  created_at: string;
+  updated_at: string;
 }
 
 export interface KbGraphNode {
@@ -290,15 +399,72 @@ export async function fetchKbSources(filters: {
   provider?: string;
   state?: string;
   q?: string;
+  feed_id?: string;
   limit?: number;
 }): Promise<KbSourceSummary[]> {
   const params = new URLSearchParams();
   if (filters.provider) params.set("provider", filters.provider);
   if (filters.state) params.set("state", filters.state);
   if (filters.q) params.set("q", filters.q);
+  if (filters.feed_id) params.set("feed_id", filters.feed_id);
   if (filters.limit) params.set("limit", String(filters.limit));
   const qs = params.toString();
   return kbFetch<KbSourceSummary[]>(`/api/kb/sources${qs ? `?${qs}` : ""}`);
+}
+
+export async function fetchKbLiteratureFeeds(): Promise<KbLiteratureFeedCatalog> {
+  return kbFetch<KbLiteratureFeedCatalog>("/api/kb/literature/feeds");
+}
+
+export async function fetchKbLiteratureDeltas(filters: {
+  event_type?: string;
+  feed_id?: string;
+  source_id?: string;
+  include_baseline?: boolean;
+  limit?: number;
+} = {}): Promise<KbLiteratureDelta[]> {
+  const params = new URLSearchParams();
+  if (filters.event_type) params.set("event_type", filters.event_type);
+  if (filters.feed_id) params.set("feed_id", filters.feed_id);
+  if (filters.source_id) params.set("source_id", filters.source_id);
+  if (filters.include_baseline) params.set("include_baseline", "true");
+  if (filters.limit) params.set("limit", String(filters.limit));
+  const qs = params.toString();
+  return kbFetch<KbLiteratureDelta[]>(
+    `/api/kb/literature/deltas${qs ? `?${qs}` : ""}`
+  );
+}
+
+export async function fetchKbLiteratureImpacts(filters: {
+  entry_id?: string;
+  source_id?: string;
+  status?: string;
+  limit?: number;
+} = {}): Promise<KbLiteratureImpact[]> {
+  const params = new URLSearchParams();
+  if (filters.entry_id) params.set("entry_id", filters.entry_id);
+  if (filters.source_id) params.set("source_id", filters.source_id);
+  if (filters.status) params.set("status", filters.status);
+  if (filters.limit) params.set("limit", String(filters.limit));
+  const qs = params.toString();
+  return kbFetch<KbLiteratureImpact[]>(
+    `/api/kb/literature/impacts${qs ? `?${qs}` : ""}`
+  );
+}
+
+export async function fetchKbWikiPatches(filters: {
+  status?: string;
+  entry_id?: string;
+  limit?: number;
+} = {}): Promise<KbWikiCandidatePatch[]> {
+  const params = new URLSearchParams();
+  if (filters.status) params.set("status", filters.status);
+  if (filters.entry_id) params.set("entry_id", filters.entry_id);
+  if (filters.limit) params.set("limit", String(filters.limit));
+  const qs = params.toString();
+  return kbFetch<KbWikiCandidatePatch[]>(
+    `/api/kb/wiki/patches${qs ? `?${qs}` : ""}`
+  );
 }
 
 export async function fetchKbSource(id: string): Promise<KbSourceDetail> {

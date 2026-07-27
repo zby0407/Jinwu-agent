@@ -9,8 +9,8 @@
   "properties": {
     "source_id": {
       "type": "string",
-      "pattern": "^(openalex|arxiv):\\S+$",
-      "description": "Cached literature id from lit_search, e.g. openalex:W123 or arxiv:2412.34567."
+      "pattern": "^(ads|openalex|arxiv|crossref):\\S+$",
+      "description": "Cached literature id from lit_search, e.g. ads:2025ApJ...123A...1B, openalex:W123, arxiv:2412.34567, or crossref:10.1234/example."
     },
     "entry_type": {
       "type": "string",

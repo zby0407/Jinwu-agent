@@ -9,6 +9,8 @@ support, so literature entries without review remain candidates.
 
 from __future__ import annotations
 
+import hashlib
+import json
 import re
 from pathlib import Path
 from typing import Any
@@ -402,17 +404,134 @@ def conflicts(store: KnowledgeStore, entry_id: str = "") -> dict[str, Any]:
     return {"status": "ok", "count": len(items), "conflicts": items}
 
 
+def propose_literature_patch(
+    store: KnowledgeStore,
+    impact_id: int,
+    *,
+    field_updates: dict[str, Any],
+    valid_range: str = "",
+    rationale: str = "",
+) -> dict[str, Any]:
+    """Create a reviewable Wiki patch from a quote-grounded literature impact."""
+
+    impact = store.get_lit_entry_impact(int(impact_id))
+    if impact is None:
+        raise ContractError(
+            f"literature impact not found: {impact_id}",
+            error_code="lit_impact_not_found",
+            field_path="impact_id",
+            suggestion="impact_id 使用 lit_impact_record 返回的 id。",
+        )
+    if impact["status"] in {"rejected", "needs_revalidation"}:
+        raise ContractError(
+            f"literature impact {impact_id} is {impact['status']}",
+            error_code="lit_impact_not_patchable",
+            field_path="impact_id",
+            suggestion="先处理来源撤稿/影响复核，再提出 Wiki 补丁。",
+        )
+    entry = store.get_entry(str(impact["entry_id"]))
+    if entry is None:
+        raise ContractError(
+            f"Wiki entry not found: {impact['entry_id']}",
+            error_code="entry_not_found",
+            field_path="impact_id",
+            suggestion="目标 Wiki 条目已不存在，请放弃该影响记录。",
+        )
+    if not isinstance(field_updates, dict) or not field_updates:
+        raise ContractError(
+            "field_updates must be a non-empty mapping",
+            error_code="wiki_patch_empty",
+            field_path="field_updates",
+            suggestion="只传需要更新的 content 字段。",
+        )
+    affected = set(impact.get("affected_fields") or [])
+    invalid = sorted(set(field_updates) - set(entry.get("content", {})))
+    outside_impact = sorted(set(field_updates) - affected)
+    if invalid or outside_impact:
+        raise ContractError(
+            f"patch fields are invalid or outside the recorded impact: "
+            f"invalid={invalid}, outside_impact={outside_impact}",
+            error_code="wiki_patch_fields_invalid",
+            field_path="field_updates",
+            suggestion=f"只能更新影响记录中的字段：{sorted(affected)}。",
+        )
+    if valid_range and "valid_range" not in affected:
+        raise ContractError(
+            "valid_range was not declared in affected_fields",
+            error_code="wiki_patch_scope_not_declared",
+            field_path="valid_range",
+            suggestion="先在 lit_impact_record 的 affected_fields 中声明 valid_range。",
+        )
+    merged_content = {**entry.get("content", {}), **field_updates}
+    normalized_content = normalize_content(entry["type"], merged_content)
+    normalized_updates = {
+        key: normalized_content[key]
+        for key in field_updates
+        if key in normalized_content
+    }
+    normalized_rationale = " ".join(str(rationale or "").split())
+    if not normalized_rationale:
+        raise ContractError(
+            "patch rationale is required",
+            error_code="wiki_patch_rationale_missing",
+            field_path="rationale",
+            suggestion="说明补丁如何由已登记的文献影响推出。",
+        )
+    patch = {
+        "content": normalized_updates,
+        "valid_range": " ".join(str(valid_range).split()) if valid_range else None,
+        "rationale": normalized_rationale,
+    }
+    canonical = json.dumps(
+        {"base_version": int(entry["version"]), "patch": patch},
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    patch_sha256 = hashlib.sha256(canonical).hexdigest()
+    patch_identity = f"{entry['id']}:{impact['family_id']}:{patch_sha256}".encode(
+        "utf-8"
+    )
+    patch_id = f"wikipatch_{hashlib.sha256(patch_identity).hexdigest()[:32]}"
+    candidate = store.create_wiki_candidate_patch(
+        patch_id=patch_id,
+        target_entry_id=entry["id"],
+        base_version=int(entry["version"]),
+        source_id=str(impact["source_id"]),
+        family_id=str(impact["family_id"]),
+        impact_id=int(impact["id"]),
+        relation=str(impact["relation"]),
+        patch=patch,
+        patch_sha256=patch_sha256,
+    )
+    return {
+        "status": "pending_review",
+        "patch": candidate,
+        "wiki_changed": False,
+        "notice": "候选补丁不会自动修改 Wiki；需由 kb_review_decide 审核。",
+    }
+
+
 def review_queue(
     store: KnowledgeStore, *, kind: str = "", entry_id: str = ""
 ) -> dict[str, Any]:
     """List pending promotion, conflict, deprecation, or revalidation items."""
 
-    if kind and kind not in {"promote", "conflict", "deprecate", "revalidate"}:
+    allowed_kinds = {
+        "promote",
+        "conflict",
+        "deprecate",
+        "revalidate",
+        "wiki_patch",
+        "literature_impact",
+        "literature_retraction",
+    }
+    if kind and kind not in allowed_kinds:
         raise ContractError(
             f"unknown review kind: {kind!r}",
             error_code="unknown_review_kind",
             field_path="kind",
-            suggestion="kind 留空或使用 promote/conflict/deprecate/revalidate。",
+            suggestion=f"kind 留空或使用 {sorted(allowed_kinds)}。",
         )
     items = store.pending_review_items(kind=kind, entry_id=entry_id)
     return {"status": "ok", "count": len(items), "items": items}
@@ -462,6 +581,7 @@ def review_decide(
     )
 
     entry_status = ""
+    patch_status = ""
     if item["kind"] == "promote" and decision == "approved":
         entry = store.get_entry(item["entry_id"])
         if entry is not None and entry["status"] == "candidate":
@@ -480,6 +600,92 @@ def review_decide(
             }
             store.update_entry(entry, changed_by=reviewer, reason="review_approved")
             entry["export_path"] = _export(store, entry)
+        entry_status = entry["status"] if entry is not None else "missing"
+    elif item["kind"] == "wiki_patch":
+        patch_id = str(item["payload"].get("patch_id") or "")
+        candidate_patch = store.get_wiki_candidate_patch(patch_id)
+        entry = store.get_entry(item["entry_id"])
+        if candidate_patch is None:
+            patch_status = "missing"
+        elif decision == "rejected":
+            store.update_wiki_candidate_patch_status(patch_id, status="rejected")
+            patch_status = "rejected"
+        elif entry is None:
+            store.update_wiki_candidate_patch_status(patch_id, status="stale")
+            patch_status = "stale"
+        elif int(entry["version"]) != int(candidate_patch["base_version"]):
+            store.update_wiki_candidate_patch_status(patch_id, status="stale")
+            patch_status = "stale"
+        else:
+            patch = dict(candidate_patch.get("patch") or {})
+            merged_content = {
+                **entry.get("content", {}),
+                **dict(patch.get("content") or {}),
+            }
+            entry["content"] = normalize_content(entry["type"], merged_content)
+            if patch.get("valid_range") is not None:
+                entry["valid_range"] = str(patch["valid_range"])
+            now = utc_now()
+            literature_impacts = list(
+                entry.get("provenance", {}).get("literature_impacts") or []
+            )
+            literature_impacts.append(
+                {
+                    "impact_id": int(candidate_patch["impact_id"]),
+                    "patch_id": patch_id,
+                    "source_id": candidate_patch["source_id"],
+                    "family_id": candidate_patch["family_id"],
+                    "relation": candidate_patch["relation"],
+                    "reviewer": reviewer,
+                    "review_note": note,
+                    "applied_at": now,
+                }
+            )
+            entry["provenance"] = {
+                **entry.get("provenance", {}),
+                "literature_impacts": literature_impacts,
+            }
+            entry["version"] = int(entry["version"]) + 1
+            entry["updated_at"] = now
+            store.update_entry(
+                entry, changed_by=reviewer, reason="literature_patch_approved"
+            )
+            store.update_wiki_candidate_patch_status(patch_id, status="applied")
+            store.update_lit_entry_impact_status(
+                int(candidate_patch["impact_id"]), status="verified"
+            )
+            entry["export_path"] = _export(store, entry)
+            patch_status = "applied"
+        entry_status = entry["status"] if entry is not None else "missing"
+    elif item["kind"] == "literature_retraction":
+        entry = store.get_entry(item["entry_id"])
+        if decision == "approved":
+            impact_id = int(item["payload"].get("impact_id") or 0)
+            if impact_id:
+                store.update_lit_entry_impact_status(impact_id, status="rejected")
+            if entry is not None:
+                now = utc_now()
+                retracted_sources = list(
+                    entry.get("provenance", {}).get("retracted_literature_sources")
+                    or []
+                )
+                source_id = str(item["payload"].get("source_id") or "")
+                if source_id and source_id not in retracted_sources:
+                    retracted_sources.append(source_id)
+                entry["provenance"] = {
+                    **entry.get("provenance", {}),
+                    "retracted_literature_sources": retracted_sources,
+                    "literature_retraction_reviewed_at": now,
+                    "literature_retraction_reviewed_by": reviewer,
+                }
+                entry["version"] = int(entry["version"]) + 1
+                entry["updated_at"] = now
+                store.update_entry(
+                    entry,
+                    changed_by=reviewer,
+                    reason="literature_retraction_acknowledged",
+                )
+                entry["export_path"] = _export(store, entry)
         entry_status = entry["status"] if entry is not None else "missing"
     elif item["kind"] == "revalidate":
         entry = store.get_entry(item["entry_id"])
@@ -512,7 +718,7 @@ def review_decide(
         entry = store.get_entry(item["entry_id"])
         entry_status = entry["status"] if entry is not None else "missing"
 
-    return {
+    result = {
         "status": "ok",
         "queue_id": int(queue_id),
         "kind": item["kind"],
@@ -521,6 +727,9 @@ def review_decide(
         "entry_id": item["entry_id"],
         "entry_status": entry_status,
     }
+    if patch_status:
+        result["patch_status"] = patch_status
+    return result
 
 
 # ----------------------------------------------------------------------

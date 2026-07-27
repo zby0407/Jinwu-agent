@@ -51,6 +51,7 @@ def test_yaml_subagent_resolves_tools_from_canonical_registry() -> None:
         "scientific_hypothesis_bind_request",
         "scientific_hypothesis_bind_evidence",
         "scientific_hypothesis_bind_wiki_evidence",
+        "scientific_hypothesis_bind_literature_evidence",
         "scientific_hypothesis_update_draft",
         "scientific_hypothesis_get_draft",
         "scientific_hypothesis_validate_response",
@@ -62,6 +63,8 @@ def test_yaml_subagent_resolves_tools_from_canonical_registry() -> None:
         *hypothesis_contract_tools,
         "kb_query",
         "kb_read",
+        "lit_bundle_build",
+        "lit_bundle_read",
     }.issubset(_tool_name(tool) for tool in hypothesis["tools"])
     assert hypothesis_contract_tools.issubset(
         _tool_name(tool) for tool in evidence["tools"]

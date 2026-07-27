@@ -53,6 +53,12 @@ except ImportError:  # packaged installs without the repo's src/ tree
         return base / "knowledge.db"
 
 
+try:
+    from knowledge_base.literature import load_literature_feeds
+except ImportError:  # packaged installs without the literature module
+    load_literature_feeds = None  # type: ignore[assignment]
+
+
 _NO_STORE = {"Cache-Control": "no-store"}
 _ENTRY_LIST_COLUMNS = (
     "id, type, title, status, confidence, valid_range, updated_at, source_ref"
@@ -82,6 +88,11 @@ def _empty_overview() -> dict[str, Any]:
         "fetched_sources": 0,
         "distilled_sources": 0,
         "distillations": 0,
+        "literature_deltas": 0,
+        "literature_baseline_sources": 0,
+        "literature_task_bundles": 0,
+        "literature_impacts": 0,
+        "pending_wiki_patches": 0,
         "pending_reviews": 0,
         "usage_reads": 0,
         "by_type": {},
@@ -444,6 +455,29 @@ def _fetch_overview() -> dict[str, Any]:
         overview["distillations"] = int(
             conn.execute("SELECT COUNT(*) FROM lit_distillations").fetchone()[0]
         )
+        overview["literature_deltas"] = int(
+            conn.execute(
+                "SELECT COUNT(*) FROM lit_delta_events "
+                "WHERE event_type <> 'baseline_source'"
+            ).fetchone()[0]
+        )
+        overview["literature_baseline_sources"] = int(
+            conn.execute(
+                "SELECT COUNT(*) FROM lit_delta_events "
+                "WHERE event_type = 'baseline_source'"
+            ).fetchone()[0]
+        )
+        overview["literature_task_bundles"] = int(
+            conn.execute("SELECT COUNT(*) FROM lit_task_bundles").fetchone()[0]
+        )
+        overview["literature_impacts"] = int(
+            conn.execute("SELECT COUNT(*) FROM lit_entry_impacts").fetchone()[0]
+        )
+        overview["pending_wiki_patches"] = int(
+            conn.execute(
+                "SELECT COUNT(*) FROM wiki_candidate_patches WHERE status = 'pending'"
+            ).fetchone()[0]
+        )
         overview["pending_reviews"] = int(
             conn.execute(
                 "SELECT COUNT(*) FROM review_queue WHERE status = 'pending'"
@@ -568,17 +602,52 @@ def _source_stage(row: dict[str, Any]) -> str:
 
 
 def _fetch_sources(
-    provider: str, state: str, query: str, limit: int
+    provider: str, state: str, query: str, feed_id: str, limit: int
 ) -> list[dict[str, Any]]:
     conn = _connect_ro()
     if conn is None:
         return []
     try:
+        source_columns = {
+            str(row["name"])
+            for row in conn.execute("PRAGMA table_info(lit_sources)").fetchall()
+        }
+        publication_select = (
+            "s.publication_date"
+            if "publication_date" in source_columns
+            else "'' AS publication_date"
+        )
+        refereed_select = (
+            "COALESCE(s.is_refereed, 0) AS is_refereed"
+            if "is_refereed" in source_columns
+            else "0 AS is_refereed"
+        )
+        retracted_select = (
+            "COALESCE(s.is_retracted, 0) AS is_retracted"
+            if "is_retracted" in source_columns
+            else "0 AS is_retracted"
+        )
+        fingerprint_select = (
+            "COALESCE(s.content_fingerprint, '') AS content_fingerprint"
+            if "content_fingerprint" in source_columns
+            else "'' AS content_fingerprint"
+        )
+        first_seen_select = (
+            "s.first_seen_at"
+            if "first_seen_at" in source_columns
+            else "NULL AS first_seen_at"
+        )
         filters = ["COALESCE(s.is_preferred, 1) = 1"]
         params: list[Any] = []
         if provider:
             filters.append("s.provider = ?")
             params.append(provider)
+        if feed_id:
+            filters.append(
+                "EXISTS (SELECT 1 FROM lit_feed_families f "
+                "WHERE f.feed_id = ? AND f.family_id = s.family_id)"
+            )
+            params.append(feed_id)
         if query:
             like = f"%{_like_escape(query)}%"
             filters.append(
@@ -606,6 +675,8 @@ def _fetch_sources(
             "SELECT s.source_id, s.family_id, s.canonical_source_id, "
             "COALESCE(NULLIF(s.provider, ''), 'unknown') AS provider, "
             "s.source_version, s.title, s.authors, s.year, s.doi, s.url, "
+            f"{publication_select}, {refereed_select}, {retracted_select}, "
+            f"{fingerprint_select}, {first_seen_select}, "
             "length(COALESCE(s.abstract, '')) AS abstract_chars, "
             "s.fetched_at, s.last_seen_at, "
             f"{distillation_count} AS distillation_count "
@@ -619,6 +690,8 @@ def _fetch_sources(
         for raw in rows:
             row = dict(raw)
             row["authors"] = _parse_json(row.get("authors"), [])
+            row["is_refereed"] = bool(row.get("is_refereed"))
+            row["is_retracted"] = bool(row.get("is_retracted"))
             row["stage"] = _source_stage(row)
             results.append(row)
         return results
@@ -626,6 +699,79 @@ def _fetch_sources(
         return []
     finally:
         conn.close()
+
+
+def _fetch_literature_feeds() -> dict[str, Any]:
+    if load_literature_feeds is None:
+        return {
+            "status": "unavailable",
+            "feeds": [],
+            "diagnostic": "literature feed loader is unavailable",
+        }
+    try:
+        catalog = load_literature_feeds()
+    except Exception as exc:
+        return {
+            "status": "unavailable",
+            "feeds": [],
+            "diagnostic": str(exc)[:500],
+        }
+    latest_runs: dict[str, dict[str, Any]] = {}
+    source_counts: dict[str, int] = {}
+    total_sources = 0
+    conn = _connect_ro()
+    if conn is not None:
+        try:
+            rows = conn.execute(
+                "SELECT r.* FROM lit_feed_runs r "
+                "JOIN (SELECT feed_id, MAX(id) AS id FROM lit_feed_runs "
+                "GROUP BY feed_id) latest ON latest.id = r.id"
+            ).fetchall()
+            for raw in rows:
+                row = dict(raw)
+                row["providers"] = _parse_json(row.get("providers"), [])
+                row["diagnostics"] = _parse_json(row.get("diagnostics"), {})
+                latest_runs[str(row["feed_id"])] = row
+            count_rows = conn.execute(
+                "SELECT lff.feed_id, "
+                "COUNT(DISTINCT COALESCE(NULLIF(ls.title_key, ''), ls.source_id)) "
+                "AS source_count FROM lit_feed_families lff "
+                "JOIN lit_sources ls ON ls.family_id = lff.family_id "
+                "WHERE ls.is_preferred = 1 GROUP BY lff.feed_id"
+            ).fetchall()
+            source_counts = {
+                str(row["feed_id"]): int(row["source_count"]) for row in count_rows
+            }
+            total_row = conn.execute(
+                "SELECT COUNT(DISTINCT COALESCE(NULLIF(ls.title_key, ''), "
+                "ls.source_id)) AS source_count FROM lit_feed_families lff "
+                "JOIN lit_sources ls ON ls.family_id = lff.family_id "
+                "WHERE ls.is_preferred = 1"
+            ).fetchone()
+            total_sources = int(total_row["source_count"]) if total_row else 0
+        except sqlite3.Error:
+            latest_runs = {}
+            source_counts = {}
+            total_sources = 0
+        finally:
+            conn.close()
+    return {
+        "status": "ok",
+        "schema_version": catalog.get("schema_version", ""),
+        "total_sources": total_sources,
+        "feeds": [
+            {
+                **feed,
+                "source_count": source_counts.get(str(feed["id"]), 0),
+                "latest_run": latest_runs.get(str(feed["id"])),
+            }
+            for feed in catalog["feeds"]
+        ],
+        "notice": (
+            "订阅命中属于 raw source 候选层，成为 Wiki 条目仍需任务绑定、"
+            "逐字证据蒸馏和审核。"
+        ),
+    }
 
 
 def _fetch_source(source_id: str) -> dict[str, Any] | None:
@@ -640,6 +786,8 @@ def _fetch_source(source_id: str) -> dict[str, Any] | None:
             return None
         source = dict(row)
         source["authors"] = _parse_json(source.get("authors"), [])
+        source["is_refereed"] = bool(source.get("is_refereed"))
+        source["is_retracted"] = bool(source.get("is_retracted"))
         distillations = conn.execute(
             "SELECT d.focus, d.research_question, d.entry_id, d.relevance, "
             "d.created_at, e.type AS entry_type, e.title AS entry_title, "
@@ -841,6 +989,162 @@ def _fetch_review_queue(status: str) -> list[dict[str, Any]]:
         conn.close()
 
 
+def _fetch_literature_deltas(
+    event_type: str,
+    feed_id: str,
+    source_id: str,
+    include_baseline: bool,
+    limit: int,
+) -> list[dict[str, Any]]:
+    conn = _connect_ro()
+    if conn is None:
+        return []
+    try:
+        sql = "SELECT * FROM lit_delta_events WHERE 1 = 1"
+        params: list[Any] = []
+        if event_type:
+            sql += " AND event_type = ?"
+            params.append(event_type)
+        if feed_id:
+            sql += (
+                " AND (feed_id = ? OR EXISTS ("
+                "SELECT 1 FROM lit_feed_families lff "
+                "WHERE lff.feed_id = ? "
+                "AND lff.family_id = lit_delta_events.family_id))"
+            )
+            params.extend((feed_id, feed_id))
+        if source_id:
+            sql += " AND source_id = ?"
+            params.append(source_id)
+        if not include_baseline:
+            sql += " AND event_type <> 'baseline_source'"
+        sql += " ORDER BY id DESC LIMIT ?"
+        params.append(limit)
+        events: list[dict[str, Any]] = []
+        for row in conn.execute(sql, params).fetchall():
+            event = dict(row)
+            event["payload"] = _parse_json(event.get("payload"), {})
+            events.append(event)
+        return events
+    except sqlite3.Error:
+        return []
+    finally:
+        conn.close()
+
+
+def _fetch_literature_bundles(limit: int) -> list[dict[str, Any]]:
+    conn = _connect_ro()
+    if conn is None:
+        return []
+    try:
+        rows = conn.execute(
+            "SELECT * FROM lit_task_bundles ORDER BY created_at DESC LIMIT ?",
+            (limit,),
+        ).fetchall()
+        bundles: list[dict[str, Any]] = []
+        for row in rows:
+            bundle = dict(row)
+            snapshots = _parse_json(bundle.pop("source_snapshots", "[]"), [])
+            bundle["source_count"] = (
+                len(snapshots) if isinstance(snapshots, list) else 0
+            )
+            bundle["sources"] = [
+                {
+                    key: source.get(key)
+                    for key in (
+                        "source_id",
+                        "family_id",
+                        "title",
+                        "publication_date",
+                        "provider",
+                        "source_version",
+                        "content_fingerprint",
+                        "relevance_score",
+                    )
+                }
+                for source in snapshots
+                if isinstance(source, dict)
+            ]
+            bundles.append(bundle)
+        return bundles
+    except sqlite3.Error:
+        return []
+    finally:
+        conn.close()
+
+
+def _fetch_literature_impacts(
+    entry_id: str, source_id: str, status: str, limit: int
+) -> list[dict[str, Any]]:
+    conn = _connect_ro()
+    if conn is None:
+        return []
+    try:
+        sql = (
+            "SELECT i.*, e.title AS entry_title, s.title AS source_title "
+            "FROM lit_entry_impacts i "
+            "LEFT JOIN entries e ON e.id = i.entry_id "
+            "LEFT JOIN lit_sources s ON s.source_id = i.source_id WHERE 1 = 1"
+        )
+        params: list[Any] = []
+        if entry_id:
+            sql += " AND i.entry_id = ?"
+            params.append(entry_id)
+        if source_id:
+            sql += " AND i.source_id = ?"
+            params.append(source_id)
+        if status:
+            sql += " AND i.status = ?"
+            params.append(status)
+        sql += " ORDER BY i.id DESC LIMIT ?"
+        params.append(limit)
+        impacts: list[dict[str, Any]] = []
+        for row in conn.execute(sql, params).fetchall():
+            impact = dict(row)
+            impact["affected_fields"] = _parse_json(impact.get("affected_fields"), [])
+            impact["scope"] = _parse_json(impact.get("scope"), {})
+            impacts.append(impact)
+        return impacts
+    except sqlite3.Error:
+        return []
+    finally:
+        conn.close()
+
+
+def _fetch_wiki_candidate_patches(
+    status: str, entry_id: str, limit: int
+) -> list[dict[str, Any]]:
+    conn = _connect_ro()
+    if conn is None:
+        return []
+    try:
+        sql = (
+            "SELECT p.*, e.title AS entry_title, s.title AS source_title "
+            "FROM wiki_candidate_patches p "
+            "LEFT JOIN entries e ON e.id = p.target_entry_id "
+            "LEFT JOIN lit_sources s ON s.source_id = p.source_id WHERE 1 = 1"
+        )
+        params: list[Any] = []
+        if status:
+            sql += " AND p.status = ?"
+            params.append(status)
+        if entry_id:
+            sql += " AND p.target_entry_id = ?"
+            params.append(entry_id)
+        sql += " ORDER BY p.created_at DESC LIMIT ?"
+        params.append(limit)
+        patches: list[dict[str, Any]] = []
+        for row in conn.execute(sql, params).fetchall():
+            patch = dict(row)
+            patch["patch"] = _parse_json(patch.get("patch"), {})
+            patches.append(patch)
+        return patches
+    except sqlite3.Error:
+        return []
+    finally:
+        conn.close()
+
+
 def _fetch_usage(run_id: str, limit: int) -> list[dict[str, Any]]:
     conn = _connect_ro()
     if conn is None:
@@ -911,9 +1215,76 @@ async def list_sources(request: Request) -> JSONResponse:
         params.get("provider", "").strip(),
         params.get("state", "").strip(),
         params.get("q", "").strip(),
+        params.get("feed_id", "").strip(),
         _clamp_limit(params.get("limit")),
     )
     return _json(sources)
+
+
+async def list_literature_feeds(request: Request) -> JSONResponse:
+    """Return topic subscriptions and the latest auditable sync receipts."""
+
+    return _json(await asyncio.to_thread(_fetch_literature_feeds))
+
+
+async def list_literature_deltas(request: Request) -> JSONResponse:
+    """Return immutable source/version/retraction/feed changes."""
+
+    params = request.query_params
+    include_baseline = params.get("include_baseline", "").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+    }
+    events = await asyncio.to_thread(
+        _fetch_literature_deltas,
+        params.get("event_type", "").strip(),
+        params.get("feed_id", "").strip(),
+        params.get("source_id", "").strip(),
+        include_baseline,
+        _clamp_limit(params.get("limit")),
+    )
+    return _json(events)
+
+
+async def list_literature_bundles(request: Request) -> JSONResponse:
+    """Return bounded task-bundle receipts without full abstract text."""
+
+    return _json(
+        await asyncio.to_thread(
+            _fetch_literature_bundles,
+            _clamp_limit(request.query_params.get("limit")),
+        )
+    )
+
+
+async def list_literature_impacts(request: Request) -> JSONResponse:
+    """Return the source-to-Wiki impact ledger."""
+
+    params = request.query_params
+    return _json(
+        await asyncio.to_thread(
+            _fetch_literature_impacts,
+            params.get("entry_id", "").strip(),
+            params.get("source_id", "").strip(),
+            params.get("status", "").strip(),
+            _clamp_limit(params.get("limit")),
+        )
+    )
+
+
+async def list_wiki_candidate_patches(request: Request) -> JSONResponse:
+    """Return literature-driven Wiki candidate patches and review state."""
+
+    params = request.query_params
+    return _json(
+        await asyncio.to_thread(
+            _fetch_wiki_candidate_patches,
+            params.get("status", "").strip(),
+            params.get("entry_id", "").strip(),
+            _clamp_limit(params.get("limit")),
+        )
+    )
 
 
 async def get_source(request: Request) -> JSONResponse:
@@ -958,6 +1329,11 @@ KB_ROUTES = [
     Route("/api/kb/overview", get_overview, methods=["GET"]),
     Route("/api/kb/entries", list_entries, methods=["GET"]),
     Route("/api/kb/entries/{entry_id}", get_entry, methods=["GET"]),
+    Route("/api/kb/literature/feeds", list_literature_feeds, methods=["GET"]),
+    Route("/api/kb/literature/deltas", list_literature_deltas, methods=["GET"]),
+    Route("/api/kb/literature/bundles", list_literature_bundles, methods=["GET"]),
+    Route("/api/kb/literature/impacts", list_literature_impacts, methods=["GET"]),
+    Route("/api/kb/wiki/patches", list_wiki_candidate_patches, methods=["GET"]),
     Route("/api/kb/sources", list_sources, methods=["GET"]),
     Route("/api/kb/sources/{source_id:path}", get_source, methods=["GET"]),
     Route("/api/kb/graph", get_graph, methods=["GET"]),

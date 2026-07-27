@@ -24,9 +24,12 @@ from .contracts import (
     validate_entry,
 )
 from .literature import (
+    build_literature_task_bundle,
     default_literature_dir,
     distill_literature,
     fetch_literature,
+    read_literature_task_bundle,
+    record_literature_entry_impact,
     search_literature,
 )
 from .service import (
@@ -36,6 +39,7 @@ from .service import (
     import_markdown,
     promote,
     propose,
+    propose_literature_patch,
     read,
     review_queue,
     review_decide,
@@ -53,6 +57,7 @@ __all__ = [
     "STATUSES",
     "ContractError",
     "KnowledgeStore",
+    "build_literature_task_bundle",
     "check_status_transition",
     "conflicts",
     "default_db_path",
@@ -65,8 +70,11 @@ __all__ = [
     "import_markdown",
     "promote",
     "propose",
+    "propose_literature_patch",
     "quote_is_grounded",
     "read",
+    "read_literature_task_bundle",
+    "record_literature_entry_impact",
     "review_queue",
     "review_decide",
     "search",
