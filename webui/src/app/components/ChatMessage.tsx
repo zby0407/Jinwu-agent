@@ -25,9 +25,11 @@ import {
   Bell,
   Brain,
   Check,
+  ChevronLeft,
   ChevronRight,
   Copy,
   Pencil,
+  RotateCcw,
 } from "lucide-react";
 import {
   extractSubAgentContent,
@@ -54,6 +56,14 @@ interface ChatMessageProps {
   onResumeInterrupt?: (value: any) => void;
   graphId?: string;
   onEditMessage?: (content: string) => void;
+  onRegenerate?: () => void;
+  canRegenerate?: boolean;
+  responseVersions?: {
+    current: number;
+    total: number;
+    onPrevious?: () => void;
+    onNext?: () => void;
+  };
   autoApprove?: boolean;
   /** Live intermediate steps per task tool-call id (sub-agent activity). */
   subAgentSteps?: Record<string, SubAgentStep[]>;
@@ -99,6 +109,9 @@ export const ChatMessage = React.memo<ChatMessageProps>(
     onResumeInterrupt,
     graphId,
     onEditMessage,
+    onRegenerate,
+    canRegenerate = false,
+    responseVersions,
     autoApprove,
     subAgentSteps,
   }) => {
@@ -390,7 +403,43 @@ export const ChatMessage = React.memo<ChatMessageProps>(
             </div>
           )}
           {!isUser && hasContent && (
-            <div className="mt-1">
+            <div className="mt-1 flex items-center gap-1">
+              {responseVersions && responseVersions.total > 1 && (
+                <div
+                  className="mr-1 inline-flex items-center gap-0.5 text-xs text-muted-foreground"
+                  aria-label={`Response version ${responseVersions.current} of ${responseVersions.total}`}
+                >
+                  <button
+                    type="button"
+                    onClick={responseVersions.onPrevious}
+                    disabled={!responseVersions.onPrevious}
+                    aria-label="Previous response version"
+                    title="上一个回答"
+                    className="inline-flex items-center rounded p-1.5 transition-colors hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-35"
+                  >
+                    <ChevronLeft
+                      className="h-4 w-4"
+                      aria-hidden="true"
+                    />
+                  </button>
+                  <span className="min-w-9 text-center tabular-nums">
+                    {responseVersions.current}/{responseVersions.total}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={responseVersions.onNext}
+                    disabled={!responseVersions.onNext}
+                    aria-label="Next response version"
+                    title="下一个回答"
+                    className="inline-flex items-center rounded p-1.5 transition-colors hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-35"
+                  >
+                    <ChevronRight
+                      className="h-4 w-4"
+                      aria-hidden="true"
+                    />
+                  </button>
+                </div>
+              )}
               <button
                 type="button"
                 onClick={handleCopy}
@@ -408,6 +457,19 @@ export const ChatMessage = React.memo<ChatMessageProps>(
                     aria-hidden="true"
                   />
                 )}
+              </button>
+              <button
+                type="button"
+                onClick={onRegenerate}
+                disabled={!canRegenerate}
+                aria-label="Regenerate response"
+                title="重新生成"
+                className="inline-flex items-center rounded p-1.5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                <RotateCcw
+                  className="h-4 w-4"
+                  aria-hidden="true"
+                />
               </button>
             </div>
           )}

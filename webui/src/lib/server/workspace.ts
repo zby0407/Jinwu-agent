@@ -374,6 +374,42 @@ export async function getWorkspaceDir(
 }
 
 /**
+ * Remove every generated artifact from one task workspace before regenerating
+ * a response. Uploaded inputs and the binding metadata are retained so the
+ * replacement run can use the same source material; everything else is
+ * deleted and the standard output directories are recreated empty.
+ */
+export async function resetGeneratedWorkspace(
+  threadId: string
+): Promise<void> {
+  const workspace = await getWorkspaceDir(threadId);
+  const protectedEntries = new Set([
+    "inputs",
+    "task.json",
+    "input_manifest.json",
+    "context_snapshot.json",
+  ]);
+  const entries = await fs.readdir(workspace, { withFileTypes: true });
+
+  for (const entry of entries) {
+    if (protectedEntries.has(entry.name)) continue;
+    const target = resolve(workspace, entry.name);
+    if (target === workspace || !target.startsWith(workspace + sep)) {
+      throw new Error("Refusing to reset a path outside the task workspace.");
+    }
+    // rm removes a symlink itself rather than following it. The workspace path
+    // above is already canonical and containment-checked by getWorkspaceDir.
+    await fs.rm(target, { recursive: true, force: true });
+  }
+
+  await Promise.all(
+    ["work", "outputs", "receipts"].map((name) =>
+      fs.mkdir(join(workspace, name), { recursive: true })
+    )
+  );
+}
+
+/**
  * Resolve a caller-supplied relative path against `workspaceDir` and guarantee
  * the result stays inside it (no `..` escape, no absolute-path override, no
  * control chars). Returns the absolute, normalized path.

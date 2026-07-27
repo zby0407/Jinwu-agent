@@ -292,11 +292,10 @@ export function useChat({
     threadId: streamThreadId,
     onThreadId: handleStreamThreadId,
     defaultHeaders: { "x-auth-scheme": "langsmith" },
-    // The SDK default (`true`) downloads 10 complete checkpoints. A research
-    // thread can carry multi-megabyte private interpreter snapshots in every
-    // checkpoint, making one conversation take seconds to open. Keep its
-    // supported history/branch API enabled, but fetch only the current head.
-    fetchStateHistory: { limit: 1 },
+    // Regenerated answers are real LangGraph branches. Keep enough checkpoint
+    // history for the SDK to resolve the active branch and expose sibling
+    // answers through getMessagesMetadata / setBranch.
+    fetchStateHistory: { limit: 100 },
     // Revalidate thread list when stream finishes, errors, or creates new
     // thread. Errors additionally surface a toast with the SDK's payload -
     // without this the user only sees React's generic "An internal error
@@ -362,6 +361,9 @@ export function useChat({
   const [fetchedMessages, setFetchedMessages] = useState<Message[] | null>(
     null
   );
+  const [regenerationPreview, setRegenerationPreview] = useState<
+    Message[] | null
+  >(null);
   const [fetchedThreadId, setFetchedThreadId] = useState<string | null>(null);
   // `useStream` can reconnect to a busy thread with isLoading=false even though
   // the persisted checkpoint still has work in `next`. Mirror that server fact
@@ -461,6 +463,7 @@ export function useChat({
       setFetchedInterrupt(undefined);
       setFetchedMessages(null);
       setFetchedThreadId(null);
+      setRegenerationPreview(null);
       setResolvedInterruptKey(null);
       setServerPending(false);
       return;
@@ -473,6 +476,7 @@ export function useChat({
       recoveryNeededRef.current = true;
       recoveryRunRef.current += 1;
       setFetchedInterrupt(undefined);
+      setRegenerationPreview(null);
       setServerPending(false);
       return;
     }
@@ -622,6 +626,9 @@ export function useChat({
   // filter (ChatInterface.processedMessages) drop legitimate main-thread
   // history that's only tagged subgraph in stale stream metadata.
   const messages = (() => {
+    if (regenerationPreview && serverPending && !stream.isLoading) {
+      return regenerationPreview;
+    }
     if (!fetchedMessages || fetchedThreadId !== threadId)
       return stream.messages;
     if (fetchedInterrupt) return fetchedMessages;
@@ -670,6 +677,7 @@ export function useChat({
       setFetchedInterrupt(undefined);
       setFetchedMessages(null);
       setFetchedThreadId(null);
+      setRegenerationPreview(null);
       setResolvedInterruptKey(null);
       recoveryRunRef.current += 1;
       const newMessage: Message = { id: uuidv4(), type: "human", content };
@@ -740,6 +748,119 @@ export function useChat({
     ]
   );
 
+  const regenerateMessage = useCallback(
+    (messageId: string) => {
+      if (!threadId || stream.isLoading || serverPending) return;
+      setFetchedInterrupt(undefined);
+      setFetchedMessages(null);
+      setFetchedThreadId(null);
+      setRegenerationPreview(null);
+      setResolvedInterruptKey(null);
+      recoveryRunRef.current += 1;
+      setServerPending(true);
+
+      void (async () => {
+        const targetIndex = messages.findIndex(
+          (message) => message.id === messageId
+        );
+        if (targetIndex < 0) {
+          throw new Error("The response is no longer in the active branch.");
+        }
+        let turnHumanIndex = -1;
+        for (let index = targetIndex - 1; index >= 0; index -= 1) {
+          if (messages[index].type === "human") {
+            turnHumanIndex = index;
+            break;
+          }
+        }
+        const turnFirstAssistantIndex = messages.findIndex(
+          (message, index) =>
+            index > turnHumanIndex &&
+            index <= targetIndex &&
+            message.type === "ai"
+        );
+        const turnAnchorId =
+          turnFirstAssistantIndex >= 0
+            ? messages[turnFirstAssistantIndex].id
+            : messageId;
+        if (!turnAnchorId) {
+          throw new Error("The start of this response turn could not be found.");
+        }
+        const optimisticMessages =
+          turnFirstAssistantIndex >= 0
+            ? messages.slice(0, turnFirstAssistantIndex)
+            : messages.slice(0, targetIndex);
+        // Hide the old answer immediately after confirmation, including while
+        // workspace artifacts are being removed before the replacement run.
+        setRegenerationPreview(optimisticMessages);
+
+        const history = await client.threads.getHistory<StateType>(threadId, {
+          limit: 100,
+        });
+        const firstSeenState = [...history].reverse().find((state) =>
+          (state.values.messages ?? []).some(
+            (message) => message.id === turnAnchorId
+          )
+        );
+        const checkpoint = firstSeenState?.parent_checkpoint;
+        if (!checkpoint) {
+          throw new Error(
+            "The checkpoint before this response is no longer available."
+          );
+        }
+
+        const resetResponse = await fetch("/api/regenerate", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ threadId }),
+        });
+        if (!resetResponse.ok) {
+          const payload = (await resetResponse.json().catch(() => null)) as {
+            error?: unknown;
+          } | null;
+          throw new Error(
+            typeof payload?.error === "string"
+              ? payload.error
+              : "The generated artifacts could not be cleared."
+          );
+        }
+
+        // Continue directly from the checkpoint immediately before the model
+        // produced this answer. Creating an intermediate updateState checkpoint
+        // here is incorrect: it can inherit the old answer and lose the pending
+        // model node, turning regeneration into an empty, unrelated new turn.
+        await stream.submit(null, {
+          checkpoint,
+          optimisticValues: {
+            messages: optimisticMessages,
+          },
+          config: buildRunConfig(),
+          streamSubgraphs: true,
+          streamMode: ["updates"],
+          streamResumable: true,
+          onDisconnect: "continue",
+        });
+      })().catch((error) => {
+        setRegenerationPreview(null);
+        setServerPending(false);
+        toast.error(
+          error instanceof Error
+            ? `Couldn't regenerate response: ${error.message}`
+            : "Couldn't regenerate response."
+        );
+      });
+      onHistoryRevalidate?.();
+    }, [
+      threadId,
+      stream,
+      serverPending,
+      client,
+      messages,
+      buildRunConfig,
+      onHistoryRevalidate,
+    ]
+  );
+
   const setFiles = useCallback(
     async (files: Record<string, string>) => {
       if (!threadId) return;
@@ -748,6 +869,19 @@ export function useChat({
       await client.threads.updateState(threadId, { values: { files } });
     },
     [client, threadId]
+  );
+
+  const selectBranch = useCallback(
+    (branch: string) => {
+      setFetchedInterrupt(undefined);
+      setFetchedMessages(null);
+      setFetchedThreadId(null);
+      setRegenerationPreview(null);
+      setResolvedInterruptKey(null);
+      recoveryRunRef.current += 1;
+      stream.setBranch(branch);
+    },
+    [stream]
   );
 
   const resumeInterrupt = useCallback(
@@ -810,6 +944,8 @@ export function useChat({
       (threadId !== null && streamThreadId !== threadId),
     interrupt,
     sendMessage,
+    regenerateMessage,
+    selectBranch,
     stopStream,
     resumeInterrupt,
     subAgentActivity,
