@@ -612,7 +612,7 @@ class TestPriorityChain:
         assert config.agent_model_call_limit == 64
         assert config.agent_tool_call_limit == 48
         assert config.subagent_model_call_limit == 24
-        assert config.subagent_tool_call_limit == 20
+        assert config.subagent_tool_call_limit == 48
 
     def test_agent_call_budgets_can_be_overridden_by_env(
         self, temp_config_dir, monkeypatch

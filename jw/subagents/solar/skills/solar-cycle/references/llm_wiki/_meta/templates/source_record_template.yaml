@@ -1,0 +1,18 @@
+schema_version: llm-wiki-source-record-v1
+source_id: source_<slug>
+title: ""
+authors: []
+language: zh-CN
+source_kind: textbook
+edition_or_year: ""
+local_collection: JSONbook
+local_files:
+  parsed: ""
+  retrieval_chunks: ""
+authority_role:
+  - background
+planned_modules: []
+page_review_status: not_started
+formula_table_review_required: false
+redistribution_policy: local_reference_only
+notes: ""

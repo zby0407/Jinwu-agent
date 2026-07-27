@@ -35,6 +35,7 @@ from jw.workspaces import (  # noqa: E402
     workspace_root_from_config,
 )
 from scientific_hypothesis.contracts import (  # noqa: E402
+    HARD_NUMERIC_CUTOFF,
     RESPONSE_VERSION,
     SAFE_ID,
     canonical_json_sha256,
@@ -44,8 +45,10 @@ from scientific_hypothesis.harness import (  # noqa: E402
     EvidenceRegister,
     build_hypothesis_brief,
     build_natural_hypothesis_request,
+    build_wiki_evidence_excerpt,
     freeze_hypothesis_portfolio,
     preflight_hypothesis_response,
+    validate_evidence_provenance,
 )
 
 MAX_EVIDENCE_BINDS = 20
@@ -77,6 +80,13 @@ REQUIRED_CANDIDATE_FIELDS = {
     "confidence",
     "evidence_update",
     "prior_version_id",
+}
+WIKI_GROUNDING_TYPES = {
+    "concept",
+    "mechanism",
+    "data_source",
+    "experiment_paradigm",
+    "hypothesis_template",
 }
 
 
@@ -264,6 +274,15 @@ def _draft_warnings(
                 }
             )
 
+    for entry in state.evidence_register.all():
+        try:
+            validate_evidence_provenance(request, entry)
+        except Exception as exc:
+            add(
+                "invalid_evidence_provenance",
+                f"Evidence {entry['evidence_id']} has invalid provenance: {exc}",
+            )
+
     if len(candidates) > request["max_candidates"]:
         add(
             "candidate_budget_exceeded",
@@ -373,6 +392,79 @@ def _draft_warnings(
                 "High confidence is inconsistent with missing support or opposing evidence.",
                 candidate_id,
             )
+
+        linked_evidence_ids = {
+            link.get("evidence_id")
+            for links in (supporting, opposing)
+            if isinstance(links, list)
+            for link in links
+            if isinstance(link, dict) and isinstance(link.get("evidence_id"), str)
+        }
+        grounded_parts = [request["research_question"]]
+        for evidence_id in linked_evidence_ids:
+            entry = state.evidence_register.get(evidence_id)
+            if (
+                entry is not None
+                and entry["verified_support"]
+                and not entry["material_id"].startswith("kb_")
+            ):
+                grounded_parts.append(entry["excerpt"])
+        normalized_grounding = {
+            "".join(match.group(0).split()).lower()
+            for part in grounded_parts
+            for match in HARD_NUMERIC_CUTOFF.finditer(part)
+        }
+        threshold_texts: list[tuple[str, str]] = []
+        for field_name in ("statement", "applicability"):
+            value = candidate.get(field_name)
+            if isinstance(value, str):
+                threshold_texts.append((field_name, value))
+        mechanism = candidate.get("mechanism")
+        if isinstance(mechanism, dict):
+            for value in mechanism.get("required_premises", []):
+                if isinstance(value, str):
+                    threshold_texts.append(("mechanism.required_premises", value))
+        for field_name in ("assumptions", "falsification_conditions"):
+            values = candidate.get(field_name, [])
+            if isinstance(values, list):
+                threshold_texts.extend(
+                    (field_name, value) for value in values if isinstance(value, str)
+                )
+        predictions = candidate.get("predictions", [])
+        if isinstance(predictions, list):
+            for prediction in predictions:
+                if not isinstance(prediction, dict):
+                    continue
+                prediction_id = str(prediction.get("id") or "unknown")
+                for field_name in ("statement", "observable", "would_weaken_if"):
+                    value = prediction.get(field_name)
+                    if isinstance(value, str):
+                        threshold_texts.append(
+                            (f"prediction.{prediction_id}.{field_name}", value)
+                        )
+        next_test = candidate.get("next_test")
+        if isinstance(next_test, dict):
+            expected = next_test.get("expected_signals", [])
+            if isinstance(expected, list):
+                threshold_texts.extend(
+                    ("next_test.expected_signals", value)
+                    for value in expected
+                    if isinstance(value, str)
+                )
+        for field_name, value in threshold_texts:
+            for match in HARD_NUMERIC_CUTOFF.finditer(value):
+                token = "".join(match.group(0).split()).lower()
+                if token in normalized_grounding:
+                    continue
+                add(
+                    "ungrounded_numeric_threshold",
+                    (
+                        f"{field_name} contains an ungrounded numeric threshold "
+                        f"{match.group(0)!r}; remove it, make it qualitative, or "
+                        "link verified non-Wiki evidence containing the same threshold."
+                    ),
+                    candidate_id,
+                )
 
     distinctions = draft.get("pairwise_distinctions", [])
     if len(candidate_ids) > 1:
@@ -669,30 +761,155 @@ def scientific_hypothesis_bind_evidence(
     """
     try:
         state = _state(config)
-        _require_active_request(state)
+        request = _require_active_request(state)
         if len(state.evidence_register) >= MAX_EVIDENCE_BINDS:
             return _ok(
                 {
                     "schema_version": "scientific-hypothesis-evidence-bound-v1",
                     "status": "budget_reached",
-                    "message": "本次任务的证据绑定已达上限；请只使用已登记证据，把其余内容列为证据缺口。",
+                    "message": "本次任务的证据绑定已达上限。请只使用已登记证据，把其余内容列为证据缺口。",
                 }
             )
-        result = state.evidence_register.bind(
-            {
-                "evidence_id": evidence_id,
-                "evidence_kind": evidence_kind,
-                "material_id": material_id,
-                "excerpt": excerpt,
-                "verified_support": verified_support,
-                "role": role,
-            }
-        )
+        if material_id.startswith("kb_"):
+            raise ValueError(
+                "Wiki 条目不能通过通用证据入口绑定。"
+                "请使用 scientific_hypothesis_bind_wiki_evidence，"
+                "由服务端核对 canonical 状态和读取回执"
+            )
+        row = {
+            "evidence_id": evidence_id,
+            "evidence_kind": evidence_kind,
+            "material_id": material_id,
+            "excerpt": excerpt,
+            "verified_support": verified_support,
+            "role": role,
+        }
+        validate_evidence_provenance(request, row)
+        result = state.evidence_register.bind(row)
         state_path = _persist_state(config, state)
         result["state_persistence"] = (
             "workspace" if state_path is not None else "memory_only"
         )
         result["persistence_warning"] = state.persistence_warning
+        return _ok(result)
+    except Exception as exc:
+        return _needs_revision(exc)
+
+
+@tool(parse_docstring=True)
+def scientific_hypothesis_bind_wiki_evidence(
+    entry_id: str,
+    config: RunnableConfig = None,
+) -> str:
+    """Bind one canonical Wiki entry as mechanism, scope, data, or method grounding.
+
+    The tool re-reads the knowledge store on the server side, rejects
+    candidate/deprecated/blocked entries and persists a bounded receipt with
+    the exact version, confidence, valid range and provenance used by this
+    hypothesis run. Wiki grounding is always registered as ``role=limits``;
+    it is never observational support.
+
+    Args:
+        entry_id: Canonical Wiki entry id returned by ``kb_query``/``kb_read``.
+
+    Returns:
+        JSON string with the bound evidence id and canonical Wiki receipt.
+    """
+    try:
+        from jw.tools.knowledge_base import _get_store, _run_context
+        from knowledge_base import service as knowledge_service
+
+        state = _state(config)
+        request = _require_active_request(state)
+        if len(state.evidence_register) >= MAX_EVIDENCE_BINDS:
+            return _ok(
+                {
+                    "schema_version": "scientific-hypothesis-evidence-bound-v1",
+                    "status": "budget_reached",
+                    "message": "本次任务的证据绑定已达上限。请只使用已登记证据，把其余内容列为证据缺口。",
+                }
+            )
+        agent, run_id = _run_context(config)
+        if not run_id:
+            raise ValueError(
+                "Wiki binding requires a task-scoped run id so the prior kb_read "
+                "receipt can be verified"
+            )
+        store = _get_store()
+        prior_reads = store.provenance_for_run(run_id)
+        read_receipt = next(
+            (
+                row
+                for row in reversed(prior_reads)
+                if row.get("entry_id") == entry_id
+                and row.get("purpose") != "hypothesis_grounding"
+            ),
+            None,
+        )
+        if read_receipt is None:
+            raise ValueError(
+                f"No prior kb_read receipt exists for Wiki entry {entry_id} in "
+                f"the current task run {run_id}. Call kb_read for this exact entry "
+                "before binding it."
+            )
+        entry = knowledge_service.read(
+            store,
+            entry_id,
+            agent=agent or "solar-hypothesis",
+            run_id=run_id,
+            purpose="hypothesis_grounding",
+        )["entry"]
+        if entry["status"] != "canonical":
+            raise ValueError(
+                f"Wiki 条目 {entry_id} 当前状态为 {entry['status']}。"
+                "只有 canonical 条目可以进入假设状态"
+            )
+        if entry["type"] not in WIKI_GROUNDING_TYPES:
+            raise ValueError(
+                f"Wiki 条目 {entry_id} 的 type={entry['type']} 不能作为假设依据。"
+                "仅允许稳定内置类型 concept、mechanism、data_source、"
+                "experiment_paradigm、hypothesis_template"
+            )
+        receipt = build_wiki_evidence_excerpt(
+            entry,
+            read_receipt=read_receipt,
+        )
+        row = {
+            "evidence_id": entry_id,
+            "evidence_kind": "literature",
+            "material_id": entry_id,
+            "excerpt": receipt,
+            "verified_support": True,
+            "role": "limits",
+        }
+        validate_evidence_provenance(request, row)
+        result = state.evidence_register.bind(row)
+        state_path = _persist_state(config, state)
+        result.update(
+            {
+                "wiki_grounding": {
+                    "entry_id": entry_id,
+                    "type": entry["type"],
+                    "status": entry["status"],
+                    "version": entry["version"],
+                    "confidence": entry["confidence"],
+                    "valid_range": entry.get("valid_range", ""),
+                    "source_type": entry["source_type"],
+                    "source_ref": entry["source_ref"],
+                },
+                "kb_read_receipt": {
+                    "log_id": read_receipt.get("id"),
+                    "run_id": read_receipt.get("run_id"),
+                    "agent": read_receipt.get("agent"),
+                    "purpose": read_receipt.get("purpose"),
+                    "ts": read_receipt.get("ts"),
+                },
+                "state_persistence": (
+                    "workspace" if state_path is not None else "memory_only"
+                ),
+                "persistence_warning": state.persistence_warning,
+            }
+        )
         return _ok(result)
     except Exception as exc:
         return _needs_revision(exc)
@@ -1094,6 +1311,7 @@ def scientific_hypothesis_freeze(config: RunnableConfig = None) -> str:
 SCIENTIFIC_HYPOTHESIS_TOOLS = [
     scientific_hypothesis_bind_request,
     scientific_hypothesis_bind_evidence,
+    scientific_hypothesis_bind_wiki_evidence,
     scientific_hypothesis_update_draft,
     scientific_hypothesis_get_draft,
     scientific_hypothesis_validate_response,

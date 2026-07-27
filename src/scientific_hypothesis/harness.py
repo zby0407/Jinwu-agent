@@ -37,6 +37,160 @@ NOVELTY_CLAIMED_STATUSES = {"likely_novel", "known"}
 _NOVELTY_EVIDENCE_KINDS = {"literature", "upstream"}
 
 
+def build_wiki_evidence_excerpt(
+    entry: dict[str, Any],
+    *,
+    read_receipt: dict[str, Any] | None = None,
+) -> str:
+    """Build the bounded, persisted receipt for one canonical Wiki entry.
+
+    Runtime hypothesis state must retain more than an opaque ``kb_*`` id: the
+    exact version, scope, confidence, and source boundary used during candidate
+    formation need to survive after the knowledge store changes.  The full
+    content remains available through ``kb_read``; this receipt is deliberately
+    compact enough for the evidence-register contract.
+    """
+
+    def compact(value: object, limit: int) -> str:
+        encoded = json.dumps(
+            value,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+        return encoded if len(encoded) <= limit else encoded[: limit - 3] + "..."
+
+    provenance = entry.get("provenance", {})
+    payload = {
+        "id": entry.get("id"),
+        "type": entry.get("type"),
+        "title": entry.get("title"),
+        "status": entry.get("status"),
+        "version": entry.get("version"),
+        "confidence": entry.get("confidence"),
+        "valid_range": entry.get("valid_range"),
+        "source_type": entry.get("source_type"),
+        "source_ref": entry.get("source_ref"),
+        "provenance_sha256": canonical_json_sha256(provenance),
+        "provenance_summary": compact(provenance, 400),
+        "content_summary": compact(entry.get("content", {}), 700),
+    }
+    if read_receipt is not None:
+        payload["kb_read_receipt"] = {
+            "log_id": read_receipt.get("id"),
+            "run_id": read_receipt.get("run_id"),
+            "agent": read_receipt.get("agent"),
+            "purpose": read_receipt.get("purpose"),
+            "ts": read_receipt.get("ts"),
+        }
+    receipt = json.dumps(
+        payload,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    # Entry metadata may have unusually long free-text source fields. Keep the
+    # immutable identity/version/hash fields and bound only display strings so
+    # the evidence-register excerpt contract remains valid.
+    for key in (
+        "source_ref",
+        "valid_range",
+        "title",
+        "content_summary",
+        "provenance_summary",
+    ):
+        if len(receipt) <= 2_000:
+            break
+        value = str(payload.get(key) or "")
+        overflow = len(receipt) - 1_950
+        payload[key] = value[: max(16, len(value) - overflow)] + "..."
+        receipt = json.dumps(
+            payload,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+    if len(receipt) > 2_000:
+        raise ContractError("Wiki 读取回执超过证据登记上限，无法安全持久化")
+    return receipt
+
+
+def validate_evidence_provenance(
+    request: dict[str, Any],
+    evidence: dict[str, Any],
+) -> None:
+    """Require every verified evidence row to resolve inside this request.
+
+    Observation memory is useful for discovery, but it is not automatically a
+    verified input to a new scientific run.  A normal evidence row therefore
+    has to point to a declared ``upstream_material`` (and its excerpt must occur
+    in that material), or to the exact bound user question.  Canonical ``kb_*``
+    receipts are the one integrated exception; they are mechanism grounding,
+    forced to the limiting role, and are created by the dedicated Wiki-binding
+    tool after a successful canonical read.
+    """
+
+    material_id = evidence["material_id"]
+    kind = evidence["evidence_kind"]
+    role = evidence["role"]
+    excerpt = " ".join(str(evidence["excerpt"]).split())
+
+    # Discovery-only memories may remain visible as explicit gaps, but they
+    # must not acquire verified status merely by entering the register.
+    if role == "gap" and not evidence["verified_support"]:
+        return
+
+    if material_id.startswith("kb_"):
+        if kind != "literature" or role != "limits":
+            raise ContractError(
+                f"Wiki 材料 {material_id} 只能作为已核验的机制/范围约束登记；"
+                "请使用 evidence_kind=literature、role=limits"
+            )
+        if '"status":"canonical"' not in evidence["excerpt"]:
+            raise ContractError(
+                f"Wiki 材料 {material_id} 缺少 canonical 读取回执；"
+                "请使用 scientific_hypothesis_bind_wiki_evidence"
+            )
+        return
+
+    if material_id == "user_request":
+        if kind != "user":
+            raise ContractError("user_request 证据必须使用 evidence_kind=user")
+        question = " ".join(request["research_question"].split())
+        if excerpt not in question:
+            raise ContractError("user_request 证据摘录必须逐字来自当前绑定的研究问题")
+        return
+
+    materials = {
+        material["id"]: material for material in request.get("upstream_materials", [])
+    }
+    material = materials.get(material_id)
+    if material is None:
+        raise ContractError(
+            f"证据材料 {material_id} 未在本轮 upstream_materials 中声明；"
+            "历史记忆、日志或先前运行结论只能先作为 gap，不能直接标为已核验证据"
+        )
+
+    allowed_kinds = {
+        "experiment_result": {"experiment"},
+        "literature_note": {"literature"},
+        "research_plan": {"upstream"},
+        "data_feature": {"upstream"},
+        "user_material": {"user", "upstream"},
+    }[material["material_kind"]]
+    if kind not in allowed_kinds:
+        raise ContractError(
+            f"证据 {evidence['evidence_id']} 的 evidence_kind={kind} 与材料 "
+            f"{material_id} 的 material_kind={material['material_kind']} 不一致"
+        )
+    corpus = " ".join(json.dumps(material, ensure_ascii=False, sort_keys=True).split())
+    if excerpt not in corpus:
+        raise ContractError(
+            f"证据 {evidence['evidence_id']} 的摘录无法在材料 {material_id} 中定位；"
+            "请绑定材料中的原文，不要用记忆摘要替代"
+        )
+
+
 def build_natural_hypothesis_request(research_question: str) -> dict[str, Any]:
     """把普通自然语言输入构造成标准请求。"""
 
@@ -298,7 +452,15 @@ def collect_hypothesis_semantic_errors(
     errors: list[str] = []
     candidates = response.get("candidates", [])
 
-    # 1. 证据引用必须指向登记簿，且支持/反对必须已核验。
+    # 1. 登记簿中的每条证据都必须能回溯到本轮请求。该复核也会拦截从旧版
+    # 持久化状态恢复的幽灵证据；不能只依赖写入工具的即时校验。
+    for entry in register.all():
+        try:
+            validate_evidence_provenance(request, entry)
+        except ContractError as exc:
+            errors.append(f"证据 {entry['evidence_id']} 的来源无效：{exc}")
+
+    # 2. 证据引用必须指向登记簿，且支持/反对必须已核验。
     for candidate in candidates:
         label = f"候选 {candidate['id']}"
         for family, links in (
@@ -328,7 +490,7 @@ def collect_hypothesis_semantic_errors(
                         "与反对关系不一致"
                     )
 
-    # 2. 技术失败的实验记录不得作为支持或反对证据（绑定层已挡指标，语义层再挡角色）。
+    # 3. 技术失败的实验记录不得作为支持或反对证据（绑定层已挡指标，语义层再挡角色）。
     material_kinds = {
         material["id"]: material["material_kind"]
         for material in request.get("upstream_materials", [])
@@ -350,7 +512,7 @@ def collect_hypothesis_semantic_errors(
                             f"但材料 {material_id} 不是实验执行记录"
                         )
 
-    # 3. 候选去重：陈述不得逐字重复；多候选时不得共用完全相同的机制摘要。
+    # 4. 候选去重：陈述不得逐字重复；多候选时不得共用完全相同的机制摘要。
     statements = [c["statement"] for c in candidates]
     if len(statements) != len(set(statements)):
         errors.append("存在逐字重复的候选陈述；请合并或改写为机制上可区分的候选")
@@ -362,12 +524,23 @@ def collect_hypothesis_semantic_errors(
                 "请合并为一个候选，或写出机制上真实的区别"
             )
 
-    # 4. 置信度一致性：与硬约束冲突或无支持证据的候选不得为高置信。
+    # 5. 置信度一致性：Wiki 只能约束机制和适用范围，不能替代观测支持。
     for candidate in candidates:
         confidence = candidate["confidence"]
-        if confidence["level"] == "high" and not candidate["supporting_evidence"]:
+        empirical_support = []
+        for link in candidate["supporting_evidence"]:
+            entry = register.get(link["evidence_id"])
+            if (
+                entry is not None
+                and entry["verified_support"]
+                and entry["role"] == "supports"
+                and not entry["material_id"].startswith("kb_")
+            ):
+                empirical_support.append(entry)
+        if confidence["level"] == "high" and not empirical_support:
             errors.append(
-                f"候选 {candidate['id']} 在没有任何已核验支持证据时不得标记 high 置信度"
+                f"候选 {candidate['id']} 在没有任何已核验的非 Wiki 支持证据时"
+                "不得标记 high 置信度；Wiki 只能约束机制与适用范围"
             )
         if candidate["opposing_evidence"] and confidence["level"] == "high":
             errors.append(
@@ -375,7 +548,7 @@ def collect_hypothesis_semantic_errors(
                 "应保持 medium 或 low 并说明理由，不得标记 high"
             )
 
-    # 5. 文本表述：不得声称首次提出（除非后续由新颖性绑定放行），不得写精确概率。
+    # 6. 文本表述：不得声称首次提出（除非后续由新颖性绑定放行），不得写精确概率。
     texts: list[tuple[str, str]] = []
     for candidate in candidates:
         texts.append((f"候选 {candidate['id']}", candidate["statement"]))
@@ -400,24 +573,58 @@ def collect_hypothesis_semantic_errors(
         if PRECISE_PROBABILITY.search(text) is not None:
             errors.append(f"{label} 使用了精确百分比表达置信度，应改为定性等级与理由")
 
-    # 6. 数值门槛追溯：证伪条件与下一项检验中的硬数值门槛必须出现在已绑定证据或请求中。
-    grounded_corpus = json.dumps(request, ensure_ascii=False)
-    for entry in register.all():
-        if entry["verified_support"]:
-            grounded_corpus += "\n" + entry["excerpt"]
+    # 7. 数值门槛追溯：逐个检查候选自己的预测、前提、假设、证伪条件
+    # 与下一项检验。另一个候选引用的证据、Wiki 机制条目或全局登记簿中的
+    # 无关证据都不能替本候选的观测门槛背书。
     for candidate in candidates:
-        for field, values in (
+        grounded_parts = [request["research_question"]]
+        candidate_evidence_ids = {
+            link["evidence_id"]
+            for link in (
+                candidate["supporting_evidence"] + candidate["opposing_evidence"]
+            )
+        }
+        for evidence_id in candidate_evidence_ids:
+            entry = register.get(evidence_id)
+            if (
+                entry is not None
+                and entry["verified_support"]
+                and not entry["material_id"].startswith("kb_")
+            ):
+                grounded_parts.append(entry["excerpt"])
+        normalized_grounding = {
+            "".join(match.group(0).split()).lower()
+            for part in grounded_parts
+            for match in HARD_NUMERIC_CUTOFF.finditer(part)
+        }
+
+        threshold_fields: list[tuple[str, list[str]]] = [
+            ("必要前提", candidate["mechanism"]["required_premises"]),
+            ("关键假设", candidate["assumptions"]),
             ("证伪条件", candidate["falsification_conditions"]),
             ("下一项检验预期信号", candidate["next_test"]["expected_signals"]),
-        ):
+        ]
+        for prediction in candidate["predictions"]:
+            threshold_fields.extend(
+                [
+                    (f"预测 {prediction['id']}", [prediction["statement"]]),
+                    (f"预测 {prediction['id']} 的观测量", [prediction["observable"]]),
+                    (
+                        f"预测 {prediction['id']} 的削弱条件",
+                        [prediction["would_weaken_if"]],
+                    ),
+                ]
+            )
+        for field, values in threshold_fields:
             for value in values:
-                match = HARD_NUMERIC_CUTOFF.search(value)
-                if match is not None and match.group(0) not in grounded_corpus:
-                    errors.append(
-                        f"候选 {candidate['id']} 的{field}含有无依据的数值门槛："
-                        f"“{match.group(0)}”；请删除该门槛、改为定性表述，"
-                        "或先绑定包含该数值的已核验证据"
-                    )
+                for match in HARD_NUMERIC_CUTOFF.finditer(value):
+                    token = "".join(match.group(0).split()).lower()
+                    if token not in normalized_grounding:
+                        errors.append(
+                            f"候选 {candidate['id']} 的{field}含有无依据的数值门槛："
+                            f"“{match.group(0)}”；请删除该门槛、改为定性表述，"
+                            "或让该候选直接引用包含同一门槛的已核验非 Wiki 证据"
+                        )
     return list(dict.fromkeys(errors))
 
 
@@ -994,6 +1201,7 @@ __all__ = [
     "EvidenceRegister",
     "PROJECT_ROOT",
     "RUNS_ROOT",
+    "build_wiki_evidence_excerpt",
     "build_counterexample_table",
     "build_hypothesis_brief",
     "build_natural_hypothesis_request",
@@ -1004,4 +1212,5 @@ __all__ = [
     "preflight_hypothesis_response",
     "render_hypothesis_portfolio_markdown",
     "render_nonportfolio_response_markdown",
+    "validate_evidence_provenance",
 ]

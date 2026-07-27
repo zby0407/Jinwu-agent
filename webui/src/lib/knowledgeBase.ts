@@ -89,6 +89,62 @@ export interface KbOverview {
   gaps: KbOverviewGap[];
 }
 
+export interface KbBuiltInCatalogEntry {
+  id: string;
+  type: string;
+  module: string;
+  title_zh: string;
+  state: "seeded" | "planned" | "candidate" | "canonical" | string;
+  priority: "P0" | "P1" | "P2" | string;
+  path: string;
+  live: KbEntrySummary | null;
+}
+
+export interface KbBuiltInTaskBundle {
+  id: string;
+  title_zh: string;
+  purpose_zh: string;
+  modules: string[];
+  seed_entries: KbBuiltInCatalogEntry[];
+  missing_seed_paths: string[];
+  live_count: number;
+}
+
+export interface KbBuiltInWiki {
+  available: boolean;
+  error?: string;
+  wiki_id: string;
+  version: string;
+  status: string;
+  language: string;
+  design_basis: string;
+  purpose: {
+    primary_stage?: string;
+    consumer?: string;
+    loading_strategy?: string;
+    statement_zh?: string;
+    boundary_zh?: string;
+  };
+  scope: {
+    primary?: string[];
+    secondary?: string[];
+    out_of_scope?: string[];
+  };
+  always_load: Array<{ path: string; title: string }>;
+  task_bundles: KbBuiltInTaskBundle[];
+  catalog_entries: KbBuiltInCatalogEntry[];
+  stats: {
+    catalog_total: number;
+    seeded_total: number;
+    seeded_live: number;
+    canonical_live: number;
+    planned_total: number;
+    task_bundle_total: number;
+    state_counts: Record<string, number>;
+    module_counts: Record<string, Record<string, number>>;
+  };
+}
+
 export interface KbSourceSummary {
   source_id: string;
   family_id: string;
@@ -220,6 +276,10 @@ export async function fetchKbEntries(filters: {
 
 export async function fetchKbOverview(): Promise<KbOverview> {
   return kbFetch<KbOverview>("/api/kb/overview");
+}
+
+export async function fetchKbBuiltInWiki(): Promise<KbBuiltInWiki> {
+  return kbFetch<KbBuiltInWiki>("/api/kb/builtin");
 }
 
 export async function fetchKbEntry(id: string): Promise<KbEntryDetail> {

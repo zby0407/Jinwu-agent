@@ -1,8 +1,14 @@
 from __future__ import annotations
 
+from types import SimpleNamespace
 from unittest.mock import MagicMock
 
-from langchain.agents.middleware.types import ModelRequest
+import pytest
+from langchain.agents.middleware.types import (
+    ModelRequest,
+    ModelResponse,
+    ToolCallRequest,
+)
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 from langchain_core.tools import StructuredTool
 
@@ -59,11 +65,15 @@ def _route(
     *,
     source_mode: str = "none",
     needs_computation: bool = False,
+    task_intent: str = "general",
+    required_specialist: str = "none",
 ) -> dict[str, object]:
     return {
         "mode": mode,
         "source_mode": source_mode,
         "needs_computation": needs_computation,
+        "task_intent": task_intent,
+        "required_specialist": required_specialist,
         "reason": "test",
     }
 
@@ -84,6 +94,89 @@ def test_router_runs_once_per_human_turn_and_persists_decision(monkeypatch) -> N
     persisted = {**state, **update}
     assert middleware.before_agent(persisted, runtime=None) is None
     structured.invoke.assert_called_once()
+    schema = middleware._model.with_structured_output.call_args.args[0]
+    assert schema["properties"]["task_intent"]["enum"] == [
+        "general",
+        "hypothesis_generation",
+        "hypothesis_comparison",
+        "hypothesis_update",
+    ]
+    assert schema["properties"]["required_specialist"]["enum"] == [
+        "none",
+        "solar-hypothesis",
+    ]
+
+
+def test_explicit_hypothesis_intent_overrides_full_research_misroute(
+    monkeypatch,
+) -> None:
+    middleware = _middleware(monkeypatch)
+    structured = MagicMock()
+    structured.invoke.return_value = _route(
+        "full_research",
+        source_mode="mixed",
+        needs_computation=True,
+    )
+    middleware._model.with_structured_output.return_value = structured
+
+    update = middleware.before_agent(
+        {
+            "messages": [
+                HumanMessage(
+                    "请为太阳周期异常生成并比较可证伪的科学假设",
+                    id="turn-hypothesis",
+                )
+            ]
+        },
+        runtime=None,
+    )
+
+    assert update is not None
+    route = update["research_route"]
+    assert route["mode"] == "verified_analysis"
+    assert route["task_intent"] == "hypothesis_comparison"
+    assert route["required_specialist"] == "solar-hypothesis"
+
+
+@pytest.mark.parametrize(
+    ("text", "expected_intent"),
+    [
+        ("请提出三个可证伪的太阳活动科学假设", "hypothesis_generation"),
+        ("Compare the competing solar-cycle hypotheses.", "hypothesis_comparison"),
+        (
+            "Update our hypothesis using the new polar-field evidence.",
+            "hypothesis_update",
+        ),
+        (
+            "Do not run full research; just generate testable hypotheses.",
+            "hypothesis_generation",
+        ),
+    ],
+)
+def test_router_fallback_recognizes_bilingual_hypothesis_intent(
+    monkeypatch,
+    text: str,
+    expected_intent: str,
+) -> None:
+    middleware = _middleware(monkeypatch)
+    middleware._model.with_structured_output.side_effect = RuntimeError(
+        "router unavailable"
+    )
+
+    update = middleware.before_agent(
+        {"messages": [HumanMessage(text, id=f"turn-{expected_intent}")]},
+        runtime=None,
+    )
+
+    assert update is not None
+    assert update["research_route"] == {
+        "mode": "verified_analysis",
+        "source_mode": "mixed",
+        "needs_computation": False,
+        "task_intent": expected_intent,
+        "required_specialist": "solar-hypothesis",
+        "reason": "router unavailable; explicit hypothesis intent kept specialized",
+    }
 
 
 def test_verified_local_route_forces_discovery_then_read_then_compute(
@@ -140,6 +233,343 @@ def test_verified_local_route_forces_discovery_then_read_then_compute(
     )
     assert third.tool_choice is None
     assert [tool.name for tool in third.tools] == ["execute"]
+
+
+def test_hypothesis_route_forces_direct_task_delegation(monkeypatch) -> None:
+    middleware = _middleware(monkeypatch)
+    route = _route(
+        "verified_analysis",
+        source_mode="mixed",
+        task_intent="hypothesis_generation",
+        required_specialist="solar-hypothesis",
+    )
+    tools = [_tool("read_file"), _tool("task"), _tool("execute")]
+
+    prepared = _prepared(
+        middleware,
+        _request(route=route, tools=tools),
+    )
+
+    assert prepared.tool_choice is None
+    assert [tool.name for tool in prepared.tools] == ["task"]
+    assert "subagent_type='solar-hypothesis'" in prepared.system_message.text
+    assert "Do not call solar-planner first" in prepared.system_message.text
+    assert (
+        "mandatory next graph node is solar-planner" not in prepared.system_message.text
+    )
+
+
+def test_hypothesis_model_result_replaces_parent_preread_with_task(
+    monkeypatch,
+) -> None:
+    middleware = _middleware(monkeypatch)
+    route = _route(
+        "verified_analysis",
+        source_mode="mixed",
+        task_intent="hypothesis_generation",
+        required_specialist="solar-hypothesis",
+    )
+    request = _request(
+        route=route,
+        tools=[_tool("read_file"), _tool("task")],
+    )
+
+    response = middleware.wrap_model_call(
+        request,
+        lambda _inner: ModelResponse(
+            result=[
+                AIMessage(
+                    "",
+                    tool_calls=[
+                        {
+                            "name": "read_file",
+                            "args": {"file_path": "/memories/MEMORY.md"},
+                            "id": "stale-read",
+                        }
+                    ],
+                )
+            ]
+        ),
+    )
+
+    assert len(response.result) == 1
+    assert len(response.result[0].tool_calls) == 1
+    call = response.result[0].tool_calls[0]
+    assert call["name"] == "task"
+    assert call["args"]["subagent_type"] == "solar-hypothesis"
+    assert call["id"].startswith("call_hypothesis_")
+
+
+def test_hypothesis_task_execution_rewrites_generic_delegation_to_specialist(
+    monkeypatch,
+) -> None:
+    middleware = _middleware(monkeypatch)
+    monkeypatch.setattr(
+        "jw.middleware.research_router._persisted_hypothesis_draft_status",
+        lambda _config: (True, "/task/work/scientific_hypothesis_state.json"),
+    )
+    route = _route(
+        "verified_analysis",
+        source_mode="mixed",
+        task_intent="hypothesis_generation",
+        required_specialist="solar-hypothesis",
+    )
+    human = HumanMessage("请形成并维护候选草稿", id="turn-hypothesis")
+    model_call = AIMessage(
+        "",
+        tool_calls=[
+            {
+                "name": "task",
+                "args": {
+                    "subagent_type": "general-purpose",
+                    "description": "Read the Wiki tree.",
+                },
+                "id": "task-generic",
+            }
+        ],
+    )
+    request = ToolCallRequest(
+        tool_call=model_call.tool_calls[0],
+        tool=None,
+        state={"research_route": route, "messages": [human, model_call]},
+        runtime=SimpleNamespace(config={}),
+    )
+    captured: list[ToolCallRequest] = []
+
+    def handler(inner: ToolCallRequest) -> ToolMessage:
+        captured.append(inner)
+        return ToolMessage(
+            "persisted specialist draft",
+            tool_call_id=str(inner.tool_call["id"]),
+            name="task",
+        )
+
+    result = middleware.wrap_tool_call(request, handler)
+
+    assert len(captured) == 1
+    args = captured[0].tool_call["args"]
+    assert args["subagent_type"] == "solar-hypothesis"
+    assert "请形成并维护候选草稿" in args["description"]
+    assert "Read the Wiki tree." not in args["description"]
+    assert result.additional_kwargs["research_router_specialist"] == "solar-hypothesis"
+    followup = _prepared(
+        middleware,
+        _request(
+            route=route,
+            messages=[human, model_call, result],
+            tools=[_tool("task"), _tool("read_file")],
+        ),
+    )
+    assert followup.tools == []
+    assert "will be passed through verbatim" in followup.system_message.text
+
+
+def test_hypothesis_route_blocks_parent_preread_at_tool_execution(
+    monkeypatch,
+) -> None:
+    middleware = _middleware(monkeypatch)
+    route = _route(
+        "verified_analysis",
+        source_mode="mixed",
+        task_intent="hypothesis_generation",
+        required_specialist="solar-hypothesis",
+    )
+    human = HumanMessage("请提出太阳活动周竞争假设", id="turn-hypothesis")
+    model_call = AIMessage(
+        "",
+        tool_calls=[
+            {
+                "name": "read_file",
+                "args": {"file_path": "/project/memory.md"},
+                "id": "read-before-task",
+            }
+        ],
+    )
+    request = ToolCallRequest(
+        tool_call=model_call.tool_calls[0],
+        tool=None,
+        state={"research_route": route, "messages": [human, model_call]},
+        runtime=SimpleNamespace(config={}),
+    )
+    called = False
+
+    def handler(_inner: ToolCallRequest) -> ToolMessage:
+        nonlocal called
+        called = True
+        raise AssertionError("parent pre-read must not execute")
+
+    result = middleware.wrap_tool_call(request, handler)
+
+    assert called is False
+    assert result.status == "error"
+    assert result.name == "read_file"
+    assert "must enter through one direct solar-hypothesis delegation" in str(
+        result.content
+    )
+    assert "pre-read Wiki or memory files" in str(result.content)
+
+
+def test_hypothesis_route_blocks_parallel_compensating_tasks(monkeypatch) -> None:
+    middleware = _middleware(monkeypatch)
+    route = _route(
+        "verified_analysis",
+        source_mode="mixed",
+        task_intent="hypothesis_generation",
+        required_specialist="solar-hypothesis",
+    )
+    human = HumanMessage("提出竞争假设", id="turn-hypothesis")
+    model_call = AIMessage(
+        "",
+        tool_calls=[
+            {
+                "name": "task",
+                "args": {"subagent_type": "general-purpose", "description": "read A"},
+                "id": "task-first",
+            },
+            {
+                "name": "task",
+                "args": {"subagent_type": "general-purpose", "description": "read B"},
+                "id": "task-second",
+            },
+        ],
+    )
+    request = ToolCallRequest(
+        tool_call=model_call.tool_calls[1],
+        tool=None,
+        state={"research_route": route, "messages": [human, model_call]},
+        runtime=SimpleNamespace(config={}),
+    )
+    called = False
+
+    def handler(_inner: ToolCallRequest) -> ToolMessage:
+        nonlocal called
+        called = True
+        raise AssertionError("parallel compensating task must not execute")
+
+    result = middleware.wrap_tool_call(request, handler)
+
+    assert called is False
+    assert result.status == "error"
+    assert "exactly one direct task delegation" in str(result.content)
+
+
+def test_hypothesis_task_requires_persisted_draft_receipt(monkeypatch) -> None:
+    middleware = _middleware(monkeypatch)
+    monkeypatch.setattr(
+        "jw.middleware.research_router._persisted_hypothesis_draft_status",
+        lambda _config: (False, "latest_draft is missing"),
+    )
+    route = _route(
+        "verified_analysis",
+        source_mode="mixed",
+        task_intent="hypothesis_generation",
+        required_specialist="solar-hypothesis",
+    )
+    human = HumanMessage("提出并维护竞争假设草稿", id="turn-hypothesis")
+    model_call = AIMessage(
+        "",
+        tool_calls=[
+            {
+                "name": "task",
+                "args": {"subagent_type": "solar-hypothesis", "description": "draft"},
+                "id": "task-hypothesis",
+            }
+        ],
+    )
+    request = ToolCallRequest(
+        tool_call=model_call.tool_calls[0],
+        tool=None,
+        state={"research_route": route, "messages": [human, model_call]},
+        runtime=SimpleNamespace(config={"configurable": {}}),
+    )
+
+    result = middleware.wrap_tool_call(
+        request,
+        lambda inner: ToolMessage(
+            "A prose-only DRAFT",
+            tool_call_id=str(inner.tool_call["id"]),
+            name="task",
+        ),
+    )
+
+    assert result.status == "error"
+    assert "HYPOTHESIS DRAFT INCOMPLETE" in str(result.content)
+    assert result.additional_kwargs["research_router_specialist"] == "solar-hypothesis"
+    retry = _prepared(
+        middleware,
+        _request(
+            route=route,
+            messages=[human, model_call, result],
+            tools=[_tool("task"), _tool("read_file")],
+        ),
+    )
+    assert [tool.name for tool in retry.tools] == ["task"]
+
+
+def test_hypothesis_result_is_passed_through_verbatim(monkeypatch) -> None:
+    middleware = _middleware(monkeypatch)
+    route = _route(
+        "verified_analysis",
+        source_mode="mixed",
+        task_intent="hypothesis_generation",
+        required_specialist="solar-hypothesis",
+    )
+    human = HumanMessage("提出竞争假设", id="turn-hypothesis")
+    call = {
+        "name": "task",
+        "args": {"subagent_type": "solar-hypothesis", "description": "exact request"},
+        "id": "hypothesis-task",
+    }
+    messages = [
+        human,
+        AIMessage("", tool_calls=[call]),
+        ToolMessage(
+            "# DRAFT\n\nExact specialist body.",
+            tool_call_id="hypothesis-task",
+            name="task",
+        ),
+    ]
+    request = _request(
+        route=route,
+        messages=messages,
+        tools=[_tool("task"), _tool("read_file")],
+    )
+    captured: list[ModelRequest] = []
+
+    def handler(inner: ModelRequest) -> ModelResponse:
+        captured.append(inner)
+        return ModelResponse(result=[AIMessage("Parent rewrite")])
+
+    response = middleware.wrap_model_call(request, handler)
+
+    assert captured[0].tools == []
+    assert response.result[0].content == "# DRAFT\n\nExact specialist body."
+
+
+def test_hypothesis_route_reports_missing_task_tool_without_substitution(
+    monkeypatch,
+) -> None:
+    middleware = _middleware(monkeypatch)
+    route = _route(
+        "verified_analysis",
+        source_mode="mixed",
+        task_intent="hypothesis_update",
+        required_specialist="solar-hypothesis",
+    )
+
+    prepared = _prepared(
+        middleware,
+        _request(
+            route=route,
+            tools=[_tool("read_file"), _tool("execute")],
+        ),
+    )
+
+    assert prepared.tool_choice is None
+    assert prepared.tools == []
+    assert "ROUTING BLOCKER" in prepared.system_message.text
+    assert "actual tool list does not contain 'task'" in prepared.system_message.text
+    assert "Do not silently continue" in prepared.system_message.text
 
 
 def test_full_research_route_advances_explicit_specialist_graph(monkeypatch) -> None:

@@ -46,6 +46,7 @@ def test_evidence_agent_uses_hypothesis_contract_tools():
     for name in (
         "scientific_hypothesis_bind_request",
         "scientific_hypothesis_bind_evidence",
+        "scientific_hypothesis_bind_wiki_evidence",
         "scientific_hypothesis_update_draft",
         "scientific_hypothesis_get_draft",
         "scientific_hypothesis_validate_response",
@@ -59,6 +60,46 @@ def test_evidence_agent_uses_hypothesis_contract_tools():
         in text
     )
     assert "patch the affected candidate rather than rewriting the portfolio" in text
+
+
+def test_hypothesis_agent_reads_wiki_before_generating_candidates():
+    text = _read("jw/subagents/solar/solar_hypothesis.yaml")
+    assert "tool_bundles: [knowledge-base-readonly, scientific-hypothesis]" in text
+    assert "tool_bundles: [reasoning," not in text
+    readonly_tools = {
+        tool.name for tool in get_tool_bundles()["knowledge-base-readonly"]
+    }
+    assert readonly_tools == {"kb_query", "kb_read"}
+    assert "First call scientific_hypothesis_bind_request" in text
+    assert "Second call kb_query" in text
+    assert "target 5 entries and never exceed 7" in text
+    assert (
+        "call kb_read and then scientific_hypothesis_bind_wiki_evidence immediately"
+        in text
+    )
+    assert (
+        "the binding tool will reject an entry without a prior kb_read receipt" in text
+    )
+    assert "immediately persist H0 or the first complete candidate" in text
+    assert "A query hit is source discovery only" in text
+    assert "binding tool rechecks canonical status" in text
+    assert "never as observational support" in text
+    assert "Candidate/canonical status and confidence metadata never make" in text
+    assert "must never write, propose, import, deprecate, review, or promote" in text
+    assert "The parent task description is transport, not evidence" in text
+    assert "Do not accept a parent-written Wiki summary" in text
+    assert "scientific_hypothesis_update_draft" in text
+    assert "禁止先在自然语言中写完整组合、最后才尝试保存" in text
+    assert "必须调用 scientific_hypothesis_get_draft" in text
+
+
+def test_parent_does_not_rewrite_hypothesis_specialist_state():
+    text = " ".join(_read("jw/prompts.py").split())
+    assert "solar-hypothesis` specialist owns the candidate bodies" in text
+    assert "must not" in text
+    assert "must relay a bounded hypothesis result verbatim" in text
+    assert "summarize, translate, reformat, shorten, correct, expand" in text
+    assert "synthesize a replacement portfolio" in text
 
 
 def test_solar_cycle_skill_routes_every_specialist_to_contract():

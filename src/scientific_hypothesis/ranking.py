@@ -135,6 +135,21 @@ def validate_ranking_request(
             key: _enum(grades_raw[key], set(GRADE_STRENGTH), f"{label}.dimension_grades.{key}")
             for key in RUBRIC_KEYS
         }
+        anchor_entries = [register.get(evidence_id) for evidence_id in key_evidence_ids]
+        empirical_anchors = [
+            entry
+            for entry in anchor_entries
+            if (
+                entry is not None
+                and entry["role"] == "supports"
+                and not entry["material_id"].startswith("kb_")
+            )
+        ]
+        if grades["data_support"] == "strong" and not empirical_anchors:
+            raise ContractError(
+                f"{label}.dimension_grades.data_support 不得评为 strong："
+                "Wiki 机制条目或限制性证据不能替代已核验的观测/实验支持"
+            )
 
         weakest = [
             _enum(value, set(RUBRIC_KEYS), f"{label}.weakest_dimensions[{i}]")

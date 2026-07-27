@@ -62,6 +62,23 @@ def test_capability_derived_boundaries_exclude_generic_mutation_tools() -> None:
         assert allowed.isdisjoint(forbidden)
 
 
+def test_knowledge_base_readonly_bundle_exposes_no_mutation_tools() -> None:
+    allowed = _bundle_allowlist("knowledge-base-readonly")
+
+    assert allowed == frozenset({"kb_query", "kb_read"})
+    assert allowed.isdisjoint(
+        {
+            "kb_propose",
+            "kb_promote",
+            "kb_deprecate",
+            "kb_review_decide",
+            "kb_import",
+            "lit_fetch",
+            "lit_distill",
+        }
+    )
+
+
 def test_contract_allowlist_blocks_disallowed_tool_at_execution() -> None:
     middleware = ContractToolAllowlistMiddleware(
         _bundle_allowlist("reasoning", "research-planner")

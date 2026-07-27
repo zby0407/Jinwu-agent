@@ -640,7 +640,7 @@ export function ThreadList({
           className="size-4"
           aria-hidden="true"
         />
-        科研 Wiki
+        太阳活动周 Wiki
       </button>
       <button
         type="button"

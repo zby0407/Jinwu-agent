@@ -128,6 +128,23 @@ silently.
 
 ## LLM Wiki
 
-Retrieve canonical knowledge from `references/llm_wiki/` when grounding assumptions,
-mechanisms, data sources, or experiment paradigms. Each entry follows the schema:
-`id`, `type`, `title`, `content`, `source_type`, `source_ref`, `confidence`, `status`, `valid_range`, `related_ids`.
+The built-in Wiki is a compact, versioned domain knowledge pack rather than a
+raw-document RAG corpus. Before using individual entries:
+
+1. Read `references/llm_wiki/00_core/scope_and_epistemic_rules.md` and
+   `references/llm_wiki/00_core/core_mechanism_map.md`.
+2. Resolve the current research task through
+   `references/llm_wiki/_meta/manifest.yaml`.
+3. Load the task bundle's module indexes and implemented canonical entries.
+4. Carry every material entry id and its boundary conditions into downstream
+   plans, hypotheses, reviews, and reports.
+
+The versioned files under `references/llm_wiki/` provide built-in canonical
+grounding. Dynamic findings, counterexamples, and failed-run experience remain
+candidate research memory in the knowledge service until they pass the review
+gate. Do not silently treat a runtime candidate as built-in canonical knowledge.
+
+Each knowledge entry retains the project schema:
+`id`, `type`, `title`, `content`, `source_type`, `source_ref`, `confidence`,
+`status`, `valid_range`, `related_ids`, with provenance and version history
+managed by the knowledge service where applicable.

@@ -1,0 +1,158 @@
+schema_version: llm-wiki-manifest-v1
+wiki_id: solar_cycle_co_scientist
+version: 0.2.0
+status: active
+language: zh-CN
+design_basis: docs/architecture/2026-06-20-solar-cycle-co-scientist-design.md
+purpose:
+  primary_stage: hypothesis_generation
+  consumer: solar-hypothesis
+  loading_strategy: deterministic_task_bundle
+  statement_zh: 为太阳活动周、极区前兆、代理漂移与耀斑研究生成可区分、可证伪的科学假设
+  boundary_zh: Wiki 只约束机制、适用范围与检验方法，不替代项目观测或实验事实
+
+scope:
+  primary:
+    - cycle26_prediction
+    - polar_precursor_review
+    - indicator_drift_analysis
+    - dynamo_mechanism_review
+    - knowledge_provenance_conflict
+  secondary:
+    - active_region_and_flare_context
+  out_of_scope:
+    - general_astronomy_encyclopedia
+    - unconstrained_space_weather_forecasting
+    - raw_book_chunk_storage
+    - model_generated_numerical_results
+
+always_load:
+  - 00_core/scope_and_epistemic_rules.md
+  - 00_core/core_mechanism_map.md
+  - 00_core/agent_usage_contract.md
+
+task_bundles:
+  cycle26_prediction:
+    title_zh: 第26活动周假设
+    purpose_zh: 形成可区分的第26活动周强度、形态与前兆机制候选
+    modules:
+      - 10_solar_cycle/index.md
+      - 20_dynamo_and_polar_field/index.md
+      - 30_indicators_and_features/index.md
+      - 50_data_sources/index.md
+      - 60_experiment_paradigms/index.md
+      - 70_hypothesis_templates/index.md
+      - 80_evidence_review/index.md
+    seed_entries:
+      - concept_sunspot_cycle.md
+      - mechanism_babcock_leighton.md
+      - mechanism_hemispheric_coupling.md
+      - concept_f107_flux.md
+      - concept_proxy_relationship_drift.md
+      - concept_polar_field_observable.md
+      - concept_flare_cycle_relation.md
+      - data_source_silso.md
+      - experiment_paradigm_backtest.md
+      - experiment_paradigm_feature_ablation.md
+      - experiment_paradigm_indicator_drift.md
+      - hypothesis_template_polar_precursor.md
+
+  polar_precursor_review:
+    title_zh: 极区场前兆
+    purpose_zh: 区分极区场定义、半球耦合与下一活动周预测机制
+    modules:
+      - 20_dynamo_and_polar_field/index.md
+      - 30_indicators_and_features/index.md
+      - 50_data_sources/index.md
+      - 60_experiment_paradigms/index.md
+      - 70_hypothesis_templates/index.md
+      - 80_evidence_review/index.md
+    seed_entries:
+      - mechanism_babcock_leighton.md
+      - mechanism_hemispheric_coupling.md
+      - concept_polar_field_observable.md
+      - experiment_paradigm_backtest.md
+      - experiment_paradigm_feature_ablation.md
+      - hypothesis_template_polar_precursor.md
+
+  indicator_drift_analysis:
+    title_zh: F10.7代理漂移
+    purpose_zh: 区分稳定非线性、活动周相位、测量口径与剩余漂移
+    modules:
+      - 10_solar_cycle/index.md
+      - 30_indicators_and_features/index.md
+      - 50_data_sources/index.md
+      - 60_experiment_paradigms/index.md
+      - 70_hypothesis_templates/index.md
+      - 80_evidence_review/index.md
+    seed_entries:
+      - concept_sunspot_cycle.md
+      - concept_f107_flux.md
+      - concept_proxy_relationship_drift.md
+      - data_source_silso.md
+      - experiment_paradigm_backtest.md
+      - experiment_paradigm_feature_ablation.md
+      - experiment_paradigm_indicator_drift.md
+
+  dynamo_mechanism_review:
+    title_zh: 发电机机制审查
+    purpose_zh: 把Babcock-Leighton机制、半球耦合与可观测预测连接起来
+    modules:
+      - 10_solar_cycle/index.md
+      - 20_dynamo_and_polar_field/index.md
+      - 30_indicators_and_features/index.md
+      - 70_hypothesis_templates/index.md
+      - 80_evidence_review/index.md
+    seed_entries:
+      - concept_sunspot_cycle.md
+      - mechanism_babcock_leighton.md
+      - mechanism_hemispheric_coupling.md
+      - concept_polar_field_observable.md
+      - hypothesis_template_polar_precursor.md
+
+  knowledge_provenance_conflict:
+    title_zh: 知识冲突与溯源
+    purpose_zh: 检查来源、适用范围、版本冲突与知识缺口
+    modules:
+      - 80_evidence_review/index.md
+      - 90_research_memory/index.md
+    seed_entries: []
+
+  active_region_and_flare_context:
+    title_zh: 活动区与耀斑
+    purpose_zh: 约束耀斑统计在活动周假设中的信息边界
+    modules:
+      - 10_solar_cycle/index.md
+      - 30_indicators_and_features/index.md
+      - 40_active_regions_and_flares/index.md
+      - 50_data_sources/index.md
+      - 80_evidence_review/index.md
+    seed_entries:
+      - concept_sunspot_cycle.md
+      - concept_flare_cycle_relation.md
+      - experiment_paradigm_feature_ablation.md
+
+agent_consumers:
+  unified_research_agent:
+    contract: coordinate scope, conflicts, and candidate writeback
+  research_planner:
+    contract: use mechanisms, standard paradigms, and known gaps
+  data_and_features:
+    contract: use source limitations and feature-to-physics boundaries
+  automatic_experiment:
+    contract: use standard paradigms and compare with historical memory
+  scientific_hypothesis:
+    contract: ground mechanisms and bind falsification conditions
+  evidence_review:
+    contract: apply canonical boundaries, counterexamples, and wording controls
+  knowledge_manager:
+    contract: maintain ingest, lifecycle, conflict, and provenance
+
+catalogs:
+  entries: _meta/entry_catalog.yaml
+  sources: _meta/sources/catalog.yaml
+
+templates:
+  entry: templates/entry_template.md
+  source: _meta/templates/source_record_template.yaml
+  review: templates/canonical_review_checklist.md
