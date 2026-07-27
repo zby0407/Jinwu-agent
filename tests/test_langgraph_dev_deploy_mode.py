@@ -220,6 +220,26 @@ def test_workspace_dir_env_var_set_regardless_of_mode(
 # =============================================================================
 
 
+def test_start_allows_blocking_during_lazy_graph_bootstrap(
+    monkeypatch, tmp_path, runtime_paths
+):
+    """The first deployed run lazily imports the agent graph.
+
+    On Windows that import path calls ``os.getcwd()`` from stdlib dependency
+    initialization. Without langgraph dev's opt-in, BlockBuster terminates
+    the run before the model can produce a response.
+    """
+    captured = _patch_start_prereqs(monkeypatch, tmp_path, runtime_paths)
+
+    with pytest.raises(_PopenAbort):
+        manager.start_langgraph_dev(
+            workspace_dir=tmp_path,
+            port=16179,
+        )
+
+    assert "--allow-blocking" in captured["args"]
+
+
 def test_async_subagents_available_init_from_env_full(monkeypatch):
     """When ``JW_DEPLOY_MODE=full`` is set in the env at module
     import time, ``_ASYNC_SUBAGENTS_AVAILABLE`` initializes to True so the

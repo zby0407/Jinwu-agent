@@ -43,6 +43,7 @@
     "build": "next build && node scripts/assemble-standalone.mjs",
     "start": "next start --port 4716",
     "start:dist": "node dist/server.js",
+    "test": "node --test test/origin-guard.test.js",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "format": "prettier --write .",
