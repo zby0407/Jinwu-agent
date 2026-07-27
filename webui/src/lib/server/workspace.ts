@@ -38,6 +38,7 @@ export interface WorkspaceBinding {
 }
 
 export const WORKSPACE_BINDINGS_DIR =
+  process.env.JW_WORKSPACE_BINDINGS_DIR ||
   process.env.agent_WORKSPACE_BINDINGS_DIR ||
   join(
     process.env.XDG_CONFIG_HOME || join(homedir(), ".config"),
@@ -188,7 +189,7 @@ export async function getBaseWorkspaceDir(): Promise<string> {
     // Older/manual setups may not have a sidecar. Fall back to the launcher env.
   }
 
-  workspace ||= process.env.agent_WORKSPACE_DIR;
+  workspace ||= process.env.JW_WORKSPACE_DIR || process.env.agent_WORKSPACE_DIR;
   if (!workspace) {
     throw new Error(
       "No active 金乌 workspace found. Start the backend with `jw deploy` first."

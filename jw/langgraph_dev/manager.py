@@ -726,6 +726,15 @@ def start_langgraph_dev(
                 str(port),
                 "--n-jobs-per-worker",
                 str(jobs_per_worker),
+                # The deployed graph is intentionally lazy: its first request
+                # imports LangChain/Pydantic and resolves the effective JW
+                # configuration. On Windows those imports can call
+                # ``os.getcwd()`` (via stdlib ``sysconfig`` / ``realpath``),
+                # which langgraph dev's BlockBuster guard otherwise rejects
+                # before the agent reaches the model. JW already offloads
+                # blocking I/O from async hot paths; allow the unavoidable
+                # synchronous graph bootstrap so WebUI runs can start.
+                "--allow-blocking",
                 "--no-browser",
                 "--no-reload",
                 *(["--tunnel"] if tunnel else []),
