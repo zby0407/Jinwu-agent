@@ -4,6 +4,8 @@ import { useEffect, useMemo, useState } from "react";
 import {
   BookOpen,
   ChevronRight,
+  ExternalLink,
+  FileSearch,
   Library,
   Loader2,
   RefreshCw,
@@ -14,10 +16,18 @@ import { cn } from "@/lib/utils";
 import {
   fetchKbBuiltInWiki,
   fetchKbEntry,
+  fetchKbLiteratureDeltas,
+  fetchKbLiteratureFeeds,
+  fetchKbSources,
+  fetchKbWikiPatches,
   type KbBuiltInCatalogEntry,
   type KbBuiltInTaskBundle,
   type KbBuiltInWiki,
   type KbEntryDetail,
+  type KbLiteratureDelta,
+  type KbLiteratureFeed,
+  type KbSourceSummary,
+  type KbWikiCandidatePatch,
 } from "@/lib/knowledgeBase";
 
 const MODULE_LABELS: Record<string, string> = {
@@ -71,6 +81,15 @@ const FIELD_LABELS: Record<string, string> = {
   usage: "在假设阶段如何使用",
   evidence: "证据",
   caveats: "注意事项",
+};
+
+const DELTA_LABELS: Record<string, string> = {
+  new_source: "新增来源",
+  new_version: "新版本",
+  metadata_updated: "元数据更新",
+  source_retracted: "撤稿复核",
+  feed_discovered: "订阅新命中",
+  feed_removed: "订阅移除",
 };
 
 function Loading({ text }: { text: string }) {
@@ -276,18 +295,226 @@ function EntryArticle({
   );
 }
 
+function ResearchSources({
+  feed,
+  sources,
+  deltas,
+  pendingPatches,
+  loading,
+  error,
+}: {
+  feed: KbLiteratureFeed | null;
+  sources: KbSourceSummary[];
+  deltas: KbLiteratureDelta[];
+  pendingPatches: KbWikiCandidatePatch[];
+  loading: boolean;
+  error: string | null;
+}) {
+  if (loading) return <Loading text="正在读取研究来源…" />;
+  if (error)
+    return <p className="py-8 text-sm text-[var(--color-error)]">{error}</p>;
+
+  const seenTitles = new Set<string>();
+  const visibleSources = [...sources]
+    .sort((left, right) => {
+      const leftDate = left.publication_date || `${left.year || 0}`;
+      const rightDate = right.publication_date || `${right.year || 0}`;
+      return rightDate.localeCompare(leftDate);
+    })
+    .filter((source) => {
+      const titleKey = source.title
+        .normalize("NFKC")
+        .toLocaleLowerCase()
+        .replace(/[^\p{L}\p{N}]+/gu, "");
+      if (!titleKey || seenTitles.has(titleKey)) return false;
+      seenTitles.add(titleKey);
+      return true;
+    });
+
+  return (
+    <div className="mx-auto w-full max-w-4xl pb-16">
+      <div className="border-b border-border pb-6">
+        <p className="text-sm text-muted-foreground">动态来源候选层</p>
+        <h1 className="mt-2 text-2xl font-semibold tracking-tight sm:text-3xl">
+          {feed?.title_zh ?? "最新研究来源"}
+        </h1>
+        <p className="mt-3 max-w-3xl text-sm leading-6 text-muted-foreground">
+          这里只展示已通过主题门禁并按文献族去重的来源。论文命中不等于 Wiki
+          已采纳；它仍需绑定具体研究问题、逐字证据蒸馏和审核。
+        </p>
+        <div className="mt-4 flex flex-wrap gap-2 text-xs">
+          <span className="rounded-full bg-accent px-2.5 py-1 text-muted-foreground">
+            近 {feed?.lookback_years ?? "—"} 年
+          </span>
+          <span className="rounded-full bg-accent px-2.5 py-1 text-muted-foreground">
+            {feed?.providers.join(" · ") || "尚无来源配置"}
+          </span>
+          <span className="rounded-full bg-accent px-2.5 py-1 text-muted-foreground">
+            当前 {visibleSources.length} 篇候选论文
+          </span>
+          <span className="rounded-full bg-accent px-2.5 py-1 text-muted-foreground">
+            本期变化 {deltas.length}
+          </span>
+          <span
+            className={cn(
+              "rounded-full px-2.5 py-1",
+              pendingPatches.length
+                ? "bg-[var(--color-warning)]/10 text-[var(--color-warning)]"
+                : "bg-accent text-muted-foreground"
+            )}
+          >
+            待审 Wiki 补丁 {pendingPatches.length}
+          </span>
+          {feed?.latest_run ? (
+            <span
+              className={cn(
+                "rounded-full px-2.5 py-1",
+                feed.latest_run.status === "ok"
+                  ? "bg-[var(--color-success)]/10 text-[var(--color-success)]"
+                  : "bg-[var(--color-warning)]/10 text-[var(--color-warning)]"
+              )}
+            >
+              上次同步 {feed.latest_run.status} · {feed.latest_run.result_count}{" "}
+              个候选命中
+            </span>
+          ) : (
+            <span className="rounded-full bg-muted px-2.5 py-1 text-muted-foreground">
+              尚未同步
+            </span>
+          )}
+        </div>
+      </div>
+
+      {deltas.length > 0 && (
+        <section className="mt-6 rounded-lg border border-border bg-muted/15 p-4">
+          <div className="flex items-baseline justify-between gap-4">
+            <h2 className="text-sm font-semibold">增量收件箱</h2>
+            <span className="text-xs text-muted-foreground">
+              变化只触发评估，不会自动改写 Wiki
+            </span>
+          </div>
+          <div className="mt-3 space-y-2">
+            {deltas.slice(0, 5).map((delta) => (
+              <div
+                key={delta.event_key}
+                className="flex items-start justify-between gap-4 rounded-md bg-background px-3 py-2 text-xs"
+              >
+                <div className="min-w-0">
+                  <span
+                    className={cn(
+                      "mr-2 inline-flex rounded px-1.5 py-0.5",
+                      delta.event_type === "source_retracted"
+                        ? "bg-[var(--color-error)]/10 text-[var(--color-error)]"
+                        : "bg-accent text-muted-foreground"
+                    )}
+                  >
+                    {DELTA_LABELS[delta.event_type] ?? delta.event_type}
+                  </span>
+                  <span className="text-foreground">
+                    {String(delta.payload.title || delta.source_id)}
+                  </span>
+                </div>
+                <time className="shrink-0 text-muted-foreground">
+                  {delta.detected_at.slice(0, 10)}
+                </time>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
+
+      {visibleSources.length === 0 ? (
+        <div className="py-16 text-center">
+          <FileSearch className="mx-auto size-8 text-muted-foreground/60" />
+          <p className="mt-3 text-sm text-muted-foreground">
+            这个主题还没有已同步的来源候选。
+          </p>
+          <p className="mt-1 text-xs text-muted-foreground">
+            维护流程可调用 lit_feed_sync({feed?.id ?? "feed_id"})。
+          </p>
+        </div>
+      ) : (
+        <div className="mt-6 space-y-3">
+          {visibleSources.map((source) => (
+            <article
+              key={source.source_id}
+              className="rounded-lg border border-border bg-card p-4"
+            >
+              <div className="flex items-start justify-between gap-4">
+                <div className="min-w-0">
+                  <a
+                    href={source.url}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="font-medium leading-6 text-foreground underline-offset-4 hover:underline"
+                  >
+                    {source.title || source.source_id}
+                  </a>
+                  <p className="mt-1 truncate text-xs text-muted-foreground">
+                    {source.authors.slice(0, 4).join(" · ") || "作者信息缺失"}
+                  </p>
+                </div>
+                <ExternalLink
+                  className="mt-1 size-4 shrink-0 text-muted-foreground"
+                  aria-hidden="true"
+                />
+              </div>
+              <div className="mt-3 flex flex-wrap gap-2 text-[11px]">
+                <span className="rounded bg-accent px-2 py-0.5">
+                  {source.provider}
+                </span>
+                <span className="rounded bg-accent px-2 py-0.5">
+                  {source.publication_date || source.year || "日期未知"}
+                </span>
+                {source.is_refereed && (
+                  <span className="bg-[var(--color-success)]/10 rounded px-2 py-0.5 text-[var(--color-success)]">
+                    同行评审
+                  </span>
+                )}
+                {source.is_retracted && (
+                  <span className="bg-[var(--color-error)]/10 rounded px-2 py-0.5 text-[var(--color-error)]">
+                    撤稿风险
+                  </span>
+                )}
+                <span className="rounded bg-accent px-2 py-0.5">
+                  {source.stage === "distilled"
+                    ? "已蒸馏候选"
+                    : source.stage === "fetched"
+                    ? "已抓取"
+                    : "仅缓存"}
+                </span>
+              </div>
+            </article>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function KnowledgePanel({
   refreshSignal = 0,
 }: {
   refreshSignal?: number;
 }) {
   const [wiki, setWiki] = useState<KbBuiltInWiki | null>(null);
+  const [viewMode, setViewMode] = useState<"wiki" | "sources">("wiki");
   const [selectedTask, setSelectedTask] = useState("all");
   const [selectedEntryId, setSelectedEntryId] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [refreshKey, setRefreshKey] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [feeds, setFeeds] = useState<KbLiteratureFeed[]>([]);
+  const [literatureTotal, setLiteratureTotal] = useState(0);
+  const [selectedFeedId, setSelectedFeedId] = useState("");
+  const [sources, setSources] = useState<KbSourceSummary[]>([]);
+  const [deltas, setDeltas] = useState<KbLiteratureDelta[]>([]);
+  const [pendingPatches, setPendingPatches] = useState<
+    KbWikiCandidatePatch[]
+  >([]);
+  const [sourcesLoading, setSourcesLoading] = useState(false);
+  const [sourcesError, setSourcesError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -321,6 +548,71 @@ export function KnowledgePanel({
       cancelled = true;
     };
   }, [refreshKey, refreshSignal]);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetchKbLiteratureFeeds()
+      .then((catalog) => {
+        if (cancelled) return;
+        setFeeds(catalog.feeds);
+        setLiteratureTotal(catalog.total_sources || 0);
+        setSelectedFeedId((current) =>
+          catalog.feeds.some((feed) => feed.id === current)
+            ? current
+            : catalog.feeds[0]?.id ?? ""
+        );
+        if (catalog.status !== "ok") {
+          setSourcesError(catalog.diagnostic || "研究来源订阅暂时不可用。");
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setFeeds([]);
+          setLiteratureTotal(0);
+          setSourcesError("无法读取研究来源订阅。");
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [refreshKey, refreshSignal]);
+
+  useEffect(() => {
+    if (viewMode !== "sources" || !selectedFeedId) return;
+    let cancelled = false;
+    setSourcesLoading(true);
+    setSourcesError(null);
+    Promise.all([
+      fetchKbSources({ feed_id: selectedFeedId, limit: 100 }),
+      fetchKbLiteratureDeltas({
+        feed_id: selectedFeedId,
+        include_baseline: false,
+        limit: 20,
+      }),
+      fetchKbWikiPatches({ status: "pending", limit: 100 }),
+    ])
+      .then(([rows, deltaRows, patchRows]) => {
+        if (!cancelled) {
+          setSources(rows);
+          setDeltas(deltaRows);
+          setPendingPatches(patchRows);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setSources([]);
+          setDeltas([]);
+          setPendingPatches([]);
+          setSourcesError("无法读取这个主题的来源候选。");
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setSourcesLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedFeedId, viewMode, refreshKey, refreshSignal]);
 
   const taskBundles = useMemo(
     () =>
@@ -370,6 +662,7 @@ export function KnowledgePanel({
   );
   const activeTask =
     taskBundles.find((bundle) => bundle.id === selectedTask) ?? null;
+  const activeFeed = feeds.find((feed) => feed.id === selectedFeedId) ?? null;
 
   function selectTask(taskId: string) {
     if (!wiki) return;
@@ -418,7 +711,37 @@ export function KnowledgePanel({
           </button>
         </div>
 
-        {!loading && wiki?.available && (
+        <div
+          role="tablist"
+          aria-label="Wiki 内容视图"
+          className="flex gap-1 border-t border-border/70 px-4 pt-2 sm:px-5"
+        >
+          {[
+            ["wiki", "内置知识"],
+            [
+              "sources",
+              literatureTotal ? `研究来源（${literatureTotal}）` : "研究来源",
+            ],
+          ].map(([mode, label]) => (
+            <button
+              key={mode}
+              type="button"
+              role="tab"
+              aria-selected={viewMode === mode}
+              onClick={() => setViewMode(mode as "wiki" | "sources")}
+              className={cn(
+                "rounded-t-md px-3 py-2 text-sm transition-colors",
+                viewMode === mode
+                  ? "bg-accent font-medium text-foreground"
+                  : "text-muted-foreground hover:text-foreground"
+              )}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+
+        {viewMode === "wiki" && !loading && wiki?.available && (
           <div className="flex flex-col gap-2 border-t border-border/70 px-4 py-3 sm:flex-row sm:items-center sm:px-5">
             <label
               htmlFor="wiki-task"
@@ -448,9 +771,49 @@ export function KnowledgePanel({
             </p>
           </div>
         )}
+
+        {viewMode === "sources" && (
+          <div className="flex flex-col gap-2 border-t border-border/70 px-4 py-3 sm:flex-row sm:items-center sm:px-5">
+            <label
+              htmlFor="wiki-feed"
+              className="shrink-0 text-xs font-medium text-muted-foreground"
+            >
+              按研究主题浏览
+            </label>
+            <select
+              id="wiki-feed"
+              value={selectedFeedId}
+              onChange={(event) => setSelectedFeedId(event.target.value)}
+              className="h-9 min-w-0 rounded-md border border-border bg-background px-3 text-sm outline-none focus:ring-2 focus:ring-ring sm:w-64"
+            >
+              {feeds.map((feed) => (
+                <option
+                  key={feed.id}
+                  value={feed.id}
+                >
+                  {feed.title_zh}（{feed.source_count}）
+                </option>
+              ))}
+            </select>
+            <p className="min-w-0 truncate text-xs text-muted-foreground">
+              {activeFeed?.query ?? "尚无研究订阅。"}
+            </p>
+          </div>
+        )}
       </header>
 
-      {loading ? (
+      {viewMode === "sources" ? (
+        <main className="min-h-0 flex-1 overflow-y-auto px-5 py-7 sm:px-8 lg:px-12 lg:py-10">
+          <ResearchSources
+            feed={activeFeed}
+            sources={sources}
+            deltas={deltas}
+            pendingPatches={pendingPatches}
+            loading={sourcesLoading}
+            error={sourcesError}
+          />
+        </main>
+      ) : loading ? (
         <div className="px-6">
           <Loading text="正在打开太阳活动 Wiki…" />
         </div>

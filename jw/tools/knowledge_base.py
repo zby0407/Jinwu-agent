@@ -492,26 +492,272 @@ def lit_bind_task(
 
 
 @tool(parse_docstring=True)
+def lit_bundle_build(
+    research_question: str,
+    focus: str,
+    feed_ids: list[str] | None = None,
+    limit: int = 3,
+    config: RunnableConfig = None,
+) -> str:
+    """Build a frozen, task-bound bundle from already cached literature.
+
+    This tool never searches the network and returns at most five directly
+    relevant, non-retracted source snapshots. It is safe for the hypothesis
+    agent's read-only capability.
+
+    Args:
+        research_question: Exact research question already bound for this task.
+        focus: Bounded bilingual focus preserving the question's distinctive term.
+        feed_ids: Optional configured feed ids used to restrict the cached pool.
+        limit: Number of sources to return, from one to five (default three).
+
+    Returns:
+        JSON string with an immutable bundle id and cached source snapshots.
+    """
+    try:
+        _, run_id = _run_context(config)
+        return _ok(
+            literature.build_literature_task_bundle(
+                _get_store(),
+                research_question,
+                focus,
+                feed_ids=feed_ids or [],
+                limit=limit,
+                run_id=run_id,
+            )
+        )
+    except Exception as exc:  # noqa: BLE001
+        return _err(str(exc))
+
+
+@tool(parse_docstring=True)
+def lit_bundle_read(bundle_id: str) -> str:
+    """Read one previously frozen task literature bundle.
+
+    Args:
+        bundle_id: Bundle id returned by ``lit_bundle_build``.
+
+    Returns:
+        JSON string containing the exact frozen source snapshots.
+    """
+    try:
+        return _ok(literature.read_literature_task_bundle(_get_store(), bundle_id))
+    except Exception as exc:  # noqa: BLE001
+        return _err(str(exc))
+
+
+@tool(parse_docstring=True)
+def lit_delta_list(
+    event_type: str = "",
+    feed_id: str = "",
+    source_id: str = "",
+    include_baseline: bool = False,
+    limit: int = 50,
+) -> str:
+    """List immutable literature changes since the cached baseline.
+
+    Args:
+        event_type: Optional delta type filter.
+        feed_id: Optional literature feed id filter.
+        source_id: Optional source id filter.
+        include_baseline: Include historical baseline_source events when true.
+        limit: Maximum number of events, from one to 1000.
+
+    Returns:
+        JSON string with source/version/retraction/feed delta events.
+    """
+    try:
+        store = _get_store()
+        events = store.list_lit_delta_events(
+            event_type=event_type,
+            feed_id=feed_id,
+            source_id=source_id,
+            include_baseline=include_baseline,
+            limit=limit,
+        )
+        return _ok({"status": "ok", "count": len(events), "events": events})
+    except Exception as exc:  # noqa: BLE001
+        return _err(str(exc))
+
+
+@tool(parse_docstring=True)
+def lit_impact_record(
+    source_id: str,
+    entry_id: str,
+    relation: str,
+    affected_fields: list[str],
+    quote: str,
+    rationale: str,
+    scope: dict[str, Any] | None = None,
+    location: str = "abstract",
+    confidence: str = "low",
+) -> str:
+    """Record how one cached source affects an existing Wiki entry.
+
+    The quote must occur verbatim in the cached abstract and the operation
+    never edits the Wiki.
+
+    Args:
+        source_id: Cached literature source id.
+        entry_id: Existing Wiki entry id.
+        relation: supports, contradicts, qualifies, or extends.
+        affected_fields: Existing content fields, optionally valid_range.
+        quote: Verbatim abstract quote of at most 40 words.
+        rationale: Why the quote bears on the named fields.
+        scope: Optional applicability constraints from the source.
+        location: Quote location, normally abstract.
+        confidence: low or medium; single-source impacts cannot be high.
+
+    Returns:
+        JSON string with the proposed impact ledger row.
+    """
+    try:
+        return _ok(
+            literature.record_literature_entry_impact(
+                _get_store(),
+                source_id=source_id,
+                entry_id=entry_id,
+                relation=relation,
+                affected_fields=affected_fields,
+                scope=scope,
+                quote=quote,
+                location=location,
+                rationale=rationale,
+                confidence=confidence,
+            )
+        )
+    except Exception as exc:  # noqa: BLE001
+        return _err(str(exc))
+
+
+@tool(parse_docstring=True)
+def lit_patch_propose(
+    impact_id: int,
+    field_updates: dict[str, Any],
+    rationale: str,
+    valid_range: str = "",
+) -> str:
+    """Turn a recorded literature impact into a review-only Wiki patch.
+
+    Args:
+        impact_id: Impact id returned by ``lit_impact_record``.
+        field_updates: Partial mapping of affected Wiki content fields.
+        rationale: Why these exact changes follow from the recorded impact.
+        valid_range: Optional replacement range when the impact declared it.
+
+    Returns:
+        JSON string with a pending candidate patch and review queue id.
+    """
+    try:
+        return _ok(
+            service.propose_literature_patch(
+                _get_store(),
+                impact_id,
+                field_updates=field_updates,
+                valid_range=valid_range,
+                rationale=rationale,
+            )
+        )
+    except Exception as exc:  # noqa: BLE001
+        return _err(str(exc))
+
+
+@tool(parse_docstring=True)
+def lit_feed_catalog() -> str:
+    """List configured solar-research subscriptions and their latest receipts.
+
+    This is a discovery/maintenance surface only. Feed hits remain raw sources
+    and cannot become Wiki claims without the task-bound fetch/distill/review
+    workflow.
+
+    Returns:
+        JSON string with feed definitions, provider choices, and latest runs.
+    """
+    try:
+        catalog = literature.load_literature_feeds()
+        store = _get_store()
+        feeds = [
+            {
+                **feed,
+                "source_count": store.count_lit_feed_sources(feed["id"]),
+                "latest_run": store.latest_lit_feed_run(feed["id"]),
+            }
+            for feed in catalog["feeds"]
+        ]
+        return _ok(
+            {
+                "status": "ok",
+                **catalog,
+                "feeds": feeds,
+                "total_sources": len(
+                    {
+                        (
+                            str(source.get("title_key") or "").strip()
+                            or str(source["source_id"])
+                        )
+                        for feed in catalog["feeds"]
+                        for source in store.list_lit_feed_sources(feed["id"])
+                    }
+                ),
+            }
+        )
+    except Exception as exc:
+        return _err(str(exc))
+
+
+@tool(parse_docstring=True)
+def lit_feed_sync(feed_id: str, limit: int = 0) -> str:
+    """Refresh one bounded solar-research subscription.
+
+    Each provider is queried independently so a missing ADS/OpenAlex credential
+    or temporary outage produces a partial receipt instead of fabricated
+    references. Results are family-deduplicated and stored only in the raw
+    source layer.
+
+    Args:
+        feed_id: Feed id returned by ``lit_feed_catalog``.
+        limit: Optional per-provider result cap (1-50); 0 uses feed default.
+
+    Returns:
+        JSON string with new-source counts, deduplicated hits, diagnostics,
+        and an auditable sync receipt.
+    """
+    try:
+        return _ok(
+            literature.sync_literature_feed(
+                _get_store(),
+                feed_id,
+                limit=limit,
+            )
+        )
+    except Exception as exc:
+        return _err(str(exc))
+
+
+@tool(parse_docstring=True)
 def lit_search(
     query: str,
     source: str = "all",
     limit: int = 5,
     from_year: int = 0,
     to_year: int = 0,
+    sort: str = "relevance",
 ) -> str:
     """Search external literature and cache hits.
 
     Every hit refreshes its provider-version row and is grouped with preprint,
     journal, or updated-review relatives. Results expose only the preferred
-    family version. ``all`` queries OpenAlex, arXiv, and Crossref, tolerating
+    family version. ``all`` queries NASA ADS, OpenAlex, arXiv, and Crossref,
+    tolerating
     a partial provider outage without fabricating references.
 
     Args:
         query: Search keywords (English works best).
-        source: ``all``, ``openalex``, ``arxiv``, or ``crossref``.
-        limit: Maximum number of results (1-10, default 5).
+        source: ``all``, ``ads``, ``openalex``, ``arxiv``, or ``crossref``.
+        limit: Maximum number of results (1-50, default 5).
         from_year: Earliest publication year (0 means no filter).
         to_year: Latest publication year (0 means no filter).
+        sort: ``relevance`` (default) or ``recent``.
 
     Returns:
         JSON string with matched literature metadata and cache flags.
@@ -525,6 +771,7 @@ def lit_search(
                 limit=limit,
                 from_year=from_year,
                 to_year=to_year,
+                sort=sort,
             )
         )
     except Exception as exc:  # noqa: BLE001
@@ -629,15 +876,24 @@ KB_TOOLS = [
     kb_review_decide,
     kb_log,
     kb_import,
+    lit_feed_catalog,
+    lit_feed_sync,
+    lit_delta_list,
     lit_bind_task,
+    lit_bundle_build,
+    lit_bundle_read,
     lit_search,
     lit_fetch,
     lit_distill,
+    lit_impact_record,
+    lit_patch_propose,
 ]
 
 KB_READONLY_TOOLS = [
     kb_query,
     kb_read,
+    lit_bundle_build,
+    lit_bundle_read,
 ]
 
 register_tool_bundle("knowledge-base", KB_TOOLS)

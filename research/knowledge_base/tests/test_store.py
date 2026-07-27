@@ -75,6 +75,9 @@ class TestLiteratureSchemaMigration(unittest.TestCase):
         self.assertTrue(row["family_id"].startswith("litfam_"))
         self.assertEqual(row["normalized_doi"], "10.1000/legacy")
         self.assertEqual(row["canonical_source_id"], "openalex:Wlegacy")
+        self.assertIn("publication_date", row)
+        self.assertEqual(row["is_refereed"], 0)
+        self.assertEqual(row["is_retracted"], 0)
         distill = store.get_lit_distillation(
             "openalex:Wlegacy", "legacy-unbound:kb_concept_legacy_001"
         )
@@ -452,6 +455,131 @@ class TestConflictsAndLog(StoreTestCase):
         empty = service.usage_log(self.store, "run_nope")
         self.assertEqual(empty["used_count"], 0)
         self.assertEqual(empty["proposed_count"], 0)
+
+
+class TestLiteratureImpactPatchLifecycle(StoreTestCase):
+    def _source_and_entry(self):
+        source = self.store.upsert_lit_source(
+            {
+                "source_id": "openalex:Wimpact",
+                "provider": "openalex",
+                "source_version": "1",
+                "title": "Polar field precursor qualification",
+                "authors": ["Ada Solar"],
+                "year": 2026,
+                "abstract": (
+                    "Polar field strength predicts the next cycle amplitude "
+                    "only when measurements near solar minimum are calibrated."
+                ),
+                "is_retracted": False,
+            }
+        )
+        entry = propose_concept(self.store, title="极区场前兆适用范围")["entry"]
+        return source, entry
+
+    def _impact(self, source, entry):
+        from knowledge_base import literature
+
+        return literature.record_literature_entry_impact(
+            self.store,
+            source_id=source["source_id"],
+            entry_id=entry["id"],
+            relation="qualifies",
+            affected_fields=["definition", "valid_range"],
+            scope={"phase": "near solar minimum"},
+            quote=(
+                "predicts the next cycle amplitude only when measurements "
+                "near solar minimum are calibrated"
+            ),
+            location="abstract",
+            rationale="The source narrows the precursor claim to calibrated minima.",
+            confidence="low",
+        )["impact"]
+
+    def test_reviewed_patch_applies_exactly_once(self):
+        source, entry = self._source_and_entry()
+        impact = self._impact(source, entry)
+        proposal = service.propose_literature_patch(
+            self.store,
+            impact["id"],
+            field_updates={
+                "definition": ("经校准的极小期极区磁场可作为下一活动周振幅的前兆。")
+            },
+            valid_range="接近太阳极小期且跨仪器校准完成",
+            rationale="把单源限定写入现有定义和适用范围。",
+        )
+        patch = proposal["patch"]
+        self.assertEqual(patch["status"], "pending")
+        self.assertEqual(self.store.get_entry(entry["id"])["version"], 1)
+
+        decision = service.review_decide(
+            self.store,
+            patch["review_queue_id"],
+            decision="approved",
+            reviewer="Dr. Reviewer",
+            note="Quote and scope checked.",
+        )
+        self.assertEqual(decision["patch_status"], "applied")
+        updated = self.store.get_entry(entry["id"])
+        self.assertEqual(updated["version"], 2)
+        self.assertIn("经校准", updated["content"]["definition"])
+        self.assertEqual(updated["valid_range"], "接近太阳极小期且跨仪器校准完成")
+        self.assertEqual(
+            self.store.get_lit_entry_impact(impact["id"])["status"], "verified"
+        )
+
+    def test_patch_becomes_stale_when_entry_version_changes(self):
+        source, entry = self._source_and_entry()
+        impact = self._impact(source, entry)
+        patch = service.propose_literature_patch(
+            self.store,
+            impact["id"],
+            field_updates={"definition": "候选的新定义。"},
+            rationale="测试 stale 保护。",
+        )["patch"]
+        current = self.store.get_entry(entry["id"])
+        current["content"]["definition"] = "人工先行更新。"
+        current["version"] += 1
+        self.store.update_entry(current, changed_by="human", reason="concurrent_edit")
+
+        decision = service.review_decide(
+            self.store,
+            patch["review_queue_id"],
+            decision="approved",
+            reviewer="Dr. Reviewer",
+        )
+        self.assertEqual(decision["patch_status"], "stale")
+        unchanged = self.store.get_entry(entry["id"])
+        self.assertEqual(unchanged["content"]["definition"], "人工先行更新。")
+        refreshed = service.propose_literature_patch(
+            self.store,
+            impact["id"],
+            field_updates={"definition": "候选的新定义。"},
+            rationale="针对新版本重新评估。",
+        )["patch"]
+        self.assertNotEqual(refreshed["patch_id"], patch["patch_id"])
+        self.assertEqual(refreshed["base_version"], 2)
+        self.assertEqual(refreshed["status"], "pending")
+
+    def test_retraction_opens_linked_review_without_deleting_source(self):
+        source, entry = self._source_and_entry()
+        impact = self._impact(source, entry)
+        self.store.upsert_lit_source(
+            {
+                **source,
+                "is_retracted": True,
+            }
+        )
+        queue = self.store.pending_review_items(
+            kind="literature_retraction", entry_id=entry["id"]
+        )
+        self.assertEqual(len(queue), 1)
+        self.assertEqual(queue[0]["payload"]["impact_id"], impact["id"])
+        self.assertIsNotNone(self.store.get_lit_source(source["source_id"]))
+        self.assertEqual(
+            self.store.get_lit_entry_impact(impact["id"])["status"],
+            "needs_revalidation",
+        )
 
 
 class TestMarkdownRoundTrip(StoreTestCase):

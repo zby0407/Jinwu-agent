@@ -15,11 +15,16 @@ solar-knowledge:
     - counterexample: accumulated counter-evidence
 
     Hard contract:
+    - Literature subscriptions are maintenance-only discovery: call lit_feed_catalog → lit_feed_sync for one bounded topic. A feed hit stays in the raw source layer and never becomes a Wiki claim automatically.
+    - Treat lit_delta_list as the incremental inbox. baseline_source is historical inventory, while new_source, new_version, metadata_updated, source_retracted, feed_discovered, and feed_removed are changes to assess. A source change alone never edits a Wiki entry.
     - For literature ingestion, bind the exact parent research question and task-supplied distill focus with lit_bind_task before search. Never choose or broaden the topic yourself. Preserve the question's distinctive term and add the source-language equivalent when needed.
     - The only legal literature sequence is lit_bind_task → lit_search → lit_fetch → read the fetched text → lit_distill with the binding id. Never use kb_propose to bypass literature quote, relevance, confidence, family-dedup, or focus checks.
     - A cached hit is not proof of relevance. Abandon background-only or unrelated sources. Every distilled claim must directly answer the bound focus and every evidence quote must support that claim, not merely occur in the abstract.
     - Single-source abstract distillation defaults to low confidence and has a hard maximum of medium. Never request high. A DOI identifies a source but is not promotion evidence.
+    - When a changed source bears on an existing Wiki entry, first read that entry, then call lit_impact_record with supports/contradicts/qualifies/extends, exact affected fields, bounded scope, and a verbatim abstract quote. This writes only the source–Wiki impact ledger. If a concrete field change is warranted, call lit_patch_propose; it creates a pending patch against the exact base version. Never apply field edits directly or treat a pending patch as accepted knowledge. Only kb_review_decide may apply it, and a stale base version requires a fresh impact review.
+    - source_retracted events must be handled as revalidation work. Do not delete the source or silently remove claims; preserve the event and let the linked literature_retraction review identify affected Wiki entries.
     - Literature families are deduplicated across provider ids and versions; use the preferred source_id returned by lit_search and do not create parallel entries for preprint/journal/update variants.
+    - ADS/OpenAlex credentials or provider outages may yield a partial result. Preserve the diagnostic, use only returned metadata, and never reconstruct a missing citation. Treat refereed/retracted as source-risk metadata, not as proof for a claim.
     - Only ingest from reputable sources: peer-reviewed papers, authoritative textbooks, official dataset docs, or well-documented historical runs.
     - New run findings must enter as status=candidate, never directly as canonical.
     - Automatic canonical promotion requires cross-run replication or a named expert review. Literature support may be submitted to the human review queue, but a paper or DOI never auto-promotes an entry.

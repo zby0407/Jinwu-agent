@@ -30,6 +30,8 @@ def test_parent_accepts_partial_results_and_bounds_repair():
 
 def test_knowledge_agent_requires_bound_focus_and_confidence_cap():
     text = _read("jw/subagents/solar/solar_knowledge.yaml")
+    assert "lit_feed_catalog → lit_feed_sync" in text
+    assert "raw source layer and never becomes a Wiki claim automatically" in text
     assert "lit_bind_task → lit_search → lit_fetch" in text
     assert "hard maximum of medium" in text
     assert "A DOI identifies a source but is not promotion evidence" in text
@@ -69,7 +71,12 @@ def test_hypothesis_agent_reads_wiki_before_generating_candidates():
     readonly_tools = {
         tool.name for tool in get_tool_bundles()["knowledge-base-readonly"]
     }
-    assert readonly_tools == {"kb_query", "kb_read"}
+    assert readonly_tools == {
+        "kb_query",
+        "kb_read",
+        "lit_bundle_build",
+        "lit_bundle_read",
+    }
     assert "First call scientific_hypothesis_bind_request" in text
     assert "Second call kb_query" in text
     assert "target 5 entries and never exceed 7" in text
@@ -77,6 +84,9 @@ def test_hypothesis_agent_reads_wiki_before_generating_candidates():
         "call kb_read and then scientific_hypothesis_bind_wiki_evidence immediately"
         in text
     )
+    assert "Call lit_bundle_build" in text
+    assert "scientific_hypothesis_bind_literature_evidence" in text
+    assert "target 3 sources and never exceed 5" in text
     assert (
         "the binding tool will reject an entry without a prior kb_read receipt" in text
     )

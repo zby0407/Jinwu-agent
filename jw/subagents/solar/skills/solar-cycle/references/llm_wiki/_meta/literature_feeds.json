@@ -1,0 +1,93 @@
+{
+  "schema_version": "literature-feed-catalog-v1",
+  "description_zh": "面向假设生成阶段的太阳物理文献订阅。同步结果只进入来源候选层，不自动写入 canonical Wiki。",
+  "feeds": [
+    {
+      "id": "solar_cycle_prediction",
+      "title_zh": "太阳活动周预测与前兆",
+      "query": "solar cycle prediction precursor amplitude",
+      "required_terms": ["solar"],
+      "required_any_terms": ["predict", "forecast", "precursor"],
+      "providers": ["ads", "arxiv", "openalex", "crossref"],
+      "lookback_years": 3,
+      "sort": "relevance",
+      "limit": 25,
+      "enabled": true
+    },
+    {
+      "id": "polar_field_precursor",
+      "title_zh": "极区磁场前兆",
+      "query": "polar field precursor solar cycle",
+      "required_terms": ["solar"],
+      "required_any_terms": ["polar field", "polar flux", "dipole", "precursor"],
+      "providers": ["ads", "arxiv", "openalex", "crossref"],
+      "lookback_years": 4,
+      "sort": "relevance",
+      "limit": 25,
+      "enabled": true
+    },
+    {
+      "id": "babcock_leighton_flux_transport",
+      "title_zh": "Babcock–Leighton 与磁通输运发电机",
+      "query": "Babcock-Leighton flux transport dynamo solar",
+      "required_terms": ["solar"],
+      "required_any_terms": ["babcock", "dynamo", "surface flux transport"],
+      "providers": ["ads", "arxiv", "openalex", "crossref"],
+      "lookback_years": 4,
+      "sort": "relevance",
+      "limit": 25,
+      "enabled": true
+    },
+    {
+      "id": "f107_proxy_drift",
+      "title_zh": "F10.7 与太阳黑子代理关系漂移",
+      "query": "F10.7 sunspot proxy relationship drift solar cycle",
+      "required_terms": ["solar"],
+      "required_any_terms": ["f10.7", "10.7 cm", "10.7cm", "radio flux"],
+      "providers": ["ads", "arxiv", "openalex", "crossref"],
+      "lookback_years": 5,
+      "sort": "relevance",
+      "limit": 25,
+      "enabled": true
+    },
+    {
+      "id": "hemispheric_asymmetry",
+      "title_zh": "南北半球活动不对称与耦合",
+      "query": "solar hemispheric asymmetry coupling activity cycle",
+      "required_terms": ["solar"],
+      "required_any_terms": [
+        "solar hemispheric",
+        "sunspot",
+        "solar dynamo",
+        "solar activity",
+        "active region",
+        "coronal"
+      ],
+      "required_any_title_terms": [
+        "solar hemispheric",
+        "hemispheric asymmetry of sunspot",
+        "hemispheric asymmetry of the solar",
+        "solar active region",
+        "coronal bright",
+        "north-south asymmetry"
+      ],
+      "providers": ["ads", "arxiv", "openalex", "crossref"],
+      "lookback_years": 4,
+      "sort": "relevance",
+      "limit": 25,
+      "enabled": true
+    },
+    {
+      "id": "solar_flare_active_region",
+      "title_zh": "耀斑、活动区演化与周期相位",
+      "query": "solar flare active region evolution cycle phase prediction",
+      "required_terms": ["solar"],
+      "required_any_terms": ["flare", "active region"],
+      "providers": ["ads", "arxiv", "openalex", "crossref"],
+      "lookback_years": 3,
+      "sort": "relevance",
+      "limit": 25,
+      "enabled": true
+    }
+  ]
+}

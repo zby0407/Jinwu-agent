@@ -34,6 +34,37 @@ directory.
 
 This is deterministic task-based loading, not embedding or vector retrieval.
 
+## Dynamic literature source layer
+
+`_meta/literature_feeds.json` defines bounded subscriptions for the project's
+solar-cycle, polar-field, dynamo, F10.7, hemispheric-asymmetry, and flare
+questions. `lit_feed_catalog` lists them and `lit_feed_sync(feed_id)` refreshes
+one feed at a time.
+
+Feed searches use a recent-year window, relevance ranking, and a deterministic
+title/abstract term gate. Accepted hits are family-deduplicated and recorded
+with provider, publication, refereed/retraction, first-seen, and sync-receipt
+metadata. A provider credential or outage yields `partial`/`unavailable` rather
+than a fabricated citation. NASA ADS uses `ADS_API_TOKEN`; OpenAlex can use
+`OPENALEX_API_KEY`; Crossref polite-pool contact uses `CROSSREF_MAILTO`.
+
+The feed is a discovery layer, not a second reusable grounding path. Each
+cached source has a content fingerprint and immutable delta events distinguish
+the historical baseline from new sources, versions, metadata changes,
+retractions, and feed membership changes.
+
+For hypothesis work, `lit_bundle_build` may freeze a task-specific snapshot of
+at most five directly relevant cached abstracts. A dedicated evidence binder
+checks every quote against that snapshot. Those quotes may support, oppose, or
+limit hypotheses in that one task, but they are not Wiki entries and cannot be
+reused as canonical grounding.
+
+For Wiki maintenance, a changed source first creates a quote-grounded
+source-to-entry impact (`supports`, `contradicts`, `qualifies`, or `extends`).
+Any concrete edit is a candidate patch against an exact entry version and
+requires review. A stale patch never auto-merges; a retraction preserves the
+source and opens revalidation work instead of deleting history.
+
 ## Write boundary
 
 - Files in this directory are the built-in canonical seed and are changed

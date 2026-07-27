@@ -153,6 +153,21 @@ def validate_evidence_provenance(
             )
         return
 
+    if material_id.startswith("litbundle_"):
+        if kind != "literature" or role not in {"supports", "opposes", "limits"}:
+            raise ContractError(
+                f"任务文献包 {material_id} 只能作为 literature 类型的 "
+                "supports/opposes/limits 证据登记"
+            )
+        if '"status":"verified"' not in evidence["excerpt"]:
+            raise ContractError(
+                f"任务文献包 {material_id} 缺少已核验冻结快照回执；"
+                "请使用 scientific_hypothesis_bind_literature_evidence"
+            )
+        if f'"bundle_id":"{material_id}"' not in evidence["excerpt"]:
+            raise ContractError(f"任务文献回执与 material_id={material_id} 不一致")
+        return
+
     if material_id == "user_request":
         if kind != "user":
             raise ContractError("user_request 证据必须使用 evidence_kind=user")
