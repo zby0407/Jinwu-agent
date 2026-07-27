@@ -5,6 +5,7 @@ import { NextRequest, NextResponse } from "next/server";
 import {
   getWorkspaceDir,
   hasControlChar,
+  isCrossOrigin,
   safeResolve,
 } from "@/lib/server/workspace";
 
@@ -58,8 +59,7 @@ async function writeUniqueFile(
 
 export async function POST(request: NextRequest) {
   try {
-    const origin = request.headers.get("origin");
-    if (origin && origin !== request.nextUrl.origin) {
+    if (isCrossOrigin(request)) {
       return NextResponse.json(
         { error: "Cross-origin workspace uploads are not allowed." },
         { status: 403 }

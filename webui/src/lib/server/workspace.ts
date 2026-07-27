@@ -11,6 +11,7 @@ import { homedir } from "os";
 import { basename, dirname, join, relative, resolve, sep } from "path";
 import { createHash, randomUUID } from "crypto";
 import type { NextRequest } from "next/server";
+import { isCrossOriginRequest } from "@/lib/server/origin-guard.js";
 
 export const WORKSPACE_SIDECAR = join(
   homedir(),
@@ -446,22 +447,19 @@ export async function safeResolve(
 }
 
 /**
- * Reject cross-site requests to the workspace APIs. Browsers omit `Origin` on
- * same-origin GETs and on direct navigations (open-in-tab / downloads), so we
- * lean on `Sec-Fetch-Site` when present and fall back to an Origin check.
+ * Reject cross-origin requests to the workspace APIs. Browsers omit `Origin`
+ * on same-origin GETs and direct navigations, while reverse proxies can make
+ * `request.nextUrl.origin` differ from the origin visible to the browser.
  */
 export function isCrossOrigin(request: NextRequest): boolean {
-  const site = request.headers.get("sec-fetch-site");
-  if (
-    site &&
-    site !== "same-origin" &&
-    site !== "same-site" &&
-    site !== "none"
-  ) {
-    return true; // explicit cross-site request
-  }
-  const origin = request.headers.get("origin");
-  return !!origin && origin !== request.nextUrl.origin;
+  return isCrossOriginRequest({
+    secFetchSite: request.headers.get("sec-fetch-site"),
+    origin: request.headers.get("origin"),
+    host: request.headers.get("host"),
+    forwardedHost: request.headers.get("x-forwarded-host"),
+    protocol: request.nextUrl.protocol,
+    forwardedProto: request.headers.get("x-forwarded-proto"),
+  });
 }
 
 // ---------------------------------------------------------------------------
