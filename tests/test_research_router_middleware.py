@@ -351,6 +351,9 @@ def test_hypothesis_task_execution_rewrites_generic_delegation_to_specialist(
     assert args["subagent_type"] == "solar-hypothesis"
     assert "请形成并维护候选草稿" in args["description"]
     assert "Read the Wiki tree." not in args["description"]
+    assert "concise rendering" not in args["description"]
+    assert "most discriminating next test for every candidate" in args["description"]
+    assert "complete confidence basis for every candidate" in args["description"]
     assert result.additional_kwargs["research_router_specialist"] == "solar-hypothesis"
     followup = _prepared(
         middleware,

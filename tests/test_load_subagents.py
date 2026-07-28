@@ -110,6 +110,47 @@ def test_async_flag_error_includes_agent_name(tmp_path):
         load_subagents(config_path, tool_registry={})
 
 
+def test_model_call_limit_accepts_positive_integer(tmp_path):
+    """A specialist may request a bounded per-agent model-call budget."""
+    config_path = _write_yaml(
+        tmp_path,
+        "hypothesis.yaml",
+        """
+        hypothesis-agent:
+          description: ""
+          system_prompt: ""
+          tools: []
+          model_call_limit: 32
+        """,
+    )
+
+    subagent = load_subagents(config_path, tool_registry={})[0]
+
+    assert subagent["_model_call_limit"] == 32
+
+
+@pytest.mark.parametrize("invalid_value", ["true", "0", "-1", '"32"'])
+def test_model_call_limit_rejects_invalid_values(tmp_path, invalid_value):
+    """The override must be an unquoted positive integer, never a bool/string."""
+    config_path = _write_yaml(
+        tmp_path,
+        "bad-limit.yaml",
+        f"""
+        hypothesis-agent:
+          description: ""
+          system_prompt: ""
+          tools: []
+          model_call_limit: {invalid_value}
+        """,
+    )
+
+    with pytest.raises(
+        ValueError,
+        match=r"hypothesis-agent.*'model_call_limit' must be a positive integer",
+    ):
+        load_subagents(config_path, tool_registry={})
+
+
 def test_non_dict_spec_raises(tmp_path):
     """Yaml entries that aren't mappings must fail loud, not be silently dropped.
 

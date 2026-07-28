@@ -86,6 +86,7 @@ def test_factory_requests_async_safe_middleware(
             "system_prompt": "",
             "tools": [],
             "skills": None,
+            "_model_call_limit": 32,
         }
     ]
     # ``create_deep_agent(...).with_config({...})`` chain — return something
@@ -104,6 +105,7 @@ def test_factory_requests_async_safe_middleware(
         skills_backend=mock_backend.return_value,
         skill_sources=None,
         allowed_tools=None,
+        model_call_limit_override=32,
     )
     assert mock_create.call_args.kwargs["skills"] is None
     subagents = mock_create.call_args.kwargs["subagents"]
@@ -160,6 +162,40 @@ def test_inject_subagent_adds_configured_open_source_call_limits(
     assert tool_limit.run_limit == 9
     assert tool_limit.exit_behavior == "continue"
     assert qwen_compat._default_model == "qwen3.7-plus"
+
+
+@patch("jw.agent._ensure_chat_model")
+@patch("jw.agent._ensure_config")
+def test_inject_subagent_honours_only_that_specialists_model_call_limit(
+    mock_config, mock_model, tmp_path
+):
+    mock_model.return_value = MagicMock(profile={"max_input_tokens": 200_000})
+    cfg = MagicMock()
+    cfg.model = "qwen3.7-plus"
+    cfg.subagent_model_call_limit = 24
+    cfg.subagent_tool_call_limit = 48
+    cfg.memory_profile_enabled = False
+    cfg.memory_observations_enabled = False
+    cfg.memory_observation_writer = MemoryObservationWriter.OFF
+    cfg.memory_workers_enabled = False
+    mock_config.return_value = cfg
+
+    from jw.agent import _inject_subagent_middleware
+
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    subs = [
+        {"name": "hypothesis-agent", "_model_call_limit": 32},
+        {"name": "teammate-agent"},
+    ]
+
+    _inject_subagent_middleware(subs, workspace_dir=workspace)
+
+    hypothesis_limit = _single_middleware(subs[0], "ModelCallLimitMiddleware")
+    teammate_limit = _single_middleware(subs[1], "ModelCallLimitMiddleware")
+    assert hypothesis_limit.run_limit == 32
+    assert teammate_limit.run_limit == 24
+    assert "_model_call_limit" not in subs[0]
 
 
 @patch("jw.agent._ensure_chat_model")

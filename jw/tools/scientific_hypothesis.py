@@ -13,7 +13,9 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import sys
+import tempfile
 from copy import deepcopy
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -88,6 +90,81 @@ WIKI_GROUNDING_TYPES = {
     "experiment_paradigm",
     "hypothesis_template",
 }
+TRANSPORT_CONTEXT = re.compile(
+    r"子午流|磁通输运|输运效率|跨赤道抵消|"
+    r"meridional[-\s]+flow|flux[-\s]+transport|transport\s+efficiency",
+    re.IGNORECASE,
+)
+CYCLE_AMPLITUDE_CONTEXT = re.compile(
+    r"(?:活动周|太阳周|周期).{0,20}(?:峰值|振幅|强度)"
+    r"|(?:峰值|振幅|强度).{0,20}(?:活动周|太阳周|周期)"
+    r"|第\s*\d+\s*(?:活动)?周.{0,20}(?:峰值|振幅|强度)"
+    r"|(?:峰值|振幅|强度).{0,20}第\s*\d+\s*(?:活动)?周"
+    r"|cycle[-\s]+(?:amplitude|peak|strength)"
+    r"|(?:amplitude|peak|strength).{0,20}cycle",
+    re.IGNORECASE,
+)
+DOMINANCE_CLAIM = re.compile(
+    r"主要决定因素|主导(?:因素|作用)?|决定(?:了|着)?"
+    r"|主要由.{0,24}(?:调制|控制|影响)"
+    r"|primary\s+determinant|main\s+determinant|dominates?|determines?",
+    re.IGNORECASE,
+)
+DIRECTION_CLAIM = re.compile(
+    r"高于|低于|更高|更低|偏高|偏低|升高|降低|增强|减弱"
+    r"|higher|lower|increase[sd]?|decrease[sd]?|faster|slower",
+    re.IGNORECASE,
+)
+LITERATURE_AUTHOR_YEAR = re.compile(
+    r"(?<![A-Za-z])([A-Z][A-Za-z-]{2,})(?:\s+(?:et\s+al\.?)|等)?"
+    r"\s*[\(（]?\s*((?:19|20)\d{2})",
+    re.IGNORECASE,
+)
+CHINESE_CHARACTER = re.compile(r"[\u3400-\u9fff]")
+APPROX_CYCLE_SAMPLE_COUNT = re.compile(
+    r"(?:约|大约|roughly|about)\s*"
+    r"(\d+(?:\s*[–—-]\s*\d+)?)\s*(?:个\s*)?"
+    r"(?:完整\s*)?(?:独立\s*)?"
+    r"(?:活动周|太阳周|周期|cycles?|samples?)",
+    re.IGNORECASE,
+)
+READINESS_REQUEST = re.compile(
+    r"是否.{0,24}(?:适合|可以).{0,12}启动"
+    r"|是否已经适合启动",
+    re.IGNORECASE,
+)
+POSITIVE_READINESS_CLAIM = re.compile(
+    r"(?:当前|截至.{0,18}|截止.{0,18}|已经).{0,30}"
+    r"(?:可以|适合).{0,16}(?:启动|提供.{0,20}(?:判断|预测|评估))",
+    re.IGNORECASE,
+)
+UNVERIFIED_CURRENT_STATE = re.compile(
+    r"(?:实际|当前|最新|截至|截止).{0,60}(?:尚未|未).{0,24}"
+    r"(?:核验|核实|验证)"
+    r"|是否.{0,50}(?:尚未|未)(?:核验|核实|验证)"
+    r"|(?:实际|当前|最新|截至|截止).{0,80}"
+    r"需要(?:直接)?(?:获取|核验|核实|查阅|比较)",
+    re.IGNORECASE,
+)
+EVENT_TIMING_WINDOW = re.compile(
+    r"20\d{2}年(?:底|初|上半年|下半年)"
+    r"(?:\s*(?:或|至|到|[-–—])\s*"
+    r"20\d{2}年(?:底|初|上半年|下半年))?",
+)
+FIXED_PROTOCOL_REQUEST = re.compile(
+    r"(?:若|if).{0,50}(?:没有胜过|未胜过|不优于|does\s+not\s+beat)"
+    r".{0,30}(?:基线|baseline).{0,60}"
+    r"(?:不得|不要|而不是|do\s+not|rather\s+than).{0,30}"
+    r"(?:特征|feature)",
+    re.IGNORECASE,
+)
+ADAPTIVE_HOLDOUT_REUSE = re.compile(
+    r"(?:同一批|相同).{0,30}(?:留出|目标).{0,100}"
+    r"(?:同时|一并).{0,50}(?:单特征|分组|新增特征|额外特征)"
+    r"|(?:同时报告|一并比较).{0,100}"
+    r"(?:单特征|分组|新增特征|额外特征)",
+    re.IGNORECASE,
+)
 
 
 @dataclass(slots=True)
@@ -104,6 +181,8 @@ class _HypothesisState:
     last_validation_error: str | None = None
     same_validation_error_count: int = 0
     persistence_warning: str | None = None
+    literature_bundle_attempted: bool = False
+    literature_bundle_id: str | None = None
 
 
 _STATES: dict[str, _HypothesisState] = {}
@@ -139,6 +218,8 @@ def _working_state_payload(state: _HypothesisState) -> dict[str, Any]:
         "latest_draft_sha256": state.latest_draft_sha256,
         "last_validation_error": state.last_validation_error,
         "same_validation_error_count": state.same_validation_error_count,
+        "literature_bundle_attempted": state.literature_bundle_attempted,
+        "literature_bundle_id": state.literature_bundle_id,
     }
 
 
@@ -148,25 +229,36 @@ def _persist_state(
     path = _working_state_path(config)
     if path is None:
         return None
+    temp: Path | None = None
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
-        temp = path.with_name(f".{path.name}.{os.getpid()}.tmp")
-        temp.write_text(
-            json.dumps(
+        descriptor, temp_name = tempfile.mkstemp(
+            dir=path.parent,
+            prefix=f".{path.name}.",
+            suffix=".tmp",
+        )
+        temp = Path(temp_name)
+        with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+            json.dump(
                 _working_state_payload(state),
+                handle,
                 ensure_ascii=False,
                 indent=2,
                 sort_keys=True,
             )
-            + "\n",
-            encoding="utf-8",
-        )
+            handle.write("\n")
         os.replace(temp, path)
         state.persistence_warning = None
         return path
     except OSError as exc:
         state.persistence_warning = f"working state could not be persisted: {exc}"
         return None
+    finally:
+        if temp is not None:
+            try:
+                temp.unlink()
+            except FileNotFoundError:
+                pass
 
 
 def _evidence_sha256(register: EvidenceRegister) -> str:
@@ -288,10 +380,50 @@ def _draft_warnings(
             "candidate_budget_exceeded",
             f"Draft has {len(candidates)} candidates; maximum is {request['max_candidates']}.",
         )
+    if candidates and not state.literature_bundle_attempted:
+        add(
+            "literature_pass_missing",
+            (
+                "A cached task-literature pass has not been attempted for the "
+                "exact bound question. Build it before adding more candidates "
+                "or returning the draft."
+            ),
+        )
+    if FIXED_PROTOCOL_REQUEST.search(request["research_question"]):
+        portfolio_notes = draft.get("portfolio_notes")
+        portfolio_text = (
+            portfolio_notes.strip() if isinstance(portfolio_notes, str) else ""
+        )
+        if not portfolio_text:
+            add(
+                "fixed_protocol_plan_missing",
+                (
+                    "The request fixes the primary evaluation protocol and forbids "
+                    "adaptive feature changes after a baseline failure. Persist a "
+                    "portfolio-level plan that executes and reports the fixed "
+                    "protocol alone first; post-hoc alternatives require a separate "
+                    "preregistered future holdout."
+                ),
+            )
+        elif ADAPTIVE_HOLDOUT_REUSE.search(portfolio_text):
+            add(
+                "fixed_protocol_adaptive_reuse",
+                (
+                    "The portfolio reuses the fixed holdouts to compare post-hoc "
+                    "single-feature, subgroup, or added-feature alternatives. Run "
+                    "and report the preregistered primary protocol alone first. "
+                    "Revise the scientific claim after failure, and evaluate any "
+                    "new alternative only on a separate preregistered future holdout."
+                ),
+            )
 
     statements: dict[str, str] = {}
     mechanisms: dict[str, str] = {}
     candidate_ids: set[str] = set()
+    all_linked_evidence_ids: set[str] = set()
+    candidate_linked_evidence_ids: dict[str, set[str]] = {}
+    candidate_texts: dict[str, str] = {}
+    task_literature_markers: dict[tuple[str, str], set[str]] = {}
     for index, candidate in enumerate(candidates):
         if not isinstance(candidate, dict):
             add("invalid_candidate", f"Candidate {index} is not an object.")
@@ -339,6 +471,22 @@ def _draft_warnings(
         supporting = candidate.get("supporting_evidence", [])
         opposing = candidate.get("opposing_evidence", [])
         gaps = candidate.get("evidence_gaps", [])
+        if (
+            isinstance(supporting, list)
+            and isinstance(opposing, list)
+            and not supporting
+            and not opposing
+        ):
+            add(
+                "candidate_evidence_unlinked",
+                (
+                    "Candidate has no linked supporting or opposing/limiting "
+                    "evidence. Bind evidence for this candidate-specific claim "
+                    "and attach its evidence_id before returning; an evidence "
+                    "gap alone does not establish the candidate's evidence relation."
+                ),
+                candidate_id,
+            )
         for evidence_kind, links, allowed_roles in (
             ("supporting", supporting, {"supports", "limits"}),
             ("opposing", opposing, {"opposes"}),
@@ -400,7 +548,44 @@ def _draft_warnings(
             for link in links
             if isinstance(link, dict) and isinstance(link.get("evidence_id"), str)
         }
+        candidate_linked_evidence_ids[candidate_id] = linked_evidence_ids
+        candidate_texts[candidate_id] = json.dumps(candidate, ensure_ascii=False)
+        candidate_narrative = json.dumps(
+            {
+                field_name: candidate.get(field_name)
+                for field_name in (
+                    "statement",
+                    "applicability",
+                    "assumptions",
+                    "mechanism",
+                    "predictions",
+                    "evidence_gaps",
+                    "alternative_explanations",
+                    "confounders",
+                    "falsification_conditions",
+                    "next_test",
+                    "confidence",
+                )
+            },
+            ensure_ascii=False,
+        )
+        if (
+            len(CHINESE_CHARACTER.findall(request["research_question"])) >= 4
+            and len(CHINESE_CHARACTER.findall(candidate_narrative)) < 12
+        ):
+            add(
+                "candidate_language_mismatch",
+                (
+                    "The bound research question is Chinese, but this candidate's "
+                    "human-readable narrative is not Chinese. Translate every "
+                    "candidate field to Chinese; stable ids, schema keys, source "
+                    "titles, and technical abbreviations may remain unchanged."
+                ),
+                candidate_id,
+            )
+        all_linked_evidence_ids.update(linked_evidence_ids)
         grounded_parts = [request["research_question"]]
+        linked_non_wiki_evidence: list[str] = []
         for evidence_id in linked_evidence_ids:
             entry = state.evidence_register.get(evidence_id)
             if (
@@ -409,6 +594,137 @@ def _draft_warnings(
                 and not entry["material_id"].startswith("kb_")
             ):
                 grounded_parts.append(entry["excerpt"])
+                linked_non_wiki_evidence.append(entry["excerpt"])
+                if str(entry.get("material_id") or "").startswith("litbundle_"):
+                    for links in (supporting, opposing):
+                        if not isinstance(links, list):
+                            continue
+                        for link in links:
+                            if (
+                                not isinstance(link, dict)
+                                or link.get("evidence_id") != evidence_id
+                            ):
+                                continue
+                            relation_note = str(link.get("relation_note") or "")
+                            for author, year in LITERATURE_AUTHOR_YEAR.findall(
+                                relation_note
+                            ):
+                                task_literature_markers.setdefault(
+                                    (author.lower(), year), set()
+                                ).add(evidence_id)
+
+        candidate_text = candidate_texts[candidate_id]
+        linked_non_wiki_text = "\n".join(linked_non_wiki_evidence)
+        sample_grounding_text = "\n".join(
+            [request["research_question"], linked_non_wiki_text]
+        )
+        evidence_gaps_text = json.dumps(
+            candidate.get("evidence_gaps", []), ensure_ascii=False
+        )
+        if (
+            READINESS_REQUEST.search(request["research_question"])
+            and POSITIVE_READINESS_CLAIM.search(str(candidate.get("statement") or ""))
+            and UNVERIFIED_CURRENT_STATE.search(evidence_gaps_text)
+        ):
+            add(
+                "readiness_claim_unverified",
+                (
+                    "The candidate makes a positive current readiness or "
+                    "directional-prediction claim while its own evidence gaps say "
+                    "the current observational state is unverified. Recast it as "
+                    "a conditional branch only, and keep the present decision at "
+                    "not ready until those observations are verified."
+                ),
+                candidate_id,
+            )
+        for timing_match in EVENT_TIMING_WINDOW.finditer(candidate_text):
+            timing_text = timing_match.group(0)
+            if timing_text not in sample_grounding_text:
+                add(
+                    "ungrounded_event_timing",
+                    (
+                        f"Event timing {timing_text!r} is not stated in the user "
+                        "request or linked non-Wiki evidence. Do not infer a cycle "
+                        "minimum, confirmation, or precursor-stability window from "
+                        "average cycle timing; state the event as unverified."
+                    ),
+                    candidate_id,
+                )
+                break
+        for sample_match in APPROX_CYCLE_SAMPLE_COUNT.finditer(candidate_text):
+            sample_count = sample_match.group(1)
+            grounded_count = re.search(
+                rf"(?:约|大约|roughly|about)?\s*{re.escape(sample_count)}"
+                r"\s*(?:个\s*)?(?:完整\s*)?(?:独立\s*)?"
+                r"(?:活动周|太阳周|周期|cycles?|samples?)",
+                sample_grounding_text,
+                re.IGNORECASE,
+            )
+            if grounded_count is None:
+                add(
+                    "ungrounded_sample_count",
+                    (
+                        f"Approximate independent-cycle sample count "
+                        f"{sample_match.group(0)!r} is not stated in the user "
+                        "request or linked non-Wiki evidence. Keep the limitation "
+                        "qualitative until an exact observational coverage source "
+                        "is bound."
+                    ),
+                    candidate_id,
+                )
+                break
+        statement_text = str(candidate.get("statement") or "")
+        if (
+            TRANSPORT_CONTEXT.search(statement_text)
+            and CYCLE_AMPLITUDE_CONTEXT.search(statement_text)
+            and DOMINANCE_CLAIM.search(statement_text)
+            and not (
+                TRANSPORT_CONTEXT.search(linked_non_wiki_text)
+                and CYCLE_AMPLITUDE_CONTEXT.search(linked_non_wiki_text)
+                and DOMINANCE_CLAIM.search(linked_non_wiki_text)
+            )
+        ):
+            add(
+                "transport_amplitude_overclaim",
+                (
+                    "The candidate states that surface transport determines or "
+                    "dominates cycle amplitude without linked non-Wiki evidence "
+                    "supporting that causal strength. Narrow the claim to polar-field "
+                    "buildup/modulation and record amplitude dominance as an evidence gap."
+                ),
+                candidate_id,
+            )
+        predictions = candidate.get("predictions", [])
+        if TRANSPORT_CONTEXT.search(candidate_text) and isinstance(predictions, list):
+            for prediction in predictions:
+                if not isinstance(prediction, dict):
+                    continue
+                directional_text = " ".join(
+                    str(prediction.get(field_name) or "")
+                    for field_name in ("statement", "would_weaken_if")
+                )
+                if not (
+                    TRANSPORT_CONTEXT.search(directional_text)
+                    and CYCLE_AMPLITUDE_CONTEXT.search(directional_text)
+                    and DIRECTION_CLAIM.search(directional_text)
+                ):
+                    continue
+                if (
+                    TRANSPORT_CONTEXT.search(linked_non_wiki_text)
+                    and CYCLE_AMPLITUDE_CONTEXT.search(linked_non_wiki_text)
+                    and DIRECTION_CLAIM.search(linked_non_wiki_text)
+                ):
+                    continue
+                add(
+                    "transport_direction_overclaim",
+                    (
+                        f"Prediction {prediction.get('id') or 'unknown'} assigns a "
+                        "directional transport-to-amplitude effect without linked "
+                        "non-Wiki evidence for that sign. Make the effect "
+                        "regime-dependent and test competing directions."
+                    ),
+                    candidate_id,
+                )
         normalized_grounding = {
             "".join(match.group(0).split()).lower()
             for part in grounded_parts
@@ -421,15 +737,43 @@ def _draft_warnings(
                 threshold_texts.append((field_name, value))
         mechanism = candidate.get("mechanism")
         if isinstance(mechanism, dict):
+            for field_name in ("summary", "physical_basis"):
+                value = mechanism.get(field_name)
+                if isinstance(value, str):
+                    threshold_texts.append((f"mechanism.{field_name}", value))
             for value in mechanism.get("required_premises", []):
                 if isinstance(value, str):
                     threshold_texts.append(("mechanism.required_premises", value))
-        for field_name in ("assumptions", "falsification_conditions"):
+        confidence = candidate.get("confidence")
+        if isinstance(confidence, dict):
+            basis = confidence.get("basis")
+            if isinstance(basis, str):
+                threshold_texts.append(("confidence.basis", basis))
+        for field_name in (
+            "assumptions",
+            "evidence_gaps",
+            "alternative_explanations",
+            "confounders",
+            "falsification_conditions",
+        ):
             values = candidate.get(field_name, [])
             if isinstance(values, list):
                 threshold_texts.extend(
                     (field_name, value) for value in values if isinstance(value, str)
                 )
+        for evidence_kind, links in (
+            ("supporting_evidence", supporting),
+            ("opposing_evidence", opposing),
+        ):
+            if isinstance(links, list):
+                for link in links:
+                    if not isinstance(link, dict):
+                        continue
+                    relation_note = link.get("relation_note")
+                    if isinstance(relation_note, str):
+                        threshold_texts.append(
+                            (f"{evidence_kind}.relation_note", relation_note)
+                        )
         predictions = candidate.get("predictions", [])
         if isinstance(predictions, list):
             for prediction in predictions:
@@ -444,6 +788,10 @@ def _draft_warnings(
                         )
         next_test = candidate.get("next_test")
         if isinstance(next_test, dict):
+            for field_name in ("objective", "discriminating_power"):
+                value = next_test.get(field_name)
+                if isinstance(value, str):
+                    threshold_texts.append((f"next_test.{field_name}", value))
             expected = next_test.get("expected_signals", [])
             if isinstance(expected, list):
                 threshold_texts.extend(
@@ -465,6 +813,55 @@ def _draft_warnings(
                     ),
                     candidate_id,
                 )
+
+    for candidate_id, candidate_text in candidate_texts.items():
+        linked_ids = candidate_linked_evidence_ids.get(candidate_id, set())
+        mentioned_markers = {
+            (author.lower(), year)
+            for author, year in LITERATURE_AUTHOR_YEAR.findall(candidate_text)
+        }
+        for marker in sorted(mentioned_markers):
+            source_ids = task_literature_markers.get(marker)
+            if not source_ids or linked_ids.intersection(source_ids):
+                continue
+            author, year = marker
+            add(
+                "cross_candidate_literature_citation",
+                (
+                    f"Candidate prose cites {author.title()} {year}, but the known "
+                    "task-literature evidence for that citation is attached only "
+                    "to another candidate. Bind the source for this candidate-specific "
+                    "claim/role and attach the returned evidence_id, or remove the citation."
+                ),
+                candidate_id,
+            )
+
+    for entry in state.evidence_register.all():
+        evidence_id = entry["evidence_id"]
+        material_id = str(entry.get("material_id") or "")
+        is_attachable = (
+            bool(entry.get("verified_support"))
+            and entry.get("role") in {"supports", "opposes", "limits"}
+            and evidence_id not in all_linked_evidence_ids
+        )
+        if is_attachable and material_id.startswith("litbundle_"):
+            add(
+                "unattached_literature_evidence",
+                (
+                    f"Bound literature evidence {evidence_id} is not attached "
+                    "to any candidate; patch the matching candidate's "
+                    "supporting_evidence or opposing_evidence before returning."
+                ),
+            )
+        elif is_attachable and material_id.startswith("kb_"):
+            add(
+                "unattached_wiki_evidence",
+                (
+                    f"Bound Wiki evidence {evidence_id} is not attached to any "
+                    "candidate; patch the matching candidate's supporting_evidence "
+                    "or opposing_evidence with a bounded relation_note before returning."
+                ),
+            )
 
     distinctions = draft.get("pairwise_distinctions", [])
     if len(candidate_ids) > 1:
@@ -494,7 +891,7 @@ def _draft_summary(
     candidates = draft.get("candidates", [])
     candidate_count = len(candidates) if isinstance(candidates, list) else 0
     warnings = _draft_warnings(state, request)
-    return {
+    result = {
         "schema_version": "scientific-hypothesis-draft-status-v1",
         "status": "draft",
         "candidate_count": candidate_count,
@@ -513,6 +910,41 @@ def _draft_summary(
         ),
         "persistence_warning": state.persistence_warning,
     }
+    if warnings:
+        warning_codes = {warning["code"] for warning in warnings}
+        literature_required = "literature_pass_missing" in warning_codes
+        result.update(
+            {
+                "return_gate": "blocked_until_warnings_resolved",
+                "natural_language_return_allowed": False,
+                "next_required_action": {
+                    "tool": (
+                        "scientific_hypothesis_build_literature_bundle"
+                        if literature_required
+                        else "scientific_hypothesis_update_draft"
+                    ),
+                    "instruction": (
+                        "Build one bounded cached-literature bundle with a "
+                        "concrete bilingual focus for the exact bound question."
+                        if literature_required
+                        else (
+                            "Apply the smallest complete patch that resolves every "
+                            "avoidable soft warning. Do not narrate the intended "
+                            "repair and do not return natural language yet."
+                        )
+                    ),
+                },
+            }
+        )
+    else:
+        result.update(
+            {
+                "return_gate": "ready_for_persisted_render",
+                "natural_language_return_allowed": True,
+                "next_required_action": None,
+            }
+        )
+    return result
 
 
 def _load_persisted_state(path: Path) -> _HypothesisState:
@@ -566,6 +998,12 @@ def _load_persisted_state(path: Path) -> _HypothesisState:
         and error_count >= 0
     ):
         state.same_validation_error_count = error_count
+    state.literature_bundle_attempted = bool(
+        raw.get("literature_bundle_attempted", False)
+    )
+    stored_bundle_id = raw.get("literature_bundle_id")
+    if isinstance(stored_bundle_id, str) and stored_bundle_id:
+        state.literature_bundle_id = stored_bundle_id
 
     checkpoint = raw.get("checkpoint")
     if isinstance(checkpoint, dict):
@@ -922,6 +1360,59 @@ def scientific_hypothesis_bind_wiki_evidence(
 
 
 @tool(parse_docstring=True)
+def scientific_hypothesis_build_literature_bundle(
+    focus: str,
+    limit: int = 3,
+    config: RunnableConfig = None,
+) -> str:
+    """Build cached literature evidence for the exact bound hypothesis request.
+
+    The active request supplies the research question server-side, so the
+    caller cannot accidentally shorten, paraphrase, or otherwise detach the
+    literature bundle from the hypothesis evidence contract. The focus remains
+    caller-provided and must retain concrete bilingual mechanism or observable
+    terms. This tool reads only the local literature cache.
+
+    Args:
+        focus: Bounded bilingual literature focus for the active question.
+        limit: Number of cached sources to return, from one to five.
+
+    Returns:
+        JSON string containing the immutable task bundle and a marker that the
+        exact bound request supplied its research question.
+    """
+    try:
+        from jw.tools.knowledge_base import _get_store, _run_context
+        from knowledge_base import literature
+
+        state = _state(config)
+        request = _require_active_request(state)
+        _, run_id = _run_context(config)
+        result = literature.build_literature_task_bundle(
+            _get_store(),
+            request["research_question"],
+            focus,
+            feed_ids=[],
+            limit=limit,
+            run_id=run_id,
+        )
+        state.literature_bundle_attempted = True
+        bundle_id = result.get("bundle_id")
+        state.literature_bundle_id = (
+            bundle_id if isinstance(bundle_id, str) and bundle_id else None
+        )
+        state_path = _persist_state(config, state)
+        result["request_source"] = "bound_hypothesis_request"
+        result["state_persistence"] = (
+            "workspace" if state_path is not None else "memory_only"
+        )
+        result["persistence_warning"] = state.persistence_warning
+        return _ok(result)
+    except Exception as exc:
+        return _needs_revision(exc)
+
+
+@tool(parse_docstring=True)
 def scientific_hypothesis_bind_literature_evidence(
     bundle_id: str,
     source_id: str,
@@ -938,7 +1429,8 @@ def scientific_hypothesis_bind_literature_evidence(
     adding evidence.
 
     Args:
-        bundle_id: Frozen bundle id returned by lit_bundle_build.
+        bundle_id: Frozen bundle id returned by
+            scientific_hypothesis_build_literature_bundle.
         source_id: Source id contained in that exact bundle.
         role: supports, opposes, or limits.
         quote: Verbatim abstract quote of at most 40 words.
@@ -979,7 +1471,7 @@ def scientific_hypothesis_bind_literature_evidence(
         if active_question != bundle_question:
             raise ValueError(
                 "任务文献包绑定的研究问题与当前假设请求不一致；"
-                "请用当前问题重新调用 lit_bundle_build"
+                "请用当前问题重新调用 scientific_hypothesis_build_literature_bundle"
             )
         _, run_id = _run_context(config)
         bundle_run_id = str(bundle.get("run_id") or "")
@@ -1030,9 +1522,21 @@ def scientific_hypothesis_bind_literature_evidence(
         validate_evidence_provenance(request, row)
         result = state.evidence_register.bind(row)
         state_path = _persist_state(config, state)
+        draft_evidence_field = (
+            "opposing_evidence"
+            if normalized_role == "opposes"
+            else "supporting_evidence"
+        )
         result.update(
             {
                 "literature_evidence": receipt_payload,
+                "draft_attachment_required": True,
+                "draft_evidence_field": draft_evidence_field,
+                "draft_attachment_instruction": (
+                    f"Patch the matching candidate's {draft_evidence_field} "
+                    f"with evidence_id {evidence_id}; binding registers the "
+                    "source but does not modify the draft."
+                ),
                 "state_persistence": (
                     "workspace" if state_path is not None else "memory_only"
                 ),
@@ -1075,6 +1579,30 @@ def scientific_hypothesis_update_draft(
                 f"operation must be one of: {', '.join(sorted(DRAFT_OPERATIONS))}"
             )
         payload = json.loads(payload_json)
+        if operation == "patch_candidate" and isinstance(payload, dict):
+            candidate_id = payload.get("candidate_id") or payload.get("id")
+            changes = payload.get("changes")
+            if not isinstance(changes, dict):
+                changes = payload.get("patch")
+            if not isinstance(changes, dict):
+                changes = {
+                    key: value
+                    for key, value in payload.items()
+                    if key not in {"candidate_id", "id", "changes", "patch"}
+                }
+            payload = {
+                "candidate_id": candidate_id,
+                "changes": changes,
+            }
+        elif operation == "set_distinctions" and isinstance(payload, dict):
+            wrapped = payload.get("pairwise_distinctions")
+            if not isinstance(wrapped, list):
+                wrapped = payload.get("distinctions")
+            if isinstance(wrapped, list):
+                payload = wrapped
+        elif operation == "set_portfolio_notes" and isinstance(payload, dict):
+            if "portfolio_notes" in payload:
+                payload = payload["portfolio_notes"]
         if operation == "replace":
             draft = _normalize_working_draft(payload, request)
         else:
@@ -1184,6 +1712,15 @@ def scientific_hypothesis_update_draft(
         result = _draft_summary(state, request, config)
         result["operation"] = operation
         result["retry_budget_reset"] = True
+        if not result["soft_warnings"]:
+            result["return_gate"] = "get_draft_required"
+            result["natural_language_return_allowed"] = False
+            result["next_required_action"] = {
+                "tool": "scientific_hypothesis_get_draft",
+                "instruction": (
+                    "Read the persisted draft once before rendering the final answer."
+                ),
+            }
         return _ok(result)
     except Exception as exc:
         return _needs_revision(exc, state=state)
@@ -1441,6 +1978,7 @@ SCIENTIFIC_HYPOTHESIS_TOOLS = [
     scientific_hypothesis_bind_request,
     scientific_hypothesis_bind_evidence,
     scientific_hypothesis_bind_wiki_evidence,
+    scientific_hypothesis_build_literature_bundle,
     scientific_hypothesis_bind_literature_evidence,
     scientific_hypothesis_update_draft,
     scientific_hypothesis_get_draft,
