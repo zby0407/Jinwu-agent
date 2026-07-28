@@ -183,6 +183,11 @@ class _HypothesisState:
     persistence_warning: str | None = None
     literature_bundle_attempted: bool = False
     literature_bundle_id: str | None = None
+    _persistence_lock: Any = field(
+        default_factory=RLock,
+        repr=False,
+        compare=False,
+    )
 
 
 _STATES: dict[str, _HypothesisState] = {}
@@ -229,36 +234,37 @@ def _persist_state(
     path = _working_state_path(config)
     if path is None:
         return None
-    temp: Path | None = None
-    try:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        descriptor, temp_name = tempfile.mkstemp(
-            dir=path.parent,
-            prefix=f".{path.name}.",
-            suffix=".tmp",
-        )
-        temp = Path(temp_name)
-        with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
-            json.dump(
-                _working_state_payload(state),
-                handle,
-                ensure_ascii=False,
-                indent=2,
-                sort_keys=True,
+    with state._persistence_lock:
+        temp: Path | None = None
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            descriptor, temp_name = tempfile.mkstemp(
+                dir=path.parent,
+                prefix=f".{path.name}.",
+                suffix=".tmp",
             )
-            handle.write("\n")
-        os.replace(temp, path)
-        state.persistence_warning = None
-        return path
-    except OSError as exc:
-        state.persistence_warning = f"working state could not be persisted: {exc}"
-        return None
-    finally:
-        if temp is not None:
-            try:
-                temp.unlink()
-            except FileNotFoundError:
-                pass
+            temp = Path(temp_name)
+            with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+                json.dump(
+                    _working_state_payload(state),
+                    handle,
+                    ensure_ascii=False,
+                    indent=2,
+                    sort_keys=True,
+                )
+                handle.write("\n")
+            os.replace(temp, path)
+            state.persistence_warning = None
+            return path
+        except OSError as exc:
+            state.persistence_warning = f"working state could not be persisted: {exc}"
+            return None
+        finally:
+            if temp is not None:
+                try:
+                    temp.unlink()
+                except FileNotFoundError:
+                    pass
 
 
 def _evidence_sha256(register: EvidenceRegister) -> str:

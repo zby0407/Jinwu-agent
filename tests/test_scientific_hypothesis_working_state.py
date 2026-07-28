@@ -1283,7 +1283,7 @@ def test_draft_summary_blocks_natural_language_return_until_warnings_clear() -> 
     )
 
 
-def test_parallel_state_persistence_uses_distinct_temporary_files(
+def test_parallel_state_persistence_serializes_atomic_replace(
     tmp_path: Path, monkeypatch
 ) -> None:
     _workspace, config = _bound_config(
@@ -1296,22 +1296,47 @@ def test_parallel_state_persistence_uses_distinct_temporary_files(
     )
     state = hypothesis_tools._STATES["hypothesis-parallel-persist"]
     real_replace = os.replace
-    barrier = threading.Barrier(2)
+    start = threading.Barrier(3)
+    replacement_guard = threading.Lock()
+    second_replacement_attempted = threading.Event()
+    active_replacements = 0
+    temporary_names: set[str] = set()
 
-    def synchronized_replace(source, destination):
-        barrier.wait(timeout=5)
-        real_replace(source, destination)
+    def windows_exclusive_replace(source, destination):
+        nonlocal active_replacements
+        with replacement_guard:
+            temporary_names.add(Path(source).name)
+            if active_replacements:
+                second_replacement_attempted.set()
+                raise PermissionError("simulated Windows destination-file contention")
+            active_replacements += 1
+        try:
+            second_replacement_attempted.wait(timeout=0.3)
+            real_replace(source, destination)
+        finally:
+            with replacement_guard:
+                active_replacements -= 1
 
-    monkeypatch.setattr(hypothesis_tools.os, "replace", synchronized_replace)
+    def persist_once(_index: int) -> Path | None:
+        start.wait(timeout=5)
+        return hypothesis_tools._persist_state(config, state)
+
+    monkeypatch.setattr(
+        hypothesis_tools,
+        "os",
+        SimpleNamespace(
+            fdopen=os.fdopen,
+            replace=windows_exclusive_replace,
+        ),
+    )
     with ThreadPoolExecutor(max_workers=2) as executor:
-        results = list(
-            executor.map(
-                lambda _index: hypothesis_tools._persist_state(config, state),
-                range(2),
-            )
-        )
+        futures = [executor.submit(persist_once, index) for index in range(2)]
+        start.wait(timeout=5)
+        results = [future.result(timeout=5) for future in futures]
 
     assert all(result is not None for result in results)
+    assert len(temporary_names) == 2
+    assert not second_replacement_attempted.is_set()
     assert state.persistence_warning is None
 
 
