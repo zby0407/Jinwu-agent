@@ -21,6 +21,7 @@ RUN --mount=type=cache,target=/root/.cache/uv \
         --extra all-channels
 
 COPY jw ./jw
+COPY src ./src
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --frozen --no-dev --no-editable \
         --extra all-channels

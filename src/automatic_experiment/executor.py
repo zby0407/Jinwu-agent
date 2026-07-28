@@ -119,9 +119,37 @@ def _locked_site_packages() -> tuple[str, dict[str, str], str | None]:
 def runtime_environment_snapshot() -> dict[str, Any]:
     if IS_MACOS:
         return sandbox_macos.runtime_snapshot(EXPECTED_PACKAGES)
-    python = _run_wsl(["python3", "--version"])
-    bubblewrap = _run_wsl(["bwrap", "--version"])
-    site_path, installed, diagnostic = _locked_site_packages()
+    if not IS_WINDOWS:
+        return {
+            "ready": False,
+            "wsl_distro": WSL_DISTRO,
+            "python_version": "",
+            "bubblewrap_version": "",
+            "locked_site_packages": "",
+            "packages": {},
+            "package_mismatches": {},
+            "diagnostic": (
+                "locked automatic-experiment runtime requires Windows WSL2 "
+                "or the supported macOS sandbox"
+            ),
+            "gpu_count": 0,
+        }
+    try:
+        python = _run_wsl(["python3", "--version"])
+        bubblewrap = _run_wsl(["bwrap", "--version"])
+        site_path, installed, diagnostic = _locked_site_packages()
+    except (FileNotFoundError, subprocess.TimeoutExpired) as exc:
+        return {
+            "ready": False,
+            "wsl_distro": WSL_DISTRO,
+            "python_version": "",
+            "bubblewrap_version": "",
+            "locked_site_packages": "",
+            "packages": {},
+            "package_mismatches": {},
+            "diagnostic": f"{type(exc).__name__}: {exc}",
+            "gpu_count": 0,
+        }
     mismatches = {
         name: {"expected": expected, "installed": installed.get(name)}
         for name, expected in EXPECTED_PACKAGES.items()

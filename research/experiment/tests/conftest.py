@@ -12,12 +12,16 @@ import tempfile
 
 import pytest
 
-os.environ.setdefault(
-    "JW_DATA_DIR", tempfile.mkdtemp(prefix="kb_test_data_")
-)
-os.environ.setdefault(
-    "JW_KB_EXPORT_DIR", tempfile.mkdtemp(prefix="kb_test_export_")
-)
+os.environ.setdefault("JW_DATA_DIR", tempfile.mkdtemp(prefix="kb_test_data_"))
+os.environ.setdefault("JW_KB_EXPORT_DIR", tempfile.mkdtemp(prefix="kb_test_export_"))
+
+# Standalone contract roots are mutable runtime state and are intentionally
+# absent from a clean checkout. Tests that create TemporaryDirectory children
+# need the parent to exist on every CI operating system.
+from automatic_experiment.state import inputs_root, runs_root  # noqa: E402
+
+runs_root().mkdir(parents=True, exist_ok=True)
+inputs_root().mkdir(parents=True, exist_ok=True)
 
 _LOCKED_RUNTIME_MODULES = {
     "test_execution.py",
