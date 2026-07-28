@@ -209,6 +209,83 @@ def test_canonical_wiki_binding_persists_mechanism_receipt(monkeypatch) -> None:
     assert outcome["kb_read_receipt"]["log_id"] == 17
 
 
+def test_task_literature_binding_checks_frozen_quote(monkeypatch) -> None:
+    thread_id = "hypothesis-literature-bundle"
+    question = "Does the polar field precursor predict the next cycle amplitude?"
+    config = _config(thread_id)
+    hypothesis_tools._STATES.pop(thread_id, None)
+    hypothesis_tools.scientific_hypothesis_bind_request.invoke(
+        {"request_input": question},
+        config=config,
+    )
+    bundle_id = "litbundle_test_001"
+    snapshot = {
+        "source_id": "openalex:Wbundle",
+        "family_id": "litfam_bundle",
+        "title": "Polar field precursor test",
+        "doi": "10.1000/bundle",
+        "source_version": "2",
+        "content_fingerprint": "a" * 64,
+        "is_retracted": False,
+        "abstract": (
+            "Polar field strength near minimum predicts the next cycle amplitude."
+        ),
+    }
+    store = SimpleNamespace(
+        get_lit_task_bundle=lambda requested: (
+            {
+                "bundle_id": bundle_id,
+                "binding_id": "binding",
+                "run_id": thread_id,
+                "research_question": question,
+                "focus": "polar field precursor",
+                "source_snapshots": [snapshot],
+            }
+            if requested == bundle_id
+            else None
+        )
+    )
+    monkeypatch.setattr(knowledge_tools, "_get_store", lambda: store)
+
+    outcome = json.loads(
+        hypothesis_tools.scientific_hypothesis_bind_literature_evidence.invoke(
+            {
+                "bundle_id": bundle_id,
+                "source_id": snapshot["source_id"],
+                "role": "supports",
+                "quote": "near minimum predicts the next cycle amplitude",
+                "claim": "Minimum polar field predicts the next cycle amplitude.",
+            },
+            config=config,
+        )
+    )
+    evidence_id = outcome["literature_evidence"]
+    bound = hypothesis_tools._STATES[thread_id].evidence_register.get(
+        "litevidence_" + canonical_json_sha256(evidence_id)[:32]
+    )
+
+    assert outcome["status"] == "bound"
+    assert bound is not None
+    assert bound["material_id"] == bundle_id
+    assert bound["role"] == "supports"
+    assert '"status":"verified"' in bound["excerpt"]
+
+    rejected = json.loads(
+        hypothesis_tools.scientific_hypothesis_bind_literature_evidence.invoke(
+            {
+                "bundle_id": bundle_id,
+                "source_id": snapshot["source_id"],
+                "role": "supports",
+                "quote": "a quote that does not exist",
+                "claim": "Minimum polar field predicts amplitude.",
+            },
+            config=config,
+        )
+    )
+    assert rejected["status"] == "needs_revision"
+    assert "逐字定位" in rejected["validation_error"]
+
+
 @pytest.mark.parametrize(
     ("entry_type", "entry_id", "source_type"),
     [

@@ -23,7 +23,7 @@ for path in (str(ROOT), str(SRC)):
 from starlette.testclient import TestClient  # noqa: E402
 
 from jw.langgraph_dev.http import app  # noqa: E402
-from knowledge_base import service  # noqa: E402
+from knowledge_base import literature, service  # noqa: E402
 from knowledge_base.store import KnowledgeStore  # noqa: E402
 
 
@@ -127,9 +127,12 @@ class TestWikiOverviewAndSourcesApi(HttpApiTestCase):
                 "title": "A source-grounded Wiki",
                 "authors": ["Ada Researcher"],
                 "year": 2026,
+                "publication_date": "2026-02-01",
                 "doi": "10.1000/wiki",
                 "url": "https://doi.org/10.1000/wiki",
                 "abstract": "A source-grounded claim with a traceable quotation.",
+                "is_refereed": True,
+                "is_retracted": False,
             }
         )
         entry = self._propose(
@@ -194,11 +197,47 @@ class TestWikiOverviewAndSourcesApi(HttpApiTestCase):
         self.assertEqual(rows[0]["source_id"], source["source_id"])
         self.assertEqual(rows[0]["stage"], "distilled")
         self.assertEqual(rows[0]["authors"], ["Ada Researcher"])
+        self.assertEqual(rows[0]["publication_date"], "2026-02-01")
+        self.assertTrue(rows[0]["is_refereed"])
+        self.assertFalse(rows[0]["is_retracted"])
 
         detail = self.client.get(f"/api/kb/sources/{source['source_id']}").json()
         self.assertEqual(detail["distillation_count"], 1)
         self.assertEqual(detail["distillations"][0]["entry_id"], entry["id"])
         self.assertIn("traceable quotation", detail["abstract"])
+
+    def test_literature_feeds_expose_receipts_and_filter_sources(self):
+        source, _ = self._source_backed_entry()
+        self.store.touch_lit_feed_family("polar_field_precursor", source["family_id"])
+        self.store.record_lit_feed_run(
+            feed_id="polar_field_precursor",
+            query='"polar field" precursor "solar cycle"',
+            providers=["ads", "crossref"],
+            status="partial",
+            result_count=1,
+            new_source_count=1,
+            new_family_count=1,
+            diagnostics={"ads": "token missing"},
+            started_at="2026-07-27T00:00:00+00:00",
+        )
+
+        catalog = self.client.get("/api/kb/literature/feeds").json()
+        self.assertEqual(catalog["status"], "ok")
+        feed = next(
+            item for item in catalog["feeds"] if item["id"] == "polar_field_precursor"
+        )
+        self.assertEqual(feed["latest_run"]["status"], "partial")
+        self.assertEqual(feed["latest_run"]["providers"], ["ads", "crossref"])
+        self.assertEqual(feed["source_count"], 1)
+        self.assertEqual(catalog["total_sources"], 1)
+        self.assertIn("raw source", catalog["notice"])
+
+        rows = self.client.get("/api/kb/sources?feed_id=polar_field_precursor").json()
+        self.assertEqual([row["source_id"] for row in rows], [source["source_id"]])
+        self.assertEqual(
+            self.client.get("/api/kb/sources?feed_id=solar_cycle_prediction").json(),
+            [],
+        )
 
     def test_entry_detail_surfaces_evidence_source_and_related_titles(self):
         source, entry = self._source_backed_entry()
@@ -228,6 +267,69 @@ class TestWikiOverviewAndSourcesApi(HttpApiTestCase):
         relations = {edge["relation"] for edge in graph["edges"]}
         self.assertIn("distilled_into", relations)
         self.assertIn("related_to", relations)
+
+
+class TestLiteratureIncrementApi(HttpApiTestCase):
+    def test_delta_bundle_impact_and_patch_endpoints(self):
+        source = self.store.upsert_lit_source(
+            {
+                "source_id": "openalex:Wapi-delta",
+                "provider": "openalex",
+                "source_version": "1",
+                "title": "Polar field precursor API test",
+                "authors": ["Ada Solar"],
+                "year": 2026,
+                "abstract": (
+                    "Polar field strength near minimum predicts solar cycle amplitude."
+                ),
+            }
+        )
+        self.store.touch_lit_feed_family("test-feed", source["family_id"])
+        entry = self._propose(title="API impact target")
+        impact = literature.record_literature_entry_impact(
+            self.store,
+            source_id=source["source_id"],
+            entry_id=entry["id"],
+            relation="qualifies",
+            affected_fields=["definition"],
+            scope={"phase": "minimum"},
+            quote="near minimum predicts solar cycle amplitude",
+            location="abstract",
+            rationale="The source constrains the precursor phase.",
+        )["impact"]
+        patch = service.propose_literature_patch(
+            self.store,
+            impact["id"],
+            field_updates={"definition": "极小期极区场是下一周振幅的候选前兆。"},
+            rationale="写入阶段限定。",
+        )["patch"]
+        bundle = literature.build_literature_task_bundle(
+            self.store,
+            "Does the polar field precursor predict solar cycle amplitude?",
+            "polar field precursor and solar cycle amplitude",
+            run_id="api-run",
+        )
+
+        deltas = self.client.get("/api/kb/literature/deltas").json()
+        self.assertIn("new_source", {row["event_type"] for row in deltas})
+        self.assertIsInstance(deltas[0]["payload"], dict)
+        feed_deltas = self.client.get(
+            "/api/kb/literature/deltas?feed_id=test-feed"
+        ).json()
+        self.assertIn("new_source", {row["event_type"] for row in feed_deltas})
+        self.assertIn("feed_discovered", {row["event_type"] for row in feed_deltas})
+        bundles = self.client.get("/api/kb/literature/bundles").json()
+        self.assertEqual(bundles[0]["bundle_id"], bundle["bundle_id"])
+        self.assertEqual(bundles[0]["source_count"], 1)
+        self.assertNotIn("abstract", bundles[0]["sources"][0])
+        impacts = self.client.get(
+            f"/api/kb/literature/impacts?entry_id={entry['id']}"
+        ).json()
+        self.assertEqual(impacts[0]["id"], impact["id"])
+        self.assertEqual(impacts[0]["affected_fields"], ["definition"])
+        patches = self.client.get("/api/kb/wiki/patches?status=pending").json()
+        self.assertEqual(patches[0]["patch_id"], patch["patch_id"])
+        self.assertEqual(patches[0]["review_queue_id"], patch["review_queue_id"])
 
 
 class TestReviewQueueApi(HttpApiTestCase):
@@ -303,6 +405,10 @@ class TestMissingDatabase(unittest.TestCase):
             for path in (
                 "/api/kb/entries",
                 "/api/kb/sources",
+                "/api/kb/literature/deltas",
+                "/api/kb/literature/bundles",
+                "/api/kb/literature/impacts",
+                "/api/kb/wiki/patches",
                 "/api/kb/review_queue",
                 "/api/kb/usage",
             ):
@@ -320,6 +426,10 @@ class TestMissingDatabase(unittest.TestCase):
             self.assertEqual(builtin.status_code, 200)
             self.assertTrue(builtin.json()["available"])
             self.assertEqual(builtin.json()["stats"]["seeded_live"], 0)
+            feeds = client.get("/api/kb/literature/feeds")
+            self.assertEqual(feeds.status_code, 200)
+            self.assertEqual(feeds.json()["status"], "ok")
+            self.assertGreater(len(feeds.json()["feeds"]), 0)
             resp = client.get("/api/kb/entries/kb_whatever_0001")
             self.assertEqual(resp.status_code, 404)
             self.assertIn("error", resp.json())

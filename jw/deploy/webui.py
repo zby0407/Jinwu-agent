@@ -213,6 +213,10 @@ def run_webui(config: Any, workspace_dir: str | None = None) -> None:
     webui_env = _scrubbed_env(
         {
             "JW_LANGGRAPH_DEV_PORT": str(backend_port),
+            # Keep the Next.js workspace APIs pinned to the same explicit
+            # project root as the backend. The sidecar remains the primary
+            # live-process check; this is its documented fallback.
+            "JW_WORKSPACE_DIR": ws,
             "PORT": str(webui_port),
         }
     )

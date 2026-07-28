@@ -65,7 +65,9 @@ def test_capability_derived_boundaries_exclude_generic_mutation_tools() -> None:
 def test_knowledge_base_readonly_bundle_exposes_no_mutation_tools() -> None:
     allowed = _bundle_allowlist("knowledge-base-readonly")
 
-    assert allowed == frozenset({"kb_query", "kb_read"})
+    assert allowed == frozenset(
+        {"kb_query", "kb_read", "lit_bundle_build", "lit_bundle_read"}
+    )
     assert allowed.isdisjoint(
         {
             "kb_propose",
