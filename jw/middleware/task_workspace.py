@@ -13,6 +13,7 @@ from langgraph.config import get_config
 from langgraph.runtime import Runtime
 
 from .. import paths
+from ..research_integrity import transition_task
 from ..workspaces import ensure_workspace_for_config, scope_thread_id
 
 
@@ -40,10 +41,15 @@ class TaskWorkspaceMiddleware(AgentMiddleware):
         config = current if isinstance(current, dict) else None
         if not scope_thread_id(config):
             return
-        ensure_workspace_for_config(
+        binding = ensure_workspace_for_config(
             config,
             self._base_workspace,
             state=state,
+        )
+        transition_task(
+            Path(binding.workspace),
+            "running",
+            summary="Research task is active; completion is receipt-gated.",
         )
         if self._backend_factory is not None:
             # DeepAgents' backend factory protocol is synchronous even from its

@@ -415,7 +415,12 @@ def _scientific_profile(path: Path) -> dict[str, Any] | None:
         }
     site_packages = site_probe.stdout.strip()
     if site_probe.returncode != 0 or not site_packages:
-        raise PathPolicyError("locked scientific metadata runtime is unavailable")
+        return {
+            "kind": "scientific_container",
+            "format": format_name,
+            "profile_complete": False,
+            "reason": "locked scientific metadata runtime is unavailable",
+        }
     command = [
         "wsl.exe",
         "-d",

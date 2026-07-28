@@ -40,6 +40,12 @@ bridge/package-lock.json
 workspace/
 !webui/src/app/api/workspace/
 !webui/src/app/api/workspace/**
+
+# Task-scoped runtime state. These directories contain uploaded inputs,
+# generated artifacts, receipts, and local knowledge-base exports; they must
+# never be included in source-control changes.
+/projects/
+/knowledge_base/
 skills/
 !jw/skills/
 !jw/subagents/*/skills/
