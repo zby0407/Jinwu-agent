@@ -363,6 +363,12 @@ function HomePageInner({
               className="chat-workspace-background pointer-events-none absolute inset-0 z-0"
             />
           )}
+          {view === "skills" && (
+            <div
+              aria-hidden="true"
+              className="skills-workspace-background pointer-events-none absolute inset-0 z-0"
+            />
+          )}
           {isResearchSection && !sidebar && (
             <PanelEdgeToggle
               side="left"

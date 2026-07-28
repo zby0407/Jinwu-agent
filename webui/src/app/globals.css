@@ -190,6 +190,22 @@ body {
   background-size: 100% 100%;
 }
 
+/* Skills artwork fills only the workspace below the persistent top bar. The
+   stronger shade at the top keeps the page heading readable over the sun. */
+.skills-workspace-background {
+  background-image:
+    linear-gradient(
+      180deg,
+      rgba(3, 5, 9, 0.64) 0%,
+      rgba(3, 5, 9, 0.38) 48%,
+      rgba(3, 5, 9, 0.48) 100%
+    ),
+    url("/backgrounds/skills-solar-background.png");
+  background-position: center;
+  background-repeat: no-repeat;
+  background-size: 100% 100%;
+}
+
 .jw-topbar {
   position: relative;
   z-index: 50;
