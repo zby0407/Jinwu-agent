@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
@@ -78,6 +79,34 @@ def _route(
     }
 
 
+def _obligations(
+    route: dict[str, object],
+    *,
+    adapter: str = "none",
+) -> dict[str, object]:
+    computation = route["needs_computation"] is True
+    verified = route["mode"] in {"verified_analysis", "full_research"}
+    local = route["source_mode"] in {"local", "mixed"} and computation
+    return {
+        **route,
+        "requires_dataset_semantics": local,
+        "requires_computation_receipt": verified and computation,
+        "requires_external_evidence": route["source_mode"] in {"external", "mixed"},
+        "external_evidence_reasons": (
+            ["source_mode"]
+            if route["source_mode"] in {"external", "mixed"}
+            else []
+        ),
+        "required_evidence_claims": [],
+        "required_domain_adapter": adapter,
+        "deliverable": (
+            "audited_report"
+            if verified and computation
+            else ("draft" if route["mode"] == "verified_analysis" else "chat")
+        ),
+    }
+
+
 def test_router_runs_once_per_human_turn_and_persists_decision(monkeypatch) -> None:
     middleware = _middleware(monkeypatch)
     structured = MagicMock()
@@ -88,7 +117,9 @@ def test_router_runs_once_per_human_turn_and_persists_decision(monkeypatch) -> N
     update = middleware.before_agent(state, runtime=None)
 
     assert update == {
-        "research_route": _route("verified_analysis", source_mode="local"),
+        "research_route": _obligations(
+            _route("verified_analysis", source_mode="local")
+        ),
         "research_route_turn": "turn-1",
     }
     persisted = {**state, **update}
@@ -105,6 +136,66 @@ def test_router_runs_once_per_human_turn_and_persists_decision(monkeypatch) -> N
         "none",
         "solar-hypothesis",
     ]
+
+
+def test_f107_computation_gets_audited_route_obligations(monkeypatch) -> None:
+    middleware = _middleware(monkeypatch)
+    structured = MagicMock()
+    structured.invoke.return_value = _route(
+        "verified_analysis",
+        source_mode="mixed",
+        needs_computation=True,
+    )
+    middleware._model.with_structured_output.return_value = structured
+
+    update = middleware.before_agent(
+        {
+            "messages": [
+                HumanMessage(
+                    "分析 F10.7 与 SILSO 太阳黑子数的跨时段漂移",
+                    id="turn-f107",
+                )
+            ]
+        },
+        runtime=None,
+    )
+
+    route = update["research_route"]
+    assert route["requires_dataset_semantics"] is True
+    assert route["requires_computation_receipt"] is True
+    assert route["requires_external_evidence"] is True
+    assert route["required_domain_adapter"] == "f107"
+    assert route["deliverable"] == "audited_report"
+
+
+def test_local_route_with_explicit_literature_request_forces_external_stage(
+    monkeypatch,
+) -> None:
+    middleware = _middleware(monkeypatch)
+    structured = MagicMock()
+    structured.invoke.return_value = _route(
+        "verified_analysis",
+        source_mode="local",
+        needs_computation=True,
+    )
+    middleware._model.with_structured_output.return_value = structured
+
+    update = middleware.before_agent(
+        {
+            "messages": [
+                HumanMessage(
+                    "读取本地数据并查阅原始研究，比较仪器变化与物理变化",
+                    id="turn-local-literature",
+                )
+            ]
+        },
+        runtime=None,
+    )
+
+    route = update["research_route"]
+    assert route["source_mode"] == "local"
+    assert route["requires_external_evidence"] is True
+    assert "explicit_literature_request" in route["external_evidence_reasons"]
 
 
 def test_explicit_hypothesis_intent_overrides_full_research_misroute(
@@ -169,14 +260,22 @@ def test_router_fallback_recognizes_bilingual_hypothesis_intent(
     )
 
     assert update is not None
-    assert update["research_route"] == {
+    expected = _obligations({
         "mode": "verified_analysis",
         "source_mode": "mixed",
         "needs_computation": False,
         "task_intent": expected_intent,
         "required_specialist": "solar-hypothesis",
         "reason": "router unavailable; explicit hypothesis intent kept specialized",
-    }
+    })
+    route = update["research_route"]
+    for key, value in expected.items():
+        if key == "external_evidence_reasons":
+            continue
+        assert route[key] == value
+    assert set(route["external_evidence_reasons"]) >= set(
+        expected["external_evidence_reasons"]
+    )
 
 
 def test_verified_local_route_forces_discovery_then_read_then_compute(
@@ -506,7 +605,7 @@ def test_hypothesis_task_requires_persisted_draft_receipt(monkeypatch) -> None:
     assert [tool.name for tool in retry.tools] == ["task"]
 
 
-def test_hypothesis_result_is_passed_through_verbatim(monkeypatch) -> None:
+def test_hypothesis_prose_without_receipt_is_not_completed(monkeypatch) -> None:
     middleware = _middleware(monkeypatch)
     route = _route(
         "verified_analysis",
@@ -542,8 +641,13 @@ def test_hypothesis_result_is_passed_through_verbatim(monkeypatch) -> None:
 
     response = middleware.wrap_model_call(request, handler)
 
-    assert captured[0].tools == []
-    assert response.result[0].content == "# DRAFT\n\nExact specialist body."
+    assert [tool.name for tool in captured[0].tools] == ["task"]
+    assert response.result[0].content == ""
+    assert response.result[0].tool_calls[0]["name"] == "task"
+    assert (
+        response.result[0].tool_calls[0]["args"]["subagent_type"]
+        == "solar-hypothesis"
+    )
 
 
 def test_hypothesis_route_reports_missing_task_tool_without_substitution(
@@ -598,7 +702,16 @@ def test_full_research_route_advances_explicit_specialist_graph(monkeypatch) -> 
                 }
             ],
         ),
-        ToolMessage("frozen", tool_call_id="planner-1", name="task"),
+        ToolMessage(
+            json.dumps(
+                {
+                    "status": "success",
+                    "receipt_refs": ["receipts/planner.json"],
+                }
+            ),
+            tool_call_id="planner-1",
+            name="task",
+        ),
     ]
     second = _prepared(
         middleware,

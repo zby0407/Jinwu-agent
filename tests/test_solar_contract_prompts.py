@@ -41,7 +41,10 @@ def test_knowledge_agent_requires_bound_focus_and_confidence_cap():
 
 def test_evidence_agent_uses_hypothesis_contract_tools():
     text = _read("jw/subagents/solar/solar_evidence.yaml")
-    assert "tool_bundles: [reasoning, scientific-hypothesis]" in text
+    assert "tool_bundles: [reasoning, research-evidence-review]" in text
+    assert "cannot submit evidence" in text
+    assert "read_evidence_submission" in text
+    assert "review_evidence_receipt" in text
     hypothesis_tools = {
         tool.name for tool in get_tool_bundles()["scientific-hypothesis"]
     }
