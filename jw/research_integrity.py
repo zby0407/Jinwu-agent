@@ -145,8 +145,8 @@ _CAUSAL_PATTERN = re.compile(
     re.IGNORECASE,
 )
 _COMPETING_PATTERN = re.compile(
-    r"(?:比较|对比|区分|排除|权衡).{0,18}(?:假说|假设|解释|原因|机制)"
-    r"|(?:competing|compare|distinguish|weigh).{0,18}"
+    r"(?:比较|对比|区分|排除|权衡).{0,40}(?:假说|假设|解释|原因|机制)"
+    r"|(?:competing|compare|distinguish|weigh).{0,40}"
     r"(?:hypotheses|explanations|causes|mechanisms)",
     re.IGNORECASE,
 )
