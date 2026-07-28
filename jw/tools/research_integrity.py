@@ -214,7 +214,9 @@ def submit_evidence_receipt(
         source_text = source.read_text(encoding="utf-8", errors="replace")
         if span not in source_text:
             raise ValueError("evidence_span is not grounded in the fetched source")
-        relative_source = source.relative_to(workspace_root_from_config(config)).as_posix()
+        relative_source = source.relative_to(
+            workspace_root_from_config(config)
+        ).as_posix()
         if not relative_source.startswith("work/evidence_sources/"):
             raise ValueError(
                 "evidence must use a formally fetched work/evidence_sources artifact"
@@ -243,18 +245,23 @@ def submit_evidence_receipt(
                     formally_fetched = True
                     break
         if not formally_fetched:
-            raise ValueError("search or local text is not a formal fetched-source receipt")
+            raise ValueError(
+                "search or local text is not a formal fetched-source receipt"
+            )
         safe_claim = _safe_id(claim_id)
         claim_hash = claim_text_sha256(normalized_claim)
-        receipt_id = "evidence_" + canonical_json_sha256(
-            {
-                "claim_sha256": claim_hash,
-                "source_sha256": source_hash,
-                "locator": [locator_type, locator_value.strip()],
-                "evidence_span": span,
-                "relation": relation,
-            }
-        )[:32]
+        receipt_id = (
+            "evidence_"
+            + canonical_json_sha256(
+                {
+                    "claim_sha256": claim_hash,
+                    "source_sha256": source_hash,
+                    "locator": [locator_type, locator_value.strip()],
+                    "evidence_span": span,
+                    "relation": relation,
+                }
+            )[:32]
+        )
         receipt_relative = (
             f"receipts/evidence/submissions/{safe_claim}/{receipt_id}.json"
         )
@@ -417,16 +424,13 @@ def review_evidence_receipt(
         ):
             raise ValueError("legacy or malformed evidence cannot be reviewed")
         source = resolve_scoped_path(str(submission["source_path"]), config)
-        source_hash_verified = (
-            source.is_file()
-            and sha256_file(source) == submission.get("source_sha256")
-        )
+        source_hash_verified = source.is_file() and sha256_file(
+            source
+        ) == submission.get("source_sha256")
         span_grounded = source_hash_verified and str(
             submission.get("evidence_span", "")
         ) in source.read_text(encoding="utf-8", errors="replace")
-        semantic_checks = (
-            claim_relation_valid and source_class_valid and scope_valid
-        )
+        semantic_checks = claim_relation_valid and source_class_valid and scope_valid
         effective = (
             "accepted"
             if review_status == "accepted"
@@ -523,7 +527,9 @@ def record_counterevidence_search(
         if not queries or not providers:
             raise ValueError("counterevidence queries and providers are required")
         if outcome == "candidates_bound" and not candidate_evidence_ids:
-            raise ValueError("candidate evidence ids are required when candidates exist")
+            raise ValueError(
+                "candidate evidence ids are required when candidates exist"
+            )
         root = workspace_root_from_config(config)
         normalized_claim = " ".join(claim_text.split())
         claim_hash = claim_text_sha256(normalized_claim)
@@ -536,7 +542,9 @@ def record_counterevidence_search(
                 "status": "complete",
                 "claim_id": claim_id.strip(),
                 "claim_sha256": claim_hash,
-                "queries": [str(query).strip() for query in queries if str(query).strip()],
+                "queries": [
+                    str(query).strip() for query in queries if str(query).strip()
+                ],
                 "providers": [
                     str(provider).strip()
                     for provider in providers
@@ -599,9 +607,13 @@ def finalize_research_task(
             summary=summary,
         )
         effective = str(task["status"])
-        outcome = "success" if effective == "finalized" else (
-            "partial" if effective == "partial" else (
-                "blocked" if effective == "blocked" else "error"
+        outcome = (
+            "success"
+            if effective == "finalized"
+            else (
+                "partial"
+                if effective == "partial"
+                else ("blocked" if effective == "blocked" else "error")
             )
         )
         return _json(
@@ -706,15 +718,18 @@ def validate_research_claims(
                     and accepted_evidence[evidence_id].get("claim_sha256") == claim_hash
                 ]
                 supports = [
-                    evidence for evidence in matched
+                    evidence
+                    for evidence in matched
                     if evidence.get("relation") == "supports"
                 ]
                 contradictions = [
-                    evidence for evidence in matched
+                    evidence
+                    for evidence in matched
                     if evidence.get("relation") == "contradicts"
                 ]
                 limits = [
-                    evidence for evidence in matched
+                    evidence
+                    for evidence in matched
                     if evidence.get("relation") == "limits"
                 ]
                 if not supports:
@@ -734,9 +749,7 @@ def validate_research_claims(
                     ).strip()
                     try:
                         coverage_path = resolve_scoped_path(coverage_ref, config)
-                        coverage = json.loads(
-                            coverage_path.read_text(encoding="utf-8")
-                        )
+                        coverage = json.loads(coverage_path.read_text(encoding="utf-8"))
                     except (OSError, ValueError, TypeError, json.JSONDecodeError):
                         coverage = {}
                     if (
@@ -846,6 +859,5 @@ register_tool_bundle(
 )
 
 __all__ = ["RESEARCH_INTEGRITY_TOOLS", "RESEARCH_EVIDENCE_REVIEW_TOOLS"] + [
-    tool.name
-    for tool in (*RESEARCH_INTEGRITY_TOOLS, *RESEARCH_EVIDENCE_REVIEW_TOOLS)
+    tool.name for tool in (*RESEARCH_INTEGRITY_TOOLS, *RESEARCH_EVIDENCE_REVIEW_TOOLS)
 ]

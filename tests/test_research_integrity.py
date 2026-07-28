@@ -154,7 +154,9 @@ def test_f107_route_requires_three_evidence_claims_and_all_receipt_kinds(
     assert "evidence:f107_1980_discontinuity" in task["missing_receipts"]
 
 
-def test_local_literature_request_deterministically_requires_external_evidence() -> None:
+def test_local_literature_request_deterministically_requires_external_evidence() -> (
+    None
+):
     policy = derive_external_evidence_policy(
         "请使用本地数据，并查阅原始研究解释仪器校准变化",
         {

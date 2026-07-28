@@ -56,9 +56,7 @@ def canonicalize_f107(
     frame = frame.loc[frame["date"].notna()].copy()
     for column in ("f107_observed", "f107_adjusted", "f107_ursi"):
         frame[column] = pd.to_numeric(frame[column], errors="coerce")
-    frame["missing_flag"] = _flag(frame["missing_flag"]) | frame[
-        "f107_adjusted"
-    ].isna()
+    frame["missing_flag"] = _flag(frame["missing_flag"]) | frame["f107_adjusted"].isna()
     frame["duplicate_flag"] = _flag(frame["duplicate_flag"])
 
     valid = frame.loc[~frame["missing_flag"]].copy()
@@ -153,9 +151,9 @@ def canonicalize_f107(
 
     input_sha = sha256_file(input_path)
     manifest_key = f"{ADAPTER_ID}:{ADAPTER_VERSION}:{input_sha}"
-    manifest_id = "dataset-" + hashlib.sha256(
-        manifest_key.encode("utf-8")
-    ).hexdigest()[:20]
+    manifest_id = (
+        "dataset-" + hashlib.sha256(manifest_key.encode("utf-8")).hexdigest()[:20]
+    )
     manifest = DatasetSemanticManifest(
         manifest_id=manifest_id,
         input_path=input_path.name,
@@ -256,9 +254,7 @@ def canonicalize_f107_sn(
         ).sum()
     )
     silso = silso.loc[
-        silso["year"].notna()
-        & silso["month"].notna()
-        & silso["sunspot_number"].ge(0)
+        silso["year"].notna() & silso["month"].notna() & silso["sunspot_number"].ge(0)
     ].copy()
     silso["date_month"] = pd.to_datetime(
         {
@@ -307,9 +303,9 @@ def canonicalize_f107_sn(
     manifest = replace(
         f107_manifest,
         manifest_id="dataset-"
-        + hashlib.sha256(
-            f"{ADAPTER_ID}:silso-v2:{combined_sha}".encode()
-        ).hexdigest()[:20],
+        + hashlib.sha256(f"{ADAPTER_ID}:silso-v2:{combined_sha}".encode()).hexdigest()[
+            :20
+        ],
         input_path=f"{f107_path.name}+{silso_total_path.name}",
         input_sha256=combined_sha,
         product_id="f107_adjusted+silso_sn_total_v2",

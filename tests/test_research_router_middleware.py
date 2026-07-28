@@ -93,9 +93,7 @@ def _obligations(
         "requires_computation_receipt": verified and computation,
         "requires_external_evidence": route["source_mode"] in {"external", "mixed"},
         "external_evidence_reasons": (
-            ["source_mode"]
-            if route["source_mode"] in {"external", "mixed"}
-            else []
+            ["source_mode"] if route["source_mode"] in {"external", "mixed"} else []
         ),
         "required_evidence_claims": [],
         "required_domain_adapter": adapter,
@@ -260,14 +258,16 @@ def test_router_fallback_recognizes_bilingual_hypothesis_intent(
     )
 
     assert update is not None
-    expected = _obligations({
-        "mode": "verified_analysis",
-        "source_mode": "mixed",
-        "needs_computation": False,
-        "task_intent": expected_intent,
-        "required_specialist": "solar-hypothesis",
-        "reason": "router unavailable; explicit hypothesis intent kept specialized",
-    })
+    expected = _obligations(
+        {
+            "mode": "verified_analysis",
+            "source_mode": "mixed",
+            "needs_computation": False,
+            "task_intent": expected_intent,
+            "required_specialist": "solar-hypothesis",
+            "reason": "router unavailable; explicit hypothesis intent kept specialized",
+        }
+    )
     route = update["research_route"]
     for key, value in expected.items():
         if key == "external_evidence_reasons":
@@ -645,8 +645,7 @@ def test_hypothesis_prose_without_receipt_is_not_completed(monkeypatch) -> None:
     assert response.result[0].content == ""
     assert response.result[0].tool_calls[0]["name"] == "task"
     assert (
-        response.result[0].tool_calls[0]["args"]["subagent_type"]
-        == "solar-hypothesis"
+        response.result[0].tool_calls[0]["args"]["subagent_type"] == "solar-hypothesis"
     )
 
 

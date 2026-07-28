@@ -88,9 +88,10 @@ def test_f107_adapter_is_column_order_invariant(tmp_path) -> None:
     first, first_manifest = canonicalize_f107(normal)
     second, second_manifest = canonicalize_f107(shuffled)
 
-    assert first["f107_adjusted_monthly_mean"].tolist() == second[
-        "f107_adjusted_monthly_mean"
-    ].tolist()
+    assert (
+        first["f107_adjusted_monthly_mean"].tolist()
+        == second["f107_adjusted_monthly_mean"].tolist()
+    )
     assert first_manifest.product_id == "f107_adjusted"
     assert second_manifest.column_bindings["duplicate"] == "duplicate_flag"
 

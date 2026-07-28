@@ -215,9 +215,7 @@ def derive_external_evidence_policy(
         reasons.append("historical_fact")
     requirements = [
         dict(row)
-        for row in _DOMAIN_EVIDENCE_REQUIREMENTS.get(
-            required_domain_adapter, ()
-        )
+        for row in _DOMAIN_EVIDENCE_REQUIREMENTS.get(required_domain_adapter, ())
     ]
     if requirements:
         reasons.append("domain_mandatory_claim")
@@ -341,14 +339,12 @@ def verified_receipt_paths(run_root: Path) -> set[str]:
             continue
         if not isinstance(payload, Mapping):
             continue
-        status = str(
-            payload.get("review_status", payload.get("status", ""))
-        ).lower()
+        status = str(payload.get("review_status", payload.get("status", ""))).lower()
         if status not in {"accepted", "verified", "finalized", "success", "ok"}:
             continue
-        if (
-            ref := path.relative_to(run_root).as_posix()
-        ).startswith("receipts/evidence/") and payload.get("schema_version") != 2:
+        if (ref := path.relative_to(run_root).as_posix()).startswith(
+            "receipts/evidence/"
+        ) and payload.get("schema_version") != 2:
             continue
         verified.add(ref)
     return verified
@@ -421,10 +417,7 @@ def record_task_route(run_root: Path, route: Mapping[str, Any]) -> dict[str, Any
     task["required_receipt_kinds"] = required_kinds
     task["evidence_schema_version"] = 2
     route_requirements = route.get("required_evidence_claims", [])
-    if (
-        not route_requirements
-        and obligations["requires_external_evidence"] is True
-    ):
+    if not route_requirements and obligations["requires_external_evidence"] is True:
         route_requirements = _DOMAIN_EVIDENCE_REQUIREMENTS.get(
             str(obligations["required_domain_adapter"]), ()
         )
@@ -434,9 +427,7 @@ def record_task_route(run_root: Path, route: Mapping[str, Any]) -> dict[str, Any
         if isinstance(row, Mapping) and row.get("claim_id")
     ]
     task["evidence_requirements"] = [
-        dict(row)
-        for row in route_requirements
-        if isinstance(row, Mapping)
+        dict(row) for row in route_requirements if isinstance(row, Mapping)
     ]
     if task.get("status") == "created":
         task["status"] = "routed"
@@ -444,7 +435,9 @@ def record_task_route(run_root: Path, route: Mapping[str, Any]) -> dict[str, Any
     return task
 
 
-def transition_task(run_root: Path, status: TaskStatus, *, summary: str = "") -> dict[str, Any]:
+def transition_task(
+    run_root: Path, status: TaskStatus, *, summary: str = ""
+) -> dict[str, Any]:
     """Advance a non-terminal task without allowing terminal-state rewrites."""
 
     task_path = run_root / "task.json"
@@ -515,8 +508,7 @@ def finalize_task(
             continue
         claim_id = str(requirement.get("claim_id", ""))
         allowed_classes = {
-            str(value)
-            for value in requirement.get("required_source_classes", [])
+            str(value) for value in requirement.get("required_source_classes", [])
         }
         minimum = int(requirement.get("minimum_supports", 1))
         supports = [
@@ -534,11 +526,7 @@ def finalize_task(
         if requirement.get("requires_counterevidence_search") is True:
             safe_claim = re.sub(r"[^A-Za-z0-9_.-]+", "-", claim_id).strip("-")
             coverage_path = (
-                run_root
-                / "receipts"
-                / "evidence"
-                / "coverage"
-                / f"{safe_claim}.json"
+                run_root / "receipts" / "evidence" / "coverage" / f"{safe_claim}.json"
             )
             try:
                 coverage = json.loads(coverage_path.read_text(encoding="utf-8"))
@@ -589,11 +577,7 @@ def finalize_task(
             if isinstance(review, Mapping):
                 review_statuses.append(str(review.get("review_status", "")))
     submission_count = len(
-        list(
-            (
-                run_root / "receipts" / "evidence" / "submissions"
-            ).rglob("*.json")
-        )
+        list((run_root / "receipts" / "evidence" / "submissions").rglob("*.json"))
     )
     task.update(
         {
@@ -620,9 +604,7 @@ def finalize_task(
                     )
                 )
             ],
-            "final_report": (
-                "outputs/report.md" if report.is_file() else None
-            ),
+            "final_report": ("outputs/report.md" if report.is_file() else None),
         }
     )
     write_json_atomic(task_path, task)

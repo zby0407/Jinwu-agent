@@ -393,7 +393,9 @@ def automatic_experiment_finalize(run_id: str, config: RunnableConfig = None) ->
             or not audit_source.is_file()
             or not record_source.is_file()
         ):
-            raise RuntimeError("finalized experiment report, audit, or record is missing")
+            raise RuntimeError(
+                "finalized experiment report, audit, or record is missing"
+            )
         output_report = workspace / "outputs" / "report.md"
         output_report.parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(report_source, output_report)

@@ -269,8 +269,10 @@ def _with_research_obligations(
     local_data = source_mode in {"local", "mixed"} and computation
     audited = mode in {"verified_analysis", "full_research"} and computation
     adapter = "f107" if _F107_PATTERN.search(text) else "none"
-    deliverable = "audited_report" if audited else (
-        "draft" if mode == "verified_analysis" else "chat"
+    deliverable = (
+        "audited_report"
+        if audited
+        else ("draft" if mode == "verified_analysis" else "chat")
     )
     evidence_policy = derive_external_evidence_policy(
         text,
@@ -640,9 +642,7 @@ def _successful_specialists(
         )
         outcome = normalize_tool_outcome(content, transport_status=status)
         receipt_refs = (
-            metadata.get("receipt_refs", ())
-            if isinstance(metadata, Mapping)
-            else ()
+            metadata.get("receipt_refs", ()) if isinstance(metadata, Mapping) else ()
         )
         if (
             (outcome.succeeded or receipt_refs)
@@ -914,9 +914,7 @@ def _latest_specialist_result(
             transport_status=status,
         )
         receipt_refs = (
-            metadata.get("receipt_refs", ())
-            if isinstance(metadata, Mapping)
-            else ()
+            metadata.get("receipt_refs", ()) if isinstance(metadata, Mapping) else ()
         )
         if not outcome.has_verified_receipt and not receipt_refs:
             continue
@@ -1162,15 +1160,9 @@ class ResearchRouterMiddleware(AgentMiddleware[ResearchRoutingState, Any, Any]):
         needs_computation = route.get("needs_computation") is True
         task_intent = route.get("task_intent", "general")
         required_specialist = route.get("required_specialist", "none")
-        requires_dataset_semantics = (
-            route.get("requires_dataset_semantics") is True
-        )
-        requires_computation_receipt = (
-            route.get("requires_computation_receipt") is True
-        )
-        requires_external_evidence = (
-            route.get("requires_external_evidence") is True
-        )
+        requires_dataset_semantics = route.get("requires_dataset_semantics") is True
+        requires_computation_receipt = route.get("requires_computation_receipt") is True
+        requires_external_evidence = route.get("requires_external_evidence") is True
         required_domain_adapter = route.get("required_domain_adapter", "none")
         deliverable = route.get("deliverable", "chat")
         messages = list(request.messages)
@@ -1279,8 +1271,7 @@ class ResearchRouterMiddleware(AgentMiddleware[ResearchRoutingState, Any, Any]):
                         "f107_observatory_history",
                         "f107_1980_discontinuity",
                     }
-                    if required_domain_adapter == "f107"
-                    and requires_external_evidence
+                    if required_domain_adapter == "f107" and requires_external_evidence
                     else set()
                 )
                 evidence_count = len(bound_evidence_claims)
@@ -1300,9 +1291,7 @@ class ResearchRouterMiddleware(AgentMiddleware[ResearchRoutingState, Any, Any]):
                     else evidence_count >= 1
                 )
                 compute_seen = bool(successful_names & set(_FINALIZE_TOOLS))
-                claims_seen = bool(
-                    successful_names & set(_CLAIM_VALIDATION_TOOLS)
-                )
+                claims_seen = bool(successful_names & set(_CLAIM_VALIDATION_TOOLS))
 
                 if local_required and not local_seen:
                     forced_tool = _available_tool(
@@ -1336,10 +1325,7 @@ class ResearchRouterMiddleware(AgentMiddleware[ResearchRoutingState, Any, Any]):
                         "the evidence obligation. The still-required claim ids are: "
                         + (
                             ", ".join(
-                                sorted(
-                                    required_evidence_claims
-                                    - bound_evidence_claims
-                                )
+                                sorted(required_evidence_claims - bound_evidence_claims)
                             )
                             or "one claim id matching the report"
                         )
@@ -1369,10 +1355,7 @@ class ResearchRouterMiddleware(AgentMiddleware[ResearchRoutingState, Any, Any]):
                             "a verified DatasetSemanticManifest receipt; prose or a "
                             "work-file path does not complete this stage."
                         )
-                if (
-                    forced_tool is None
-                    and requires_computation_receipt
-                ):
+                if forced_tool is None and requires_computation_receipt:
                     completed = _successful_specialists(
                         calls, successful_names, messages
                     )
@@ -1412,9 +1395,7 @@ class ResearchRouterMiddleware(AgentMiddleware[ResearchRoutingState, Any, Any]):
                     forced_tool is None
                     and needs_computation
                     and not requires_computation_receipt
-                    and not (
-                        successful_names & set(_DRAFT_COMPUTE_TOOLS)
-                    )
+                    and not (successful_names & set(_DRAFT_COMPUTE_TOOLS))
                 ):
                     # Compatibility for callers that construct a legacy route
                     # directly. Routes produced by before_agent always carry
