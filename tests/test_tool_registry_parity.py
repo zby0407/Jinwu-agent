@@ -22,7 +22,7 @@ def _tool_name(tool: object) -> str:
     return value
 
 
-def test_main_registry_excludes_specialist_hypothesis_mutators() -> None:
+def test_main_and_subagent_registry_share_hypothesis_tools() -> None:
     registry = get_builtin_tool_registry()
     bundles = get_tool_bundles()
     main_tool_names = [_tool_name(tool) for tool in get_main_agent_tools()]
@@ -33,7 +33,7 @@ def test_main_registry_excludes_specialist_hypothesis_mutators() -> None:
         hypothesis_tool_names
     )
     assert set(hypothesis_tool_names).issubset(registry)
-    assert set(hypothesis_tool_names).isdisjoint(main_tool_names)
+    assert set(hypothesis_tool_names).issubset(main_tool_names)
     assert "scientific_hypothesis_get_status" in hypothesis_tool_names
 
 
@@ -66,13 +66,9 @@ def test_yaml_subagent_resolves_tools_from_canonical_registry() -> None:
         "lit_bundle_build",
         "lit_bundle_read",
     }.issubset(_tool_name(tool) for tool in hypothesis["tools"])
-    evidence_tools = {_tool_name(tool) for tool in evidence["tools"]}
-    assert "read_evidence_submission" in evidence_tools
-    assert "review_evidence_receipt" in evidence_tools
-    assert "submit_evidence_receipt" not in evidence_tools
-    main_tools = {_tool_name(tool) for tool in get_main_agent_tools()}
-    assert "submit_evidence_receipt" in main_tools
-    assert "review_evidence_receipt" not in main_tools
+    assert hypothesis_contract_tools.issubset(
+        _tool_name(tool) for tool in evidence["tools"]
+    )
     assert hypothesis["_restrict_tools"] is True
     assert {
         "kb_propose",

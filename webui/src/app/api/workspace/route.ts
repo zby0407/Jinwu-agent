@@ -90,14 +90,8 @@ export async function GET(request: NextRequest) {
 
     const relPath = request.nextUrl.searchParams.get("path") ?? "";
     const recursive = request.nextUrl.searchParams.get("recursive") === "1";
-    const taskOnly = request.nextUrl.searchParams.get("task") === "1";
     const threadId = request.nextUrl.searchParams.get("threadId");
     const workspaceDir = await getWorkspaceDir(threadId);
-    if (taskOnly) {
-      const taskPath = await safeResolve(workspaceDir, "task.json");
-      const task = JSON.parse(await fs.readFile(taskPath, "utf8"));
-      return NextResponse.json({ task });
-    }
     const dir = await safeResolve(workspaceDir, relPath);
 
     const stat = await fs.stat(dir);

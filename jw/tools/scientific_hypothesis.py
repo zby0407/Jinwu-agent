@@ -1450,11 +1450,7 @@ SCIENTIFIC_HYPOTHESIS_TOOLS = [
     scientific_hypothesis_freeze,
 ]
 
-register_tool_bundle(
-    "scientific-hypothesis",
-    SCIENTIFIC_HYPOTHESIS_TOOLS,
-    include_in_main=False,
-)
+register_tool_bundle("scientific-hypothesis", SCIENTIFIC_HYPOTHESIS_TOOLS)
 
 __all__ = ["SCIENTIFIC_HYPOTHESIS_TOOLS"] + [
     t.name for t in SCIENTIFIC_HYPOTHESIS_TOOLS

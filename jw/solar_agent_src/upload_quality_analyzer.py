@@ -2,15 +2,17 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-import cycle_context_summary
-import data_cleaning_engine
-import data_quality_report_text
 import numpy as np
 import pandas as pd
+
+import data_cleaning_engine
+import data_quality_report_text
+import cycle_context_summary
+
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -43,12 +45,7 @@ def _detect_time_column(
     df: pd.DataFrame, inspection: dict[str, Any] | None
 ) -> str | None:
     if inspection:
-        time_detection = inspection.get("time_detection")
-        primary = (
-            time_detection.get("primary_time_column")
-            if isinstance(time_detection, dict)
-            else inspection.get("primary_time_column")
-        )
+        primary = inspection.get("primary_time_column")
         if primary and primary in df.columns:
             return primary
     # Fallback: try common names
@@ -121,7 +118,7 @@ def _check_time_continuity(
     return QualityIssue(
         type="time_gaps",
         severity="warning",
-        count=len(gaps),
+        count=int(len(gaps)),
         message=f"Found {len(gaps)} time gaps longer than expected interval ({expected_diff}).",
         columns=[time_col],
         suggested_action="investigate_missing_data_or_resample",
@@ -256,14 +253,14 @@ def _check_numeric_outliers(df: pd.DataFrame) -> list[QualityIssue]:
             QualityIssue(
                 type="numeric_outliers",
                 severity="info",
-                count=len(outliers),
+                count=int(len(outliers)),
                 message=f"Column '{col}' has {len(outliers)} IQR outliers.",
                 columns=[col],
                 suggested_action="review_or_winsorize",
                 sample={
                     "lower_bound": float(lower),
                     "upper_bound": float(upper),
-                    "outlier_count": len(outliers),
+                    "outlier_count": int(len(outliers)),
                 },
             )
         )
@@ -369,8 +366,8 @@ def _check_logical_constraints(df: pd.DataFrame) -> list[QualityIssue]:
 
 def _check_coverage(df: pd.DataFrame, time_col: str | None) -> dict[str, Any]:
     coverage = {
-        "rows": len(df),
-        "columns": len(df.columns),
+        "rows": int(len(df)),
+        "columns": int(len(df.columns)),
         "column_names": list(df.columns),
         "memory_mb": round(df.memory_usage(deep=True).sum() / (1024 * 1024), 2),
     }
@@ -413,7 +410,7 @@ def analyze(
 
     issues = [issue for issue in issues if issue is not None]
 
-    _missing_issues, missing_per_column = _check_missing_values(df)
+    missing_issues, missing_per_column = _check_missing_values(df)
     # We already collected missing_issues; merge if needed, but here we only need per_column stats.
 
     time_granularity = _detect_time_granularity(df, time_col)
@@ -437,7 +434,7 @@ def analyze(
         "coverage": coverage,
         "missing_per_column": missing_per_column,
         "cleaning": cleaning_report,
-        "generated_at": datetime.now(UTC).isoformat(),
+        "generated_at": datetime.now(timezone.utc).isoformat(),
     }
 
 

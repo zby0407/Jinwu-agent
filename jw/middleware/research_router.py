@@ -34,14 +34,7 @@ from langchain.agents.middleware.types import (
 )
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
-from langgraph.config import get_config
 
-from jw.research_integrity import (
-    ToolOutcome,
-    derive_external_evidence_policy,
-    normalize_tool_outcome,
-    record_task_route,
-)
 from jw.workspaces import workspace_root_from_config
 
 from .utils import append_to_system_message, disable_thinking
@@ -163,29 +156,15 @@ _FULL_RESEARCH_STAGES = (
     "solar-hypothesis",
     "solar-experiment",
 )
-_RECEIPT_SPECIALISTS = (*_FULL_RESEARCH_STAGES, "solar-data", "solar-evidence")
 _LOCAL_DISCOVERY_TOOLS = ("ls", "glob")
 _LOCAL_READ_TOOLS = ("read_file",)
-_EXTERNAL_SEARCH_TOOLS = (
+_EXTERNAL_EVIDENCE_TOOLS = (
     "tavily_search",
     "lit_search",
     "research_planner_search_literature",
     "web_search",
 )
-_EXTERNAL_FETCH_TOOLS = ("lit_fetch", "fetch_evidence_source")
-_EXTERNAL_EVIDENCE_TOOLS = ("submit_evidence_receipt",)
-_CLAIM_VALIDATION_TOOLS = ("validate_research_claims",)
-_FINALIZE_TOOLS = ("finalize_research_task",)
-_DRAFT_COMPUTE_TOOLS = ("execute",)
-_MODEL_CALL_LIMIT_PREFIX = "Model call limits exceeded:"
-_READ_ONLY_PLAIN_RESULT_TOOLS = {
-    "ls",
-    "glob",
-    "read_file",
-    "tavily_search",
-    "web_search",
-}
-_F107_PATTERN = re.compile(r"(?:f\s*10[.]?7|10[.]7\s*cm|太阳射电流量)", re.IGNORECASE)
+_COMPUTE_TOOLS = ("execute",)
 _DATA_FALLBACK = re.compile(
     r"(?:数据|文件|表格|本地|workspace|dataset|data|file|csv|tsv|parquet|"
     r"json|fits?|计算|预测|回归|检验|calculate|predict|regression|test)",
@@ -255,60 +234,6 @@ class ResearchRoutingState(AgentState):
 
     research_route: NotRequired[dict[str, Any]]
     research_route_turn: NotRequired[str]
-
-
-def _with_research_obligations(
-    route: Mapping[str, Any],
-    *,
-    text: str,
-) -> dict[str, Any]:
-    """Derive enforceable obligations from a backward-compatible route."""
-
-    enriched = dict(route)
-    mode = enriched.get("mode")
-    source_mode = enriched.get("source_mode")
-    computation = enriched.get("needs_computation") is True
-    local_data = source_mode in {"local", "mixed"} and computation
-    audited = mode in {"verified_analysis", "full_research"} and computation
-    adapter = "f107" if _F107_PATTERN.search(text) else "none"
-    deliverable = (
-        "audited_report"
-        if audited
-        else ("draft" if mode == "verified_analysis" else "chat")
-    )
-    evidence_policy = derive_external_evidence_policy(
-        text,
-        enriched,
-        required_domain_adapter=adapter,
-        deliverable=deliverable,
-    )
-    evidence_reasons = set(evidence_policy["external_evidence_reasons"])
-    audited_attribution = bool(
-        audited
-        or adapter != "none"
-        or evidence_reasons
-        & {
-            "causal_attribution",
-            "competing_hypotheses",
-            "domain_mandatory_claim",
-        }
-    )
-    if audited_attribution:
-        # A hypothesis specialist may create a bounded exploratory draft, but it
-        # cannot own an audited attribution task whose evidence, data semantics,
-        # computation, and finalizer obligations must continue in the parent graph.
-        enriched["task_intent"] = "general"
-        enriched["required_specialist"] = "none"
-    enriched.update(
-        {
-            "requires_dataset_semantics": local_data,
-            "requires_computation_receipt": audited,
-            **evidence_policy,
-            "required_domain_adapter": adapter,
-            "deliverable": deliverable,
-        }
-    )
-    return enriched
 
 
 def _message_text(message: object) -> str:
@@ -560,6 +485,8 @@ def _calls_since_latest_human(
                 if isinstance(message, Mapping)
                 else getattr(message, "status", None)
             )
+            if status == "error":
+                continue
             call_id = (
                 message.get("tool_call_id")
                 if isinstance(message, Mapping)
@@ -570,19 +497,6 @@ def _calls_since_latest_human(
                 if isinstance(message, Mapping)
                 else getattr(message, "name", None)
             )
-            content = (
-                message.get("content")
-                if isinstance(message, Mapping)
-                else getattr(message, "content", "")
-            )
-            outcome = normalize_tool_outcome(
-                content,
-                transport_status=status,
-                allow_plain_success=isinstance(name, str)
-                and name in _READ_ONLY_PLAIN_RESULT_TOOLS,
-            )
-            if not outcome.succeeded:
-                continue
             if isinstance(call_id, str):
                 successful_ids.add(call_id)
             if isinstance(name, str) and name:
@@ -592,42 +506,6 @@ def _calls_since_latest_human(
         call_names[call_id] for call_id in successful_ids if call_id in call_names
     )
     return calls, successful_names
-
-
-def _successful_call_ids(messages: Sequence[object]) -> set[str]:
-    successful: set[str] = set()
-    for message in messages:
-        if not (isinstance(message, ToolMessage) or _message_role(message) == "tool"):
-            continue
-        name = (
-            message.get("name")
-            if isinstance(message, Mapping)
-            else getattr(message, "name", None)
-        )
-        status = (
-            message.get("status")
-            if isinstance(message, Mapping)
-            else getattr(message, "status", None)
-        )
-        content = (
-            message.get("content")
-            if isinstance(message, Mapping)
-            else getattr(message, "content", "")
-        )
-        outcome = normalize_tool_outcome(
-            content,
-            transport_status=status,
-            allow_plain_success=isinstance(name, str)
-            and name in _READ_ONLY_PLAIN_RESULT_TOOLS,
-        )
-        call_id = (
-            message.get("tool_call_id")
-            if isinstance(message, Mapping)
-            else getattr(message, "tool_call_id", None)
-        )
-        if outcome.succeeded and isinstance(call_id, str):
-            successful.add(call_id)
-    return successful
 
 
 def _successful_specialists(
@@ -654,25 +532,7 @@ def _successful_specialists(
             if isinstance(metadata, Mapping)
             else None
         )
-        content = (
-            message.get("content")
-            if isinstance(message, Mapping)
-            else getattr(message, "content", "")
-        )
-        outcome = normalize_tool_outcome(content, transport_status=status)
-        receipt_refs = (
-            metadata.get("receipt_refs", ()) if isinstance(metadata, Mapping) else ()
-        )
-        effective_status = (
-            metadata.get("research_router_outcome_status")
-            if isinstance(metadata, Mapping)
-            else None
-        ) or outcome.status
-        if (
-            effective_status == "success"
-            and (outcome.receipt_refs or receipt_refs)
-            and specialist in _RECEIPT_SPECIALISTS
-        ):
+        if status != "error" and specialist in _FULL_RESEARCH_STAGES:
             routed.add(str(specialist))
     if "task" not in successful_names:
         return routed
@@ -685,13 +545,7 @@ def _successful_specialists(
             if isinstance(message, Mapping)
             else getattr(message, "status", None)
         )
-        content = (
-            message.get("content")
-            if isinstance(message, Mapping)
-            else getattr(message, "content", "")
-        )
-        outcome = normalize_tool_outcome(content, transport_status=status)
-        if not outcome.has_verified_receipt:
+        if status == "error":
             continue
         call_id = (
             message.get("tool_call_id")
@@ -706,7 +560,7 @@ def _successful_specialists(
             for call in calls
             if call.get("name") == "task"
             and call.get("id") in successful_call_ids
-            and call.get("args", {}).get("subagent_type") in _RECEIPT_SPECIALISTS
+            and call.get("args", {}).get("subagent_type") in _FULL_RESEARCH_STAGES
         }
     )
     return routed
@@ -754,11 +608,6 @@ def _is_bounded_hypothesis_route(state: object) -> bool:
     if not isinstance(state, Mapping):
         return False
     route = state.get("research_route")
-    reasons = (
-        set(route.get("external_evidence_reasons", ()))
-        if isinstance(route, Mapping)
-        else set()
-    )
     return bool(
         isinstance(route, Mapping)
         and route.get("mode") == "verified_analysis"
@@ -769,15 +618,6 @@ def _is_bounded_hypothesis_route(state: object) -> bool:
             "hypothesis_update",
         }
         and route.get("required_specialist") == "solar-hypothesis"
-        and route.get("deliverable", "draft") == "draft"
-        and route.get("requires_computation_receipt") is not True
-        and route.get("required_domain_adapter", "none") == "none"
-        and not reasons
-        & {
-            "causal_attribution",
-            "competing_hypotheses",
-            "domain_mandatory_claim",
-        }
     )
 
 
@@ -871,7 +711,7 @@ def _direct_hypothesis_task_request(
         "evidence. Execute this order:\n"
         "1. Call scientific_hypothesis_bind_request immediately, before discovery.\n"
         "2. Call kb_query for this question. Select only the smallest relevant Wiki "
-        "bundle: hard maximum 3 entries. For each selected entry, call "
+        "bundle: target 5 entries, hard maximum 7. For each selected entry, call "
         "kb_read and then scientific_hypothesis_bind_wiki_evidence immediately. "
         "After three successful bindings cover one mechanism, one method/data "
         "constraint, and the proxy/measurement null, persist H0 or the first "
@@ -882,9 +722,7 @@ def _direct_hypothesis_task_request(
         "scenario premises in the request are assumptions, not empirical support.\n"
         "4. Persist the first complete candidate as soon as it is ready with "
         "scientific_hypothesis_update_draft, then upsert the remaining mechanically "
-        "distinct candidates. Default to one principal candidate and one alternative; "
-        "add a third only when the request explicitly requires a null hypothesis. "
-        "Prefer a smaller persisted portfolio over a larger "
+        "distinct candidates. Prefer a smaller persisted portfolio over a larger "
         "prose-only answer if budget is tight. Confidence must be exactly high, "
         "medium, or low; Wiki grounding alone cannot justify high confidence.\n"
         "5. Call scientific_hypothesis_get_draft. Return only a concise rendering "
@@ -893,10 +731,7 @@ def _direct_hypothesis_task_request(
         "next test. Never claim reads or bindings without tool receipts.\n"
         "Resolve avoidable draft warnings. Do not rely on a parent-written Wiki "
         "summary or unbound 'verified facts'. Do not publish or freeze unless the "
-        "user explicitly requests it. If two consecutive repair attempts add no new "
-        "draft hash, artifact, or receipt, stop and return partial instead of looping. "
-        "Always reserve the final two model calls for scientific_hypothesis_get_draft "
-        "and the structured handoff.\n\n"
+        "user explicitly requests it.\n\n"
         "<latest_user_request>\n"
         f"{user_request}\n"
         "</latest_user_request>"
@@ -948,52 +783,6 @@ def _latest_specialist_result(
             call_id not in specialist_call_ids and routed_specialist != specialist
         ):
             continue
-        outcome = normalize_tool_outcome(
-            (
-                message.get("content")
-                if isinstance(message, Mapping)
-                else getattr(message, "content", "")
-            ),
-            transport_status=status,
-        )
-        receipt_refs = (
-            metadata.get("receipt_refs", ()) if isinstance(metadata, Mapping) else ()
-        )
-        effective_status = (
-            metadata.get("research_router_outcome_status")
-            if isinstance(metadata, Mapping)
-            else None
-        ) or outcome.status
-        if effective_status != "success":
-            continue
-        if not (outcome.receipt_refs or receipt_refs):
-            continue
-        content = _message_text(message)
-        if content.strip():
-            return content
-    return None
-
-
-def _latest_specialist_terminal_result(
-    messages: Sequence[object],
-    specialist: str,
-) -> str | None:
-    """Return a non-retryable partial/blocked specialist result, if present."""
-
-    for message in reversed(messages):
-        if not (isinstance(message, ToolMessage) or _message_role(message) == "tool"):
-            continue
-        metadata = (
-            message.get("additional_kwargs", {})
-            if isinstance(message, Mapping)
-            else getattr(message, "additional_kwargs", {})
-        )
-        if not isinstance(metadata, Mapping):
-            continue
-        if metadata.get("research_router_specialist") != specialist:
-            continue
-        if metadata.get("research_router_outcome_status") not in {"partial", "blocked"}:
-            continue
         content = _message_text(message)
         if content.strip():
             return content
@@ -1039,45 +828,10 @@ def _require_persisted_hypothesis_draft(
     if not isinstance(result, ToolMessage) or result.status == "error":
         return result
     receipt = _persisted_hypothesis_draft_status(config)
-    if receipt is None:
+    if receipt is None or receipt[0]:
         return result
-    content = _message_text(result)
-    if content.strip().startswith(_MODEL_CALL_LIMIT_PREFIX):
-        has_draft = receipt[0]
-        outcome = ToolOutcome(
-            status="partial" if has_draft else "blocked",
-            summary=(
-                "Hypothesis draft preserved; model-call budget exhausted."
-                if has_draft
-                else "Model-call budget exhausted before a hypothesis draft was persisted."
-            ),
-            artifact_refs=(receipt[1],) if has_draft else (),
-            error_code="model_call_budget_exhausted",
-            retryable=False,
-        )
-        metadata = dict(result.additional_kwargs)
-        metadata.update(
-            {
-                "research_router_specialist": "solar-hypothesis",
-                "research_router_outcome_status": outcome.status,
-            }
-        )
-        metadata.pop("receipt_refs", None)
-        return result.model_copy(
-            update={
-                "content": json.dumps(outcome.to_dict(), ensure_ascii=False),
-                "additional_kwargs": metadata,
-            }
-        )
-    if receipt[0]:
-        metadata = dict(result.additional_kwargs)
-        metadata["research_router_specialist"] = "solar-hypothesis"
-        metadata["research_router_outcome_status"] = "success"
-        metadata["receipt_refs"] = [receipt[1]]
-        return result.model_copy(update={"additional_kwargs": metadata})
     metadata = dict(result.additional_kwargs)
     metadata["research_router_specialist"] = "solar-hypothesis"
-    metadata["research_router_outcome_status"] = "error"
     return result.model_copy(
         update={
             "content": (
@@ -1109,15 +863,6 @@ def _passthrough_hypothesis_result(
     if content is not None:
         return ModelResponse(
             result=[AIMessage(content=content)],
-            structured_response=response.structured_response,
-        )
-    terminal = _latest_specialist_terminal_result(
-        list(request.messages),
-        "solar-hypothesis",
-    )
-    if terminal is not None:
-        return ModelResponse(
-            result=[AIMessage(content=terminal)],
             structured_response=response.structured_response,
         )
 
@@ -1220,13 +965,8 @@ class ResearchRouterMiddleware(AgentMiddleware[ResearchRoutingState, Any, Any]):
         key = _turn_key(latest[1])
         if state.get("research_route_turn") == key and state.get("research_route"):
             return None
-        route = _with_research_obligations(
-            self._route_sync(_message_text(latest[1])),
-            text=_message_text(latest[1]),
-        )
-        self._persist_obligations(route)
         return {
-            "research_route": route,
+            "research_route": self._route_sync(_message_text(latest[1])),
             "research_route_turn": key,
         }
 
@@ -1243,28 +983,10 @@ class ResearchRouterMiddleware(AgentMiddleware[ResearchRoutingState, Any, Any]):
         key = _turn_key(latest[1])
         if state.get("research_route_turn") == key and state.get("research_route"):
             return None
-        route = _with_research_obligations(
-            await self._route_async(_message_text(latest[1])),
-            text=_message_text(latest[1]),
-        )
-        await asyncio.to_thread(self._persist_obligations, route)
         return {
-            "research_route": route,
+            "research_route": await self._route_async(_message_text(latest[1])),
             "research_route_turn": key,
         }
-
-    @staticmethod
-    def _persist_obligations(route: Mapping[str, Any]) -> None:
-        try:
-            config = get_config()
-            root = workspace_root_from_config(
-                config if isinstance(config, Mapping) else None
-            )
-            record_task_route(root, route)
-        except (RuntimeError, OSError, ValueError, json.JSONDecodeError):
-            # Direct middleware tests and unthreaded CLI calls have no bound
-            # task workspace. The graph state still carries the route.
-            return
 
     def _prepare_request(self, request: ModelRequest) -> ModelRequest:
         route = request.state.get("research_route")
@@ -1275,26 +997,15 @@ class ResearchRouterMiddleware(AgentMiddleware[ResearchRoutingState, Any, Any]):
         needs_computation = route.get("needs_computation") is True
         task_intent = route.get("task_intent", "general")
         required_specialist = route.get("required_specialist", "none")
-        requires_dataset_semantics = route.get("requires_dataset_semantics") is True
-        requires_computation_receipt = route.get("requires_computation_receipt") is True
-        requires_external_evidence = route.get("requires_external_evidence") is True
-        required_domain_adapter = route.get("required_domain_adapter", "none")
-        deliverable = route.get("deliverable", "chat")
         messages = list(request.messages)
         calls, successful_names = _calls_since_latest_human(messages)
-        successful_call_ids = _successful_call_ids(messages)
 
         directive = [
             "<research_route>",
             f"mode={mode}; source_mode={source_mode}; "
             f"needs_computation={str(needs_computation).lower()}; "
             f"task_intent={task_intent}; "
-            f"required_specialist={required_specialist}; "
-            f"requires_dataset_semantics={str(requires_dataset_semantics).lower()}; "
-            f"requires_computation_receipt={str(requires_computation_receipt).lower()}; "
-            f"requires_external_evidence={str(requires_external_evidence).lower()}; "
-            f"required_domain_adapter={required_domain_adapter}; "
-            f"deliverable={deliverable}",
+            f"required_specialist={required_specialist}",
         ]
         forced_tool: str | None = None
         suppress_tools = False
@@ -1310,10 +1021,6 @@ class ResearchRouterMiddleware(AgentMiddleware[ResearchRoutingState, Any, Any]):
                 "substantive claims; distinguish retrieved facts from computed results."
             )
             if required_specialist == "solar-hypothesis":
-                terminal_result = _latest_specialist_terminal_result(
-                    messages,
-                    "solar-hypothesis",
-                )
                 completed = _successful_specialists(
                     calls,
                     successful_names,
@@ -1332,15 +1039,7 @@ class ResearchRouterMiddleware(AgentMiddleware[ResearchRoutingState, Any, Any]):
                     ),
                 )
                 task_available = _available_tool(request.tools, ("task",)) is not None
-                if terminal_result is not None:
-                    suppress_tools = True
-                    directive.append(
-                        "The bounded solar-hypothesis model-call budget was exhausted. "
-                        "Preserve and return its structured partial/blocked outcome "
-                        "verbatim. Do not retry, promote the draft to success, or invoke "
-                        "a compensating specialist."
-                    )
-                elif "solar-hypothesis" in completed:
+                if "solar-hypothesis" in completed:
                     suppress_tools = True
                     directive.append(
                         "The required solar-hypothesis delegation completed. Its tool "
@@ -1378,52 +1077,13 @@ class ResearchRouterMiddleware(AgentMiddleware[ResearchRoutingState, Any, Any]):
                     suppress_tools = True
             else:
                 local_required = source_mode in {"local", "mixed"}
-                external_required = requires_external_evidence
+                external_required = source_mode in {"external", "mixed"}
                 local_seen = bool(
                     successful_names & {*_LOCAL_DISCOVERY_TOOLS, *_LOCAL_READ_TOOLS}
                 )
                 read_seen = bool(successful_names & set(_LOCAL_READ_TOOLS))
-                successful_calls = [
-                    call for call in calls if call.get("id") in successful_call_ids
-                ]
-                bound_evidence_claims = {
-                    str(call.get("args", {}).get("claim_id"))
-                    for call in successful_calls
-                    if call.get("name") in _EXTERNAL_EVIDENCE_TOOLS
-                    and call.get("args", {}).get("claim_id")
-                }
-                required_evidence_claims = (
-                    {
-                        "f107_product_definition",
-                        "f107_observatory_history",
-                        "f107_1980_discontinuity",
-                    }
-                    if required_domain_adapter == "f107" and requires_external_evidence
-                    else set()
-                )
-                evidence_count = len(bound_evidence_claims)
-                search_count = sum(
-                    call.get("name") in _EXTERNAL_SEARCH_TOOLS
-                    for call in successful_calls
-                )
-                fetch_count = sum(
-                    call.get("name") in _EXTERNAL_FETCH_TOOLS
-                    for call in successful_calls
-                )
-                search_seen = search_count > evidence_count
-                fetch_seen = fetch_count > evidence_count
-                external_seen = (
-                    required_evidence_claims.issubset(bound_evidence_claims)
-                    if required_evidence_claims
-                    else evidence_count >= 1
-                )
-                compute_seen = bool(successful_names & set(_FINALIZE_TOOLS))
-                claims_seen = bool(successful_names & set(_CLAIM_VALIDATION_TOOLS))
-                completed = _successful_specialists(
-                    calls,
-                    successful_names,
-                    messages,
-                )
+                external_seen = bool(successful_names & set(_EXTERNAL_EVIDENCE_TOOLS))
+                compute_seen = bool(successful_names & set(_COMPUTE_TOOLS))
 
                 if local_required and not local_seen:
                     forced_tool = _available_tool(
@@ -1432,101 +1092,13 @@ class ResearchRouterMiddleware(AgentMiddleware[ResearchRoutingState, Any, Any]):
                     )
                 elif local_required and not read_seen:
                     forced_tool = _available_tool(request.tools, _LOCAL_READ_TOOLS)
-                elif requires_dataset_semantics and "solar-data" not in completed:
-                    forced_tool = _available_tool(request.tools, ("task",))
-                    directive.append(
-                        "Delegate to solar-data with subagent_type='solar-data' before "
-                        "external evidence work. It must bind the actual product, unit, "
-                        "columns, quality policy, aggregation rules, and input hashes in "
-                        "a verified DatasetSemanticManifest receipt; prose or a work-file "
-                        "path does not complete this stage."
-                    )
-                elif external_required and not search_seen:
-                    forced_tool = _available_tool(
-                        request.tools,
-                        _EXTERNAL_SEARCH_TOOLS,
-                    )
-                elif external_required and not fetch_seen:
-                    forced_tool = _available_tool(
-                        request.tools,
-                        _EXTERNAL_FETCH_TOOLS,
-                    )
-                    directive.append(
-                        "A search result is metadata, not evidence. Fetch and read "
-                        "the selected primary source before making factual claims."
-                    )
                 elif external_required and not external_seen:
                     forced_tool = _available_tool(
                         request.tools,
                         _EXTERNAL_EVIDENCE_TOOLS,
                     )
-                    directive.append(
-                        "Call submit_evidence_receipt to submit an exact fetched source "
-                        "span as pending evidence. Search metadata alone does not satisfy "
-                        "the evidence obligation. The still-required claim ids are: "
-                        + (
-                            ", ".join(
-                                sorted(required_evidence_claims - bound_evidence_claims)
-                            )
-                            or "one claim id matching the report"
-                        )
-                        + "."
-                    )
-                elif external_required:
-                    if "solar-evidence" not in completed:
-                        forced_tool = _available_tool(request.tools, ("task",))
-                        directive.append(
-                            "Delegate all pending evidence submissions to "
-                            "solar-evidence for independent review. The reviewer "
-                            "must return accepted/rejected v2 review receipt refs; "
-                            "the submitting agent cannot approve its own evidence."
-                        )
-                if forced_tool is None and requires_computation_receipt:
-                    if "solar-experiment" not in completed:
-                        forced_tool = _available_tool(request.tools, ("task",))
-                        directive.append(
-                            "Delegate the bounded audited computation to "
-                            "solar-experiment. Generic execute may be used only for "
-                            "draft exploration and cannot satisfy this obligation. "
-                            "The specialist must return a structured success outcome "
-                            "with a finalized experiment receipt."
-                        )
-                    elif not claims_seen:
-                        forced_tool = _available_tool(
-                            request.tools,
-                            _CLAIM_VALIDATION_TOOLS,
-                        )
-                        directive.append(
-                            "Validate every reader-facing quantitative, historical, "
-                            "and interpretive claim. Quantitative claims need a "
-                            "measurement id; historical claims need claim-matched "
-                            "evidence receipts; interpretations need supports and "
-                            "limitations."
-                        )
-                    elif not compute_seen:
-                        forced_tool = _available_tool(
-                            request.tools,
-                            _FINALIZE_TOOLS,
-                        )
-                        directive.append(
-                            "Finalize the parent research task using every dataset, "
-                            "evidence, and experiment receipt returned this turn. "
-                            "The finalizer will downgrade the task if outputs/report.md "
-                            "or a required receipt is missing."
-                        )
-                elif (
-                    forced_tool is None
-                    and needs_computation
-                    and not requires_computation_receipt
-                    and not (successful_names & set(_DRAFT_COMPUTE_TOOLS))
-                ):
-                    # Compatibility for callers that construct a legacy route
-                    # directly. Routes produced by before_agent always carry
-                    # requires_computation_receipt for verified computation.
-                    forced_tool = _available_tool(
-                        request.tools,
-                        _DRAFT_COMPUTE_TOOLS,
-                    )
+                elif needs_computation and not compute_seen:
+                    forced_tool = _available_tool(request.tools, _COMPUTE_TOOLS)
 
                 if forced_tool and _attempt_count(calls, forced_tool) >= 2:
                     directive.append(

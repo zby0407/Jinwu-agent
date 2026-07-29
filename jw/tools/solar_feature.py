@@ -16,10 +16,7 @@ import sys
 import warnings
 from pathlib import Path
 
-from langchain_core.runnables import RunnableConfig
 from langchain_core.tools import tool
-
-from jw.workspaces import resolve_scoped_path, workspace_root_from_config
 
 from .registry import register_tool_bundle
 
@@ -218,85 +215,11 @@ def dataset_statistics(csv_path: str, columns: str = "") -> str:
         return _error_json("dataset_statistics", exc)
 
 
-@tool(parse_docstring=True)
-def bind_f107_dataset_semantics(
-    csv_path: str,
-    silso_total_path: str = "",
-    silso_hemispheric_path: str = "",
-    config: RunnableConfig = None,
-) -> str:
-    """Canonicalize an uploaded F10.7 file and write a verified semantic receipt.
-
-    This is the required input boundary for audited F10.7 computations. It
-    binds columns by name, applies missing/duplicate policy, aggregates raw
-    determinations to equal-weight daily and then monthly means, and records
-    the selected adjusted-flux product and sfu unit.
-
-    Args:
-        csv_path: Task-scoped path such as ``/inputs/f107_daily_flux.csv``.
-        silso_total_path: SILSO Version 2 total monthly file for a joint analysis.
-        silso_hemispheric_path: Optional uploaded hemispheric file to record as
-            explicitly excluded from the primary total-SN estimand.
-
-    Returns:
-        Structured ToolOutcome JSON with canonical artifact and receipt paths.
-    """
-
-    try:
-        from f107_semantic_adapter import write_f107_contract
-
-        source = resolve_scoped_path(csv_path, config)
-        silso_total = (
-            resolve_scoped_path(silso_total_path, config)
-            if silso_total_path.strip()
-            else None
-        )
-        silso_hemispheric = (
-            resolve_scoped_path(silso_hemispheric_path, config)
-            if silso_hemispheric_path.strip()
-            else None
-        )
-        root = workspace_root_from_config(config)
-        artifact_name = (
-            "canonical_f107_sn_monthly.csv"
-            if silso_total is not None
-            else "canonical_f107_monthly.csv"
-        )
-        artifact = root / "work" / artifact_name
-        receipt = root / "receipts" / "datasets" / "f107_semantics.json"
-        manifest = write_f107_contract(
-            source,
-            canonical_path=artifact,
-            receipt_path=receipt,
-            silso_total_path=silso_total,
-            silso_hemispheric_path=silso_hemispheric,
-        )
-        return _to_json(
-            {
-                "schema_version": 1,
-                "status": "success",
-                "summary": (
-                    "F10.7 adjusted flux was bound by column name and "
-                    "canonicalized from determinations to daily and monthly means."
-                ),
-                "artifact_refs": [f"work/{artifact_name}"],
-                "receipt_refs": ["receipts/datasets/f107_semantics.json"],
-                "retryable": False,
-                "manifest_id": manifest["manifest_id"],
-                "canonical_sha256": manifest["canonical_sha256"],
-                "diagnostics": manifest["diagnostics"],
-            }
-        )
-    except Exception as exc:
-        return _error_json("bind_f107_dataset_semantics", exc)
-
-
 SOLAR_FEATURE_TOOLS = [
     audit_solar_data_quality,
     engineer_solar_features,
     prepare_solar_experiment,
     dataset_statistics,
-    bind_f107_dataset_semantics,
 ]
 
-register_tool_bundle("solar-features", SOLAR_FEATURE_TOOLS, include_in_main=False)
+register_tool_bundle("solar-features", SOLAR_FEATURE_TOOLS)

@@ -6,10 +6,6 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-try:
-    from .f107_semantic_adapter import canonicalize_f107
-except ImportError:  # pragma: no cover - direct script execution
-    from f107_semantic_adapter import canonicalize_f107
 
 ROOT = Path(__file__).resolve().parents[1]
 RAW_DIR = ROOT / "data" / "raw"
@@ -299,14 +295,98 @@ def build_cycle_monthly(
     ]
 
 
-def clean_f107(
-    cycles: pd.DataFrame,
-    path: Path | None = None,
-) -> pd.DataFrame:
-    """Build monthly F10.7 features through the canonical semantic adapter."""
-
-    path = Path(path) if path is not None else RAW_DIR / "f107_daily_flux.csv"
-    monthly, _manifest = canonicalize_f107(path)
+def clean_f107(cycles: pd.DataFrame) -> pd.DataFrame:
+    path = RAW_DIR / "f107_daily_flux.csv"
+    df = pd.read_csv(path, dtype={"date_utc": str, "time_utc": str}, low_memory=False)
+    df["date"] = pd.to_datetime(df["date_utc"], errors="coerce")
+    df = df[df["date"].notna()].copy()
+    for col in [
+        "julian_date",
+        "carrington_rotation",
+        "f107_observed",
+        "f107_adjusted",
+        "f107_ursi",
+    ]:
+        df[col] = pd.to_numeric(df[col], errors="coerce")
+    df["missing_flag"] = (
+        df["missing_flag"].astype(str).str.lower().eq("true")
+        | df["f107_adjusted"].isna()
+    )
+    df["duplicate_flag"] = df["duplicate_flag"].astype(str).str.lower().eq("true")
+    daily = df.groupby("date", as_index=False).agg(
+        f107_records_per_day=("f107_adjusted", "size"),
+        f107_valid_records_per_day=("missing_flag", lambda x: int((~x).sum())),
+        f107_missing_records_per_day=("missing_flag", "sum"),
+        f107_duplicate_records_per_day=("duplicate_flag", "sum"),
+        f107_observed_daily_mean=("f107_observed", "mean"),
+        f107_adjusted_daily_mean=("f107_adjusted", "mean"),
+        f107_ursi_daily_mean=("f107_ursi", "mean"),
+        f107_observed_daily_min=("f107_observed", "min"),
+        f107_observed_daily_max=("f107_observed", "max"),
+        f107_adjusted_daily_min=("f107_adjusted", "min"),
+        f107_adjusted_daily_max=("f107_adjusted", "max"),
+        f107_source_segments=(
+            "source_segment",
+            lambda x: "|".join(sorted(set(x.dropna().astype(str)))),
+        ),
+        f107_record_types=(
+            "record_type",
+            lambda x: "|".join(sorted(set(x.dropna().astype(str)))),
+        ),
+    )
+    full_days = pd.DataFrame(
+        {"date": pd.date_range(daily["date"].min(), daily["date"].max(), freq="D")}
+    )
+    daily = full_days.merge(daily, on="date", how="left")
+    daily["is_missing_day"] = daily["f107_records_per_day"].isna()
+    daily["f107_records_per_day"] = daily["f107_records_per_day"].fillna(0).astype(int)
+    daily["f107_valid_records_per_day"] = (
+        daily["f107_valid_records_per_day"].fillna(0).astype(int)
+    )
+    daily["f107_missing_records_per_day"] = (
+        daily["f107_missing_records_per_day"].fillna(0).astype(int)
+    )
+    daily["f107_duplicate_records_per_day"] = (
+        daily["f107_duplicate_records_per_day"].fillna(0).astype(int)
+    )
+    daily["date_month"] = daily["date"].values.astype("datetime64[M]")
+    monthly = daily.groupby("date_month", as_index=False).agg(
+        f107_observed_monthly_mean=("f107_observed_daily_mean", "mean"),
+        f107_adjusted_monthly_mean=("f107_adjusted_daily_mean", "mean"),
+        f107_ursi_monthly_mean=("f107_ursi_daily_mean", "mean"),
+        f107_observed_monthly_min=("f107_observed_daily_min", "min"),
+        f107_observed_monthly_max=("f107_observed_daily_max", "max"),
+        f107_adjusted_monthly_min=("f107_adjusted_daily_min", "min"),
+        f107_adjusted_monthly_max=("f107_adjusted_daily_max", "max"),
+        f107_days_in_month=("date", "size"),
+        f107_observed_days_in_month=("is_missing_day", lambda x: int((~x).sum())),
+        f107_missing_days_in_month=("is_missing_day", "sum"),
+        f107_total_records_in_month=("f107_records_per_day", "sum"),
+        f107_valid_records_in_month=("f107_valid_records_per_day", "sum"),
+        f107_missing_records_in_month=("f107_missing_records_per_day", "sum"),
+        f107_duplicate_records_in_month=("f107_duplicate_records_per_day", "sum"),
+        f107_days_with_less_than_3_records=(
+            "f107_records_per_day",
+            lambda x: int(((x > 0) & (x < 3)).sum()),
+        ),
+        f107_source_segments=(
+            "f107_source_segments",
+            lambda x: "|".join(sorted(set(x.dropna().astype(str)))),
+        ),
+        f107_record_types=(
+            "f107_record_types",
+            lambda x: "|".join(sorted(set(x.dropna().astype(str)))),
+        ),
+    )
+    monthly["f107_month_completeness"] = (
+        monthly["f107_observed_days_in_month"] / monthly["f107_days_in_month"]
+    )
+    monthly["missing_value_flag"] = monthly["f107_missing_days_in_month"].gt(
+        0
+    ) | monthly["f107_missing_records_in_month"].gt(0)
+    monthly["anomaly_flag"] = monthly["missing_value_flag"] | monthly[
+        "f107_duplicate_records_in_month"
+    ].gt(0)
     monthly["source_file"] = path.name
     out = add_cycle_columns(monthly, cycles)
     return out[
