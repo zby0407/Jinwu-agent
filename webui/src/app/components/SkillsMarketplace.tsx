@@ -389,8 +389,8 @@ export function SkillsMarketplace() {
               Cancel
             </Button>
             <Button
+              variant="destructive"
               onClick={confirmUninstall}
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
             >
               Uninstall
             </Button>

@@ -9,7 +9,6 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { RotateCcw, ZoomIn, ZoomOut } from "lucide-react";
-import { useTheme } from "@/providers/ThemeProvider";
 
 interface MermaidDiagramProps {
   code: string;
@@ -69,9 +68,7 @@ export const MermaidDiagram = React.memo<MermaidDiagramProps>(
     // useId is React 19's stable-across-renders unique id. Mermaid needs a
     // CSS-safe id; useId returns strings like ":r3:" so strip the colons.
     const reactId = useId().replace(/:/g, "");
-    const { resolvedTheme } = useTheme();
-    const mermaidTheme: MermaidTheme =
-      resolvedTheme === "dark" ? "dark" : "default";
+    const mermaidTheme: MermaidTheme = "dark";
     const [svg, setSvg] = useState<string | null>(null);
 
     useEffect(() => {

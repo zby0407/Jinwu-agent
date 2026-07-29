@@ -9,12 +9,10 @@ import { Button } from "@/components/ui/button";
 import { Assistant } from "@langchain/langgraph-sdk";
 import { ClientProvider, useClient } from "@/providers/ClientProvider";
 import {
+  Blocks,
+  BrainCircuit,
+  Orbit,
   Settings,
-  SquarePen,
-  PanelLeft,
-  PanelLeftClose,
-  PanelRight,
-  PanelRightClose,
 } from "lucide-react";
 import {
   ResizableHandle,
@@ -28,14 +26,15 @@ import { SkillsMarketplace } from "@/app/components/SkillsMarketplace";
 import { MemoryPanel } from "@/app/components/MemoryPanel";
 import { KnowledgePanel } from "@/app/components/KnowledgePanel";
 import { ScheduledTasksPanel } from "@/app/components/ScheduledTasksPanel";
-import { ThemeToggle } from "@/app/components/ThemeToggle";
 import { HealthIndicator } from "@/app/components/HealthIndicator";
 import { InspectorPanel } from "@/app/components/InspectorPanel";
+import { PanelEdgeToggle } from "@/app/components/PanelEdgeToggle";
 import { RealtimeActivityBridge } from "@/app/components/RealtimeActivityBridge";
 import { RealtimeActivityProvider } from "@/providers/RealtimeActivityProvider";
 import { setThreadAutoApprove } from "@/lib/autoApprove";
 import type { MainChatReporter } from "@/lib/asyncAgents";
 import { cn } from "@/lib/utils";
+import { useMemoryActivity } from "@/app/hooks/useMemoryActivity";
 
 interface HomePageInnerProps {
   config: DeploymentConfig;
@@ -59,6 +58,9 @@ function HomePageInner({
   const [memoryExec, setMemoryExec] = useQueryState("memoryExec");
   const [inspector, setInspector] = useQueryState("inspector");
   const [inspectorTab, setInspectorTab] = useQueryState("inspectorTab");
+  const { unseenCount: memoryUnseen, markSeen: markMemorySeen } =
+    useMemoryActivity();
+  const isResearchSection = view !== "skills" && view !== "memory";
 
   const [mutateThreads, setMutateThreads] = useState<(() => void) | null>(null);
   const [interruptCount, setInterruptCount] = useState(0);
@@ -147,6 +149,10 @@ function HomePageInner({
     }
   }, [inspector, isDesktopLayout, setInspector, sidebar]);
 
+  useEffect(() => {
+    if (view === "memory") markMemorySeen();
+  }, [markMemorySeen, view]);
+
   const closeSidebar = useCallback(() => setSidebar(null), [setSidebar]);
   const closeInspector = useCallback(() => {
     setInspector(null);
@@ -182,13 +188,12 @@ function HomePageInner({
     if (isDesktopLayout === false) setSidebar(null);
     setInspector("1");
   }, [isDesktopLayout, setInspector, setSidebar, setInspectorTab]);
-  const sidebarToggleLabel = view
-    ? sidebar
-      ? "Hide navigation"
-      : "Show navigation"
-    : sidebar
-    ? "Hide research"
-    : "Show research";
+  const showResearch = useCallback(() => setView(null), [setView]);
+  const showSkills = useCallback(() => setView("skills"), [setView]);
+  const showMemory = useCallback(() => {
+    markMemorySeen();
+    setView("memory");
+  }, [markMemorySeen, setView]);
   const startNewChat = useCallback(() => {
     setThreadAutoApprove(null, false);
     setThreadId(null);
@@ -265,102 +270,83 @@ function HomePageInner({
         initialConfig={config}
       />
       <div className="flex h-screen flex-col">
-        <header className="flex h-14 items-center justify-between gap-2 border-b border-border px-2.5 sm:px-4">
-          <div className="flex min-w-0 items-center gap-2 sm:gap-3">
-            <div className="flex min-w-0 items-center gap-2">
-              <Image
-                src="/jw-logo.svg"
-                alt="金乌"
-                width={28}
-                height={28}
-                className="size-6 shrink-0"
-                priority
-              />
-              {/* Show the wordmark only when the thread sidebar is open (it
-                  titles the panel). When collapsed, keep just the logo + the
-                  toggle / new-chat icons for a compact header. */}
-              {sidebar && (
-                <h1 className="truncate text-base font-semibold sm:text-lg">
-                  金乌
-                </h1>
-              )}
-            </div>
-            <div className="flex items-center gap-0.5">
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={toggleSidebar}
-                aria-label={sidebarToggleLabel}
-                className="relative size-8"
-              >
-                {sidebar ? (
-                  <PanelLeftClose
-                    className="size-5"
-                    aria-hidden="true"
-                  />
-                ) : (
-                  <PanelLeft
-                    className="size-5"
-                    aria-hidden="true"
-                  />
-                )}
-                {interruptCount > 0 && (
-                  <span className="absolute right-0 top-0 inline-flex min-h-4 min-w-4 items-center justify-center rounded-full bg-destructive px-1 text-[10px] text-destructive-foreground">
-                    {interruptCount}
-                  </span>
-                )}
-              </Button>
-              {!sidebar && (
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  onClick={startNewChat}
-                  aria-label="New chat"
-                  className="size-8"
-                >
-                  <SquarePen
-                    className="size-5"
-                    aria-hidden="true"
-                  />
-                </Button>
-              )}
-            </div>
+        <header className="jw-topbar grid h-14 grid-cols-[1fr_auto_1fr] items-center gap-1 px-2 sm:gap-3 sm:px-4">
+          <div className="flex min-w-0 items-center gap-2">
+            <Image
+              src="/jw-logo.jpg"
+              alt="金乌"
+              width={30}
+              height={30}
+              className="size-7 shrink-0 rounded-full object-cover ring-1 ring-[var(--brand)]/70 sm:size-[30px]"
+              priority
+            />
+            <h1 className="hidden truncate bg-gradient-to-r from-[#fff1b0] to-[#d99a2b] bg-clip-text text-base font-semibold tracking-[0.16em] text-transparent sm:block">
+              金乌
+            </h1>
           </div>
-          <div className="flex shrink-0 items-center gap-1 sm:gap-2">
+
+          <nav className="jw-primary-nav" aria-label="一级导航">
+            <button
+              type="button"
+              onClick={showResearch}
+              data-active={isResearchSection}
+              aria-current={isResearchSection ? "page" : undefined}
+              aria-label="科学研究"
+              title="科学研究"
+              className="jw-primary-nav-button"
+            >
+              <Orbit className="size-4" aria-hidden="true" />
+              <span className="hidden sm:inline">科学研究</span>
+            </button>
+            <button
+              type="button"
+              onClick={showSkills}
+              data-active={view === "skills"}
+              aria-current={view === "skills" ? "page" : undefined}
+              aria-label="Skills 列表"
+              title="Skills 列表"
+              className="jw-primary-nav-button"
+            >
+              <Blocks className="size-4" aria-hidden="true" />
+              <span className="hidden sm:inline">Skills 列表</span>
+            </button>
+            <button
+              type="button"
+              onClick={showMemory}
+              data-active={view === "memory"}
+              aria-current={view === "memory" ? "page" : undefined}
+              aria-label="金乌记忆"
+              title="金乌记忆"
+              className="jw-primary-nav-button relative"
+            >
+              <BrainCircuit className="size-4" aria-hidden="true" />
+              <span className="hidden sm:inline">金乌记忆</span>
+              {view !== "memory" && memoryUnseen > 0 && (
+                <span
+                  className="absolute -right-1 -top-1 inline-flex min-h-4 min-w-4 items-center justify-center rounded-full bg-[var(--brand-solid)] px-1 text-[10px] font-bold text-[var(--brand-foreground)]"
+                  aria-label={`${memoryUnseen} 条记忆更新`}
+                  title={`${memoryUnseen} 条记忆更新`}
+                >
+                  {memoryUnseen}
+                </span>
+              )}
+            </button>
+          </nav>
+
+          <div className="flex min-w-0 justify-end gap-1 sm:gap-2">
             <HealthIndicator
               deploymentUrl={config.deploymentUrl}
               onReconnect={(url) =>
                 handleSaveConfig({ ...config, deploymentUrl: url })
               }
             />
-            <ThemeToggle />
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={toggleInspector}
-              aria-label={inspector ? "Hide inspector" : "Show workspace"}
-              title={inspector ? "Hide inspector" : "Show workspace"}
-              className="size-8"
-            >
-              {inspector ? (
-                <PanelRightClose
-                  className="size-5"
-                  aria-hidden="true"
-                />
-              ) : (
-                <PanelRight
-                  className="size-5"
-                  aria-hidden="true"
-                />
-              )}
-            </Button>
             <Button
               variant="ghost"
               size="icon"
               onClick={() => setConfigDialogOpen(true)}
               aria-label="Settings"
               title="Settings"
-              className="size-8"
+              className="size-8 text-[var(--brand)]"
             >
               <Settings
                 className="size-5"
@@ -371,7 +357,38 @@ function HomePageInner({
         </header>
 
         <div className="relative flex-1 overflow-hidden">
-          {sidebar && isDesktopLayout === false && (
+          {view === null && (
+            <div
+              aria-hidden="true"
+              className="chat-workspace-background pointer-events-none absolute inset-0 z-0"
+            />
+          )}
+          {view === "skills" && (
+            <div
+              aria-hidden="true"
+              className="skills-workspace-background pointer-events-none absolute inset-0 z-0"
+            />
+          )}
+          {isResearchSection && !sidebar && (
+            <PanelEdgeToggle
+              side="left"
+              open={false}
+              onClick={toggleSidebar}
+              label="展开研究导航"
+              badge={interruptCount}
+              className="absolute left-0 top-1/2 z-30 -translate-y-1/2"
+            />
+          )}
+          {isResearchSection && !inspector && (
+            <PanelEdgeToggle
+              side="right"
+              open={false}
+              onClick={toggleInspector}
+              label="展开研究工作区"
+              className="absolute right-0 top-1/2 z-30 -translate-y-1/2"
+            />
+          )}
+          {isResearchSection && sidebar && isDesktopLayout === false && (
             <div className="absolute inset-0 z-40 flex md:hidden">
               <button
                 type="button"
@@ -380,7 +397,7 @@ function HomePageInner({
                 onClick={closeSidebar}
               />
               <aside
-                aria-label={view ? "Navigation" : "Research navigation"}
+                aria-label="研究导航"
                 className="relative z-10 h-full w-[min(19rem,calc(100vw-2.25rem))] bg-background shadow-xl"
               >
                 <ThreadList
@@ -393,10 +410,18 @@ function HomePageInner({
                   onMutateReady={(fn) => setMutateThreads(() => fn)}
                   onInterruptCountChange={setInterruptCount}
                 />
+                <PanelEdgeToggle
+                  side="left"
+                  open
+                  onClick={toggleSidebar}
+                  label="收起研究导航"
+                  badge={interruptCount}
+                  className="absolute right-0 top-1/2 z-20 translate-x-full -translate-y-1/2"
+                />
               </aside>
             </div>
           )}
-          {inspector && isDesktopLayout === false && (
+          {isResearchSection && inspector && isDesktopLayout === false && (
             <div className="absolute inset-0 z-40 flex justify-end md:hidden">
               <button
                 type="button"
@@ -409,8 +434,14 @@ function HomePageInner({
                 className="relative z-10 h-full w-[min(22rem,calc(100vw-2.25rem))] bg-background shadow-xl"
               >
                 <InspectorPanel
-                  onClose={closeInspector}
                   onReportToMainChat={notifyMainChat}
+                />
+                <PanelEdgeToggle
+                  side="right"
+                  open
+                  onClick={toggleInspector}
+                  label="收起研究工作区"
+                  className="absolute left-0 top-1/2 z-20 -translate-x-full -translate-y-1/2"
                 />
               </aside>
             </div>
@@ -419,15 +450,16 @@ function HomePageInner({
             <ResizablePanelGroup
               direction="horizontal"
               autoSaveId="jw-chat"
+              className="relative z-10"
             >
-              {sidebar && isDesktopLayout && (
+              {isResearchSection && sidebar && isDesktopLayout && (
                 <>
                   <ResizablePanel
                     id="thread-history"
                     order={1}
                     defaultSize={23}
                     minSize={18}
-                    className="relative min-w-[260px]"
+                    className="relative min-w-[260px] bg-background"
                   >
                     <ThreadList
                       onNewChat={startNewChat}
@@ -445,6 +477,25 @@ function HomePageInner({
                 className="relative flex flex-col"
                 order={2}
               >
+                {isResearchSection && isDesktopLayout && sidebar && (
+                  <PanelEdgeToggle
+                    side="left"
+                    open
+                    onClick={toggleSidebar}
+                    label="收起研究导航"
+                    badge={interruptCount}
+                    className="absolute left-0 top-1/2 z-30 -translate-y-1/2"
+                  />
+                )}
+                {isResearchSection && isDesktopLayout && inspector && (
+                  <PanelEdgeToggle
+                    side="right"
+                    open
+                    onClick={toggleInspector}
+                    label="收起研究工作区"
+                    className="absolute right-0 top-1/2 z-30 -translate-y-1/2"
+                  />
+                )}
                 {/* Chat stays mounted across view switches. We hide it via
                   `display:none` (rather than unmounting) so flipping to
                   Skills/Memory and back is instant — no thread re-fetch, no
@@ -494,7 +545,7 @@ function HomePageInner({
                 {view === "schedule" && <ScheduledTasksPanel />}
               </ResizablePanel>
 
-              {inspector && isDesktopLayout && (
+              {isResearchSection && inspector && isDesktopLayout && (
                 <>
                   <ResizableHandle />
                   <ResizablePanel
@@ -502,10 +553,9 @@ function HomePageInner({
                     order={3}
                     defaultSize={26}
                     minSize={20}
-                    className="relative min-w-[300px]"
+                    className="relative min-w-[300px] bg-background"
                   >
                     <InspectorPanel
-                      onClose={closeInspector}
                       onReportToMainChat={notifyMainChat}
                     />
                   </ResizablePanel>

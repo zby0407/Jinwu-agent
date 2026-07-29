@@ -2,7 +2,6 @@
 
 import { useEffect, useMemo, useState, useRef, useCallback } from "react";
 import {
-  BrainCircuit,
   Clock,
   Download,
   Library,
@@ -11,7 +10,6 @@ import {
   Pencil,
   Pin,
   PinOff,
-  Puzzle,
   Search,
   SquarePen,
   Trash2,
@@ -41,7 +39,6 @@ import {
   pinThread,
   exportThread,
 } from "@/app/hooks/useThreads";
-import { useMemoryActivity } from "@/app/hooks/useMemoryActivity";
 import { getThreadAutoApprove } from "@/lib/autoApprove";
 import {
   Dialog,
@@ -157,9 +154,6 @@ export function ThreadList({
 }: ThreadListProps) {
   const [currentThreadId, setThreadId] = useQueryState("threadId");
   const [view, setView] = useQueryState("view");
-  // Badge the Memory nav when long-term memory changed since last viewed.
-  const { unseenCount: memoryUnseen, markSeen: markMemorySeen } =
-    useMemoryActivity();
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
   const [search, setSearch] = useState("");
   const [renameTarget, setRenameTarget] = useState<ThreadItem | null>(null);
@@ -590,35 +584,13 @@ export function ThreadList({
           }
           onClose?.();
         }}
-        className="flex flex-shrink-0 items-center gap-2.5 border-b border-border px-3 py-3 text-left text-sm font-medium transition-colors hover:bg-accent focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+        className="jw-sidebar-nav-button"
       >
         <SquarePen
           className="size-4"
           aria-hidden="true"
         />
-        New Chat
-      </button>
-      <button
-        type="button"
-        onClick={() => {
-          if (view === "skills") {
-            setView(null);
-            onClose?.();
-            return;
-          }
-          setView("skills");
-          onClose?.();
-        }}
-        className={cn(
-          "flex flex-shrink-0 items-center gap-2.5 border-b border-border px-3 py-3 text-left text-sm font-medium transition-colors hover:bg-accent focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
-          view === "skills" && "bg-accent"
-        )}
-      >
-        <Puzzle
-          className="size-4"
-          aria-hidden="true"
-        />
-        Research Skills
+        新对话
       </button>
       <button
         type="button"
@@ -632,8 +604,8 @@ export function ThreadList({
           onClose?.();
         }}
         className={cn(
-          "flex flex-shrink-0 items-center gap-2.5 border-b border-border px-3 py-3 text-left text-sm font-medium transition-colors hover:bg-accent focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
-          view === "wiki" && "bg-accent"
+          "jw-sidebar-nav-button",
+          view === "wiki" && "jw-sidebar-nav-button-active"
         )}
       >
         <Library
@@ -641,40 +613,6 @@ export function ThreadList({
           aria-hidden="true"
         />
         太阳活动周 Wiki
-      </button>
-      <button
-        type="button"
-        onClick={() => {
-          if (view === "memory") {
-            setView(null);
-            onClose?.();
-            return;
-          }
-          markMemorySeen();
-          setView("memory");
-          onClose?.();
-        }}
-        className={cn(
-          "flex flex-shrink-0 items-center gap-2.5 border-b border-border px-3 py-3 text-left text-sm font-medium transition-colors hover:bg-accent focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
-          view === "memory" && "bg-accent"
-        )}
-      >
-        <BrainCircuit
-          className="size-4"
-          aria-hidden="true"
-        />
-        金乌记忆
-        {view !== "memory" && memoryUnseen > 0 && (
-          <span
-            className="ml-auto inline-flex min-w-4 items-center justify-center rounded-full bg-[var(--brand-solid)] px-1 text-[10px] font-bold leading-none text-[var(--brand-foreground)]"
-            title={`${memoryUnseen} memory file${
-              memoryUnseen === 1 ? "" : "s"
-            } updated since you last looked`}
-            aria-label={`${memoryUnseen} memory updates`}
-          >
-            {memoryUnseen}
-          </span>
-        )}
       </button>
       <button
         type="button"
@@ -688,15 +626,15 @@ export function ThreadList({
           onClose?.();
         }}
         className={cn(
-          "flex flex-shrink-0 items-center gap-2.5 border-b border-border px-3 py-3 text-left text-sm font-medium transition-colors hover:bg-accent focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
-          view === "schedule" && "bg-accent"
+          "jw-sidebar-nav-button",
+          view === "schedule" && "jw-sidebar-nav-button-active"
         )}
       >
         <Clock
           className="size-4"
           aria-hidden="true"
         />
-        Scheduled
+        定时任务
       </button>
       <div className="flex-shrink-0 border-b border-border p-2.5">
         <div className="relative">
@@ -956,9 +894,9 @@ export function ThreadList({
               Cancel
             </Button>
             <Button
+              variant="destructive"
               onClick={confirmDelete}
               disabled={actionBusy}
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
             >
               {actionBusy ? "Deleting…" : "Delete"}
             </Button>

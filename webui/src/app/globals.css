@@ -9,44 +9,36 @@
   }
 
   :root {
-    /* App-specific color variables */
-    /* App-specific colors — warm "paper" palette. Light mode: ivory
-       background, true-white cards, warm charcoal text. */
-    --color-primary: #33302a;
-    --color-user-message: #0e5c6e;
-    --color-user-message-bg: #e6f2f5;
-    --color-avatar-bg: #efe4db;
-    --color-secondary: #6b6557;
-    --color-success: #3f7a52;
-    --color-warning: #946618;
-    --color-error: #c0392b;
-    --color-background: #faf8f3;
-    --color-subagent-hover: #efe7da;
-    --color-surface: #ffffff;
-    --color-border: #e6dfd2;
-    --color-border-light: #f0ebe1;
-    --color-text-primary: #33302a;
-    --color-text-secondary: #6b6557;
-    --color-text-tertiary: #736e60;
-    --color-file-button: #ffffff;
-    --color-file-button-hover: #f0ebe1;
-
-    /* Brand accent — single source of truth = 金乌 cyan (#00BCD4,
-       deepened to #00788f so white text passes WCAG AA on the warm paper bg).
-       The warm "paper" base stays; cyan carries the 金乌 identity. */
-    --brand: #066679;
-    --brand-hover: #054e5b;
-    /* Solid filled-button background. Same as --brand in light; in dark it's a
-       deeper, calmer cyan so buttons don't glow (see .dark). White text on both. */
-    --brand-solid: #066679;
-    --brand-foreground: #ffffff;
+    /* The application is dark-only. Keep every shared color token here so
+       future background textures and imagery have one palette to build on. */
+    --color-primary: #f3ead4;
+    --color-user-message: #f2d386;
+    --color-user-message-bg: #2a1d0d;
+    --color-avatar-bg: #33210d;
+    --color-secondary: #b9ad91;
+    --color-success: #5dbe85;
+    --color-warning: #e0a94a;
+    --color-error: #e0796b;
+    --color-background: #090a0d;
+    --color-subagent-hover: #241a0d;
+    --color-surface: #121317;
+    --color-border: #3b3020;
+    --color-border-light: #2d271d;
+    --color-text-primary: #f3ead4;
+    --color-text-secondary: #b9ad91;
+    --color-text-tertiary: #8e8779;
+    --color-file-button: #151419;
+    --color-file-button-hover: #241b0f;
+    --brand: #f0c766;
+    --brand-hover: #ffda78;
+    --brand-solid: #c1841d;
+    --brand-foreground: #140e05;
 
     /* deep-agents-ui base tokens. Its tailwind.config.mjs maps semantic classes
        (text-primary, text-tertiary, text-success, text-warning, bg-secondary,
        border-primary, the global scrollbar) to these LangSmith-style vars, but
        the base never defined them, so those classes rendered colorless. Alias
-       them to our palette. Declared once: the var() refs resolve per-mode at the
-       use site because the referenced color tokens are overridden in .dark. */
+       them to our dark palette. */
     --text-primary: var(--color-text-primary);
     --text-secondary: var(--color-text-secondary);
     --text-tertiary: var(--color-text-tertiary);
@@ -117,88 +109,27 @@
 
     /* Tailwind/Radix UI component variables */
     --radius: 0.5rem;
-    --background: 43 41% 97%;
-    --foreground: 40 10% 18%;
-    --card: 0 0% 100%;
-    --card-foreground: 40 10% 18%;
-    --popover: 0 0% 100%;
-    --popover-foreground: 40 10% 18%;
-    --primary: 190 90% 25%;
-    --primary-foreground: 0 0% 100%;
-    --secondary: 40 33% 91%;
-    --secondary-foreground: 40 10% 18%;
-    --muted: 40 37% 92%;
-    --muted-foreground: 42 10% 38%;
-    --accent: 192 33% 91%;
-    --accent-foreground: 40 8% 22%;
-    --destructive: 6 63% 46%;
-    --destructive-foreground: 0 0% 100%;
-    --border: 39 29% 86%;
-    --input: 39 25% 80%;
-    --ring: 190 90% 25%;
-    --sidebar: 39 39% 93%;
-    --chart-1: 190 85% 28%;
-    --chart-2: 173 40% 40%;
-    --chart-3: 37 65% 54%;
-    --chart-4: 212 27% 49%;
-    --chart-5: 330 26% 48%;
-  }
-
-  /* Dark theme — applied via the `.dark` class on <html> (set by ThemeProvider
-     and the inline pre-paint script). Tailwind's darkMode: ["class", …] drives
-     `dark:` utilities off the same class, so CSS variables and utilities switch
-     together. The default theme follows the system preference. */
-  .dark {
-    /* App-specific colors — warm charcoal dark mode (the same paper identity,
-       lifted): near-black warm background, book-cloth terracotta accent. */
-    --color-primary: #ece7dc;
-    --color-user-message: #a9dce6;
-    --color-user-message-bg: #16343b;
-    --color-avatar-bg: #3a2e27;
-    --color-secondary: #ada694;
-    --color-success: #5dbe85;
-    --color-warning: #e0a94a;
-    --color-error: #e0796b;
-    --color-background: #23211d;
-    --color-subagent-hover: #3a2e27;
-    --color-surface: #2c2a25;
-    --color-border: #3a372f;
-    --color-border-light: #332f2a;
-    --color-text-primary: #ece7dc;
-    --color-text-secondary: #ada694;
-    --color-text-tertiary: #908d83;
-    --color-file-button: #2c2a25;
-    --color-file-button-hover: #332f2a;
-    --brand: #3b9cb0;
-    --brand-hover: #46a9bd;
-    /* Deep, saturated cyan fill: colorful (S~90%) but low-lightness so it
-       doesn't glow on the dark card; white text passes AA (4.82:1). */
-    --brand-solid: #087d91;
-    --brand-foreground: #ffffff;
-
-    /* Tailwind/Radix UI component variables for dark mode */
-    --radius: 0.5rem;
-    --background: 40 9% 13%;
-    --foreground: 41 30% 89%;
-    --card: 43 9% 16%;
-    --card-foreground: 41 30% 89%;
-    --popover: 43 9% 16%;
-    --popover-foreground: 41 30% 89%;
-    --primary: 189 90% 30%;
-    --primary-foreground: 0 0% 100%;
-    --secondary: 33 10% 18%;
-    --secondary-foreground: 41 30% 89%;
-    --muted: 38 10% 16%;
-    --muted-foreground: 43 13% 63%;
-    --accent: 196 14% 20%;
-    --accent-foreground: 41 30% 89%;
+    --background: 225 18% 4%;
+    --foreground: 42 47% 89%;
+    --card: 230 12% 8%;
+    --card-foreground: 42 47% 89%;
+    --popover: 230 12% 8%;
+    --popover-foreground: 42 47% 89%;
+    --primary: 41 74% 57%;
+    --primary-foreground: 38 61% 5%;
+    --secondary: 36 29% 12%;
+    --secondary-foreground: 42 47% 89%;
+    --muted: 230 9% 11%;
+    --muted-foreground: 40 15% 63%;
+    --accent: 36 39% 14%;
+    --accent-foreground: 42 76% 71%;
     --destructive: 7 65% 65%;
     --destructive-foreground: 30 13% 12%;
-    --border: 44 10% 21%;
-    --input: 44 10% 21%;
-    --ring: 190 50% 46%;
-    --sidebar: 36 9% 11%;
-    --chart-1: 190 52% 50%;
+    --border: 36 30% 18%;
+    --input: 36 30% 18%;
+    --ring: 41 74% 57%;
+    --sidebar: 225 19% 5%;
+    --chart-1: 41 74% 57%;
     --chart-2: 173 39% 54%;
     --chart-3: 40 68% 62%;
     --chart-4: 215 37% 63%;
@@ -239,6 +170,184 @@ body {
   background-color: var(--color-background);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+}
+
+/* Fixed chat-canvas artwork. It is anchored to the full workspace below the
+   top bar, so opening either desktop panel covers the image instead of asking
+   the image to resize with the remaining chat panel. */
+.chat-workspace-background {
+  background-image:
+    linear-gradient(rgba(3, 5, 9, 0.52), rgba(3, 5, 9, 0.6)),
+    radial-gradient(
+      circle at 96% 50%,
+      rgba(0, 0, 0, 0.58) 0%,
+      rgba(0, 0, 0, 0.32) 27%,
+      rgba(0, 0, 0, 0) 55%
+    ),
+    url("/backgrounds/chat-background.png");
+  background-position: center;
+  background-repeat: no-repeat;
+  background-size: 100% 100%;
+}
+
+/* Skills artwork fills only the workspace below the persistent top bar. The
+   stronger shade at the top keeps the page heading readable over the sun. */
+.skills-workspace-background {
+  background-image:
+    linear-gradient(
+      180deg,
+      rgba(3, 5, 9, 0.64) 0%,
+      rgba(3, 5, 9, 0.38) 48%,
+      rgba(3, 5, 9, 0.48) 100%
+    ),
+    url("/backgrounds/skills-solar-background.png");
+  background-position: center;
+  background-repeat: no-repeat;
+  background-size: 100% 100%;
+}
+
+.jw-topbar {
+  position: relative;
+  z-index: 50;
+  border-bottom: 1px solid rgba(224, 172, 69, 0.28);
+  background:
+    radial-gradient(circle at 50% 130%, rgba(198, 127, 24, 0.18), transparent 42%),
+    linear-gradient(180deg, #0d0e12 0%, #08090c 100%);
+  box-shadow: 0 5px 24px rgba(0, 0, 0, 0.35);
+}
+
+.jw-primary-nav {
+  display: flex;
+  align-items: center;
+  gap: 0.125rem;
+  padding: 0.1875rem;
+  border: 1px solid rgba(217, 157, 48, 0.28);
+  border-radius: 0.65rem;
+  background: rgba(7, 8, 11, 0.82);
+  box-shadow: inset 0 0 18px rgba(219, 151, 35, 0.04);
+}
+
+.jw-primary-nav-button {
+  position: relative;
+  display: inline-flex;
+  height: 2.1rem;
+  align-items: center;
+  justify-content: center;
+  gap: 0.45rem;
+  padding: 0 0.75rem;
+  border: 1px solid transparent;
+  border-radius: 0.45rem;
+  color: #9f9889;
+  font-size: 0.78rem;
+  font-weight: 600;
+  letter-spacing: 0.035em;
+  transition: color 180ms ease, border-color 180ms ease,
+    background-color 180ms ease, box-shadow 180ms ease, transform 180ms ease;
+}
+
+.jw-primary-nav-button::after {
+  content: "";
+  position: absolute;
+  right: 18%;
+  bottom: -0.22rem;
+  left: 18%;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, #f2bc4b, transparent);
+  box-shadow: 0 0 8px rgba(247, 185, 64, 0.9);
+  opacity: 0;
+  transform: scaleX(0.35);
+  transition: opacity 180ms ease, transform 180ms ease;
+}
+
+.jw-primary-nav-button:hover,
+.jw-primary-nav-button[data-active="true"] {
+  border-color: rgba(231, 180, 75, 0.48);
+  color: #f4ce75;
+  background: linear-gradient(180deg, rgba(65, 44, 15, 0.72), rgba(27, 20, 11, 0.82));
+  box-shadow: inset 0 0 16px rgba(231, 169, 52, 0.08), 0 0 13px rgba(217, 147, 31, 0.1);
+}
+
+.jw-primary-nav-button[data-active="true"]::after {
+  opacity: 1;
+  transform: scaleX(1);
+}
+
+.jw-primary-nav-button:focus-visible,
+.jw-sidebar-nav-button:focus-visible,
+.jw-edge-toggle:focus-visible {
+  outline: 2px solid hsl(var(--ring));
+  outline-offset: 2px;
+}
+
+.jw-sidebar-nav-button {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 0.625rem;
+  border-bottom: 1px solid hsl(var(--border));
+  border-left: 2px solid transparent;
+  padding: 0.75rem;
+  color: var(--color-text-secondary);
+  text-align: left;
+  font-size: 0.875rem;
+  font-weight: 500;
+  transition: color 180ms ease, background-color 180ms ease,
+    border-color 180ms ease, box-shadow 180ms ease;
+}
+
+.jw-sidebar-nav-button:hover,
+.jw-sidebar-nav-button-active {
+  border-left-color: var(--brand);
+  color: #f3cd74;
+  background: linear-gradient(90deg, rgba(96, 61, 13, 0.34), transparent 80%);
+  box-shadow: inset 8px 0 18px rgba(213, 145, 34, 0.04);
+}
+
+.jw-edge-toggle {
+  display: inline-flex;
+  width: 1.75rem;
+  height: 4rem;
+  align-items: center;
+  justify-content: center;
+  overflow: visible;
+  border: 1px solid rgba(235, 183, 75, 0.58);
+  color: #efc35f;
+  background: linear-gradient(180deg, rgba(30, 24, 15, 0.98), rgba(7, 8, 11, 0.98));
+  box-shadow: inset 0 0 14px rgba(227, 165, 51, 0.08), 0 0 14px rgba(215, 145, 31, 0.13);
+  transition: color 180ms ease, border-color 180ms ease,
+    box-shadow 180ms ease, transform 180ms ease;
+}
+
+.jw-edge-toggle-left {
+  border-left: 0;
+  border-radius: 0 0.7rem 0.7rem 0;
+}
+
+.jw-edge-toggle-right {
+  border-right: 0;
+  border-radius: 0.7rem 0 0 0.7rem;
+}
+
+.jw-edge-toggle:hover {
+  border-color: #f5ca69;
+  color: #ffe39a;
+  box-shadow: inset 0 0 18px rgba(238, 180, 66, 0.15), 0 0 22px rgba(232, 160, 37, 0.28);
+}
+
+.jw-edge-orbit {
+  position: absolute;
+  width: 1.05rem;
+  height: 1.55rem;
+  border: 1px solid rgba(236, 182, 69, 0.28);
+  border-radius: 50%;
+  transform: rotate(22deg);
+}
+
+@media (max-width: 639px) {
+  .jw-primary-nav-button {
+    width: 2.15rem;
+    padding: 0;
+  }
 }
 
 h1,
