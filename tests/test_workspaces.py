@@ -9,7 +9,6 @@ import sqlite3
 from pathlib import Path
 from types import SimpleNamespace
 
-import pytest
 from langchain_core.messages import HumanMessage
 
 from jw.middleware.task_workspace import TaskWorkspaceMiddleware
@@ -348,10 +347,7 @@ def test_scoped_backend_factory_avoids_filesystem_resolution_on_event_loop(
     real_workspace = tmp_path / "real-workspace"
     real_workspace.mkdir()
     linked_workspace = tmp_path / "linked-workspace"
-    try:
-        linked_workspace.symlink_to(real_workspace, target_is_directory=True)
-    except OSError as exc:
-        pytest.skip(f"directory symlinks are unavailable in this environment: {exc}")
+    linked_workspace.symlink_to(real_workspace, target_is_directory=True)
     data_dir = tmp_path / "data"
     memories_dir = data_dir / "memories"
     global_skills_dir = data_dir / "skills"

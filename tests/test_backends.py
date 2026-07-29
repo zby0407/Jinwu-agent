@@ -1815,9 +1815,7 @@ class TestExecuteArtifactManifest:
         target.write_text("x,y\n1,2\n")
         backend = CustomSandboxBackend(root_dir=tmp_workspace, virtual_mode=True)
 
-        resp = backend.execute(
-            "echo x,y > /measurements.csv && echo 3,4 >> /measurements.csv"
-        )
+        resp = backend.execute("printf 'x,y\\n3,4\\n' > /measurements.csv")
 
         assert resp.exit_code == 0
         manifest = self._manifest(resp.output)
@@ -1828,7 +1826,7 @@ class TestExecuteArtifactManifest:
     def test_execute_does_not_emit_manifest_for_unstructured_file(self, tmp_workspace):
         backend = CustomSandboxBackend(root_dir=tmp_workspace, virtual_mode=True)
 
-        resp = backend.execute("echo notes > /notes.txt")
+        resp = backend.execute("printf 'notes' > /notes.txt")
 
         assert resp.exit_code == 0
         assert "<artifact_manifest>" not in resp.output

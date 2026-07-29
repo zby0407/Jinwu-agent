@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
@@ -79,32 +78,6 @@ def _route(
     }
 
 
-def _obligations(
-    route: dict[str, object],
-    *,
-    adapter: str = "none",
-) -> dict[str, object]:
-    computation = route["needs_computation"] is True
-    verified = route["mode"] in {"verified_analysis", "full_research"}
-    local = route["source_mode"] in {"local", "mixed"} and computation
-    return {
-        **route,
-        "requires_dataset_semantics": local,
-        "requires_computation_receipt": verified and computation,
-        "requires_external_evidence": route["source_mode"] in {"external", "mixed"},
-        "external_evidence_reasons": (
-            ["source_mode"] if route["source_mode"] in {"external", "mixed"} else []
-        ),
-        "required_evidence_claims": [],
-        "required_domain_adapter": adapter,
-        "deliverable": (
-            "audited_report"
-            if verified and computation
-            else ("draft" if route["mode"] == "verified_analysis" else "chat")
-        ),
-    }
-
-
 def test_router_runs_once_per_human_turn_and_persists_decision(monkeypatch) -> None:
     middleware = _middleware(monkeypatch)
     structured = MagicMock()
@@ -115,9 +88,7 @@ def test_router_runs_once_per_human_turn_and_persists_decision(monkeypatch) -> N
     update = middleware.before_agent(state, runtime=None)
 
     assert update == {
-        "research_route": _obligations(
-            _route("verified_analysis", source_mode="local")
-        ),
+        "research_route": _route("verified_analysis", source_mode="local"),
         "research_route_turn": "turn-1",
     }
     persisted = {**state, **update}
@@ -136,108 +107,7 @@ def test_router_runs_once_per_human_turn_and_persists_decision(monkeypatch) -> N
     ]
 
 
-def test_f107_computation_gets_audited_route_obligations(monkeypatch) -> None:
-    middleware = _middleware(monkeypatch)
-    structured = MagicMock()
-    structured.invoke.return_value = _route(
-        "verified_analysis",
-        source_mode="mixed",
-        needs_computation=True,
-    )
-    middleware._model.with_structured_output.return_value = structured
-
-    update = middleware.before_agent(
-        {
-            "messages": [
-                HumanMessage(
-                    "分析 F10.7 与 SILSO 太阳黑子数的跨时段漂移",
-                    id="turn-f107",
-                )
-            ]
-        },
-        runtime=None,
-    )
-
-    route = update["research_route"]
-    assert route["requires_dataset_semantics"] is True
-    assert route["requires_computation_receipt"] is True
-    assert route["requires_external_evidence"] is True
-    assert route["required_domain_adapter"] == "f107"
-    assert route["deliverable"] == "audited_report"
-
-
-def test_f107_causal_comparison_cannot_become_bounded_hypothesis_route(
-    monkeypatch,
-) -> None:
-    middleware = _middleware(monkeypatch)
-    structured = MagicMock()
-    structured.invoke.return_value = _route(
-        "verified_analysis",
-        source_mode="mixed",
-        needs_computation=True,
-        task_intent="hypothesis_comparison",
-        required_specialist="solar-hypothesis",
-    )
-    middleware._model.with_structured_output.return_value = structured
-
-    update = middleware.before_agent(
-        {
-            "messages": [
-                HumanMessage(
-                    "比较 F10.7 漂移的数据不连续与物理变化归因假说，"
-                    "查阅原始研究并完成正式回归检验",
-                    id="turn-f107-causal",
-                )
-            ]
-        },
-        runtime=None,
-    )
-
-    route = update["research_route"]
-    assert route["mode"] == "verified_analysis"
-    assert route["task_intent"] == "general"
-    assert route["required_specialist"] == "none"
-    assert route["deliverable"] == "audited_report"
-    assert route["requires_external_evidence"] is True
-    assert route["requires_computation_receipt"] is True
-    assert route["required_domain_adapter"] == "f107"
-    assert {
-        "competing_hypotheses",
-        "domain_mandatory_claim",
-    }.issubset(route["external_evidence_reasons"])
-
-
-def test_local_route_with_explicit_literature_request_forces_external_stage(
-    monkeypatch,
-) -> None:
-    middleware = _middleware(monkeypatch)
-    structured = MagicMock()
-    structured.invoke.return_value = _route(
-        "verified_analysis",
-        source_mode="local",
-        needs_computation=True,
-    )
-    middleware._model.with_structured_output.return_value = structured
-
-    update = middleware.before_agent(
-        {
-            "messages": [
-                HumanMessage(
-                    "读取本地数据并查阅原始研究，比较仪器变化与物理变化",
-                    id="turn-local-literature",
-                )
-            ]
-        },
-        runtime=None,
-    )
-
-    route = update["research_route"]
-    assert route["source_mode"] == "local"
-    assert route["requires_external_evidence"] is True
-    assert "explicit_literature_request" in route["external_evidence_reasons"]
-
-
-def test_computational_hypothesis_comparison_keeps_audited_parent_pipeline(
+def test_explicit_hypothesis_intent_overrides_full_research_misroute(
     monkeypatch,
 ) -> None:
     middleware = _middleware(monkeypatch)
@@ -264,18 +134,15 @@ def test_computational_hypothesis_comparison_keeps_audited_parent_pipeline(
     assert update is not None
     route = update["research_route"]
     assert route["mode"] == "verified_analysis"
-    assert route["task_intent"] == "general"
-    assert route["required_specialist"] == "none"
-    assert route["deliverable"] == "audited_report"
-    assert route["requires_external_evidence"] is True
-    assert route["requires_computation_receipt"] is True
-    assert "competing_hypotheses" in route["external_evidence_reasons"]
+    assert route["task_intent"] == "hypothesis_comparison"
+    assert route["required_specialist"] == "solar-hypothesis"
 
 
 @pytest.mark.parametrize(
     ("text", "expected_intent"),
     [
         ("请提出三个可证伪的太阳活动科学假设", "hypothesis_generation"),
+        ("Compare the competing solar-cycle hypotheses.", "hypothesis_comparison"),
         (
             "Update our hypothesis using the new polar-field evidence.",
             "hypothesis_update",
@@ -302,52 +169,14 @@ def test_router_fallback_recognizes_bilingual_hypothesis_intent(
     )
 
     assert update is not None
-    expected = _obligations(
-        {
-            "mode": "verified_analysis",
-            "source_mode": "mixed",
-            "needs_computation": False,
-            "task_intent": expected_intent,
-            "required_specialist": "solar-hypothesis",
-            "reason": "router unavailable; explicit hypothesis intent kept specialized",
-        }
-    )
-    route = update["research_route"]
-    for key, value in expected.items():
-        if key == "external_evidence_reasons":
-            continue
-        assert route[key] == value
-    assert set(route["external_evidence_reasons"]) >= set(
-        expected["external_evidence_reasons"]
-    )
-
-
-def test_router_fallback_competing_hypotheses_uses_evidence_pipeline(
-    monkeypatch,
-) -> None:
-    middleware = _middleware(monkeypatch)
-    middleware._model.with_structured_output.side_effect = RuntimeError(
-        "router unavailable"
-    )
-
-    update = middleware.before_agent(
-        {
-            "messages": [
-                HumanMessage(
-                    "Compare the competing solar-cycle hypotheses.",
-                    id="turn-competing-hypotheses",
-                )
-            ]
-        },
-        runtime=None,
-    )
-
-    route = update["research_route"]
-    assert route["mode"] == "verified_analysis"
-    assert route["task_intent"] == "general"
-    assert route["required_specialist"] == "none"
-    assert route["requires_external_evidence"] is True
-    assert "competing_hypotheses" in route["external_evidence_reasons"]
+    assert update["research_route"] == {
+        "mode": "verified_analysis",
+        "source_mode": "mixed",
+        "needs_computation": False,
+        "task_intent": expected_intent,
+        "required_specialist": "solar-hypothesis",
+        "reason": "router unavailable; explicit hypothesis intent kept specialized",
+    }
 
 
 def test_verified_local_route_forces_discovery_then_read_then_compute(
@@ -404,99 +233,6 @@ def test_verified_local_route_forces_discovery_then_read_then_compute(
     )
     assert third.tool_choice is None
     assert [tool.name for tool in third.tools] == ["execute"]
-
-
-def test_f107_pipeline_binds_dataset_semantics_before_external_search(
-    monkeypatch,
-) -> None:
-    middleware = _middleware(monkeypatch)
-    route = {
-        **_obligations(
-            _route(
-                "verified_analysis",
-                source_mode="mixed",
-                needs_computation=True,
-            ),
-            adapter="f107",
-        ),
-        "requires_external_evidence": True,
-        "external_evidence_reasons": [
-            "source_mode",
-            "domain_mandatory_claim",
-        ],
-        "required_evidence_claims": [
-            {"claim_id": "f107_product_definition"},
-            {"claim_id": "f107_observatory_history"},
-            {"claim_id": "f107_1980_discontinuity"},
-        ],
-    }
-    human = HumanMessage("分析 F10.7 归因", id="turn-f107-order")
-    read_call = AIMessage(
-        "",
-        tool_calls=[
-            {
-                "name": "read_file",
-                "args": {"file_path": "/project/f107.csv"},
-                "id": "read-f107",
-            }
-        ],
-    )
-    after_read = [
-        human,
-        read_call,
-        ToolMessage("date,f107", tool_call_id="read-f107", name="read_file"),
-    ]
-
-    data_stage = _prepared(
-        middleware,
-        _request(
-            route=route,
-            messages=after_read,
-            tools=[_tool("task"), _tool("tavily_search")],
-        ),
-    )
-    assert [tool.name for tool in data_stage.tools] == ["task"]
-    assert "subagent_type='solar-data' before external evidence" in (
-        data_stage.system_message.text
-    )
-
-    data_call = AIMessage(
-        "",
-        tool_calls=[
-            {
-                "name": "task",
-                "args": {
-                    "subagent_type": "solar-data",
-                    "description": "bind semantics",
-                },
-                "id": "task-solar-data",
-            }
-        ],
-    )
-    after_data = [
-        *after_read,
-        data_call,
-        ToolMessage(
-            json.dumps(
-                {
-                    "status": "success",
-                    "summary": "dataset semantics verified",
-                    "receipt_refs": ["receipts/data/manifest.json"],
-                }
-            ),
-            tool_call_id="task-solar-data",
-            name="task",
-        ),
-    ]
-    evidence_stage = _prepared(
-        middleware,
-        _request(
-            route=route,
-            messages=after_data,
-            tools=[_tool("task"), _tool("tavily_search")],
-        ),
-    )
-    assert [tool.name for tool in evidence_stage.tools] == ["tavily_search"]
 
 
 def test_hypothesis_route_forces_direct_task_delegation(monkeypatch) -> None:
@@ -770,68 +506,7 @@ def test_hypothesis_task_requires_persisted_draft_receipt(monkeypatch) -> None:
     assert [tool.name for tool in retry.tools] == ["task"]
 
 
-def test_hypothesis_model_budget_exhaustion_preserves_partial_without_retry(
-    monkeypatch,
-) -> None:
-    middleware = _middleware(monkeypatch)
-    monkeypatch.setattr(
-        "jw.middleware.research_router._persisted_hypothesis_draft_status",
-        lambda _config: (True, "/task/work/scientific_hypothesis_state.json"),
-    )
-    route = _route(
-        "verified_analysis",
-        source_mode="mixed",
-        task_intent="hypothesis_generation",
-        required_specialist="solar-hypothesis",
-    )
-    human = HumanMessage("提出探索性假设草稿", id="turn-hypothesis-budget")
-    model_call = AIMessage(
-        "",
-        tool_calls=[
-            {
-                "name": "task",
-                "args": {"subagent_type": "solar-hypothesis", "description": "draft"},
-                "id": "task-hypothesis-budget",
-            }
-        ],
-    )
-    request = ToolCallRequest(
-        tool_call=model_call.tool_calls[0],
-        tool=None,
-        state={"research_route": route, "messages": [human, model_call]},
-        runtime=SimpleNamespace(config={"configurable": {}}),
-    )
-
-    result = middleware.wrap_tool_call(
-        request,
-        lambda inner: ToolMessage(
-            "Model call limits exceeded: run limit (24/24)",
-            tool_call_id=str(inner.tool_call["id"]),
-            name="task",
-        ),
-    )
-
-    payload = json.loads(str(result.content))
-    assert payload["status"] == "partial"
-    assert payload["error_code"] == "model_call_budget_exhausted"
-    assert payload["retryable"] is False
-    assert payload["artifact_refs"] == ["/task/work/scientific_hypothesis_state.json"]
-    assert result.additional_kwargs["research_router_outcome_status"] == "partial"
-    assert not result.additional_kwargs.get("receipt_refs")
-
-    followup = _prepared(
-        middleware,
-        _request(
-            route=route,
-            messages=[human, model_call, result],
-            tools=[_tool("task"), _tool("read_file")],
-        ),
-    )
-    assert followup.tools == []
-    assert "model-call budget was exhausted" in followup.system_message.text
-
-
-def test_hypothesis_prose_without_receipt_is_not_completed(monkeypatch) -> None:
+def test_hypothesis_result_is_passed_through_verbatim(monkeypatch) -> None:
     middleware = _middleware(monkeypatch)
     route = _route(
         "verified_analysis",
@@ -867,12 +542,8 @@ def test_hypothesis_prose_without_receipt_is_not_completed(monkeypatch) -> None:
 
     response = middleware.wrap_model_call(request, handler)
 
-    assert [tool.name for tool in captured[0].tools] == ["task"]
-    assert response.result[0].content == ""
-    assert response.result[0].tool_calls[0]["name"] == "task"
-    assert (
-        response.result[0].tool_calls[0]["args"]["subagent_type"] == "solar-hypothesis"
-    )
+    assert captured[0].tools == []
+    assert response.result[0].content == "# DRAFT\n\nExact specialist body."
 
 
 def test_hypothesis_route_reports_missing_task_tool_without_substitution(
@@ -927,16 +598,7 @@ def test_full_research_route_advances_explicit_specialist_graph(monkeypatch) -> 
                 }
             ],
         ),
-        ToolMessage(
-            json.dumps(
-                {
-                    "status": "success",
-                    "receipt_refs": ["receipts/planner.json"],
-                }
-            ),
-            tool_call_id="planner-1",
-            name="task",
-        ),
+        ToolMessage("frozen", tool_call_id="planner-1", name="task"),
     ]
     second = _prepared(
         middleware,

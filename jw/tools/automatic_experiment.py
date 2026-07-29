@@ -15,7 +15,6 @@ from __future__ import annotations
 
 import json
 import re
-import shutil
 import sys
 from pathlib import Path
 from typing import Any
@@ -34,7 +33,6 @@ from automatic_experiment.contracts import (  # noqa: E402
     default_request,
 )
 from automatic_experiment.state import task_workspace  # noqa: E402
-from jw.research_integrity import sha256_file, write_json_atomic  # noqa: E402
 from jw.tools.registry import register_tool_bundle  # noqa: E402
 from jw.workspaces import (  # noqa: E402
     resolve_scoped_path,
@@ -381,56 +379,8 @@ def automatic_experiment_finalize(run_id: str, config: RunnableConfig = None) ->
         JSON string with the entry result and user-display Markdown.
     """
     try:
-        workspace = workspace_root_from_config(config)
-        with task_workspace(workspace):
-            result = service.finalize(run_id)
-        experiment_root = workspace / "experiment" / "runs" / run_id
-        report_source = experiment_root / str(result.get("report_path", "report.md"))
-        audit_source = experiment_root / str(result.get("audit_path", "audit.md"))
-        record_source = experiment_root / str(result.get("record_path", "record.json"))
-        if (
-            not report_source.is_file()
-            or not audit_source.is_file()
-            or not record_source.is_file()
-        ):
-            raise RuntimeError(
-                "finalized experiment report, audit, or record is missing"
-            )
-        output_report = workspace / "outputs" / "report.md"
-        output_report.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copyfile(report_source, output_report)
-        receipt_relative = f"receipts/experiments/{run_id}.json"
-        receipt_path = workspace / receipt_relative
-        write_json_atomic(
-            receipt_path,
-            {
-                "schema_version": 1,
-                "status": "verified",
-                "run_id": run_id,
-                "experiment_report": report_source.relative_to(workspace).as_posix(),
-                "experiment_report_sha256": sha256_file(report_source),
-                "experiment_audit": audit_source.relative_to(workspace).as_posix(),
-                "experiment_audit_sha256": sha256_file(audit_source),
-                "experiment_record": record_source.relative_to(workspace).as_posix(),
-                "experiment_record_sha256": sha256_file(record_source),
-                "output_report": "outputs/report.md",
-                "output_report_sha256": sha256_file(output_report),
-            },
-        )
-        return _ok(
-            {
-                **result,
-                "status": "success",
-                "summary": "Experiment was verified, finalized, and published.",
-                "artifact_refs": [
-                    "outputs/report.md",
-                    report_source.relative_to(workspace).as_posix(),
-                    audit_source.relative_to(workspace).as_posix(),
-                ],
-                "receipt_refs": [receipt_relative],
-                "retryable": False,
-            }
-        )
+        with task_workspace(workspace_root_from_config(config)):
+            return _ok(service.finalize(run_id))
     except Exception as exc:
         return _err(exc)
 
@@ -445,10 +395,6 @@ AUTOMATIC_EXPERIMENT_TOOLS = [
     automatic_experiment_finalize,
 ]
 
-register_tool_bundle(
-    "automatic-experiment",
-    AUTOMATIC_EXPERIMENT_TOOLS,
-    include_in_main=False,
-)
+register_tool_bundle("automatic-experiment", AUTOMATIC_EXPERIMENT_TOOLS)
 
 __all__ = ["AUTOMATIC_EXPERIMENT_TOOLS"] + [t.name for t in AUTOMATIC_EXPERIMENT_TOOLS]

@@ -41,10 +41,7 @@ def test_knowledge_agent_requires_bound_focus_and_confidence_cap():
 
 def test_evidence_agent_uses_hypothesis_contract_tools():
     text = _read("jw/subagents/solar/solar_evidence.yaml")
-    assert "tool_bundles: [reasoning, research-evidence-review]" in text
-    assert "cannot submit evidence" in text
-    assert "read_evidence_submission" in text
-    assert "review_evidence_receipt" in text
+    assert "tool_bundles: [reasoning, scientific-hypothesis]" in text
     hypothesis_tools = {
         tool.name for tool in get_tool_bundles()["scientific-hypothesis"]
     }
@@ -82,15 +79,14 @@ def test_hypothesis_agent_reads_wiki_before_generating_candidates():
     }
     assert "First call scientific_hypothesis_bind_request" in text
     assert "Second call kb_query" in text
-    assert "never exceed 3 entries" in text
+    assert "target 5 entries and never exceed 7" in text
     assert (
         "call kb_read and then scientific_hypothesis_bind_wiki_evidence immediately"
         in text
     )
     assert "Call lit_bundle_build" in text
     assert "scientific_hypothesis_bind_literature_evidence" in text
-    assert "never exceed 2 sources" in text
-    assert "reserving the final two model calls" in text
+    assert "target 3 sources and never exceed 5" in text
     assert (
         "the binding tool will reject an entry without a prior kb_read receipt" in text
     )

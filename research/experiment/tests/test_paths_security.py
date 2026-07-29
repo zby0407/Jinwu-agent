@@ -143,11 +143,7 @@ class PathSecurityTests(unittest.TestCase):
             timeout=30,
             check=False,
         )
-        if completed.returncode != 0:
-            self.skipTest(
-                "configured WSL scientific runtime is unavailable: "
-                + completed.stderr[:200]
-            )
+        self.assertEqual(completed.returncode, 0, completed.stderr)
 
     def test_scientific_container_metadata_profiles_are_bounded(self) -> None:
         fixtures = [

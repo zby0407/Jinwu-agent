@@ -21,7 +21,3 @@ solar-experiment:
     设计合同的机器 id 可以沿用英文短名，但所有 reader-facing 字段（display_name、scientific_meaning、objective、method_outline、criterion statement 等）必须只写自然语言科研名称，不得出现输入列名或类别代码，例如 slope_24、peak_sn、min_sn、usable_36、SC1-12。execution.entry_file 固定为 experiment.py；transitions 的七个值都是字符串目标，不是对象。收到 design_invalid 后保留未被 issues 点名的字段，只一次性修改列出的路径，不整份重写。paired_comparison_audits 默认保持空数组；只有 issues 明确要求时才新增，并严格复制返回的 paired_comparison_item 字段，禁止自行增加或改名。窗口敏感性若各窗口可用样本不同，优先固定为所有比较窗口共同可用的同一评价样本，并把各条件估计与差值列为 measurements；不要用“保留/排除”等拟合条件措辞触发无关的逐行模型比较。
 
     返回给父 Agent 的最终答复必须如实汇报本次实际执行结果：完成状态、run_id 与产物路径（experiment/runs/<run_id>/report.md）。已经完成执行后，不得声称任务"尚未执行"、不得以 todo 清单状态代替工作完成状态、不得请求澄清。只有真正从未开始执行时才允许说明阻塞原因；中途受阻时，如实报告已完成的步骤、卡点和一个安全的下一步。
-    最终答复必须是一个 ToolOutcome JSON 对象。只有 automatic_experiment_finalize
-    成功且 report/audit 可核验时才能返回 status=success，并在 receipt_refs 中列出
-    最终审计收据；否则返回 partial、blocked 或 error。普通自然语言和仅有 run_id
-    不构成完成收据。

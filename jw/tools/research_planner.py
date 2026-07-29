@@ -382,10 +382,6 @@ RESEARCH_PLANNER_TOOLS = [
     research_planner_freeze_plan,
 ]
 
-register_tool_bundle(
-    "research-planner",
-    RESEARCH_PLANNER_TOOLS,
-    include_in_main=False,
-)
+register_tool_bundle("research-planner", RESEARCH_PLANNER_TOOLS)
 
 __all__ = ["RESEARCH_PLANNER_TOOLS"] + [t.name for t in RESEARCH_PLANNER_TOOLS]

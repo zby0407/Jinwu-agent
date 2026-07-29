@@ -39,7 +39,6 @@ dependencies = [
     "filelock>=3.16",
     "lazy-loader>=0.5",
     "markdownify>=1.2",
-    "pypdf>=5.0",
     "nest-asyncio>=1.6",
     "tzlocal>=5.0",
     "langchain-mcp-adapters>=0.2",
@@ -120,20 +119,8 @@ jw = "jw.cli:main"
 requires = ["setuptools>=68.0"]
 build-backend = "setuptools.build_meta"
 
-[tool.setuptools]
-package-dir = {"" = "src", "jw" = "jw"}
-py-modules = ["research_layout"]
-
 [tool.setuptools.packages.find]
-where = [".", "src"]
-namespaces = false
-include = [
-    "jw*",
-    "automatic_experiment*",
-    "knowledge_base*",
-    "research_planner*",
-    "scientific_hypothesis*",
-]
+include = ["jw*"]
 
 [tool.setuptools.package-data]
 jw = [
@@ -141,7 +128,6 @@ jw = [
     "subagents/**/skills/**/*",
     "langgraph_dev/*.json",
 ]
-automatic_experiment = ["*.sh"]
 
 [tool.setuptools.exclude-package-data]
 jw = [
