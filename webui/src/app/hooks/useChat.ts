@@ -301,7 +301,10 @@ export function useChat({
     // without this the user only sees React's generic "An internal error
     // occurred" and has to dig into the server log to learn that, e.g., a
     // model provider returned a quota error.
-    onFinish: onHistoryRevalidate,
+    onFinish: () => {
+      onHistoryRevalidate?.();
+      window.dispatchEvent(new CustomEvent("jw:research-task-updated"));
+    },
     onError: (error) => {
       onHistoryRevalidate?.();
       if (hasHttpStatus(error, 404) && threadId) {

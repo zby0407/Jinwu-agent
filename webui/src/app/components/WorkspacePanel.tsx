@@ -46,8 +46,57 @@ async function listAll(threadId: string): Promise<{
   };
 }
 
+type ResearchTaskStatus =
+  | "created"
+  | "routed"
+  | "inputs_bound"
+  | "running"
+  | "verifying"
+  | "finalized"
+  | "partial"
+  | "blocked"
+  | "error"
+  | "cancelled";
+
+interface ResearchTaskState {
+  status: ResearchTaskStatus;
+  status_summary?: string;
+  missing_receipts?: string[];
+  missing_evidence_obligations?: string[];
+  accepted_evidence_count?: number;
+  pending_evidence_count?: number;
+  rejected_evidence_count?: number;
+}
+
+async function getTaskState(threadId: string): Promise<ResearchTaskState> {
+  const res = await fetch(
+    `/api/workspace?${new URLSearchParams({ task: "1", threadId })}`
+  );
+  const body = await res.json().catch(() => null);
+  if (!res.ok) throw new Error(body?.error || "Failed to load task status.");
+  return body.task as ResearchTaskState;
+}
+
 // Research-artifact categories for the "by type" view. Order here is render order.
 const CATEGORIES = [
+  {
+    key: "final",
+    label: "Final outputs",
+    Icon: FileText,
+    exts: [],
+  },
+  {
+    key: "draft",
+    label: "Draft / working files",
+    Icon: Code2,
+    exts: [],
+  },
+  {
+    key: "receipts",
+    label: "Verification receipts",
+    Icon: Database,
+    exts: [],
+  },
   {
     key: "docs",
     label: "Papers & docs",
@@ -146,6 +195,7 @@ type ViewMode = "tree" | "type";
 export function WorkspacePanel() {
   const [threadId] = useQueryState("threadId");
   const [view, setView] = useState<ViewMode>("tree");
+  const [taskState, setTaskState] = useState<ResearchTaskState | null>(null);
 
   // --- Tree view state (listing cache keyed by dir path; "" = root) ---
   const [children, setChildren] = useState<Record<string, WorkspaceEntry[]>>(
@@ -209,6 +259,18 @@ export function WorkspacePanel() {
     }
   }, [threadId]);
 
+  const loadTaskState = useCallback(async () => {
+    if (!threadId) {
+      setTaskState(null);
+      return;
+    }
+    try {
+      setTaskState(await getTaskState(threadId));
+    } catch {
+      setTaskState(null);
+    }
+  }, [threadId]);
+
   // Initial tree load. loadDir surfaces root failures via `error`; catch the
   // rejection here so it doesn't become an unhandled promise rejection.
   useEffect(() => {
@@ -222,10 +284,18 @@ export function WorkspacePanel() {
       return;
     }
     setRootLoading(true);
+    void loadTaskState();
     void loadDir("")
       .catch(() => {})
       .finally(() => setRootLoading(false));
-  }, [threadId, loadDir]);
+  }, [threadId, loadDir, loadTaskState]);
+
+  useEffect(() => {
+    const refreshTask = () => void loadTaskState();
+    window.addEventListener("jw:research-task-updated", refreshTask);
+    return () =>
+      window.removeEventListener("jw:research-task-updated", refreshTask);
+  }, [loadTaskState]);
 
   // Load the flat listing the first time the by-type view is opened.
   useEffect(() => {
@@ -235,6 +305,7 @@ export function WorkspacePanel() {
 
   const refresh = useCallback(async () => {
     setError(null);
+    await loadTaskState();
     if (view === "type") {
       await loadAll();
       return;
@@ -244,7 +315,7 @@ export function WorkspacePanel() {
     // open and in sync with what the agent has written since.
     await Promise.allSettled(["", ...expanded].map((p) => loadDir(p)));
     setRootLoading(false);
-  }, [view, expanded, loadDir, loadAll]);
+  }, [view, expanded, loadDir, loadAll, loadTaskState]);
 
   const toggleDir = useCallback(
     (path: string) => {
@@ -266,7 +337,15 @@ export function WorkspacePanel() {
   const grouped = useMemo(() => {
     const map: Record<string, WorkspaceEntry[]> = {};
     for (const f of allFiles ?? []) {
-      const key = EXT_TO_CATEGORY[f.ext] ?? OTHER.key;
+      const top = f.path.split("/")[0];
+      const key =
+        top === "outputs"
+          ? "final"
+          : top === "work"
+            ? "draft"
+            : top === "receipts"
+              ? "receipts"
+              : EXT_TO_CATEGORY[f.ext] ?? OTHER.key;
       (map[key] ??= []).push(f);
     }
     for (const list of Object.values(map)) {
@@ -392,6 +471,53 @@ export function WorkspacePanel() {
 
   return (
     <div className="flex min-h-0 flex-col">
+      {taskState && (
+        <div className="mb-2 rounded-md border border-border px-2 py-1.5 text-xs">
+          <div className="flex items-center justify-between gap-2">
+            <span className="font-medium">Research task</span>
+            <span
+              className={cn(
+                "rounded px-1.5 py-0.5 font-medium",
+                taskState.status === "finalized"
+                  ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300"
+                  : taskState.status === "partial" ||
+                      taskState.status === "blocked"
+                    ? "bg-amber-500/15 text-amber-700 dark:text-amber-300"
+                    : taskState.status === "error"
+                      ? "bg-red-500/15 text-red-700 dark:text-red-300"
+                      : "bg-muted text-muted-foreground"
+              )}
+            >
+              {taskState.status}
+            </span>
+          </div>
+          {taskState.status_summary && (
+            <p className="mt-1 text-[11px] text-muted-foreground">
+              {taskState.status_summary}
+            </p>
+          )}
+          {!!taskState.missing_receipts?.length && (
+            <p className="mt-1 text-[11px] text-amber-700 dark:text-amber-300">
+              Missing verification: {taskState.missing_receipts.join(", ")}
+            </p>
+          )}
+          {(taskState.accepted_evidence_count !== undefined ||
+            taskState.pending_evidence_count !== undefined ||
+            taskState.rejected_evidence_count !== undefined) && (
+            <p className="mt-1 text-[11px] text-muted-foreground">
+              Evidence: {taskState.accepted_evidence_count ?? 0} accepted,{" "}
+              {taskState.pending_evidence_count ?? 0} pending,{" "}
+              {taskState.rejected_evidence_count ?? 0} rejected
+            </p>
+          )}
+          {!!taskState.missing_evidence_obligations?.length && (
+            <p className="mt-1 text-[11px] text-amber-700 dark:text-amber-300">
+              Missing evidence:{" "}
+              {taskState.missing_evidence_obligations.join(", ")}
+            </p>
+          )}
+        </div>
+      )}
       <div className="flex items-center justify-between gap-2 pb-1.5">
         {/* Tree / By-type toggle */}
         <div className="flex items-center gap-0.5 rounded-md bg-muted p-0.5 text-xs">

@@ -117,7 +117,24 @@ def make_hyp_request(**overrides):
         "schema_version": HYP_REQUEST_VERSION,
         "task_name": "test_kb_gate",
         "research_question": "极区磁场前兆能否解释相邻活动周振幅差异？",
-        "upstream_materials": [],
+        "upstream_materials": [
+            {
+                "id": "mat_src1",
+                "material_kind": "literature_note",
+                "title": "极区磁场前兆材料",
+                "locator": "test-fixture:mat_src1",
+                "content_notes": "极区磁场与下一周振幅存在对应关系",
+                "experiment_summary": None,
+            },
+            {
+                "id": "mat_upstream",
+                "material_kind": "data_feature",
+                "title": "极区磁场上游复算",
+                "locator": "test-fixture:mat_upstream",
+                "content_notes": "极区磁场与下一周振幅存在对应关系",
+                "experiment_summary": None,
+            }
+        ],
         "prior_hypotheses": [],
         "max_candidates": 4,
     }
@@ -180,7 +197,7 @@ def bind(register, evidence_id, kind="upstream", role="supports"):
         {
             "evidence_id": evidence_id,
             "evidence_kind": kind,
-            "material_id": "mat_src1",
+            "material_id": "mat_src1" if kind == "literature" else "mat_upstream",
             "excerpt": "极区磁场与下一周振幅存在对应关系",
             "verified_support": True,
             "role": role,
@@ -290,8 +307,20 @@ class TestExperimentGroundingGate(WiringTestCase):
 # ----------------------------------------------------------------------
 class TestFinalizeWriteback(WiringTestCase):
     def test_finalize_writes_finding_candidate_back(self):
+        from automatic_experiment.executor import runtime_environment_snapshot
         from automatic_experiment import service as exp_service
         from research.experiment.tests import helpers as exp_helpers
+
+        snapshot = runtime_environment_snapshot()
+        if snapshot.get("ready") is not True:
+            self.skipTest(
+                "locked automatic-experiment runtime unavailable: "
+                + str(
+                    snapshot.get("diagnostic")
+                    or snapshot.get("package_mismatches")
+                    or snapshot.get("python_version")
+                )[:300]
+            )
 
         req = exp_helpers.request(task_name="unit_kb_writeback")
         run_id, attempt_id = exp_helpers.create_ready_run(req)

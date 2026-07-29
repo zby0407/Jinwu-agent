@@ -621,7 +621,7 @@ def _ensure_run_layout(binding: WorkspaceBinding, first_request: str = "") -> No
                 "project_id": binding.project_id,
                 "run_id": binding.run_id,
                 "research_question": first_request.strip(),
-                "status": "active",
+                "status": "created",
                 "created_at": binding.created_at,
             },
         )

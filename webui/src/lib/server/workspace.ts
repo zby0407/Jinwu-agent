@@ -314,7 +314,7 @@ export async function ensureThreadWorkspace(
       project_id: project,
       run_id: runId,
       research_question: "",
-      status: "active",
+      status: "created",
       created_at: createdAt,
     }),
     writeJsonIfMissing(join(workspace, "input_manifest.json"), {

@@ -15,6 +15,17 @@ from .registry import (
     register_tool_bundle,
     resolve_tool_bundles,
 )
+from .research_integrity import (
+    RESEARCH_EVIDENCE_REVIEW_TOOLS,
+    RESEARCH_INTEGRITY_TOOLS,
+    fetch_evidence_source,
+    finalize_research_task,
+    read_evidence_submission,
+    record_counterevidence_search,
+    review_evidence_receipt,
+    submit_evidence_receipt,
+    validate_research_claims,
+)
 from .research_planner import RESEARCH_PLANNER_TOOLS
 from .scientific_hypothesis import SCIENTIFIC_HYPOTHESIS_TOOLS
 from .search import fetch_webpage_content, tavily_search
@@ -22,6 +33,7 @@ from .skill_manager import skill_manager
 from .solar_feature import (
     SOLAR_FEATURE_TOOLS,
     audit_solar_data_quality,
+    bind_f107_dataset_semantics,
     dataset_statistics,
     engineer_solar_features,
     prepare_solar_experiment,
@@ -33,21 +45,31 @@ __all__ = [
     "KB_READONLY_TOOLS",
     "KB_TOOLS",
     "RESEARCH_PLANNER_TOOLS",
+    "RESEARCH_EVIDENCE_REVIEW_TOOLS",
+    "RESEARCH_INTEGRITY_TOOLS",
     "SCIENTIFIC_HYPOTHESIS_TOOLS",
     "SOLAR_FEATURE_TOOLS",
     "TOOL_BUNDLE_ENTRY_POINT_GROUP",
     "ToolBundle",
     "audit_solar_data_quality",
+    "bind_f107_dataset_semantics",
+    "fetch_evidence_source",
     "dataset_statistics",
     "engineer_solar_features",
     "fetch_webpage_content",
+    "finalize_research_task",
     "get_builtin_tool_registry",
     "get_main_agent_tools",
     "get_tool_bundles",
     "prepare_solar_experiment",
+    "read_evidence_submission",
+    "record_counterevidence_search",
     "register_tool_bundle",
     "resolve_tool_bundles",
     "skill_manager",
+    "review_evidence_receipt",
+    "submit_evidence_receipt",
     "tavily_search",
     "think_tool",
+    "validate_research_claims",
 ]
