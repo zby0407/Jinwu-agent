@@ -10,10 +10,14 @@ from typing import Any
 
 import pandas as pd
 
-from jw.research_integrity import DatasetSemanticManifest, sha256_file
+from jw.research_integrity import (
+    F107_DISCONTINUITY_REQUIRED_MEASUREMENTS,
+    DatasetSemanticManifest,
+    sha256_file,
+)
 
 ADAPTER_ID = "solar.f107.daily-to-monthly"
-ADAPTER_VERSION = "1.0.0"
+ADAPTER_VERSION = "1.1.0"
 REQUIRED_COLUMNS = {
     "date_utc",
     "time_utc",
@@ -199,6 +203,32 @@ def canonicalize_f107(
             "equivalent_duplicates_dropped": equivalent_duplicates_dropped,
             "canonical_daily_rows": len(daily),
             "canonical_monthly_rows": len(monthly),
+            "months_with_fewer_than_20_observed_days": int(
+                monthly["f107_observed_days_in_month"].lt(20).sum()
+            ),
+            "months_with_fewer_than_25_observed_days": int(
+                monthly["f107_observed_days_in_month"].lt(25).sum()
+            ),
+            "minimum_observed_days_in_month": int(
+                monthly["f107_observed_days_in_month"].min()
+            ),
+            "product_definitions": {
+                "observed": (
+                    "Flux reported at the actual Sun-Earth distance on the "
+                    "observation date."
+                ),
+                "adjusted": (
+                    "Observed flux normalized for Sun-Earth distance to the "
+                    "standard 1 AU reference; this is the primary product."
+                ),
+                "absolute": (
+                    "An absolute-calibration scale is a distinct product, not "
+                    "a synonym for observed or adjusted flux. The uploaded "
+                    "f107_ursi column remains a sensitivity series unless its "
+                    "source documentation establishes the exact mapping."
+                ),
+            },
+            "required_measurement_ids": list(F107_DISCONTINUITY_REQUIRED_MEASUREMENTS),
         },
         limitations=(
             "Monthly averaging can introduce low-activity non-linearity.",
@@ -206,13 +236,30 @@ def canonicalize_f107(
         ),
         analysis_requirements=(
             "Do not use F10.7/SN as a primary statistic near SN=0.",
+            "State the observed, adjusted, and absolute product definitions, "
+            "the sfu unit, the daily-to-monthly aggregation, and the 1 AU "
+            "distance normalization before reporting results.",
             "Compute full-period, 1947-1980, and 1981-2015 relations.",
             "Use segmented slope/intercept terms and cross-period residual checks.",
             "Use autocorrelation-aware uncertainty and a time-block sensitivity.",
+            "For the relative F10.7 scale discontinuity, model F10.7 as the "
+            "response over the common pre/post sunspot-number support; do not "
+            "invert an SN-on-F10.7 OLS fit.",
+            "Keep the fixed 1980-1981 comparison separate from exploratory "
+            "breakpoint scanning. Compute F-test tails with a survival function "
+            "and select the scan optimum by maximum F or minimum unrestricted SSR.",
+            "Store cross-period actual-minus-predicted mean residuals and positive "
+            "fractions for both directions under distinct measurement ids.",
+            "Run observed/URSI product, low-activity, and monthly coverage "
+            "(minimum 20 and 25 observed days) sensitivity analyses.",
+            "Estimate a long-term trend and an instantaneous step in one model "
+            "before comparing them; do not compare their raw magnitudes as if "
+            "they were the same estimand.",
             "Treat the published 10.5% discontinuity as an external comparison, "
             "not a forced local result.",
             "Do not attribute the 1980-1981 break to the 1991 Ottawa-Penticton move.",
-            "Derive fixed-SN contrasts from stored model coefficients.",
+            "Render every reader-facing number from a verified measurement id; "
+            "do not hand-copy percentages, signs, or SHA-256 values into prose.",
         ),
     )
     return monthly, manifest

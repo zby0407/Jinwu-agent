@@ -37,10 +37,12 @@ from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 from langgraph.config import get_config
 
 from jw.research_integrity import (
+    F107_DISCONTINUITY_REQUIRED_MEASUREMENTS,
     ToolOutcome,
     derive_external_evidence_policy,
     normalize_tool_outcome,
     record_task_route,
+    verified_receipt_paths,
 )
 from jw.workspaces import workspace_root_from_config
 
@@ -186,6 +188,11 @@ _READ_ONLY_PLAIN_RESULT_TOOLS = {
     "web_search",
 }
 _F107_PATTERN = re.compile(r"(?:f\s*10[.]?7|10[.]7\s*cm|太阳射电流量)", re.IGNORECASE)
+_F107_DISCONTINUITY_PATTERN = re.compile(
+    r"(?:1980|1981|漂移|不连续|断点|变点|跨时段|跨周期稳定|"
+    r"discontinuity|breakpoint|change[\s-]?point|drift|cross[\s-]?period)",
+    re.IGNORECASE,
+)
 _DATA_FALLBACK = re.compile(
     r"(?:数据|文件|表格|本地|workspace|dataset|data|file|csv|tsv|parquet|"
     r"json|fits?|计算|预测|回归|检验|calculate|predict|regression|test)",
@@ -271,6 +278,11 @@ def _with_research_obligations(
     local_data = source_mode in {"local", "mixed"} and computation
     audited = mode in {"verified_analysis", "full_research"} and computation
     adapter = "f107" if _F107_PATTERN.search(text) else "none"
+    analysis_protocol = (
+        "f107_discontinuity_v1"
+        if adapter == "f107" and _F107_DISCONTINUITY_PATTERN.search(text)
+        else "none"
+    )
     deliverable = (
         "audited_report"
         if audited
@@ -308,6 +320,8 @@ def _with_research_obligations(
             "deliverable": deliverable,
         }
     )
+    if analysis_protocol != "none":
+        enriched["required_analysis_protocol"] = analysis_protocol
     return enriched
 
 
@@ -634,7 +648,36 @@ def _successful_specialists(
     calls: Sequence[Mapping[str, Any]],
     successful_names: set[str],
     messages: Sequence[object],
+    *,
+    workspace_verified_receipts: set[str] | None = None,
 ) -> set[str]:
+    receipt_prefixes = {
+        "solar-data": ("receipts/datasets/", "receipts/data/"),
+        "solar-evidence": ("receipts/evidence/reviews/",),
+        "solar-experiment": ("receipts/experiments/",),
+        "solar-planner": ("receipts/",),
+        "solar-hypothesis": ("receipts/",),
+    }
+
+    def has_stage_receipt(specialist: object, refs: Sequence[object]) -> bool:
+        if specialist not in _RECEIPT_SPECIALISTS:
+            return False
+        if specialist == "solar-hypothesis":
+            return any(
+                isinstance(ref, str)
+                and ref.endswith("/work/scientific_hypothesis_state.json")
+                for ref in refs
+            )
+        normalized = {
+            str(ref)
+            for ref in refs
+            if isinstance(ref, str) and str(ref).startswith("receipts/")
+        }
+        if workspace_verified_receipts is not None:
+            normalized &= workspace_verified_receipts
+        prefixes = receipt_prefixes.get(str(specialist), ("receipts/",))
+        return any(ref.startswith(prefixes) for ref in normalized)
+
     routed: set[str] = set()
     for message in messages:
         if not (isinstance(message, ToolMessage) or _message_role(message) == "tool"):
@@ -670,7 +713,10 @@ def _successful_specialists(
         ) or outcome.status
         if (
             effective_status == "success"
-            and (outcome.receipt_refs or receipt_refs)
+            and has_stage_receipt(
+                specialist,
+                (*outcome.receipt_refs, *receipt_refs),
+            )
             and specialist in _RECEIPT_SPECIALISTS
         ):
             routed.add(str(specialist))
@@ -691,7 +737,27 @@ def _successful_specialists(
             else getattr(message, "content", "")
         )
         outcome = normalize_tool_outcome(content, transport_status=status)
-        if not outcome.has_verified_receipt:
+        call = next(
+            (
+                candidate
+                for candidate in calls
+                if candidate.get("id")
+                == (
+                    message.get("tool_call_id")
+                    if isinstance(message, Mapping)
+                    else getattr(message, "tool_call_id", None)
+                )
+            ),
+            None,
+        )
+        specialist = (
+            call.get("args", {}).get("subagent_type")
+            if isinstance(call, Mapping)
+            else None
+        )
+        if not outcome.succeeded or not has_stage_receipt(
+            specialist, outcome.receipt_refs
+        ):
             continue
         call_id = (
             message.get("tool_call_id")
@@ -1280,9 +1346,22 @@ class ResearchRouterMiddleware(AgentMiddleware[ResearchRoutingState, Any, Any]):
         requires_external_evidence = route.get("requires_external_evidence") is True
         required_domain_adapter = route.get("required_domain_adapter", "none")
         deliverable = route.get("deliverable", "chat")
+        required_analysis_protocol = route.get("required_analysis_protocol", "none")
         messages = list(request.messages)
         calls, successful_names = _calls_since_latest_human(messages)
         successful_call_ids = _successful_call_ids(messages)
+        workspace_verified_receipts: set[str] | None = None
+        try:
+            config = getattr(request.runtime, "config", None)
+            workspace_root = workspace_root_from_config(
+                config if isinstance(config, Mapping) else None
+            )
+            if (workspace_root / "task.json").is_file():
+                workspace_verified_receipts = verified_receipt_paths(workspace_root)
+        except (RuntimeError, OSError, ValueError, json.JSONDecodeError):
+            # Direct middleware tests and unbound CLI calls have no task
+            # workspace. Production task runs fail closed with a concrete set.
+            workspace_verified_receipts = None
 
         directive = [
             "<research_route>",
@@ -1294,6 +1373,7 @@ class ResearchRouterMiddleware(AgentMiddleware[ResearchRoutingState, Any, Any]):
             f"requires_computation_receipt={str(requires_computation_receipt).lower()}; "
             f"requires_external_evidence={str(requires_external_evidence).lower()}; "
             f"required_domain_adapter={required_domain_adapter}; "
+            f"required_analysis_protocol={required_analysis_protocol}; "
             f"deliverable={deliverable}",
         ]
         forced_tool: str | None = None
@@ -1318,6 +1398,7 @@ class ResearchRouterMiddleware(AgentMiddleware[ResearchRoutingState, Any, Any]):
                     calls,
                     successful_names,
                     messages,
+                    workspace_verified_receipts=workspace_verified_receipts,
                 )
                 attempts = _attempt_count(
                     calls,
@@ -1423,6 +1504,7 @@ class ResearchRouterMiddleware(AgentMiddleware[ResearchRoutingState, Any, Any]):
                     calls,
                     successful_names,
                     messages,
+                    workspace_verified_receipts=workspace_verified_receipts,
                 )
 
                 if local_required and not local_seen:
@@ -1491,6 +1573,27 @@ class ResearchRouterMiddleware(AgentMiddleware[ResearchRoutingState, Any, Any]):
                             "The specialist must return a structured success outcome "
                             "with a finalized experiment receipt."
                         )
+                        if required_analysis_protocol == "f107_discontinuity_v1":
+                            directive.append(
+                                "The experiment must implement the "
+                                "f107_discontinuity_v1 protocol from the verified "
+                                "dataset manifest. Estimate the relative F10.7 scale "
+                                "change with F10.7 as the response over the common "
+                                "sunspot-number support; do not invert an SN-on-F10.7 "
+                                "OLS slope. Treat the fixed 1980-1981 comparison as "
+                                "confirmatory. For an exploratory breakpoint scan use "
+                                "an upper-tail survival probability and select by "
+                                "maximum F (or minimum unrestricted SSR), never the "
+                                "first underflowed p=0 candidate. Emit all required "
+                                "measurement ids, define cross-period residuals as "
+                                "actual-minus-predicted, and include observed/URSI, "
+                                "low-activity, and monthly-coverage sensitivities. "
+                                "Do not compare a cumulative trend and an instantaneous "
+                                "step as if they were the same estimand."
+                                " Required measurement ids are: "
+                                + ", ".join(F107_DISCONTINUITY_REQUIRED_MEASUREMENTS)
+                                + "."
+                            )
                     elif not claims_seen:
                         forced_tool = _available_tool(
                             request.tools,
@@ -1542,7 +1645,12 @@ class ResearchRouterMiddleware(AgentMiddleware[ResearchRoutingState, Any, Any]):
                 "main agent writes the final report from verified receipts. Do not "
                 "replace these graph nodes with generic prose or generic execute calls."
             )
-            completed = _successful_specialists(calls, successful_names, messages)
+            completed = _successful_specialists(
+                calls,
+                successful_names,
+                messages,
+                workspace_verified_receipts=workspace_verified_receipts,
+            )
             next_stage = next(
                 (stage for stage in _FULL_RESEARCH_STAGES if stage not in completed),
                 None,

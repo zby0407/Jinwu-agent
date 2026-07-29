@@ -3,6 +3,7 @@ from __future__ import annotations
 import pandas as pd
 import pytest
 
+from jw.research_integrity import F107_DISCONTINUITY_REQUIRED_MEASUREMENTS
 from jw.solar_agent_src.f107_semantic_adapter import (
     canonicalize_f107,
     canonicalize_f107_sn,
@@ -134,3 +135,18 @@ def test_f107_adapter_aligns_silso_total_and_excludes_hemispheric(tmp_path) -> N
     assert manifest.product_id == "f107_adjusted+silso_sn_total_v2"
     assert manifest.excluded_inputs[0]["path"] == "silso_hemispheric.csv"
     assert any("SN=0" in item for item in manifest.analysis_requirements)
+    assert manifest.adapter_version == "1.1.0"
+    assert manifest.unit.startswith("sfu")
+    assert set(manifest.diagnostics["product_definitions"]) == {
+        "observed",
+        "adjusted",
+        "absolute",
+    }
+    assert manifest.diagnostics["required_measurement_ids"] == list(
+        F107_DISCONTINUITY_REQUIRED_MEASUREMENTS
+    )
+    requirements = " ".join(manifest.analysis_requirements)
+    assert "model F10.7 as the response" in requirements
+    assert "survival function" in requirements
+    assert "minimum 20 and 25 observed days" in requirements
+    assert "verified measurement id" in requirements

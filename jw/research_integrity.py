@@ -39,6 +39,22 @@ _BLOCKED_VALUES = {
 }
 _ERROR_VALUES = {"error", "failed", "failure", "invalid", "design_invalid"}
 _TERMINAL_TASK_STATUSES = {"finalized", "partial", "blocked", "error", "cancelled"}
+_SHA256_PATTERN = re.compile(r"(?<![0-9a-f])[0-9a-f]{64}(?![0-9a-f])", re.IGNORECASE)
+
+F107_DISCONTINUITY_REQUIRED_MEASUREMENTS: tuple[str, ...] = (
+    "f107_full_period_relation",
+    "f107_pre_1980_relation",
+    "f107_post_1980_relation",
+    "f107_fixed_1980_chow_f",
+    "f107_scan_best_break_year",
+    "f107_relative_scale_jump",
+    "f107_pre_model_predicts_post_mean_residual",
+    "f107_pre_model_predicts_post_positive_fraction",
+    "f107_post_model_predicts_pre_mean_residual",
+    "f107_post_model_predicts_pre_positive_fraction",
+    "f107_low_activity_sensitivity",
+    "f107_month_coverage_sensitivity",
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -57,6 +73,13 @@ class ToolOutcome:
 
     @property
     def has_verified_receipt(self) -> bool:
+        """Compatibility alias: only indicates that receipt references were returned.
+
+        A ToolOutcome cannot verify files in the task workspace. Callers that
+        advance a research stage must intersect these references with
+        :func:`verified_receipt_paths`.
+        """
+
         return self.succeeded and bool(self.receipt_refs)
 
     def to_dict(self) -> dict[str, Any]:
@@ -327,6 +350,70 @@ def write_json_atomic(path: Path, payload: Mapping[str, Any]) -> None:
     temporary.replace(path)
 
 
+def _receipt_artifacts_match(
+    run_root: Path,
+    ref: str,
+    payload: Mapping[str, Any],
+) -> bool:
+    """Validate hashes for receipt kinds that publish immutable artifacts."""
+
+    checks: tuple[tuple[str, str], ...] = ()
+    if ref.startswith("receipts/datasets/"):
+        if payload.get("schema_version") != 1:
+            return False
+        artifact = str(payload.get("canonical_artifact", "")).strip()
+        digest = str(payload.get("canonical_sha256", "")).strip()
+        if not artifact or not digest:
+            return False
+        artifact_ref = artifact if "/" in artifact else f"work/{artifact}"
+        checks = ((artifact_ref, digest),)
+    elif ref.startswith("receipts/experiments/"):
+        if (
+            payload.get("schema_version") != 1
+            or not str(payload.get("run_id", "")).strip()
+        ):
+            return False
+        checks = (
+            (
+                str(payload.get("experiment_report", "")),
+                str(payload.get("experiment_report_sha256", "")),
+            ),
+            (
+                str(payload.get("experiment_audit", "")),
+                str(payload.get("experiment_audit_sha256", "")),
+            ),
+            (
+                str(payload.get("experiment_record", "")),
+                str(payload.get("experiment_record_sha256", "")),
+            ),
+            (
+                str(payload.get("output_report", "")),
+                str(payload.get("output_report_sha256", "")),
+            ),
+        )
+    elif ref == "receipts/claims/claims-v2.json":
+        return (
+            payload.get("schema_version") == 2
+            and payload.get("status") == "accepted"
+            and isinstance(payload.get("claims"), list)
+        )
+    if not checks:
+        return True
+    for artifact_ref, expected_sha in checks:
+        if not artifact_ref or not re.fullmatch(
+            r"[0-9a-f]{64}", expected_sha, re.IGNORECASE
+        ):
+            return False
+        artifact_path = (run_root / artifact_ref).resolve()
+        try:
+            artifact_path.relative_to(run_root.resolve())
+        except ValueError:
+            return False
+        if not artifact_path.is_file() or sha256_file(artifact_path) != expected_sha:
+            return False
+    return True
+
+
 def verified_receipt_paths(run_root: Path) -> set[str]:
     receipts_root = run_root / "receipts"
     if not receipts_root.is_dir():
@@ -346,8 +433,62 @@ def verified_receipt_paths(run_root: Path) -> set[str]:
             "receipts/evidence/"
         ) and payload.get("schema_version") != 2:
             continue
+        if not _receipt_artifacts_match(run_root, ref, payload):
+            continue
         verified.add(ref)
     return verified
+
+
+def _contains_exact(value: object, target: str) -> bool:
+    if isinstance(value, Mapping):
+        return any(
+            key == target or _contains_exact(item, target)
+            for key, item in value.items()
+        )
+    if isinstance(value, list):
+        return any(_contains_exact(item, target) for item in value)
+    return value == target
+
+
+def _known_sha256_values(
+    run_root: Path,
+    verified_receipts: set[str],
+) -> set[str]:
+    """Collect hashes only from verified receipts and hash-bound records."""
+
+    known: set[str] = set()
+    trusted_json_paths = {run_root / ref for ref in verified_receipts}
+    for ref in verified_receipts:
+        if not ref.startswith("receipts/experiments/"):
+            continue
+        try:
+            receipt = json.loads((run_root / ref).read_text(encoding="utf-8"))
+        except (OSError, ValueError, TypeError, json.JSONDecodeError):
+            continue
+        record_ref = str(receipt.get("experiment_record", ""))
+        if record_ref:
+            trusted_json_paths.add(run_root / record_ref)
+
+    for path in trusted_json_paths:
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError, TypeError, json.JSONDecodeError):
+            continue
+
+        def collect(value: object) -> None:
+            if isinstance(value, Mapping):
+                for item in value.values():
+                    collect(item)
+            elif isinstance(value, list):
+                for item in value:
+                    collect(item)
+            elif isinstance(value, str) and re.fullmatch(
+                r"[0-9a-f]{64}", value, re.IGNORECASE
+            ):
+                known.add(value.lower())
+
+        collect(payload)
+    return known
 
 
 def accepted_evidence_receipts(run_root: Path) -> dict[str, dict[str, Any]]:
@@ -401,6 +542,7 @@ def record_task_route(run_root: Path, route: Mapping[str, Any]) -> dict[str, Any
             "requires_computation_receipt",
             "requires_external_evidence",
             "required_domain_adapter",
+            "required_analysis_protocol",
             "deliverable",
             "external_evidence_reasons",
         )
@@ -429,6 +571,11 @@ def record_task_route(run_root: Path, route: Mapping[str, Any]) -> dict[str, Any
     task["evidence_requirements"] = [
         dict(row) for row in route_requirements if isinstance(row, Mapping)
     ]
+    task["required_measurement_ids"] = (
+        list(F107_DISCONTINUITY_REQUIRED_MEASUREMENTS)
+        if obligations["required_analysis_protocol"] == "f107_discontinuity_v1"
+        else []
+    )
     if task.get("status") == "created":
         task["status"] = "routed"
     write_json_atomic(task_path, task)
@@ -560,8 +707,40 @@ def finalize_task(
         }
     for claim_id in required_claim_ids - ledger_claim_ids:
         missing.append(f"claim_ledger:{claim_id}")
-    missing = sorted(set(missing))
+
+    experiment_records: list[object] = []
+    for receipt_ref in verified:
+        if not receipt_ref.startswith("receipts/experiments/"):
+            continue
+        try:
+            receipt = json.loads((run_root / receipt_ref).read_text(encoding="utf-8"))
+            record_ref = str(receipt.get("experiment_record", ""))
+            record_path = (run_root / record_ref).resolve()
+            record_path.relative_to(run_root.resolve())
+            experiment_records.append(
+                json.loads(record_path.read_text(encoding="utf-8"))
+            )
+        except (OSError, ValueError, TypeError, json.JSONDecodeError):
+            continue
+    for measurement_id in task.get("required_measurement_ids", []):
+        if not any(
+            _contains_exact(record, str(measurement_id))
+            for record in experiment_records
+        ):
+            missing.append(f"measurement:{measurement_id}")
+
     report = run_root / "outputs" / "report.md"
+    if report.is_file():
+        try:
+            report_text = report.read_text(encoding="utf-8")
+        except OSError:
+            report_text = ""
+        known_hashes = _known_sha256_values(run_root, verified)
+        for digest in _SHA256_PATTERN.findall(report_text):
+            if digest.lower() not in known_hashes:
+                missing.append(f"unverified_report_sha256:{digest.lower()}")
+
+    missing = sorted(set(missing))
     effective = requested_status
     if requested_status == "finalized" and (not report.is_file() or missing):
         effective = "partial" if report.is_file() or verified else "blocked"

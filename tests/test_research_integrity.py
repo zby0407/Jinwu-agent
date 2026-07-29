@@ -6,12 +6,15 @@ import pytest
 
 import jw.tools.research_integrity as integrity_tools
 from jw.research_integrity import (
+    F107_DISCONTINUITY_REQUIRED_MEASUREMENTS,
     accepted_evidence_receipts,
     derive_external_evidence_policy,
     finalize_task,
     normalize_tool_outcome,
     record_task_route,
+    sha256_file,
     transition_task,
+    verified_receipt_paths,
 )
 
 
@@ -109,6 +112,62 @@ def test_finalize_requires_verified_receipt_and_report(tmp_path) -> None:
     assert task["final_report"] == "outputs/report.md"
 
 
+def test_dataset_receipt_requires_real_hash_matched_artifact(tmp_path) -> None:
+    receipt = tmp_path / "receipts" / "datasets" / "f107_semantics.json"
+    receipt.parent.mkdir(parents=True)
+    receipt.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "status": "verified",
+                "canonical_artifact": "canonical.csv",
+                "canonical_sha256": "0" * 64,
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    assert verified_receipt_paths(tmp_path) == set()
+
+    artifact = tmp_path / "work" / "canonical.csv"
+    artifact.parent.mkdir()
+    artifact.write_text("month,f107\n1980-01,100\n", encoding="utf-8")
+    receipt.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "status": "verified",
+                "canonical_artifact": "canonical.csv",
+                "canonical_sha256": sha256_file(artifact),
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    assert verified_receipt_paths(tmp_path) == {"receipts/datasets/f107_semantics.json"}
+
+
+def test_finalizer_rejects_unverified_sha256_written_in_report(tmp_path) -> None:
+    (tmp_path / "task.json").write_text(
+        json.dumps({"status": "verifying"}), encoding="utf-8"
+    )
+    report = tmp_path / "outputs" / "report.md"
+    report.parent.mkdir()
+    report.write_text(
+        "# Report\n\nInput SHA-256: "
+        "a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b2\n",
+        encoding="utf-8",
+    )
+
+    task = finalize_task(tmp_path, requested_status="finalized")
+
+    assert task["status"] == "partial"
+    assert any(
+        item.startswith("unverified_report_sha256:")
+        for item in task["missing_receipts"]
+    )
+
+
 def test_terminal_task_cannot_be_reopened(tmp_path) -> None:
     (tmp_path / "task.json").write_text(
         json.dumps({"status": "finalized"}), encoding="utf-8"
@@ -137,6 +196,7 @@ def test_f107_route_requires_three_evidence_claims_and_all_receipt_kinds(
             "requires_computation_receipt": True,
             "requires_external_evidence": True,
             "required_domain_adapter": "f107",
+            "required_analysis_protocol": "f107_discontinuity_v1",
             "deliverable": "audited_report",
         },
     )
@@ -152,6 +212,13 @@ def test_f107_route_requires_three_evidence_claims_and_all_receipt_kinds(
     assert "evidence:f107_product_definition" in task["missing_receipts"]
     assert "evidence:f107_observatory_history" in task["missing_receipts"]
     assert "evidence:f107_1980_discontinuity" in task["missing_receipts"]
+    assert task["required_measurement_ids"] == list(
+        F107_DISCONTINUITY_REQUIRED_MEASUREMENTS
+    )
+    assert all(
+        f"measurement:{measurement_id}" in task["missing_receipts"]
+        for measurement_id in F107_DISCONTINUITY_REQUIRED_MEASUREMENTS
+    )
 
 
 def test_local_literature_request_deterministically_requires_external_evidence() -> (

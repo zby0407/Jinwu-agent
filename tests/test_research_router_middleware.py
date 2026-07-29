@@ -13,7 +13,10 @@ from langchain.agents.middleware.types import (
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 from langchain_core.tools import StructuredTool
 
-from jw.middleware.research_router import ResearchRouterMiddleware
+from jw.middleware.research_router import (
+    ResearchRouterMiddleware,
+    _successful_specialists,
+)
 
 
 def _tool(name: str):
@@ -77,6 +80,44 @@ def _route(
         "required_specialist": required_specialist,
         "reason": "test",
     }
+
+
+def test_specialist_success_requires_workspace_verified_receipt() -> None:
+    calls = [
+        {
+            "name": "task",
+            "id": "task-data",
+            "args": {"subagent_type": "solar-data"},
+        }
+    ]
+    messages = [
+        ToolMessage(
+            json.dumps(
+                {
+                    "status": "success",
+                    "receipt_refs": ["receipts/datasets/f107_semantics.json"],
+                }
+            ),
+            tool_call_id="task-data",
+            name="task",
+        )
+    ]
+
+    assert (
+        _successful_specialists(
+            calls,
+            {"task"},
+            messages,
+            workspace_verified_receipts=set(),
+        )
+        == set()
+    )
+    assert _successful_specialists(
+        calls,
+        {"task"},
+        messages,
+        workspace_verified_receipts={"receipts/datasets/f107_semantics.json"},
+    ) == {"solar-data"}
 
 
 def _obligations(
@@ -163,6 +204,7 @@ def test_f107_computation_gets_audited_route_obligations(monkeypatch) -> None:
     assert route["requires_computation_receipt"] is True
     assert route["requires_external_evidence"] is True
     assert route["required_domain_adapter"] == "f107"
+    assert route["required_analysis_protocol"] == "f107_discontinuity_v1"
     assert route["deliverable"] == "audited_report"
 
 
