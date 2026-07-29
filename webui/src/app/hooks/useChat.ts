@@ -2,17 +2,25 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useStream } from "@langchain/langgraph-sdk/react";
-import { type Message, type Assistant } from "@langchain/langgraph-sdk";
+import {
+  type Assistant,
+  type Checkpoint,
+  type Message,
+} from "@langchain/langgraph-sdk";
 import { v4 as uuidv4 } from "uuid";
 import type { UseStreamThread } from "@langchain/langgraph-sdk/react";
 import type { TodoItem } from "@/app/types/types";
+import { extractStringFromMessageContent } from "@/app/utils/utils";
 import { useClient } from "@/providers/ClientProvider";
 import { useQueryState } from "nuqs";
 import {
   extractSubAgentSteps,
   type SubAgentStep,
 } from "@/lib/subAgentActivity";
-import { parseSummarizationEvent } from "@/lib/summarization";
+import {
+  isSummarizationMessage,
+  parseSummarizationEvent,
+} from "@/lib/summarization";
 import { toast } from "sonner";
 import {
   MODEL_OVERRIDE_METADATA_KEY,
@@ -284,6 +292,17 @@ export function useChat({
   const [subAgentActivity, setSubAgentActivity] = useState<
     Record<string, SubAgentStep[]>
   >({});
+  const activeRunRef = useRef<{ run_id: string; thread_id: string } | null>(
+    null
+  );
+  const stoppedMessagesRef = useRef<{
+    threadId: string;
+    messages: Message[];
+  } | null>(null);
+  const stoppedCheckpointRef = useRef<{
+    threadId: string;
+    checkpoint: Omit<Checkpoint, "thread_id">;
+  } | null>(null);
 
   const stream = useStream<StateType>({
     assistantId: activeAssistant?.assistant_id || "",
@@ -301,8 +320,16 @@ export function useChat({
     // without this the user only sees React's generic "An internal error
     // occurred" and has to dig into the server log to learn that, e.g., a
     // model provider returned a quota error.
-    onFinish: onHistoryRevalidate,
-    onError: (error) => {
+    onFinish: (_state, run) => {
+      if (!run || activeRunRef.current?.run_id === run.run_id) {
+        activeRunRef.current = null;
+      }
+      onHistoryRevalidate?.();
+    },
+    onError: (error, run) => {
+      if (!run || activeRunRef.current?.run_id === run.run_id) {
+        activeRunRef.current = null;
+      }
       onHistoryRevalidate?.();
       if (hasHttpStatus(error, 404) && threadId) {
         recoverMissingThread(threadId);
@@ -310,7 +337,16 @@ export function useChat({
       }
       toast.error(formatStreamError(error));
     },
-    onCreated: onHistoryRevalidate,
+    onCreated: (run) => {
+      activeRunRef.current = run;
+      if (stoppedMessagesRef.current?.threadId === run.thread_id) {
+        stoppedMessagesRef.current = null;
+      }
+      if (stoppedCheckpointRef.current?.threadId === run.thread_id) {
+        stoppedCheckpointRef.current = null;
+      }
+      onHistoryRevalidate?.();
+    },
     // Capture sub-agent (subgraph) node outputs as they stream. `namespace` is
     // non-empty (e.g. ["tools:<id>"]) for subgraphs and empty for the main graph,
     // which we skip.
@@ -361,6 +397,13 @@ export function useChat({
   const [fetchedMessages, setFetchedMessages] = useState<Message[] | null>(
     null
   );
+  // Thread records preserve compacted history, but can include message roots
+  // from sibling checkpoint branches. Graph-state snapshots are scoped to the
+  // branch currently selected by useStream. Remember the source so a
+  // thread-wide fallback cannot leak an old edited input into the active view.
+  const [fetchedMessagesScope, setFetchedMessagesScope] = useState<
+    "thread" | "branch" | null
+  >(null);
   const [regenerationPreview, setRegenerationPreview] = useState<
     Message[] | null
   >(null);
@@ -369,6 +412,10 @@ export function useChat({
   // the persisted checkpoint still has work in `next`. Mirror that server fact
   // so a refresh cannot unlock the composer while the original run is active.
   const [serverPending, setServerPending] = useState(false);
+  const [stopState, setStopState] = useState<
+    "idle" | "stopping" | "stopped"
+  >("idle");
+  const stopRequestedRef = useRef(false);
   const recoveryRunRef = useRef(0);
   // Recovery polling is only for a live run whose SSE tail may have been
   // dropped. Initial conversation hydration already comes from useStream's
@@ -462,10 +509,15 @@ export function useChat({
       recoveryNeededRef.current = false;
       setFetchedInterrupt(undefined);
       setFetchedMessages(null);
+      setFetchedMessagesScope(null);
       setFetchedThreadId(null);
       setRegenerationPreview(null);
       setResolvedInterruptKey(null);
       setServerPending(false);
+      stopRequestedRef.current = false;
+      stoppedMessagesRef.current = null;
+      stoppedCheckpointRef.current = null;
+      setStopState("idle");
       return;
     }
     if (recoveryThreadRef.current !== threadId) {
@@ -477,6 +529,11 @@ export function useChat({
       recoveryRunRef.current += 1;
       setFetchedInterrupt(undefined);
       setRegenerationPreview(null);
+      setServerPending(false);
+      return;
+    }
+    if (stopRequestedRef.current) {
+      recoveryNeededRef.current = false;
       setServerPending(false);
       return;
     }
@@ -513,7 +570,18 @@ export function useChat({
           }>,
         ]);
         if (cancelled || recoveryRunRef.current !== recoveryRunId) return;
-        const msgs = threadRecord.values?.messages;
+        const selectedBranchIsForked = stream.messages.some(
+          (message, index) =>
+            (stream.getMessagesMetadata(message, index)?.branchOptions
+              ?.length ?? 0) > 1
+        );
+        const branchMessages = state.values?.messages;
+        const useBranchSnapshot =
+          selectedBranchIsForked && Array.isArray(branchMessages);
+        const msgs = useBranchSnapshot
+          ? branchMessages
+          : threadRecord.values?.messages;
+        const messageScope = useBranchSnapshot ? "branch" : "thread";
         const pending = latestTaskInterrupt(state.tasks);
         const stillPending = Array.isArray(state.next) && state.next.length > 0;
         const safePending = normalizePendingInterrupt(pending);
@@ -532,6 +600,7 @@ export function useChat({
           if (Array.isArray(msgs)) {
             setFetchedThreadId(threadId);
             setFetchedMessages(msgs);
+            setFetchedMessagesScope(messageScope);
           }
           return;
         }
@@ -542,6 +611,7 @@ export function useChat({
         if (Array.isArray(msgs) && msgs.length > baseline) {
           setFetchedThreadId(threadId);
           setFetchedMessages(msgs);
+          setFetchedMessagesScope(messageScope);
         }
         if (!stillPending) {
           // The server has no pending task/interrupt anymore. Record the stale
@@ -552,6 +622,7 @@ export function useChat({
           if (Array.isArray(msgs)) {
             setFetchedThreadId(threadId);
             setFetchedMessages(msgs);
+            setFetchedMessagesScope(messageScope);
           }
           return;
         }
@@ -629,6 +700,18 @@ export function useChat({
     if (regenerationPreview && serverPending && !stream.isLoading) {
       return regenerationPreview;
     }
+    const selectedBranchIsForked = stream.messages.some(
+      (message, index) =>
+        (stream.getMessagesMetadata(message, index)?.branchOptions?.length ??
+          0) > 1
+    );
+    // `threads.get()` returns a thread-wide persistence record, not one
+    // checkpoint path. It can therefore contain both the original and edited
+    // human inputs. Once the SDK exposes a fork, only its selected values or a
+    // branch-scoped recovery snapshot may drive the conversation UI.
+    if (selectedBranchIsForked && fetchedMessagesScope !== "branch") {
+      return stream.messages;
+    }
     if (!fetchedMessages || fetchedThreadId !== threadId)
       return stream.messages;
     if (fetchedInterrupt) return fetchedMessages;
@@ -670,15 +753,26 @@ export function useChat({
 
   const sendMessage = useCallback(
     (content: string) => {
+      const stoppedSnapshot =
+        stoppedMessagesRef.current?.threadId === threadId
+          ? stoppedMessagesRef.current.messages
+          : null;
+      const stoppedCheckpoint =
+        stoppedCheckpointRef.current?.threadId === threadId
+          ? stoppedCheckpointRef.current.checkpoint
+          : undefined;
       // Drop any settled-run snapshot up front. Otherwise, until `isLoading`
       // flips true (and the effect above clears it), a previous run's
       // `fetchedMessages` can still out-count `stream.messages` and shadow the
       // just-added optimistic user message — making it flicker/vanish.
       setFetchedInterrupt(undefined);
       setFetchedMessages(null);
+      setFetchedMessagesScope(null);
       setFetchedThreadId(null);
       setRegenerationPreview(null);
       setResolvedInterruptKey(null);
+      stopRequestedRef.current = false;
+      setStopState("idle");
       recoveryRunRef.current += 1;
       const newMessage: Message = { id: uuidv4(), type: "human", content };
       setServerPending(true);
@@ -703,9 +797,10 @@ export function useChat({
               },
               ifExists: "do_nothing",
             });
-            if (stream.messages.length > 0) {
+            const restoreMessages = stoppedSnapshot ?? stream.messages;
+            if (restoreMessages.length > 0) {
               await client.threads.updateState(threadId, {
-                values: { messages: stream.messages },
+                values: { messages: restoreMessages },
               });
             }
           }
@@ -715,8 +810,17 @@ export function useChat({
           { messages: [newMessage] },
           {
             optimisticValues: (prev) => ({
-              messages: [...(prev.messages ?? []), newMessage],
+              messages: [
+                ...(stoppedSnapshot ?? prev.messages ?? []),
+                newMessage,
+              ],
             }),
+            // fetchStateHistory makes useStream otherwise submit from its
+            // cached branch head. After a manual stop that head predates the
+            // checkpoint where we saved the partial AI response, so the first
+            // server update would erase the optimistic copy. Pin this one turn
+            // to the newly saved checkpoint instead.
+            checkpoint: stoppedCheckpoint,
             config: buildRunConfig(),
             metadata:
               threadId === null
@@ -753,9 +857,12 @@ export function useChat({
       if (!threadId || stream.isLoading || serverPending) return;
       setFetchedInterrupt(undefined);
       setFetchedMessages(null);
+      setFetchedMessagesScope(null);
       setFetchedThreadId(null);
       setRegenerationPreview(null);
       setResolvedInterruptKey(null);
+      stopRequestedRef.current = false;
+      setStopState("idle");
       recoveryRunRef.current += 1;
       setServerPending(true);
 
@@ -861,6 +968,104 @@ export function useChat({
     ]
   );
 
+  const editMessage = useCallback(
+    (messageId: string, content: string) => {
+      const editedContent = content.trim();
+      if (
+        !threadId ||
+        !editedContent ||
+        stream.isLoading ||
+        serverPending
+      ) {
+        return;
+      }
+      setFetchedInterrupt(undefined);
+      setFetchedMessages(null);
+      setFetchedMessagesScope(null);
+      setFetchedThreadId(null);
+      setRegenerationPreview(null);
+      setResolvedInterruptKey(null);
+      stopRequestedRef.current = false;
+      setStopState("idle");
+      recoveryRunRef.current += 1;
+      setServerPending(true);
+
+      void (async () => {
+        const targetIndex = messages.findIndex(
+          (message) => message.id === messageId && message.type === "human"
+        );
+        if (targetIndex < 0) {
+          throw new Error("The message is no longer in the active branch.");
+        }
+        const targetMessage = messages[targetIndex];
+        if (extractStringFromMessageContent(targetMessage).trim() === editedContent) {
+          setServerPending(false);
+          return;
+        }
+
+        const history = await client.threads.getHistory<StateType>(threadId, {
+          limit: 100,
+        });
+        const firstSeenState = [...history].reverse().find((state) =>
+          (state.values.messages ?? []).some(
+            (message) => message.id === messageId
+          )
+        );
+        const checkpoint = firstSeenState?.parent_checkpoint;
+        if (!checkpoint) {
+          throw new Error(
+            "The checkpoint before this message is no longer available."
+          );
+        }
+
+        const editedMessage: Message = {
+          id: uuidv4(),
+          type: "human",
+          content: editedContent,
+        };
+        const optimisticMessages = [
+          ...messages.slice(0, targetIndex),
+          editedMessage,
+        ];
+        // Everything after the edited user turn belongs to the sibling branch.
+        // Hide it immediately; the old branch remains available through the
+        // SDK's branch metadata and can be restored with the version switcher.
+        setRegenerationPreview(optimisticMessages);
+
+        await stream.submit(
+          { messages: [editedMessage] },
+          {
+            checkpoint,
+            optimisticValues: { messages: optimisticMessages },
+            config: buildRunConfig(),
+            streamSubgraphs: true,
+            streamMode: ["updates"],
+            streamResumable: true,
+            onDisconnect: "continue",
+          }
+        );
+      })().catch((error) => {
+        setRegenerationPreview(null);
+        setServerPending(false);
+        toast.error(
+          error instanceof Error
+            ? `Couldn't edit message: ${error.message}`
+            : "Couldn't edit message."
+        );
+      });
+      onHistoryRevalidate?.();
+    },
+    [
+      threadId,
+      stream,
+      serverPending,
+      messages,
+      client,
+      buildRunConfig,
+      onHistoryRevalidate,
+    ]
+  );
+
   const setFiles = useCallback(
     async (files: Record<string, string>) => {
       if (!threadId) return;
@@ -875,9 +1080,12 @@ export function useChat({
     (branch: string) => {
       setFetchedInterrupt(undefined);
       setFetchedMessages(null);
+      setFetchedMessagesScope(null);
       setFetchedThreadId(null);
       setRegenerationPreview(null);
       setResolvedInterruptKey(null);
+      stopRequestedRef.current = false;
+      setStopState("idle");
       recoveryRunRef.current += 1;
       stream.setBranch(branch);
     },
@@ -891,12 +1099,15 @@ export function useChat({
       // approval card or shadow the resumed run's messages.
       setFetchedInterrupt(undefined);
       setFetchedMessages(null);
+      setFetchedMessagesScope(null);
       setFetchedThreadId(null);
       // Mark the interrupt being resumed as resolved immediately. The SDK can
       // keep that same object in `stream.interrupt` while the continuation run
       // is already active; clearing this key resurrects a stale approval card
       // ("Approving…") until the next full refresh.
       setResolvedInterruptKey(interruptValueKey(interrupt));
+      stopRequestedRef.current = false;
+      setStopState("idle");
       recoveryRunRef.current += 1;
       stream.submit(null, {
         command: { resume: value },
@@ -912,19 +1123,97 @@ export function useChat({
     [stream, buildRunConfig, onHistoryRevalidate, interrupt]
   );
 
-  const stopStream = useCallback(() => {
-    stream.stop();
-    if (threadId) {
-      void fetch("/api/task-stop", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ threadId }),
-      }).catch(() => {
-        // The SDK cancellation above still stops the parent graph. This route
-        // additionally propagates the stop to contract sub-agents/sandboxes.
-      });
+  const stopStream = useCallback(async () => {
+    if (stopRequestedRef.current) return;
+    stopRequestedRef.current = true;
+    setStopState("stopping");
+    setServerPending(false);
+    recoveryNeededRef.current = false;
+    recoveryRunRef.current += 1;
+
+    // Capture the live main-thread snapshot before aborting the SSE request.
+    // The model node has not checkpointed its in-progress AI message yet, so a
+    // later history reload would otherwise replace it with the pre-run state.
+    const stoppedMessages = stream.messages.filter((message, index) => {
+      if (message.type === "human") return true;
+      const metadata = stream.getMessagesMetadata(message, index);
+      const checkpointNamespace =
+        metadata?.streamMetadata?.["langgraph_checkpoint_ns"];
+      if (
+        typeof checkpointNamespace === "string" &&
+        checkpointNamespace.includes("|")
+      ) {
+        return false;
+      }
+      return !isSummarizationMessage(message);
+    });
+    const activeRun = activeRunRef.current;
+
+    try {
+      await stream.stop();
+
+      if (threadId) {
+        // `useStream.stop()` fires run cancellation without awaiting it. Wait
+        // for the server-side run as well so updateState cannot race the model
+        // and so the next user turn is accepted immediately.
+        let runIds: string[] = [];
+        if (activeRun?.thread_id === threadId) {
+          runIds = [activeRun.run_id];
+        } else {
+          const [running, pending] = await Promise.all([
+            client.runs.list(threadId, { status: "running", limit: 10 }),
+            client.runs.list(threadId, { status: "pending", limit: 10 }),
+          ]);
+          runIds = [...new Set([...running, ...pending].map((run) => run.run_id))];
+        }
+        await Promise.allSettled(
+          runIds.map((runId) =>
+            client.runs.cancel(threadId, runId, true, "interrupt")
+          )
+        );
+
+        if (stoppedMessages.length > 0) {
+          await client.threads.updateState(threadId, {
+            values: { messages: stoppedMessages },
+          });
+          const savedState = await client.threads.getState<StateType>(threadId);
+          if (savedState.checkpoint) {
+            const { thread_id: _threadId, ...checkpoint } =
+              savedState.checkpoint;
+            stoppedCheckpointRef.current = { threadId, checkpoint };
+          }
+          stoppedMessagesRef.current = {
+            threadId,
+            messages: stoppedMessages,
+          };
+          setFetchedThreadId(threadId);
+          setFetchedMessages(stoppedMessages);
+          setFetchedMessagesScope("branch");
+        }
+
+        void fetch("/api/task-stop", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ threadId }),
+        }).catch(() => {
+          // Parent cancellation and partial-message persistence already
+          // succeeded. This route only propagates the stop to experiment
+          // subprocesses and contract sub-agents.
+        });
+      }
+    } catch (error) {
+      toast.error(
+        `Generation stopped, but the partial response could not be saved: ${formatStreamError(
+          error
+        )}`
+      );
+    } finally {
+      activeRunRef.current = null;
+      setServerPending(false);
+      setStopState("stopped");
+      onHistoryRevalidate?.();
     }
-  }, [stream, threadId]);
+  }, [client, onHistoryRevalidate, stream, threadId]);
 
   return {
     stream,
@@ -938,12 +1227,16 @@ export function useChat({
     ui: stream.values.ui,
     setFiles,
     messages,
-    isLoading: stream.isLoading || serverPending,
+    isLoading:
+      stopState === "stopping" ||
+      (stopState !== "stopped" && (stream.isLoading || serverPending)),
+    isStopping: stopState === "stopping",
     isThreadLoading:
       stream.isThreadLoading ||
       (threadId !== null && streamThreadId !== threadId),
     interrupt,
     sendMessage,
+    editMessage,
     regenerateMessage,
     selectBranch,
     stopStream,

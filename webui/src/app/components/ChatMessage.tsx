@@ -40,6 +40,13 @@ import { cn } from "@/lib/utils";
 import { copyText } from "@/lib/clipboard";
 import { toast } from "sonner";
 
+interface MessageVersions {
+  current: number;
+  total: number;
+  onPrevious?: () => void;
+  onNext?: () => void;
+}
+
 interface ChatMessageProps {
   message: Message;
   toolCalls: ToolCall[];
@@ -56,14 +63,11 @@ interface ChatMessageProps {
   onResumeInterrupt?: (value: any) => void;
   graphId?: string;
   onEditMessage?: (content: string) => void;
+  canEditMessage?: boolean;
   onRegenerate?: () => void;
   canRegenerate?: boolean;
-  responseVersions?: {
-    current: number;
-    total: number;
-    onPrevious?: () => void;
-    onNext?: () => void;
-  };
+  responseVersions?: MessageVersions;
+  messageVersions?: MessageVersions;
   autoApprove?: boolean;
   /** Live intermediate steps per task tool-call id (sub-agent activity). */
   subAgentSteps?: Record<string, SubAgentStep[]>;
@@ -109,16 +113,49 @@ export const ChatMessage = React.memo<ChatMessageProps>(
     onResumeInterrupt,
     graphId,
     onEditMessage,
+    canEditMessage = false,
     onRegenerate,
     canRegenerate = false,
     responseVersions,
+    messageVersions,
     autoApprove,
     subAgentSteps,
   }) => {
     const isUser = message.type === "human";
     const messageContent = extractStringFromMessageContent(message);
     const hasContent = messageContent && messageContent.trim() !== "";
+    const [isEditing, setIsEditing] = useState(false);
+    const [editValue, setEditValue] = useState(messageContent);
+    const editTextareaRef = useRef<HTMLTextAreaElement | null>(null);
     const hasToolCalls = toolCalls.length > 0;
+
+    useEffect(() => {
+      setIsEditing(false);
+      setEditValue(messageContent);
+    }, [message.id, messageContent]);
+
+    const startEditing = useCallback(() => {
+      if (!canEditMessage || !onEditMessage) return;
+      setEditValue(messageContent);
+      setIsEditing(true);
+      requestAnimationFrame(() => {
+        const textarea = editTextareaRef.current;
+        if (!textarea) return;
+        textarea.focus();
+        textarea.setSelectionRange(textarea.value.length, textarea.value.length);
+      });
+    }, [canEditMessage, messageContent, onEditMessage]);
+
+    const submitEdit = useCallback(() => {
+      const next = editValue.trim();
+      if (!next || !onEditMessage) return;
+      if (next === messageContent.trim()) {
+        setIsEditing(false);
+        return;
+      }
+      onEditMessage(next);
+      setIsEditing(false);
+    }, [editValue, messageContent, onEditMessage]);
     // Extended-thinking / reasoning text (Anthropic & friends store it here).
     const reasoning = useMemo(() => {
       const r = (
@@ -328,7 +365,11 @@ export const ChatMessage = React.memo<ChatMessageProps>(
         <div
           className={cn(
             "min-w-0 max-w-full",
-            isUser ? "max-w-[70%]" : "w-full"
+            isUser
+              ? isEditing
+                ? "w-[min(42rem,calc(100vw-3rem))] max-w-[90%] sm:max-w-[70%]"
+                : "max-w-[70%]"
+              : "w-full"
           )}
         >
           {!isUser && reasoning && (
@@ -374,7 +415,53 @@ export const ChatMessage = React.memo<ChatMessageProps>(
               </span>
             </div>
           )}
-          {hasContent && (
+          {isUser && isEditing ? (
+            <form
+              onSubmit={(event) => {
+                event.preventDefault();
+                submitEdit();
+              }}
+              className="mt-4 overflow-hidden rounded-xl rounded-br-none border border-[var(--brand)]/65 bg-[rgba(7,8,11,0.96)] shadow-[0_0_24px_rgba(210,145,31,0.12)]"
+            >
+              <textarea
+                ref={editTextareaRef}
+                value={editValue}
+                onChange={(event) => setEditValue(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.nativeEvent.isComposing || event.keyCode === 229) {
+                    return;
+                  }
+                  if (event.key === "Enter" && !event.shiftKey) {
+                    event.preventDefault();
+                    submitEdit();
+                  }
+                  if (event.key === "Escape") {
+                    event.preventDefault();
+                    setIsEditing(false);
+                  }
+                }}
+                aria-label="编辑消息"
+                rows={4}
+                className="min-h-28 max-h-[45vh] w-full resize-y overflow-y-auto border-0 bg-transparent px-4 py-3 text-sm leading-relaxed text-foreground outline-none placeholder:text-tertiary"
+              />
+              <div className="flex items-center justify-end gap-2 border-t border-border/70 px-3 py-2">
+                <button
+                  type="button"
+                  onClick={() => setIsEditing(false)}
+                  className="rounded-md border border-border px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
+                >
+                  取消
+                </button>
+                <button
+                  type="submit"
+                  disabled={!editValue.trim()}
+                  className="rounded-md border border-[var(--brand)]/60 bg-[var(--brand-solid)] px-3 py-1.5 text-xs font-semibold text-[var(--brand-foreground)] shadow-[inset_0_1px_0_rgba(255,238,174,0.18)] transition-opacity hover:opacity-90 focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  Send
+                </button>
+              </div>
+            </form>
+          ) : hasContent ? (
             <div className={cn("relative flex items-end gap-0")}>
               <div
                 className={cn(
@@ -401,7 +488,7 @@ export const ChatMessage = React.memo<ChatMessageProps>(
                 ) : null}
               </div>
             </div>
-          )}
+          ) : null}
           {!isUser && hasContent && (
             <div className="mt-1 flex items-center gap-1">
               {responseVersions && responseVersions.total > 1 && (
@@ -488,8 +575,45 @@ export const ChatMessage = React.memo<ChatMessageProps>(
               </span>
             </div>
           )}
-          {isUser && hasContent && (
-            <div className="mt-1 flex justify-end gap-1 opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100">
+          {isUser && hasContent && !isEditing && (
+            <div
+              className={cn(
+                "mt-1 flex justify-end gap-1 transition-opacity focus-within:opacity-100 group-hover:opacity-100",
+                messageVersions && messageVersions.total > 1
+                  ? "opacity-100"
+                  : "opacity-0"
+              )}
+            >
+              {messageVersions && messageVersions.total > 1 && (
+                <div
+                  className="mr-1 inline-flex items-center gap-0.5 text-xs text-muted-foreground"
+                  aria-label={`Message version ${messageVersions.current} of ${messageVersions.total}`}
+                >
+                  <button
+                    type="button"
+                    onClick={messageVersions.onPrevious}
+                    disabled={!messageVersions.onPrevious}
+                    aria-label="Previous message version"
+                    title="上一个提问版本"
+                    className="inline-flex items-center rounded p-1.5 transition-colors hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-35"
+                  >
+                    <ChevronLeft className="h-4 w-4" aria-hidden="true" />
+                  </button>
+                  <span className="min-w-9 text-center tabular-nums">
+                    {messageVersions.current}/{messageVersions.total}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={messageVersions.onNext}
+                    disabled={!messageVersions.onNext}
+                    aria-label="Next message version"
+                    title="下一个提问版本"
+                    className="inline-flex items-center rounded p-1.5 transition-colors hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-35"
+                  >
+                    <ChevronRight className="h-4 w-4" aria-hidden="true" />
+                  </button>
+                </div>
+              )}
               <button
                 type="button"
                 onClick={handleCopy}
@@ -510,9 +634,10 @@ export const ChatMessage = React.memo<ChatMessageProps>(
               </button>
               <button
                 type="button"
-                onClick={() => onEditMessage?.(messageContent)}
+                onClick={startEditing}
+                disabled={!canEditMessage}
                 aria-label="Edit message"
-                className="inline-flex items-center rounded p-1.5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
+                className="inline-flex items-center rounded p-1.5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-40"
               >
                 <Pencil
                   className="h-4 w-4"

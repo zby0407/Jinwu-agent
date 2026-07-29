@@ -269,11 +269,17 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
     const [metaOpen, setMetaOpen] = useState<"tasks" | "files" | null>(null);
     const tasksContainerRef = useRef<HTMLDivElement | null>(null);
     const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+    const composerResizeRef = useRef<{
+      pointerId: number;
+      startY: number;
+      startHeight: number;
+    } | null>(null);
     const uploadInputRef = useRef<HTMLInputElement | null>(null);
     const client = useClient();
     const [threadId, setThreadId] = useQueryState("threadId");
 
     const [input, setInput] = useState("");
+    const [composerHeight, setComposerHeight] = useState(64);
     const [pendingFiles, setPendingFiles] = useState<UploadedWorkspaceFile[]>(
       []
     );
@@ -421,9 +427,11 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
       ui,
       setFiles,
       isLoading,
+      isStopping,
       isThreadLoading,
       interrupt,
       sendMessage,
+      editMessage,
       regenerateMessage,
       selectBranch,
       stopStream,
@@ -1055,18 +1063,43 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
       [handleSubmit, hasPendingInterrupt, input, editQueuedMessage]
     );
 
-    // Pull a previous user message back into the composer to edit/resend it,
-    // placing the cursor at the end so the user can keep typing.
-    const handleEditMessage = useCallback((content: string) => {
-      setInput(content);
-      requestAnimationFrame(() => {
-        const el = textareaRef.current;
-        if (el) {
-          el.focus();
-          el.setSelectionRange(content.length, content.length);
+    const handleComposerResizeStart = useCallback(
+      (event: React.PointerEvent<HTMLDivElement>) => {
+        if (event.button !== 0) return;
+        const startHeight =
+          textareaRef.current?.getBoundingClientRect().height ?? composerHeight;
+        composerResizeRef.current = {
+          pointerId: event.pointerId,
+          startY: event.clientY,
+          startHeight,
+        };
+        event.currentTarget.setPointerCapture(event.pointerId);
+        event.preventDefault();
+      },
+      [composerHeight]
+    );
+
+    const handleComposerResizeMove = useCallback(
+      (event: React.PointerEvent<HTMLDivElement>) => {
+        const resize = composerResizeRef.current;
+        if (!resize || resize.pointerId !== event.pointerId) return;
+        const maxHeight = Math.max(64, window.innerHeight * 0.45);
+        const nextHeight = resize.startHeight + resize.startY - event.clientY;
+        setComposerHeight(Math.min(maxHeight, Math.max(64, nextHeight)));
+      },
+      []
+    );
+
+    const handleComposerResizeEnd = useCallback(
+      (event: React.PointerEvent<HTMLDivElement>) => {
+        if (composerResizeRef.current?.pointerId !== event.pointerId) return;
+        composerResizeRef.current = null;
+        if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+          event.currentTarget.releasePointerCapture(event.pointerId);
         }
-      });
-    }, []);
+      },
+      []
+    );
 
     const handleSuggestedPrompt = useCallback((prompt: string) => {
       setInput(prompt);
@@ -1164,33 +1197,29 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
         // new child inherited the previous AI answer, so the SDK sees that old
         // message as unbranched. A real replacement branch starts at this
         // marker; non-human messages earlier in the same turn are stale copies.
-        let turnHumanIndex = -1;
-        for (let prior = index - 1; prior >= 0; prior -= 1) {
-          if (messages[prior].type === "human") {
-            turnHumanIndex = prior;
-            break;
+        // Legacy regeneration branches placed their marker on an assistant
+        // message after inheriting a stale sibling answer. A user-edit branch
+        // legitimately places its marker on the NEW human message; applying
+        // the compatibility cleanup there would incorrectly remove the prior
+        // turn's assistant response.
+        if (messages[index].type !== "human") {
+          let turnHumanIndex = -1;
+          for (let prior = index - 1; prior >= 0; prior -= 1) {
+            if (messages[prior].type === "human") {
+              turnHumanIndex = prior;
+              break;
+            }
           }
-        }
-        for (let stale = turnHumanIndex + 1; stale < index; stale += 1) {
-          if (messages[stale].type !== "human") staleSiblingIndexes.add(stale);
+          for (let stale = turnHumanIndex + 1; stale < index; stale += 1) {
+            if (messages[stale].type !== "human") {
+              staleSiblingIndexes.add(stale);
+            }
+          }
         }
       }
       const visibleMessages = messages.filter((message: Message, index) => {
         if (staleSiblingIndexes.has(index)) return false;
-        // Humans are always user-typed (or our injected async-update pills) —
-        // never sub-agent noise. Run their checks first so a stale subgraph
-        // namespace on a previous-run human (left over in stream metadata)
-        // can't silently drop the original prompt.
-        if (message.type === "human") {
-          const key = asyncUpdateMessageKey(
-            extractStringFromMessageContent(message)
-          );
-          if (!key) return true;
-          if (seenAsyncUpdates.has(key)) return false;
-          seenAsyncUpdates.add(key);
-          return true;
-        }
-        const messageMetadata = stream.getMessagesMetadata(message);
+        const messageMetadata = stream.getMessagesMetadata(message, index);
         const branchOptions = messageMetadata?.branchOptions;
         if (
           messageMetadata?.branch &&
@@ -1200,6 +1229,20 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
             messageMetadata.branch
         ) {
           return false;
+        }
+        // Humans are always user-typed (or our injected async-update pills) —
+        // never sub-agent noise. Run their checks first so a stale subgraph
+        // namespace on a previous-run human can't silently drop the prompt.
+        // They CAN now be sibling branch roots after inline editing, so the
+        // active-branch check above must run before this early return.
+        if (message.type === "human") {
+          const key = asyncUpdateMessageKey(
+            extractStringFromMessageContent(message)
+          );
+          if (!key) return true;
+          if (seenAsyncUpdates.has(key)) return false;
+          seenAsyncUpdates.add(key);
+          return true;
         }
         const meta = messageMetadata?.streamMetadata;
         const ns = meta?.["langgraph_checkpoint_ns"];
@@ -1346,6 +1389,34 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
             }
           }
         }
+        const options = metadata?.branchOptions;
+        if (!metadata?.branch || !options || options.length < 2) return;
+        const currentIndex = options.indexOf(metadata.branch);
+        if (currentIndex < 0) return;
+        return {
+          current: currentIndex + 1,
+          total: options.length,
+          onPrevious:
+            !isLoading && currentIndex > 0
+              ? () => selectBranch(options[currentIndex - 1])
+              : undefined,
+          onNext:
+            !isLoading && currentIndex < options.length - 1
+              ? () => selectBranch(options[currentIndex + 1])
+              : undefined,
+        };
+      },
+      [isLoading, messages, selectBranch, stream]
+    );
+
+    const getMessageVersions = useCallback(
+      (message: Message) => {
+        if (message.type !== "human") return;
+        const messageIndex = messages.findIndex(
+          (candidate) => candidate.id === message.id
+        );
+        if (messageIndex < 0) return;
+        const metadata = stream.getMessagesMetadata(message, messageIndex);
         const options = metadata?.branchOptions;
         if (!metadata?.branch || !options || options.length < 2) return;
         const currentIndex = options.indexOf(metadata.branch);
@@ -1782,7 +1853,6 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
                         stream={stream}
                         onResumeInterrupt={resumeInterrupt}
                         graphId={assistant?.graph_id}
-                        onEditMessage={handleEditMessage}
                         autoApprove={autoApprove}
                         subAgentSteps={subAgentSteps}
                         ui={ui}
@@ -1824,7 +1894,18 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
                         stream={stream}
                         onResumeInterrupt={resumeInterrupt}
                         graphId={assistant?.graph_id}
-                        onEditMessage={handleEditMessage}
+                        onEditMessage={
+                          data.message.type === "human" && data.message.id
+                            ? (content) =>
+                                editMessage(data.message.id!, content)
+                            : undefined
+                        }
+                        canEditMessage={
+                          !isLoading &&
+                          !hasPendingInterrupt &&
+                          data.message.type === "human" &&
+                          Boolean(threadId && data.message.id)
+                        }
                         onRegenerate={() =>
                           setRegenerateMessageId(data.message.id!)
                         }
@@ -1836,6 +1917,11 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
                         responseVersions={
                           isAssistant
                             ? getResponseVersions(data.message)
+                            : undefined
+                        }
+                        messageVersions={
+                          data.message.type === "human"
+                            ? getMessageVersions(data.message)
                             : undefined
                         }
                         autoApprove={autoApprove}
@@ -2265,47 +2351,25 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
                 </button>
               </div>
             )}
-            {(currentModel || runningAgents > 0) && (
+            {runningAgents > 0 && (
               <div className="flex items-center gap-1.5 border-t border-border px-3 py-1.5 text-xs text-muted-foreground">
-                {currentModel && (
-                  <button
-                    type="button"
-                    onClick={() => setModelPickerOpen(true)}
-                    title="Click to change model for this chat"
-                    aria-label="Change model for this chat"
-                    className="-mx-1 flex items-center gap-1.5 rounded px-1 py-0.5 transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                  >
-                    <Sparkles
-                      className="size-3.5 shrink-0 text-[var(--brand)]"
-                      aria-hidden="true"
-                    />
-                    <span className="font-medium text-foreground">
-                      {currentModel.name}
-                    </span>
-                    {currentModel.provider && (
-                      <span>· {currentModel.provider}</span>
-                    )}
-                  </button>
-                )}
-                {runningAgents > 0 && (
-                  <button
-                    type="button"
-                    onClick={onShowAgents}
-                    title={`${runningAgents} background agent${
-                      runningAgents === 1 ? "" : "s"
-                    } running — click to view`}
-                    aria-label={`${runningAgents} background agent${
-                      runningAgents === 1 ? "" : "s"
-                    } running — view`}
-                    className="ml-auto flex shrink-0 items-center gap-1.5 rounded px-1.5 py-0.5 font-medium text-[var(--brand)] transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                  >
-                    <span
-                      className="size-2 animate-pulse rounded-full bg-[var(--color-warning)]"
-                      aria-hidden="true"
-                    />
-                    {runningAgents} agent{runningAgents === 1 ? "" : "s"}
-                  </button>
-                )}
+                <button
+                  type="button"
+                  onClick={onShowAgents}
+                  title={`${runningAgents} background agent${
+                    runningAgents === 1 ? "" : "s"
+                  } running — click to view`}
+                  aria-label={`${runningAgents} background agent${
+                    runningAgents === 1 ? "" : "s"
+                  } running — view`}
+                  className="ml-auto flex shrink-0 items-center gap-1.5 rounded px-1.5 py-0.5 font-medium text-[var(--brand)] transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                >
+                  <span
+                    className="size-2 animate-pulse rounded-full bg-[var(--color-warning)]"
+                    aria-hidden="true"
+                  />
+                  {runningAgents} agent{runningAgents === 1 ? "" : "s"}
+                </button>
               </div>
             )}
             <form
@@ -2348,6 +2412,22 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
                   ))}
                 </div>
               )}
+              <div
+                role="separator"
+                aria-orientation="horizontal"
+                aria-label="调整输入框高度"
+                title="上下拖动调整输入框高度"
+                onPointerDown={handleComposerResizeStart}
+                onPointerMove={handleComposerResizeMove}
+                onPointerUp={handleComposerResizeEnd}
+                onPointerCancel={handleComposerResizeEnd}
+                className="group flex h-3 shrink-0 touch-none cursor-row-resize select-none items-center justify-center"
+              >
+                <span
+                  aria-hidden="true"
+                  className="h-0.5 w-12 rounded-full bg-border transition-colors group-hover:bg-[var(--brand)] group-focus-within:bg-[var(--brand)]"
+                />
+              </div>
               <textarea
                 ref={textareaRef}
                 value={input}
@@ -2362,8 +2442,9 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
                     ? "Queue a follow-up — sends when this turn finishes…"
                     : "向金乌提问……"
                 }
-                className="font-inherit field-sizing-content flex-1 resize-none border-0 bg-transparent px-3.5 pb-2.5 pt-3 text-sm leading-6 text-primary outline-none placeholder:text-tertiary disabled:cursor-not-allowed sm:px-4"
-                rows={1}
+                className="font-inherit min-h-16 max-h-[45vh] w-full flex-none resize-none overflow-y-auto border-0 bg-transparent px-3.5 pb-2.5 pt-3 text-sm leading-6 text-primary outline-none placeholder:text-tertiary disabled:cursor-not-allowed sm:px-4"
+                style={{ height: composerHeight }}
+                rows={2}
               />
               <div className="flex items-center justify-between gap-2 p-2 sm:p-2.5">
                 <div className="flex items-center gap-1">
@@ -2392,6 +2473,28 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
                       aria-hidden="true"
                     />
                   </button>
+                  {currentModel && (
+                    <button
+                      type="button"
+                      onClick={() => setModelPickerOpen(true)}
+                      title="Click to change model for this chat"
+                      aria-label="Change model for this chat"
+                      className="inline-flex min-w-0 max-w-[min(14rem,38vw)] items-center gap-1.5 rounded-md px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    >
+                      <Sparkles
+                        className="size-3.5 shrink-0 text-[var(--brand)]"
+                        aria-hidden="true"
+                      />
+                      <span className="truncate font-medium text-foreground">
+                        {currentModel.name}
+                      </span>
+                      {currentModel.provider && (
+                        <span className="hidden shrink-0 sm:inline">
+                          · {currentModel.provider}
+                        </span>
+                      )}
+                    </button>
+                  )}
                   <button
                     type="button"
                     onClick={() =>
@@ -2446,12 +2549,24 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
                     variant={isLoading ? "destructive" : "default"}
                     onClick={isLoading ? stopStream : handleSubmit}
                     disabled={
-                      !isLoading &&
-                      (submitDisabled || isUploadingFiles || !input.trim())
+                      isStopping ||
+                      (!isLoading &&
+                        (submitDisabled || isUploadingFiles || !input.trim()))
                     }
-                    aria-label={isLoading ? "Stop generating" : "Send message"}
+                    aria-label={
+                      isStopping
+                        ? "Stopping generation"
+                        : isLoading
+                        ? "Stop generating"
+                        : "Send message"
+                    }
                   >
-                    {isLoading ? (
+                    {isStopping ? (
+                      <>
+                        <Square size={14} />
+                        <span className="hidden sm:inline">Stopping…</span>
+                      </>
+                    ) : isLoading ? (
                       <>
                         <Square size={14} />
                         <span className="hidden sm:inline">Stop</span>
