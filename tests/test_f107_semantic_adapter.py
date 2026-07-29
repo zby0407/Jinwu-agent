@@ -150,3 +150,6 @@ def test_f107_adapter_aligns_silso_total_and_excludes_hemispheric(tmp_path) -> N
     assert "survival function" in requirements
     assert "minimum 20 and 25 observed days" in requirements
     assert "verified measurement id" in requirements
+    assert "SN=100" in requirements
+    assert "percentage jump" in requirements
+    assert "published ~10.5%" in requirements

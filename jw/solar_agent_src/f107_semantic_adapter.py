@@ -245,13 +245,22 @@ def canonicalize_f107(
             "For the relative F10.7 scale discontinuity, model F10.7 as the "
             "response over the common pre/post sunspot-number support; do not "
             "invert an SN-on-F10.7 OLS fit.",
+            "Compute the relative F10.7 scale jump percentage as "
+            "(post_model_f107(sn_ref) - pre_model_f107(sn_ref)) / "
+            "pre_model_f107(sn_ref) at a representative SN reference level "
+            "(e.g., SN=100 or the median SN over the common support) and report "
+            "the percentage jump under the f107_relative_scale_jump measurement id.",
+            "Compare the computed percentage jump to the published ~10.5% "
+            "value; do not force a local result to match 10.5%, but also do not "
+            "conclude the jump is absent without reporting the computed percentage jump.",
             "Keep the fixed 1980-1981 comparison separate from exploratory "
             "breakpoint scanning. Compute F-test tails with a survival function "
             "and select the scan optimum by maximum F or minimum unrestricted SSR.",
             "Store cross-period actual-minus-predicted mean residuals and positive "
             "fractions for both directions under distinct measurement ids.",
             "Run observed/URSI product, low-activity, and monthly coverage "
-            "(minimum 20 and 25 observed days) sensitivity analyses.",
+            "(minimum 20 and 25 observed days) sensitivity analyses; the 10.5% "
+            "discontinuity may appear in a different F10.7 product than adjusted.",
             "Estimate a long-term trend and an instantaneous step in one model "
             "before comparing them; do not compare their raw magnitudes as if "
             "they were the same estimand.",
