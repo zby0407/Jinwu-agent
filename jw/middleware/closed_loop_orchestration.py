@@ -9,6 +9,7 @@ and prevent a receipt from claiming an artifact that does not exist.
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import re
 from collections.abc import Awaitable, Callable, Mapping, Sequence
@@ -19,6 +20,7 @@ from langchain.agents.middleware.types import AgentMiddleware
 from langchain_core.messages import ToolMessage
 from langgraph.types import Command
 
+from ..research_protocols import sha256_file
 from ..workspaces import workspace_root_from_config
 
 if TYPE_CHECKING:
@@ -148,6 +150,122 @@ def _read_json(path: Path) -> dict[str, Any] | None:
     return payload if isinstance(payload, dict) else None
 
 
+def _contains_exact(value: object, target: str) -> bool:
+    if isinstance(value, Mapping):
+        return any(
+            key == target or _contains_exact(item, target)
+            for key, item in value.items()
+        )
+    if isinstance(value, list):
+        return any(_contains_exact(item, target) for item in value)
+    return value == target
+
+
+def _valid_dataset_receipt(
+    workspace_root: Path,
+    payload: dict[str, Any],
+) -> bool:
+    if payload.get("schema_version") != 1 or payload.get("status") != "verified":
+        return False
+    artifact_ref = str(payload.get("canonical_artifact") or "").strip()
+    expected_sha = str(payload.get("canonical_sha256") or "").strip()
+    if not artifact_ref or re.fullmatch(r"[0-9a-f]{64}", expected_sha) is None:
+        return False
+    relative = Path(artifact_ref)
+    if relative.is_absolute() or ".." in relative.parts:
+        return False
+    if len(relative.parts) == 1:
+        relative = Path("work") / relative
+    artifact = (workspace_root / relative).resolve()
+    try:
+        artifact.relative_to(workspace_root.resolve())
+    except ValueError:
+        return False
+    return artifact.is_file() and sha256_file(artifact) == expected_sha
+
+
+def _valid_experiment_receipt(
+    payload: dict[str, Any],
+    path: Path,
+    required_measurement_ids: Sequence[str],
+) -> bool:
+    if payload.get("phase") != "report_finalized":
+        return False
+    run_root = path.parent
+    entry = _read_json(run_root / "entry_result.json")
+    if entry is None:
+        return False
+    unhashed = dict(entry)
+    entry_sha = unhashed.pop("entry_sha256", None)
+    try:
+        canonical = json.dumps(
+            unhashed,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+            allow_nan=False,
+        )
+    except (TypeError, ValueError):
+        return False
+    if entry_sha != hashlib.sha256(canonical.encode("utf-8")).hexdigest():
+        return False
+    if (
+        entry.get("schema_version") != "automatic-experiment-entry-result-v1"
+        or entry.get("status") != "finalized"
+        or entry.get("run_id") != payload.get("run_id")
+        or entry.get("outcome") != payload.get("outcome")
+        or entry.get("record_path") != "record.json"
+        or entry.get("report_path") != "report.md"
+    ):
+        return False
+    for artifact_name, entry_hash_field, state_hash_field in (
+        ("record.json", "record_sha256", "verified_record_sha256"),
+        ("report.md", "report_sha256", "report_sha256"),
+        ("audit.md", "audit_sha256", "audit_sha256"),
+    ):
+        artifact = run_root / artifact_name
+        declared = entry.get(entry_hash_field)
+        if (
+            not artifact.is_file()
+            or not isinstance(declared, str)
+            or re.fullmatch(r"[0-9a-f]{64}", declared) is None
+            or sha256_file(artifact) != declared
+            or payload.get(state_hash_field) != declared
+        ):
+            return False
+    try:
+        if entry.get("user_display_markdown") != (run_root / "report.md").read_text(
+            encoding="utf-8"
+        ):
+            return False
+    except (OSError, UnicodeError):
+        return False
+    assets = entry.get("report_assets")
+    if not isinstance(assets, list) or payload.get("report_assets") != assets:
+        return False
+    for asset in assets:
+        if not isinstance(asset, Mapping):
+            return False
+        asset_ref = str(asset.get("path") or "")
+        relative = Path(asset_ref)
+        if (
+            not asset_ref.startswith("report_assets/")
+            or relative.is_absolute()
+            or ".." in relative.parts
+        ):
+            return False
+        asset_path = run_root / relative
+        if not asset_path.is_file() or sha256_file(asset_path) != asset.get("sha256"):
+            return False
+    if not required_measurement_ids:
+        return True
+    record = _read_json(run_root / "record.json")
+    return record is not None and all(
+        _contains_exact(record, measurement_id)
+        for measurement_id in required_measurement_ids
+    )
+
+
 def _latest_valid(
     paths: Sequence[Path], predicate: Callable[[dict[str, Any], Path], bool]
 ) -> Path | None:
@@ -167,9 +285,18 @@ def _latest_valid(
     return None
 
 
-def closed_loop_receipts(workspace_root: Path) -> dict[str, Path | None]:
-    """Return verified task-local artifacts for the three contract stages."""
+def closed_loop_receipts(
+    workspace_root: Path,
+    *,
+    required_measurement_ids: Sequence[str] = (),
+) -> dict[str, Path | None]:
+    """Return verified task-local artifacts for data and closed-loop stages."""
 
+    dataset_receipt = workspace_root / "receipts" / "datasets" / "f107_semantics.json"
+    dataset = _latest_valid(
+        [dataset_receipt] if dataset_receipt.is_file() else [],
+        lambda payload, _path: _valid_dataset_receipt(workspace_root, payload),
+    )
     planner = _latest_valid(
         list((workspace_root / "planner" / "runs").glob("*/research_plan.json")),
         lambda payload, _path: payload.get("status") == "frozen",
@@ -181,21 +308,16 @@ def closed_loop_receipts(workspace_root: Path) -> dict[str, Path | None]:
         lambda payload, _path: payload.get("status") == "frozen",
     )
 
-    def finalized(payload: dict[str, Any], path: Path) -> bool:
-        return (
-            payload.get("phase") == "report_finalized"
-            and isinstance(payload.get("verified_record_sha256"), str)
-            and bool(payload.get("verified_record_sha256"))
-            and isinstance(payload.get("report_sha256"), str)
-            and bool(payload.get("report_sha256"))
-            and (path.parent / "entry_result.json").is_file()
-        )
-
     experiment = _latest_valid(
         list((workspace_root / "experiment" / "runs").glob("*/state.json")),
-        finalized,
+        lambda payload, path: _valid_experiment_receipt(
+            payload,
+            path,
+            required_measurement_ids,
+        ),
     )
     return {
+        "solar-data": dataset,
         "solar-planner": planner,
         "solar-hypothesis": hypothesis,
         "solar-experiment": experiment,

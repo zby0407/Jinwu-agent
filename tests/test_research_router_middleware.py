@@ -12,7 +12,11 @@ from langchain.agents.middleware.types import (
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 from langchain_core.tools import StructuredTool
 
-from jw.middleware.research_router import ResearchRouterMiddleware
+from jw.middleware.research_router import (
+    ResearchRouterMiddleware,
+    _successful_specialists,
+    _with_analysis_protocol,
+)
 
 
 def _tool(name: str):
@@ -76,6 +80,48 @@ def _route(
         "required_specialist": required_specialist,
         "reason": "test",
     }
+
+
+def test_f107_discontinuity_overrides_fast_answer_route() -> None:
+    route = _with_analysis_protocol(
+        _route("fast_answer"),
+        text="分析 F10.7 在 1980-1981 年的不连续性",
+    )
+
+    assert route["mode"] == "verified_analysis"
+    assert route["needs_computation"] is True
+    assert route["source_mode"] == "mixed"
+    assert route["required_analysis_protocol"] == "f107_discontinuity_v1"
+
+
+def test_specialist_success_requires_workspace_verified_artifact() -> None:
+    calls = [
+        {
+            "name": "task",
+            "id": "planner-1",
+            "args": {"subagent_type": "solar-planner"},
+        }
+    ]
+    messages = [
+        ToolMessage("frozen", tool_call_id="planner-1", name="task"),
+    ]
+
+    assert _successful_specialists(calls, {"task"}, messages) == {"solar-planner"}
+    assert (
+        _successful_specialists(
+            calls,
+            {"task"},
+            messages,
+            workspace_verified_specialists=set(),
+        )
+        == set()
+    )
+    assert _successful_specialists(
+        calls,
+        {"task"},
+        messages,
+        workspace_verified_specialists={"solar-planner"},
+    ) == {"solar-planner"}
 
 
 def test_router_runs_once_per_human_turn_and_persists_decision(monkeypatch) -> None:
@@ -607,6 +653,78 @@ def test_full_research_route_advances_explicit_specialist_graph(monkeypatch) -> 
     assert second.tool_choice is None
     assert [tool.name for tool in second.tools] == ["task"]
     assert "mandatory next graph node is solar-hypothesis" in second.system_message.text
+
+
+def test_f107_full_research_inserts_verified_data_stage(monkeypatch) -> None:
+    middleware = _middleware(monkeypatch)
+    route = {
+        **_route("full_research", source_mode="mixed", needs_computation=True),
+        "required_analysis_protocol": "f107_discontinuity_v1",
+    }
+    task = _tool("task")
+    human = HumanMessage(
+        "完成 F10.7 在 1980-1981 年不连续性的端到端研究",
+        id="turn-f107",
+    )
+    messages = [
+        human,
+        AIMessage(
+            "",
+            tool_calls=[
+                {
+                    "name": "task",
+                    "args": {"subagent_type": "solar-planner"},
+                    "id": "planner-f107",
+                }
+            ],
+        ),
+        ToolMessage("frozen", tool_call_id="planner-f107", name="task"),
+    ]
+
+    prepared = _prepared(
+        middleware,
+        _request(route=route, messages=messages, tools=[task]),
+    )
+
+    assert "mandatory next graph node is solar-data" in prepared.system_message.text
+    assert "bind_f107_dataset_semantics" in prepared.system_message.text
+    assert "f107_relative_scale_jump" in prepared.system_message.text
+
+
+def test_f107_verified_analysis_binds_semantics_before_computation(
+    monkeypatch,
+) -> None:
+    middleware = _middleware(monkeypatch)
+    route = {
+        **_route("verified_analysis", source_mode="local", needs_computation=True),
+        "required_analysis_protocol": "f107_discontinuity_v1",
+    }
+    messages = [
+        HumanMessage("分析 F10.7 的 1980 年断点", id="turn-f107"),
+        AIMessage(
+            "",
+            tool_calls=[
+                {
+                    "name": "read_file",
+                    "args": {"file_path": "/inputs/f107.csv"},
+                    "id": "read-f107",
+                }
+            ],
+        ),
+        ToolMessage("data", tool_call_id="read-f107", name="read_file"),
+    ]
+
+    prepared = _prepared(
+        middleware,
+        _request(
+            route=route,
+            messages=messages,
+            tools=[_tool("bind_f107_dataset_semantics"), _tool("execute")],
+        ),
+    )
+
+    assert [tool.name for tool in prepared.tools] == ["bind_f107_dataset_semantics"]
+    assert "F10.7 as the response" in prepared.system_message.text
 
 
 def test_failed_required_stage_stops_after_two_attempts(monkeypatch) -> None:

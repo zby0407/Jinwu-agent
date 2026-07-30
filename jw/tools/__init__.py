@@ -22,6 +22,7 @@ from .skill_manager import skill_manager
 from .solar_feature import (
     SOLAR_FEATURE_TOOLS,
     audit_solar_data_quality,
+    bind_f107_dataset_semantics,
     dataset_statistics,
     engineer_solar_features,
     prepare_solar_experiment,
@@ -38,6 +39,7 @@ __all__ = [
     "TOOL_BUNDLE_ENTRY_POINT_GROUP",
     "ToolBundle",
     "audit_solar_data_quality",
+    "bind_f107_dataset_semantics",
     "dataset_statistics",
     "engineer_solar_features",
     "fetch_webpage_content",
