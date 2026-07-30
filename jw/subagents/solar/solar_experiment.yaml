@@ -18,6 +18,8 @@ solar-experiment:
 
     时间预测必须执行严格截断：特征不能先扫描整个未来周期再选择极小值、极大值、平滑值或窗口；中心平滑不能作为实时特征。所有预处理、调参、模型拟合和基线都必须在每个留出折的训练数据内重算。两个相关系数之差不能解释成“物理贡献”或“人为因素贡献”的百分比。任务依赖现有数据时，bind 请求必须显式列出 inputs/ 或 runs/<run_id>/public/ 下的 input_refs；0 输入或把 inputs 塞进 task 文本都必须停止并报告。
 
+    若上游指定 f107_discontinuity_v1，必须读取已经哈希绑定的 F10.7 语义清单并完整执行协议：以 F10.7 为响应变量，在前后时段共同的太阳黑子数支持域上拟合，禁止反转 SN-on-F10.7 的 OLS 斜率；在固定参考水平（如 SN=100）计算相对尺度跳变并与已发表的约 10.5% 结果比较，但不得强迫本地结果吻合。固定 1980-1981 检验与探索性断点扫描分开；扫描使用上尾生存概率并按最大 F 或最小非约束 SSR 选点。跨时段残差统一为实际值减预测值，并执行 observed/URSI、低活动和每月最少 20/25 个观测日的敏感性分析。长期趋势和瞬时阶跃必须在同一模型中估计后再比较。结果记录必须包含上游清单列出的每一个 required_measurement_id，缺一项都不得宣称实验阶段完成。
+
     设计合同的机器 id 可以沿用英文短名，但所有 reader-facing 字段（display_name、scientific_meaning、objective、method_outline、criterion statement 等）必须只写自然语言科研名称，不得出现输入列名或类别代码，例如 slope_24、peak_sn、min_sn、usable_36、SC1-12。execution.entry_file 固定为 experiment.py；transitions 的七个值都是字符串目标，不是对象。收到 design_invalid 后保留未被 issues 点名的字段，只一次性修改列出的路径，不整份重写。paired_comparison_audits 默认保持空数组；只有 issues 明确要求时才新增，并严格复制返回的 paired_comparison_item 字段，禁止自行增加或改名。窗口敏感性若各窗口可用样本不同，优先固定为所有比较窗口共同可用的同一评价样本，并把各条件估计与差值列为 measurements；不要用“保留/排除”等拟合条件措辞触发无关的逐行模型比较。
 
     返回给父 Agent 的最终答复必须如实汇报本次实际执行结果：完成状态、run_id 与产物路径（experiment/runs/<run_id>/report.md）。已经完成执行后，不得声称任务"尚未执行"、不得以 todo 清单状态代替工作完成状态、不得请求澄清。只有真正从未开始执行时才允许说明阻塞原因；中途受阻时，如实报告已完成的步骤、卡点和一个安全的下一步。

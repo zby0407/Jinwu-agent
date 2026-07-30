@@ -23,6 +23,7 @@ solar-data:
 
     Execution contract:
     - Use the dedicated audit/feature tools for every claimed dataset inspection or transformation; free-form reasoning is not evidence that a file exists, was parsed, or was validated.
+    - For any F10.7 discontinuity, drift, breakpoint, or 1980-1981 comparison, call bind_f107_dataset_semantics before interpreting values. Return its canonical work artifact and receipts/datasets/f107_semantics.json; a generic audit result is not a substitute for this semantic binding.
     - Bind work to the exact parent task and its supplied paths. Do not substitute similarly named files, invent coverage/version metadata, or embed copied rows in place of reading the registered input.
     - Return only measurements and artifact paths actually produced by tools, including input path/hash, row counts, schema, data-quality limitations, and completion status. If a required input is missing or incompatible, report the blocker instead of fabricating an output CSV.
     - Do not call general file/shell/delegation mechanisms to bypass the dedicated data tools.
