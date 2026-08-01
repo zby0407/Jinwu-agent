@@ -5,6 +5,7 @@ from pathlib import Path
 
 from jw.tools import (
     SCIENTIFIC_HYPOTHESIS_TOOLS,
+    SOLAR_FEATURE_TOOLS,
     get_builtin_tool_registry,
     get_main_agent_tools,
     get_tool_bundles,
@@ -35,6 +36,24 @@ def test_main_and_subagent_registry_share_hypothesis_tools() -> None:
     assert set(hypothesis_tool_names).issubset(registry)
     assert set(hypothesis_tool_names).issubset(main_tool_names)
     assert "scientific_hypothesis_get_status" in hypothesis_tool_names
+
+
+def test_f107_semantic_binding_is_registered_for_main_and_solar_data() -> None:
+    registry = get_builtin_tool_registry()
+    main_tool_names = {_tool_name(tool) for tool in get_main_agent_tools()}
+    solar_feature_names = {_tool_name(tool) for tool in SOLAR_FEATURE_TOOLS}
+    specs = load_subagents(
+        ROOT / "jw" / "subagents",
+        tool_registry=registry,
+        tool_bundles=get_tool_bundles(),
+    )
+    solar_data = next(spec for spec in specs if spec["name"] == "solar-data")
+
+    assert "bind_f107_dataset_semantics" in solar_feature_names
+    assert "bind_f107_dataset_semantics" in main_tool_names
+    assert "bind_f107_dataset_semantics" in {
+        _tool_name(tool) for tool in solar_data["tools"]
+    }
 
 
 def test_yaml_subagent_resolves_tools_from_canonical_registry() -> None:

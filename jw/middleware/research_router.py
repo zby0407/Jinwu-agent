@@ -35,8 +35,15 @@ from langchain.agents.middleware.types import (
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 
+from jw.research_protocols import (
+    F107_DISCONTINUITY_PROTOCOL,
+    F107_DISCONTINUITY_REQUIRED_MEASUREMENTS,
+    detect_analysis_protocol,
+    f107_discontinuity_directive,
+)
 from jw.workspaces import workspace_root_from_config
 
+from .closed_loop_orchestration import closed_loop_receipts
 from .utils import append_to_system_message, disable_thinking
 
 if TYPE_CHECKING:
@@ -156,6 +163,7 @@ _FULL_RESEARCH_STAGES = (
     "solar-hypothesis",
     "solar-experiment",
 )
+_RECEIPT_SPECIALISTS = {*_FULL_RESEARCH_STAGES, "solar-data"}
 _LOCAL_DISCOVERY_TOOLS = ("ls", "glob")
 _LOCAL_READ_TOOLS = ("read_file",)
 _EXTERNAL_EVIDENCE_TOOLS = (
@@ -342,6 +350,32 @@ def _specialize_hypothesis_route(
     return normalized
 
 
+def _with_analysis_protocol(
+    route: Mapping[str, Any],
+    *,
+    text: str,
+) -> dict[str, Any]:
+    """Attach narrow scientific obligations independently of model routing."""
+
+    normalized = dict(route)
+    protocol = detect_analysis_protocol(text)
+    if protocol == "none":
+        return normalized
+    normalized["required_analysis_protocol"] = protocol
+    if normalized.get("mode") == "fast_answer":
+        normalized["mode"] = "verified_analysis"
+        normalized["source_mode"] = (
+            "mixed"
+            if normalized.get("source_mode") == "none"
+            else normalized["source_mode"]
+        )
+        normalized["needs_computation"] = True
+        normalized["reason"] = (
+            "deterministic scientific protocol requires verified data and computation"
+        )
+    return normalized
+
+
 def _fallback_route(text: str) -> dict[str, Any]:
     """Fail conservatively if the auxiliary routing call is unavailable."""
 
@@ -512,6 +546,8 @@ def _successful_specialists(
     calls: Sequence[Mapping[str, Any]],
     successful_names: set[str],
     messages: Sequence[object],
+    *,
+    workspace_verified_specialists: set[str] | None = None,
 ) -> set[str]:
     routed: set[str] = set()
     for message in messages:
@@ -532,7 +568,14 @@ def _successful_specialists(
             if isinstance(metadata, Mapping)
             else None
         )
-        if status != "error" and specialist in _FULL_RESEARCH_STAGES:
+        if (
+            status != "error"
+            and specialist in _RECEIPT_SPECIALISTS
+            and (
+                workspace_verified_specialists is None
+                or specialist in workspace_verified_specialists
+            )
+        ):
             routed.add(str(specialist))
     if "task" not in successful_names:
         return routed
@@ -560,10 +603,45 @@ def _successful_specialists(
             for call in calls
             if call.get("name") == "task"
             and call.get("id") in successful_call_ids
-            and call.get("args", {}).get("subagent_type") in _FULL_RESEARCH_STAGES
+            and call.get("args", {}).get("subagent_type") in _RECEIPT_SPECIALISTS
+            and (
+                workspace_verified_specialists is None
+                or call.get("args", {}).get("subagent_type")
+                in workspace_verified_specialists
+            )
         }
     )
     return routed
+
+
+def _workspace_verified_specialists(
+    request: ModelRequest,
+    required_analysis_protocol: str,
+) -> set[str] | None:
+    """Resolve real task-local stage artifacts, or None for unbound test/CLI calls."""
+
+    try:
+        config = getattr(request.runtime, "config", None)
+        root = workspace_root_from_config(
+            config if isinstance(config, Mapping) else None
+        )
+        if not (root / "task.json").is_file():
+            return None
+        required_measurements = (
+            F107_DISCONTINUITY_REQUIRED_MEASUREMENTS
+            if required_analysis_protocol == F107_DISCONTINUITY_PROTOCOL
+            else ()
+        )
+        return {
+            specialist
+            for specialist, path in closed_loop_receipts(
+                root,
+                required_measurement_ids=required_measurements,
+            ).items()
+            if path is not None
+        }
+    except (RuntimeError, OSError, ValueError, json.JSONDecodeError):
+        return set()
 
 
 def _attempt_count(
@@ -943,8 +1021,10 @@ class ResearchRouterMiddleware(AgentMiddleware[ResearchRoutingState, Any, Any]):
                 ]
             )
         except Exception:
-            return _fallback_route(text)
-        return _validated_route(response, fallback_text=text)
+            route = _fallback_route(text)
+        else:
+            route = _validated_route(response, fallback_text=text)
+        return _with_analysis_protocol(route, text=text)
 
     async def _route_async(self, text: str) -> dict[str, Any]:
         try:
@@ -955,8 +1035,10 @@ class ResearchRouterMiddleware(AgentMiddleware[ResearchRoutingState, Any, Any]):
                 ]
             )
         except Exception:
-            return _fallback_route(text)
-        return _validated_route(response, fallback_text=text)
+            route = _fallback_route(text)
+        else:
+            route = _validated_route(response, fallback_text=text)
+        return _with_analysis_protocol(route, text=text)
 
     def before_agent(
         self,
@@ -1005,13 +1087,20 @@ class ResearchRouterMiddleware(AgentMiddleware[ResearchRoutingState, Any, Any]):
         required_specialist = route.get("required_specialist", "none")
         messages = list(request.messages)
         calls, successful_names = _calls_since_latest_human(messages)
+        latest_human = _latest_human(messages)
+        latest_text = _message_text(latest_human[1]) if latest_human else ""
+        required_analysis_protocol = str(
+            route.get("required_analysis_protocol")
+            or detect_analysis_protocol(latest_text)
+        )
 
         directive = [
             "<research_route>",
             f"mode={mode}; source_mode={source_mode}; "
             f"needs_computation={str(needs_computation).lower()}; "
             f"task_intent={task_intent}; "
-            f"required_specialist={required_specialist}",
+            f"required_specialist={required_specialist}; "
+            f"required_analysis_protocol={required_analysis_protocol}",
         ]
         forced_tool: str | None = None
         suppress_tools = False
@@ -1026,6 +1115,12 @@ class ResearchRouterMiddleware(AgentMiddleware[ResearchRoutingState, Any, Any]):
                 "Use the verified-analysis path. Inspect the actual evidence before "
                 "substantive claims; distinguish retrieved facts from computed results."
             )
+            if required_analysis_protocol == F107_DISCONTINUITY_PROTOCOL:
+                directive.append(
+                    "The bounded analysis must use a hash-bound F10.7 semantic "
+                    "manifest when local data is present. "
+                    + f107_discontinuity_directive()
+                )
             if required_specialist == "solar-hypothesis":
                 completed = _successful_specialists(
                     calls,
@@ -1090,6 +1185,7 @@ class ResearchRouterMiddleware(AgentMiddleware[ResearchRoutingState, Any, Any]):
                 read_seen = bool(successful_names & set(_LOCAL_READ_TOOLS))
                 external_seen = bool(successful_names & set(_EXTERNAL_EVIDENCE_TOOLS))
                 compute_seen = bool(successful_names & set(_COMPUTE_TOOLS))
+                f107_semantics_seen = "bind_f107_dataset_semantics" in successful_names
 
                 if local_required and not local_seen:
                     forced_tool = _available_tool(
@@ -1098,6 +1194,15 @@ class ResearchRouterMiddleware(AgentMiddleware[ResearchRoutingState, Any, Any]):
                     )
                 elif local_required and not read_seen:
                     forced_tool = _available_tool(request.tools, _LOCAL_READ_TOOLS)
+                elif (
+                    required_analysis_protocol == F107_DISCONTINUITY_PROTOCOL
+                    and local_required
+                    and not f107_semantics_seen
+                ):
+                    forced_tool = _available_tool(
+                        request.tools,
+                        ("bind_f107_dataset_semantics",),
+                    )
                 elif external_required and not external_seen:
                     forced_tool = _available_tool(
                         request.tools,
@@ -1120,9 +1225,32 @@ class ResearchRouterMiddleware(AgentMiddleware[ResearchRoutingState, Any, Any]):
                 "main agent writes the final report from verified receipts. Do not "
                 "replace these graph nodes with generic prose or generic execute calls."
             )
-            completed = _successful_specialists(calls, successful_names, messages)
+            if required_analysis_protocol == F107_DISCONTINUITY_PROTOCOL:
+                directive.append(
+                    "This route has a mandatory F10.7 data stage. solar-data must call "
+                    "bind_f107_dataset_semantics and return the hash-bound canonical "
+                    "artifact before hypotheses or experiments use numerical values. "
+                    + f107_discontinuity_directive()
+                )
+                stages = (
+                    "solar-planner",
+                    "solar-data",
+                    "solar-hypothesis",
+                    "solar-experiment",
+                )
+            else:
+                stages = _FULL_RESEARCH_STAGES
+            completed = _successful_specialists(
+                calls,
+                successful_names,
+                messages,
+                workspace_verified_specialists=_workspace_verified_specialists(
+                    request,
+                    required_analysis_protocol,
+                ),
+            )
             next_stage = next(
-                (stage for stage in _FULL_RESEARCH_STAGES if stage not in completed),
+                (stage for stage in stages if stage not in completed),
                 None,
             )
             if next_stage is not None:
@@ -1178,7 +1306,7 @@ class ResearchRouterMiddleware(AgentMiddleware[ResearchRoutingState, Any, Any]):
         request: ModelRequest,
         handler: Callable[[ModelRequest], Awaitable[ModelResponse]],
     ) -> ModelResponse:
-        prepared = self._prepare_request(request)
+        prepared = await asyncio.to_thread(self._prepare_request, request)
         return _passthrough_hypothesis_result(
             request,
             await handler(prepared),

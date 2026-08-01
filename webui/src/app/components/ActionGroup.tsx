@@ -37,7 +37,6 @@ interface ActionGroupProps {
   stream: unknown;
   onResumeInterrupt: (value: unknown) => void;
   graphId?: string;
-  onEditMessage: (content: string) => void;
   autoApprove: boolean;
   subAgentSteps: Record<string, SubAgentStep[]>;
   ui: any[] | undefined;
@@ -69,7 +68,6 @@ export const ActionGroup = React.memo<ActionGroupProps>(function ActionGroup({
   stream,
   onResumeInterrupt,
   graphId,
-  onEditMessage,
   autoApprove,
   subAgentSteps,
   ui,
@@ -189,7 +187,6 @@ export const ActionGroup = React.memo<ActionGroupProps>(function ActionGroup({
               stream={stream}
               onResumeInterrupt={onResumeInterrupt}
               graphId={graphId}
-              onEditMessage={onEditMessage}
               autoApprove={autoApprove}
               subAgentSteps={subAgentSteps}
             />
@@ -227,7 +224,6 @@ export const ActionGroup = React.memo<ActionGroupProps>(function ActionGroup({
                   stream={stream}
                   onResumeInterrupt={onResumeInterrupt}
                   graphId={graphId}
-                  onEditMessage={onEditMessage}
                   autoApprove={autoApprove}
                   subAgentSteps={subAgentSteps}
                 />

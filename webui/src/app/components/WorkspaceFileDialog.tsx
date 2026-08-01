@@ -516,8 +516,8 @@ export const WorkspaceFileDialog = React.memo<{
               Keep Editing
             </Button>
             <Button
+              variant="destructive"
               onClick={confirmDiscardChanges}
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
             >
               Discard
             </Button>
@@ -548,9 +548,9 @@ export const WorkspaceFileDialog = React.memo<{
               Cancel
             </Button>
             <Button
+              variant="destructive"
               onClick={remove}
               disabled={deleting}
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
             >
               {deleting ? "Deleting…" : "Delete"}
             </Button>

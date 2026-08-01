@@ -1,8 +1,7 @@
 "use client";
 
-import { X, FolderOpen, Bot, Zap } from "lucide-react";
+import { FolderOpen, Bot, Zap } from "lucide-react";
 import { useQueryState } from "nuqs";
-import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { WorkspacePanel } from "@/app/components/WorkspacePanel";
 import { AgentsPanel } from "@/app/components/AgentsPanel";
@@ -10,7 +9,6 @@ import { RealtimeActivityPanel } from "@/app/components/RealtimeActivityPanel";
 import type { MainChatReporter } from "@/lib/asyncAgents";
 
 interface InspectorPanelProps {
-  onClose: () => void;
   // Loop a finished async agent's result back to the main chat (Agents tab).
   // Null when the chat view isn't mounted (e.g. viewing Skills/Memory).
   onReportToMainChat?: MainChatReporter | null;
@@ -28,7 +26,6 @@ type InspectorTab = "workspace" | "agents" | "activity";
  * "agents running" indicator can deep-link straight to the Agents tab.
  */
 export function InspectorPanel({
-  onClose,
   onReportToMainChat,
 }: InspectorPanelProps) {
   const [tabParam, setTab] = useQueryState("inspectorTab");
@@ -41,7 +38,7 @@ export function InspectorPanel({
 
   return (
     <div className="flex h-full flex-col border-l border-border bg-sidebar">
-      <div className="flex h-11 shrink-0 items-center justify-between gap-2 border-b border-border px-2">
+      <div className="flex h-11 shrink-0 items-center gap-2 border-b border-border px-2">
         <div
           role="tablist"
           aria-label="Inspector"
@@ -102,19 +99,6 @@ export function InspectorPanel({
             Agents
           </button>
         </div>
-        <Button
-          variant="ghost"
-          size="icon"
-          className="size-7"
-          onClick={onClose}
-          aria-label="Close inspector"
-          title="Close"
-        >
-          <X
-            className="size-4"
-            aria-hidden="true"
-          />
-        </Button>
       </div>
       {tab === "agents" ? (
         <div className="min-h-0 flex-1 overflow-hidden p-3">
