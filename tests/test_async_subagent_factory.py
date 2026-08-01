@@ -200,6 +200,35 @@ def test_inject_subagent_honours_only_that_specialists_model_call_limit(
 
 @patch("jw.agent._ensure_chat_model")
 @patch("jw.agent._ensure_config")
+def test_operator_hard_limit_caps_specialist_model_call_override(
+    mock_config, mock_model, tmp_path
+):
+    mock_model.return_value = MagicMock(profile={"max_input_tokens": 200_000})
+    cfg = MagicMock()
+    cfg.model = "qwen3.7-plus"
+    cfg.subagent_model_call_limit = 24
+    cfg.subagent_model_call_hard_limit = 20
+    cfg.subagent_tool_call_limit = 48
+    cfg.memory_profile_enabled = False
+    cfg.memory_observations_enabled = False
+    cfg.memory_observation_writer = MemoryObservationWriter.OFF
+    cfg.memory_workers_enabled = False
+    mock_config.return_value = cfg
+
+    from jw.agent import _inject_subagent_middleware
+
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    subs = [{"name": "hypothesis-agent", "_model_call_limit": 48}]
+
+    _inject_subagent_middleware(subs, workspace_dir=workspace)
+
+    model_limit = _single_middleware(subs[0], "ModelCallLimitMiddleware")
+    assert model_limit.run_limit == 20
+
+
+@patch("jw.agent._ensure_chat_model")
+@patch("jw.agent._ensure_config")
 def test_inject_subagent_omits_memory_middleware_when_memory_disabled(
     mock_config, mock_model, tmp_path
 ):

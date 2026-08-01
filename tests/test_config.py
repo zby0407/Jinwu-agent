@@ -612,6 +612,7 @@ class TestPriorityChain:
         assert config.agent_model_call_limit == 64
         assert config.agent_tool_call_limit == 48
         assert config.subagent_model_call_limit == 24
+        assert config.subagent_model_call_hard_limit == 0
         assert config.subagent_tool_call_limit == 48
 
     def test_agent_call_budgets_can_be_overridden_by_env(
@@ -620,6 +621,7 @@ class TestPriorityChain:
         monkeypatch.setenv("JW_AGENT_MODEL_CALL_LIMIT", "80")
         monkeypatch.setenv("JW_AGENT_TOOL_CALL_LIMIT", "60")
         monkeypatch.setenv("JW_SUBAGENT_MODEL_CALL_LIMIT", "30")
+        monkeypatch.setenv("JW_SUBAGENT_MODEL_CALL_HARD_LIMIT", "20")
         monkeypatch.setenv("JW_SUBAGENT_TOOL_CALL_LIMIT", "25")
 
         config = get_effective_config()
@@ -627,6 +629,7 @@ class TestPriorityChain:
         assert config.agent_model_call_limit == 80
         assert config.agent_tool_call_limit == 60
         assert config.subagent_model_call_limit == 30
+        assert config.subagent_model_call_hard_limit == 20
         assert config.subagent_tool_call_limit == 25
 
     def test_sandbox_execute_timeout_invalid_falls_back(self):

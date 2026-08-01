@@ -888,6 +888,21 @@ def _draft_warnings(
     return warnings
 
 
+def _unresolved_warning_error(
+    warnings: list[dict[str, Any]], *, action: str
+) -> RuntimeError:
+    codes = sorted(
+        {
+            str(warning.get("code") or "unknown_warning")
+            for warning in warnings
+            if isinstance(warning, dict)
+        }
+    )
+    return RuntimeError(
+        f"Cannot {action} while draft review warnings remain: " + ", ".join(codes)
+    )
+
+
 def _draft_summary(
     state: _HypothesisState,
     request: dict[str, Any],
@@ -1578,6 +1593,7 @@ def scientific_hypothesis_update_draft(
         JSON string with the updated draft summary and non-blocking warnings.
     """
     state = _state(config)
+    state._persistence_lock.acquire()
     try:
         request = _require_active_request(state)
         if operation not in DRAFT_OPERATIONS:
@@ -1730,6 +1746,8 @@ def scientific_hypothesis_update_draft(
         return _ok(result)
     except Exception as exc:
         return _needs_revision(exc, state=state)
+    finally:
+        state._persistence_lock.release()
 
 
 @tool(parse_docstring=True)
@@ -1760,10 +1778,14 @@ def _checkpoint_response(
     response: dict[str, Any],
     config: RunnableConfig | None,
 ) -> str:
+    state._persistence_lock.acquire()
     try:
         request = _require_active_request(state)
         state.latest_draft = response
         state.latest_draft_sha256 = canonical_json_sha256(response)
+        warnings = _draft_warnings(state, request)
+        if warnings:
+            raise _unresolved_warning_error(warnings, action="checkpoint draft")
         state.preflight_attempts += 1
         result = preflight_hypothesis_response(
             request,
@@ -1798,6 +1820,8 @@ def _checkpoint_response(
         outcome = _needs_revision(exc, state=state, count_failure=True)
         _persist_state(config, state)
         return outcome
+    finally:
+        state._persistence_lock.release()
 
 
 @tool(parse_docstring=True)
@@ -1929,8 +1953,9 @@ def scientific_hypothesis_freeze(config: RunnableConfig = None) -> str:
         JSON string with the freeze outcome, run id, file paths, and the
         user-display Markdown.
     """
+    state = _state(config)
+    state._persistence_lock.acquire()
     try:
-        state = _state(config)
         request = _require_active_request(state)
         if state.validated_response is None or state.preflight_response_sha256 is None:
             raise RuntimeError(
@@ -1963,6 +1988,9 @@ def scientific_hypothesis_freeze(config: RunnableConfig = None) -> str:
             raise RuntimeError(
                 "Hypothesis response changed after validation; check the revised response first."
             )
+        warnings = _draft_warnings(state, request)
+        if warnings:
+            raise _unresolved_warning_error(warnings, action="publish draft")
         workspace_root = workspace_root_from_config(config)
         outcome = freeze_hypothesis_portfolio(
             request,
@@ -1978,6 +2006,8 @@ def scientific_hypothesis_freeze(config: RunnableConfig = None) -> str:
         return _ok(outcome)
     except Exception as exc:
         return _needs_revision(exc, state=state)
+    finally:
+        state._persistence_lock.release()
 
 
 SCIENTIFIC_HYPOTHESIS_TOOLS = [

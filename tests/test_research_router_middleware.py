@@ -398,6 +398,9 @@ def test_hypothesis_task_execution_rewrites_generic_delegation_to_specialist(
     assert "请形成并维护候选草稿" in args["description"]
     assert "Read the Wiki tree." not in args["description"]
     assert "concise rendering" not in args["description"]
+    assert "target 3 entries, hard maximum 5" in args["description"]
+    assert "scientific_hypothesis_build_literature_bundle" in args["description"]
+    assert "Never substitute the generic lit_bundle_build tool" in args["description"]
     assert "most discriminating next test for every candidate" in args["description"]
     assert "complete confidence basis for every candidate" in args["description"]
     assert result.additional_kwargs["research_router_specialist"] == "solar-hypothesis"
@@ -692,6 +695,130 @@ def test_f107_full_research_inserts_verified_data_stage(monkeypatch) -> None:
     assert "mandatory next graph node is solar-data" in prepared.system_message.text
     assert "bind_f107_dataset_semantics" in prepared.system_message.text
     assert "f107_relative_scale_jump" in prepared.system_message.text
+
+
+def test_f107_hypothesis_route_does_not_require_data_receipt_before_specialist(
+    monkeypatch,
+) -> None:
+    middleware = _middleware(monkeypatch)
+    monkeypatch.setattr(
+        "jw.middleware.research_router._workspace_verified_specialists",
+        lambda _request, _protocol: set(),
+    )
+    route = {
+        **_route(
+            "verified_analysis",
+            source_mode="mixed",
+            needs_computation=True,
+            task_intent="hypothesis_comparison",
+            required_specialist="solar-hypothesis",
+        ),
+        "required_analysis_protocol": "f107_discontinuity_v1",
+    }
+    task = _tool("task")
+    human = HumanMessage(
+        "请生成 F10.7 在 1980 年前后不连续性的竞争假设",
+        id="turn-f107-hypothesis",
+    )
+
+    prepared = _prepared(
+        middleware,
+        _request(route=route, messages=[human], tools=[task]),
+    )
+
+    assert [tool.name for tool in prepared.tools] == ["task"]
+    assert "mandatory preliminary graph node is solar-data" not in (
+        prepared.system_message.text
+    )
+    assert "Call task now with subagent_type='solar-hypothesis'" in (
+        prepared.system_message.text
+    )
+
+
+def test_f107_hypothesis_task_is_rewritten_directly_to_specialist(
+    monkeypatch,
+) -> None:
+    middleware = _middleware(monkeypatch)
+    monkeypatch.setattr(
+        "jw.middleware.research_router._persisted_hypothesis_draft_status",
+        lambda _config: (True, "/task/work/scientific_hypothesis_state.json"),
+    )
+    monkeypatch.setattr(
+        "jw.middleware.research_router._workspace_verified_specialists",
+        lambda _request, _protocol: set(),
+    )
+    route = {
+        **_route(
+            "verified_analysis",
+            source_mode="mixed",
+            needs_computation=True,
+            task_intent="hypothesis_generation",
+            required_specialist="solar-hypothesis",
+        ),
+        "required_analysis_protocol": "f107_discontinuity_v1",
+    }
+    human = HumanMessage("请比较 F10.7 断点竞争假设", id="turn-f107-hypothesis")
+    model_call = AIMessage(
+        "",
+        tool_calls=[
+            {
+                "name": "task",
+                "args": {"subagent_type": "general-purpose"},
+                "id": "task-f107-data",
+            }
+        ],
+    )
+    request = ToolCallRequest(
+        tool_call=model_call.tool_calls[0],
+        tool=None,
+        state={"research_route": route, "messages": [human, model_call]},
+        runtime=SimpleNamespace(config={}),
+    )
+    captured: list[ToolCallRequest] = []
+
+    def handler(inner: ToolCallRequest) -> ToolMessage:
+        captured.append(inner)
+        return ToolMessage(
+            "verified data receipt",
+            tool_call_id=str(inner.tool_call["id"]),
+            name="task",
+        )
+
+    result = middleware.wrap_tool_call(request, handler)
+
+    assert captured[0].tool_call["args"]["subagent_type"] == "solar-hypothesis"
+    description = captured[0].tool_call["args"]["description"]
+    assert "bind_f107_dataset_semantics" not in description
+    assert "scenario premises in the request are assumptions" in description
+    assert result.additional_kwargs["research_router_specialist"] == "solar-hypothesis"
+
+
+def test_f107_hypothesis_route_delegates_specialist_after_data_receipt(
+    monkeypatch,
+) -> None:
+    middleware = _middleware(monkeypatch)
+    monkeypatch.setattr(
+        "jw.middleware.research_router._workspace_verified_specialists",
+        lambda _request, _protocol: {"solar-data"},
+    )
+    route = {
+        **_route(
+            "verified_analysis",
+            source_mode="mixed",
+            needs_computation=True,
+            task_intent="hypothesis_generation",
+            required_specialist="solar-hypothesis",
+        ),
+        "required_analysis_protocol": "f107_discontinuity_v1",
+    }
+
+    prepared = _prepared(
+        middleware,
+        _request(route=route, tools=[_tool("task")]),
+    )
+
+    assert [tool.name for tool in prepared.tools] == ["task"]
+    assert "subagent_type='solar-hypothesis'" in prepared.system_message.text
 
 
 def test_f107_verified_analysis_binds_semantics_before_computation(

@@ -11,6 +11,7 @@ The onboard module is loaded lazily because it pulls in heavy dependencies
 from .settings import (
     DEFAULT_AGENT_MODEL_CALL_LIMIT,
     DEFAULT_AGENT_TOOL_CALL_LIMIT,
+    DEFAULT_SUBAGENT_MODEL_CALL_HARD_LIMIT,
     DEFAULT_SUBAGENT_MODEL_CALL_LIMIT,
     DEFAULT_SUBAGENT_TOOL_CALL_LIMIT,
     JWConfig,
@@ -34,6 +35,7 @@ from .settings import (
 __all__ = [
     "DEFAULT_AGENT_MODEL_CALL_LIMIT",
     "DEFAULT_AGENT_TOOL_CALL_LIMIT",
+    "DEFAULT_SUBAGENT_MODEL_CALL_HARD_LIMIT",
     "DEFAULT_SUBAGENT_MODEL_CALL_LIMIT",
     "DEFAULT_SUBAGENT_TOOL_CALL_LIMIT",
     "JWConfig",

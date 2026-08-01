@@ -615,7 +615,7 @@ def _successful_specialists(
 
 
 def _workspace_verified_specialists(
-    request: ModelRequest,
+    request: ModelRequest | Any,
     required_analysis_protocol: str,
 ) -> set[str] | None:
     """Resolve real task-local stage artifacts, or None for unbound test/CLI calls."""
@@ -782,6 +782,59 @@ def _direct_hypothesis_task_request(
             status="error",
         )
 
+    route = request.state.get("research_route")
+    required_analysis_protocol = (
+        str(route.get("required_analysis_protocol") or "none")
+        if isinstance(route, Mapping)
+        else "none"
+    )
+    task_intent = (
+        str(route.get("task_intent") or "general")
+        if isinstance(route, Mapping)
+        else "general"
+    )
+    if (
+        required_analysis_protocol == F107_DISCONTINUITY_PROTOCOL
+        and task_intent
+        not in {
+            "hypothesis_generation",
+            "hypothesis_comparison",
+            "hypothesis_update",
+        }
+    ):
+        verified_specialists = _workspace_verified_specialists(
+            request,
+            required_analysis_protocol,
+        )
+        if verified_specialists is None:
+            return None, ToolMessage(
+                content=(
+                    "[F107 ROUTING BLOCKED] A task-local workspace is required "
+                    "before the F10.7 semantic receipt can be verified. Do not "
+                    "delegate the hypothesis specialist without that receipt."
+                ),
+                tool_call_id=call_id,
+                name="task",
+                status="error",
+            )
+        if "solar-data" not in verified_specialists:
+            args = call.get("args")
+            rewritten_args = dict(args) if isinstance(args, Mapping) else {}
+            rewritten_args.update(
+                {
+                    "subagent_type": "solar-data",
+                    "description": (
+                        "Prepare the mandatory task-local F10.7 semantic receipt "
+                        "before any bounded hypothesis generation. Use only exact "
+                        "input paths supplied by the user, call "
+                        "bind_f107_dataset_semantics, and return the canonical "
+                        "artifact plus receipts/datasets/f107_semantics.json. "
+                        "Do not generate or rank hypotheses in this stage."
+                    ),
+                }
+            )
+            return request.override(tool_call={**call, "args": rewritten_args}), None
+
     user_request = _latest_user_request(request.state)
     description = (
         "Handle this as the bounded solar-hypothesis specialist. Use only the "
@@ -789,21 +842,29 @@ def _direct_hypothesis_task_request(
         "evidence. Execute this order:\n"
         "1. Call scientific_hypothesis_bind_request immediately, before discovery.\n"
         "2. Call kb_query for this question. Select only the smallest relevant Wiki "
-        "bundle: target 5 entries, hard maximum 7. For each selected entry, call "
+        "bundle: target 3 entries, hard maximum 5. For each selected entry, call "
         "kb_read and then scientific_hypothesis_bind_wiki_evidence immediately. "
         "After three successful bindings cover one mechanism, one method/data "
         "constraint, and the proxy/measurement null, persist H0 or the first "
         "complete candidate before reading any remaining optional entries. Stop "
         "Wiki browsing once the mechanism, scope, data, and test constraints needed "
         "for the candidates are covered.\n"
-        "3. Bind non-Wiki material only when it is a traceable inspected artifact; "
+        "3. After the first complete candidate is persisted, call "
+        "scientific_hypothesis_build_literature_bundle for the exact bound question, "
+        "then call lit_bundle_read once. Bind at most three directly relevant sources "
+        "one at a time and immediately attach every returned evidence_id to the "
+        "matching candidate before binding another source. Never substitute the "
+        "generic lit_bundle_build tool.\n"
+        "4. Bind other non-Wiki material only when it is a traceable inspected artifact; "
         "scenario premises in the request are assumptions, not empirical support.\n"
-        "4. Persist the first complete candidate as soon as it is ready with "
-        "scientific_hypothesis_update_draft, then upsert the remaining mechanically "
-        "distinct candidates. Prefer a smaller persisted portfolio over a larger "
+        "5. Complete the remaining mechanically distinct candidates with "
+        "scientific_hypothesis_update_draft after the first candidate and literature "
+        "pass are persisted. A natural-language bounded request has a hard maximum "
+        "of three candidates; only a bound structured request with a larger explicit "
+        "max_candidates may raise it. Prefer a smaller persisted portfolio over a larger "
         "prose-only answer if budget is tight. Confidence must be exactly high, "
         "medium, or low; Wiki grounding alone cannot justify high confidence.\n"
-        "5. Call scientific_hypothesis_get_draft. Return a faithful, complete "
+        "6. Call scientific_hypothesis_get_draft. Return a faithful, complete "
         "rendering of that persisted draft. Do not compress or omit fields. For "
         "every candidate include applicability, mechanism, required premises, "
         "assumptions, supporting evidence, opposing or limiting evidence, evidence "
@@ -1121,7 +1182,61 @@ class ResearchRouterMiddleware(AgentMiddleware[ResearchRoutingState, Any, Any]):
                     "manifest when local data is present. "
                     + f107_discontinuity_directive()
                 )
-            if required_specialist == "solar-hypothesis":
+            f107_data_pending = False
+            if (
+                required_specialist == "solar-hypothesis"
+                and required_analysis_protocol == F107_DISCONTINUITY_PROTOCOL
+                and task_intent
+                not in {
+                    "hypothesis_generation",
+                    "hypothesis_comparison",
+                    "hypothesis_update",
+                }
+            ):
+                verified_specialists = _workspace_verified_specialists(
+                    request,
+                    required_analysis_protocol,
+                )
+                f107_data_pending = (
+                    verified_specialists is None
+                    or "solar-data" not in verified_specialists
+                )
+                if verified_specialists is None:
+                    directive.append(
+                        "ROUTING BLOCKER: the bounded F10.7 hypothesis request has "
+                        "no task-local workspace in which a semantic receipt can be "
+                        "verified. Do not delegate or answer from unbound data."
+                    )
+                    suppress_tools = True
+                elif "solar-data" not in verified_specialists:
+                    attempts = _attempt_count(
+                        calls,
+                        "task",
+                        specialist="solar-data",
+                    )
+                    if attempts >= 2:
+                        directive.append(
+                            "solar-data failed twice before producing the mandatory "
+                            "F10.7 semantic receipt. Stop and report this data-stage "
+                            "blocker; do not delegate solar-hypothesis."
+                        )
+                        suppress_tools = True
+                    elif _available_tool(request.tools, ("task",)) is not None:
+                        forced_tool = "task"
+                        directive.append(
+                            "The mandatory preliminary graph node is solar-data. "
+                            "Call task now with subagent_type='solar-data'; it must "
+                            "call bind_f107_dataset_semantics and produce the "
+                            "task-local receipt before solar-hypothesis can run."
+                        )
+                    else:
+                        directive.append(
+                            "ROUTING BLOCKER: solar-data is mandatory for this F10.7 "
+                            "hypothesis request, but the task tool is unavailable."
+                        )
+                        suppress_tools = True
+
+            if required_specialist == "solar-hypothesis" and not f107_data_pending:
                 completed = _successful_specialists(
                     calls,
                     successful_names,
@@ -1176,7 +1291,7 @@ class ResearchRouterMiddleware(AgentMiddleware[ResearchRoutingState, Any, Any]):
                         "tool blocker to the user."
                     )
                     suppress_tools = True
-            else:
+            elif required_specialist != "solar-hypothesis":
                 local_required = source_mode in {"local", "mixed"}
                 external_required = source_mode in {"external", "mixed"}
                 local_seen = bool(
@@ -1321,7 +1436,14 @@ class ResearchRouterMiddleware(AgentMiddleware[ResearchRoutingState, Any, Any]):
         if blocked is not None:
             return blocked
         result = handler(rewritten)
-        if rewritten is not request:
+        rewritten_args = (
+            rewritten.tool_call.get("args", {}) if rewritten is not None else {}
+        )
+        if (
+            rewritten is not request
+            and isinstance(rewritten_args, Mapping)
+            and rewritten_args.get("subagent_type") == "solar-hypothesis"
+        ):
             result = _mark_routed_specialist_result(result)
             config = getattr(request.runtime, "config", None)
             result = _require_persisted_hypothesis_draft(result, config)
@@ -1336,7 +1458,14 @@ class ResearchRouterMiddleware(AgentMiddleware[ResearchRoutingState, Any, Any]):
         if blocked is not None:
             return blocked
         result = await handler(rewritten)
-        if rewritten is not request:
+        rewritten_args = (
+            rewritten.tool_call.get("args", {}) if rewritten is not None else {}
+        )
+        if (
+            rewritten is not request
+            and isinstance(rewritten_args, Mapping)
+            and rewritten_args.get("subagent_type") == "solar-hypothesis"
+        ):
             result = _mark_routed_specialist_result(result)
             config = getattr(request.runtime, "config", None)
             result = await asyncio.to_thread(

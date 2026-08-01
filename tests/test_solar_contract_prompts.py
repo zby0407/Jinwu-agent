@@ -108,6 +108,8 @@ def test_hypothesis_agent_reads_wiki_before_generating_candidates():
     assert "immediately persist H0 or the first complete candidate" in text
     assert "make the cached-literature pass before reading any optional" in text
     assert "默认恰好形成三个机制上可区分的候选" in text
+    assert "普通自然语言入口由绑定合同固定为最多三个候选" in text
+    assert "结构化请求明确给出大于三的 max_candidates" in text
     assert "不得因为 Wiki 列出了更多模板而扩张" in text
     assert "不再自行考虑第四或第五个" in text
     assert "A query hit is source discovery only" in text

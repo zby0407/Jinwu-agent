@@ -60,7 +60,7 @@ SKILLS_DIR = str(Path(__file__).parent / "subagents")
 DEFAULT_SKILL_SOURCES = ("/skills/",)
 
 
-def _positive_call_limit(value: object, fallback: int) -> int | None:
+def _positive_call_limit(value: object, fallback: int | None) -> int | None:
     """Normalize a configured call budget; zero disables the limit."""
     if isinstance(value, bool):
         return fallback
@@ -85,6 +85,12 @@ def _call_limit_middleware(
             ),
             DEFAULT_SUBAGENT_MODEL_CALL_LIMIT,
         )
+        hard_model_limit = _positive_call_limit(
+            getattr(cfg, "subagent_model_call_hard_limit", None),
+            None,
+        )
+        if model_limit is not None and hard_model_limit is not None:
+            model_limit = min(model_limit, hard_model_limit)
         tool_limit = _positive_call_limit(
             getattr(cfg, "subagent_tool_call_limit", None),
             DEFAULT_SUBAGENT_TOOL_CALL_LIMIT,

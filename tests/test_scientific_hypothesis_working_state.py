@@ -1032,6 +1032,9 @@ def test_checkpoint_recovers_from_task_workspace_after_process_restart(
     )
     state = hypothesis_tools._STATES["hypothesis-durable-checkpoint"]
     response = make_response(state.request)
+    monkeypatch.setattr(
+        hypothesis_tools, "_draft_warnings", lambda _state, _request: []
+    )
 
     checked = json.loads(
         hypothesis_tools.scientific_hypothesis_validate_response.invoke(
@@ -1340,6 +1343,119 @@ def test_parallel_state_persistence_serializes_atomic_replace(
     assert state.persistence_warning is None
 
 
+def test_parallel_draft_patches_are_one_atomic_state_transaction(monkeypatch) -> None:
+    config = _config("hypothesis-parallel-patches")
+    hypothesis_tools._STATES.pop("hypothesis-parallel-patches", None)
+    hypothesis_tools.scientific_hypothesis_bind_request.invoke(
+        {"request_input": "Compare two possible mechanisms."},
+        config=config,
+    )
+    _update(config, "upsert_candidate", {"id": "H1", "statement": "One"})
+    _update(config, "upsert_candidate", {"id": "H2", "statement": "Two"})
+
+    real_normalize = hypothesis_tools._normalize_working_draft
+    start = threading.Barrier(3)
+    overlap = threading.Event()
+    active_guard = threading.Lock()
+    active = 0
+    max_active = 0
+
+    def observed_normalize(payload, request):
+        nonlocal active, max_active
+        normalized = real_normalize(payload, request)
+        with active_guard:
+            active += 1
+            max_active = max(max_active, active)
+            if active > 1:
+                overlap.set()
+        overlap.wait(timeout=0.2)
+        with active_guard:
+            active -= 1
+        return normalized
+
+    monkeypatch.setattr(
+        hypothesis_tools,
+        "_normalize_working_draft",
+        observed_normalize,
+    )
+
+    def patch_candidate(candidate_id: str, statement: str) -> dict[str, object]:
+        start.wait(timeout=5)
+        return _update(
+            config,
+            "patch_candidate",
+            {
+                "candidate_id": candidate_id,
+                "changes": {"statement": statement},
+            },
+        )
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        futures = [
+            executor.submit(patch_candidate, "H1", "One revised"),
+            executor.submit(patch_candidate, "H2", "Two revised"),
+        ]
+        start.wait(timeout=5)
+        [future.result(timeout=5) for future in futures]
+
+    draft = json.loads(
+        hypothesis_tools.scientific_hypothesis_get_draft.invoke({}, config=config)
+    )["draft"]
+    statements = {
+        candidate["id"]: candidate["statement"] for candidate in draft["candidates"]
+    }
+
+    assert max_active == 1
+    assert statements == {"H1": "One revised", "H2": "Two revised"}
+
+
+def test_checkpoint_rejects_unresolved_draft_warnings() -> None:
+    config = _config("hypothesis-warning-checkpoint")
+    hypothesis_tools._STATES.pop("hypothesis-warning-checkpoint", None)
+    hypothesis_tools.scientific_hypothesis_bind_request.invoke(
+        {"request_input": "Explain this observation."},
+        config=config,
+    )
+    state = hypothesis_tools._STATES["hypothesis-warning-checkpoint"]
+    _update(config, "replace", make_response(state.request))
+
+    outcome = json.loads(
+        hypothesis_tools.scientific_hypothesis_checkpoint_draft.invoke(
+            {}, config=config
+        )
+    )
+
+    assert outcome["status"] == "needs_revision"
+    assert "literature_pass_missing" in outcome["validation_error"]
+    assert state.validated_response is None
+
+
+def test_publish_rechecks_unresolved_draft_warnings() -> None:
+    config = _config("hypothesis-warning-publish")
+    hypothesis_tools._STATES.pop("hypothesis-warning-publish", None)
+    hypothesis_tools.scientific_hypothesis_bind_request.invoke(
+        {"request_input": "Explain this observation."},
+        config=config,
+    )
+    state = hypothesis_tools._STATES["hypothesis-warning-publish"]
+    response = make_response(state.request)
+    response_sha = canonical_json_sha256(response)
+    state.latest_draft = response
+    state.latest_draft_sha256 = response_sha
+    state.validated_response = response
+    state.preflight_response_sha256 = response_sha
+    state.checkpoint_evidence_sha256 = hypothesis_tools._evidence_sha256(
+        state.evidence_register
+    )
+
+    outcome = json.loads(
+        hypothesis_tools.scientific_hypothesis_freeze.invoke({}, config=config)
+    )
+
+    assert outcome["status"] == "needs_revision"
+    assert "literature_pass_missing" in outcome["validation_error"]
+
+
 def test_remove_candidate_cleans_pairwise_distinctions() -> None:
     config = _config("hypothesis-incremental-remove")
     hypothesis_tools._STATES.pop("hypothesis-incremental-remove", None)
@@ -1364,7 +1480,7 @@ def test_remove_candidate_cleans_pairwise_distinctions() -> None:
     assert draft["pairwise_distinctions"] == []
 
 
-def test_checkpoint_current_draft_without_resending_full_response() -> None:
+def test_checkpoint_current_draft_without_resending_full_response(monkeypatch) -> None:
     config = _config("hypothesis-incremental-checkpoint")
     hypothesis_tools._STATES.pop("hypothesis-incremental-checkpoint", None)
     hypothesis_tools.scientific_hypothesis_bind_request.invoke(
@@ -1373,6 +1489,9 @@ def test_checkpoint_current_draft_without_resending_full_response() -> None:
     )
     state = hypothesis_tools._STATES["hypothesis-incremental-checkpoint"]
     _update(config, "replace", make_response(state.request))
+    monkeypatch.setattr(
+        hypothesis_tools, "_draft_warnings", lambda _state, _request: []
+    )
 
     checked = json.loads(
         hypothesis_tools.scientific_hypothesis_checkpoint_draft.invoke(
