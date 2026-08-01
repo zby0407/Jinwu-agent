@@ -81,6 +81,7 @@ DEFAULT_MEMORY_SKILL_SYNTHESIS_CADENCE = MemorySkillSynthesisCadence.WEEKLY
 DEFAULT_AGENT_MODEL_CALL_LIMIT = 64
 DEFAULT_AGENT_TOOL_CALL_LIMIT = 48
 DEFAULT_SUBAGENT_MODEL_CALL_LIMIT = 24
+DEFAULT_SUBAGENT_MODEL_CALL_HARD_LIMIT = 0
 DEFAULT_SUBAGENT_TOOL_CALL_LIMIT = 48
 DEFAULT_MEMORY_SKILL_SYNTHESIS_TIME = "03:00"
 
@@ -255,6 +256,10 @@ class JWConfig:
     agent_model_call_limit: int = DEFAULT_AGENT_MODEL_CALL_LIMIT
     agent_tool_call_limit: int = DEFAULT_AGENT_TOOL_CALL_LIMIT
     subagent_model_call_limit: int = DEFAULT_SUBAGENT_MODEL_CALL_LIMIT
+    # Optional operator ceiling for per-specialist YAML overrides. Zero keeps
+    # the historical unlimited-ceiling behavior while the ordinary subagent
+    # model limit remains the default for specialists without an override.
+    subagent_model_call_hard_limit: int = DEFAULT_SUBAGENT_MODEL_CALL_HARD_LIMIT
     subagent_tool_call_limit: int = DEFAULT_SUBAGENT_TOOL_CALL_LIMIT
 
     # Memory Settings
@@ -808,6 +813,7 @@ _ENV_MAPPINGS = {
     "agent_model_call_limit": "JW_AGENT_MODEL_CALL_LIMIT",
     "agent_tool_call_limit": "JW_AGENT_TOOL_CALL_LIMIT",
     "subagent_model_call_limit": "JW_SUBAGENT_MODEL_CALL_LIMIT",
+    "subagent_model_call_hard_limit": "JW_SUBAGENT_MODEL_CALL_HARD_LIMIT",
     "subagent_tool_call_limit": "JW_SUBAGENT_TOOL_CALL_LIMIT",
     "memory_profile_enabled": "JW_MEMORY_PROFILE_ENABLED",
     "memory_observations_enabled": "JW_MEMORY_OBSERVATIONS_ENABLED",

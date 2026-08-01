@@ -104,6 +104,7 @@ def build_async_subagent_graph(name: str) -> Any:
 
     backend = _get_scoped_backend_factory()
     skill_sources = spec.get("skills")
+    model_call_limit = spec.pop("_model_call_limit", None)
     middleware = _get_default_middleware(
         for_async_subagent=True,
         memory_source_agent=name,
@@ -115,6 +116,7 @@ def build_async_subagent_graph(name: str) -> Any:
             if spec.pop("_restrict_tools", False)
             else None
         ),
+        model_call_limit_override=model_call_limit,
     )
 
     # Scheduler is an unattended timer task → use the cheaper auxiliary model.

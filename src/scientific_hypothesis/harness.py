@@ -218,7 +218,7 @@ def build_natural_hypothesis_request(research_question: str) -> dict[str, Any]:
         "research_question": normalized,
         "upstream_materials": [],
         "prior_hypotheses": [],
-        "max_candidates": 6,
+        "max_candidates": 3,
     }
     return validate_hypothesis_request(request)
 
