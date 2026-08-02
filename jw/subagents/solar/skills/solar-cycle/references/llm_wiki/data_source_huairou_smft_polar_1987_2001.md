@@ -55,34 +55,38 @@ related_ids: [kb_concept_polar_field_observable_001, kb_hypothesis_template_pola
 ## 处理口径
 
 本项目采用**简化工程口径**，用于数据特征子 Agent 的探索性分析，而非正式
-太阳物理发布产品：
+太阳物理发布产品。由于 `.dat` 档案缺少标准坐标头信息，南北极磁图在简单
+空间口径下**无法稳定分离出物理上合理的反号信号**（同号比例约 70%）。因此
+处理策略从“有符号极区磁场”降级为“**极区磁场强度代理**”：
 
 1. **极帽选取**
    - 北极（NPL）：图像顶部 100 行
    - 南极（SPL）：图像底部 100 行
-2. **符号平均**：保留正负号，不做绝对值平均
-3. **零偏校正**：用中心 256×256 宁静参考区的符号平均作为仪器零偏，从
-   极帽均值中减去
-4. **小视场帧**：默认跳过；其中心参考区存在大量饱和值，会污染零偏估计
+2. **零偏校正**：用中心 256×256 背景区的中位数估计仪器零偏
+3. **绝对强度代理**：对每个像素先减零偏，再取绝对值，最后做像素级平均
+4. **符号平均仅作诊断**：`field_mean_corrected` 保留，但不作为周期级聚合主字段
+5. **小视场帧**：默认跳过；其中心参考区存在大量饱和值，会污染零偏估计
 
 ## 输出字段
 
 `load_polar_huairou.py` 生成两张表：
 
-- **日表**：`date, hemisphere, field_mean_raw, field_mean_center, field_mean_corrected, valid_pixel_ratio, n_obs`
-- **月表**：`year, month, hemisphere, field_mean_raw, field_mean_center, field_mean_corrected, n_days, polarity_strength`
+- **日表**：`date, hemisphere, field_mean_raw, field_mean_center, field_mean_corrected, field_mean_abs, valid_pixel_ratio, n_obs`
+- **月表**：`year, month, hemisphere, field_mean_raw, field_mean_center, field_mean_corrected, field_mean_abs, n_days, polarity_strength`
 
-其中 `field_mean_corrected` 是进入 `build_features.py` 周期级聚合的主字段。
+其中 `field_mean_abs` 是进入 `build_features.py` 周期级聚合的**主字段**。
 
 ## 周期级聚合规则
 
 在 `build_features.py` 中，对每个太阳活动周极小期（`start_date`）取前后
 各 12 个月窗口：
 
-- 南北极分别计算窗口内 `field_mean_corrected` 的均值
+- 南北极分别计算窗口内 `field_mean_abs` 的均值，得到 `polar_proxy_abs_n` 和
+  `polar_proxy_abs_s`
 - 单半球有效月数 ≥ 3 才视为有数据
-- 南北极同时满足阈值时，`polar_proxy_combined` 取 `abs(N)` 与 `abs(S)` 的均值
+- 至少一个半球满足阈值时，`polar_proxy_abs_combined` 取可用半球 `field_mean_abs` 的均值
 - 数据质量字段 `polar_data_quality` 标记为 `good` / `single_hemisphere` / `insufficient`
+- `polar_proxy_signed_n/s` 仅作为诊断字段保留
 
 ## 覆盖与质量说明
 

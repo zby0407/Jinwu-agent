@@ -246,14 +246,35 @@ def _signed_mean_valid(arr: np.ndarray) -> float:
     return float(arr[valid].mean())
 
 
+def _median_valid(arr: np.ndarray) -> float:
+    """Median of non-zero pixels; robust to outliers in the center reference."""
+    valid = arr[arr != 0]
+    if valid.size == 0:
+        raise ValueError("No valid (non-zero) pixels")
+    return float(np.median(valid))
+
+
 def extract_features(arr: np.ndarray, hemisphere: str, view_type: str) -> dict:
-    """Compute signed polar-cap mean and zero-offset-corrected value."""
+    """Compute signed and unsigned polar-cap proxies.
+
+    Because NPL/SPL files in this archive do not reliably show opposite
+    magnetic polarity in the top/bottom caps, the unsigned pixel-level absolute
+    value (after subtracting a robust zero-offset estimate) is used as the
+    primary polar-field strength proxy.
+    """
     aperture = _select_aperture(arr, hemisphere, view_type)
     cap = aperture["cap"]
     center = aperture["center"]
 
     raw_mean = _signed_mean_valid(cap)
     center_mean = _signed_mean_valid(center)
+    center_median = _median_valid(center)
+
+    # Unsigned pixel-level absolute value after zero-offset correction.
+    # We use the median rather than the mean to avoid overweighting strong
+    # active-region fields that leak into the nominally polar cap rows.
+    cap_valid = cap[cap != 0]
+    field_mean_abs = float(np.median(np.abs(cap_valid - center_median)))
 
     valid_ratio = float((cap != 0).mean())
 
@@ -261,6 +282,7 @@ def extract_features(arr: np.ndarray, hemisphere: str, view_type: str) -> dict:
         "field_mean_raw": raw_mean,
         "field_mean_center": center_mean,
         "field_mean_corrected": raw_mean - center_mean,
+        "field_mean_abs": field_mean_abs,
         "valid_pixel_ratio": valid_ratio,
     }
 
@@ -311,6 +333,7 @@ def aggregate_daily(df: pd.DataFrame) -> pd.DataFrame:
             field_mean_raw=("field_mean_raw", "mean"),
             field_mean_center=("field_mean_center", "mean"),
             field_mean_corrected=("field_mean_corrected", "mean"),
+            field_mean_abs=("field_mean_abs", "mean"),
             valid_pixel_ratio=("valid_pixel_ratio", "mean"),
             n_obs=("sequence", "count"),
         )
@@ -331,10 +354,13 @@ def aggregate_monthly(df_daily: pd.DataFrame) -> pd.DataFrame:
             field_mean_raw=("field_mean_raw", "mean"),
             field_mean_center=("field_mean_center", "mean"),
             field_mean_corrected=("field_mean_corrected", "mean"),
+            field_mean_abs=("field_mean_abs", "mean"),
             n_days=("date", "nunique"),
         )
         .reset_index()
     )
+    # Retain signed corrected mean as an exploratory diagnostic, but use the
+    # unsigned pixel-level absolute value as the primary proxy.
     grouped["polarity_strength"] = grouped["field_mean_corrected"].abs()
     return grouped
 

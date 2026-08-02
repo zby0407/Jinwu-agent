@@ -138,7 +138,13 @@ def _polar_proxy_in_window(
     window_months: int,
     min_months: int,
 ) -> dict:
-    """Aggregate polar-field observations around a cycle minimum date."""
+    """Aggregate polar-field strength observations around a cycle minimum date.
+
+    Because the signed polar-cap means in this archive do not reliably separate
+    the north and south magnetic polarities, the unsigned pixel-level absolute
+    value (``field_mean_abs``) is used as the primary polar-field strength
+    proxy. Signed corrected means are retained only as exploratory diagnostics.
+    """
     start = minimum_date - pd.DateOffset(months=window_months)
     end = minimum_date + pd.DateOffset(months=window_months)
     window = polar[(polar["date"] >= start) & (polar["date"] <= end)]
@@ -149,30 +155,36 @@ def _polar_proxy_in_window(
         n_months = int(sub["date"].dt.to_period("M").nunique())
         result[f"polar_n_months_{label}"] = n_months
         if n_months >= min_months:
-            result[f"polar_proxy_min_{label}"] = float(
+            # Primary proxy: unsigned pixel-level absolute field strength.
+            result[f"polar_proxy_abs_{label}"] = float(
+                sub["field_mean_abs"].mean()
+            )
+            # Diagnostic signed proxy (use with caution).
+            result[f"polar_proxy_signed_{label}"] = float(
                 sub["field_mean_corrected"].mean()
             )
-            result[f"polar_proxy_abs_{label}"] = float(
-                sub["field_mean_corrected"].abs().mean()
-            )
         else:
-            result[f"polar_proxy_min_{label}"] = float("nan")
             result[f"polar_proxy_abs_{label}"] = float("nan")
+            result[f"polar_proxy_signed_{label}"] = float("nan")
 
     n_n = result.get("polar_n_months_n", 0)
     n_s = result.get("polar_n_months_s", 0)
     if n_n >= min_months and n_s >= min_months:
         abs_n = result.get("polar_proxy_abs_n", float("nan"))
         abs_s = result.get("polar_proxy_abs_s", float("nan"))
-        result["polar_proxy_combined"] = float(
+        result["polar_proxy_abs_combined"] = float(
             pd.Series([abs_n, abs_s]).mean(skipna=True)
         )
         result["polar_data_quality"] = "good"
     elif n_n >= min_months or n_s >= min_months:
-        result["polar_proxy_combined"] = float("nan")
+        abs_n = result.get("polar_proxy_abs_n", float("nan"))
+        abs_s = result.get("polar_proxy_abs_s", float("nan"))
+        result["polar_proxy_abs_combined"] = float(
+            pd.Series([abs_n, abs_s]).mean(skipna=True)
+        )
         result["polar_data_quality"] = "single_hemisphere"
     else:
-        result["polar_proxy_combined"] = float("nan")
+        result["polar_proxy_abs_combined"] = float("nan")
         result["polar_data_quality"] = "insufficient"
 
     return result

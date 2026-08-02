@@ -105,12 +105,15 @@ def experiment_ablation(features: pd.DataFrame) -> dict:
 
 
 def experiment_polar_precursor(features: pd.DataFrame) -> dict:
-    """Correlate the prior-cycle polar-field proxy with the next cycle peak."""
-    proxy_col = "polar_proxy_combined"
+    """Correlate the prior-cycle polar-field strength proxy with the next cycle peak."""
+    proxy_col = "polar_proxy_abs_combined"
+    if proxy_col not in features.columns:
+        # Fallback for legacy feature tables.
+        proxy_col = "polar_proxy_combined"
     if proxy_col not in features.columns:
         return {
             "experiment": "polar_precursor",
-            "error": f"No {proxy_col} column in features",
+            "error": f"No polar proxy column in features",
             "note": "Run build_features.py with --polar-monthly to produce this column",
         }
 
