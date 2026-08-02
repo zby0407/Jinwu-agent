@@ -283,11 +283,11 @@ function HomePageInner({
             <h1 className="hidden sm:block">
               <span className="sr-only">金乌</span>
               <Image
-                src="/branding/jinwu-calligraphy-v4.png"
+                src="/branding/jinwu-bright-gold-calligraphy-transparent-v2.png"
                 alt=""
-                width={54}
-                height={28}
-                className="h-7 w-[54px] object-contain"
+                width={80}
+                height={45}
+                className="h-[45px] w-20 object-contain"
                 aria-hidden="true"
                 priority
               />
