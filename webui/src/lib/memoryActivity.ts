@@ -35,10 +35,10 @@ export function isRecent(mtime: number, now: number): boolean {
 export function relativeTime(ms: number, now: number): string {
   if (!ms) return "";
   const secs = Math.max(0, Math.round((now - ms) / 1000));
-  if (secs < 45) return "just now";
+  if (secs < 45) return "刚刚";
   const mins = Math.round(secs / 60);
-  if (mins < 60) return `${mins}m ago`;
+  if (mins < 60) return `${mins} 分钟前`;
   const hours = Math.round(mins / 60);
-  if (hours < 24) return `${hours}h ago`;
-  return `${Math.round(hours / 24)}d ago`;
+  if (hours < 24) return `${hours} 小时前`;
+  return `${Math.round(hours / 24)} 天前`;
 }

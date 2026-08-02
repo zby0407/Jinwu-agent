@@ -24,13 +24,13 @@ export const DEFAULT_SCHEDULE_SPEC: ScheduleSpec = {
 };
 
 export const DAY_NAMES = [
-  "Sun",
-  "Mon",
-  "Tue",
-  "Wed",
-  "Thu",
-  "Fri",
-  "Sat",
+  "周日",
+  "周一",
+  "周二",
+  "周三",
+  "周四",
+  "周五",
+  "周六",
 ] as const;
 
 function clampNumber(value: number, min: number, max: number): number {
@@ -40,10 +40,10 @@ function clampNumber(value: number, min: number, max: number): number {
 
 export function validateCronExpression(cron: string): string | null {
   const trimmed = cron.trim();
-  if (!trimmed) return "Enter a cron expression.";
+  if (!trimmed) return "请输入 Cron 表达式。";
   const parts = trimmed.split(/\s+/);
   if (parts.length !== 5) {
-    return "Use five cron fields: minute hour day month weekday.";
+    return "请使用五段 Cron 字段：分钟、小时、日期、月份、星期。";
   }
   return null;
 }
@@ -127,11 +127,11 @@ export function cronLabel(cron: string): string {
   ).padStart(2, "0")}`;
   switch (spec.frequency) {
     case "daily":
-      return `Every day at ${time}`;
+      return `每天 ${time}`;
     case "weekly":
-      return `Every ${DAY_NAMES[spec.dayOfWeek]} at ${time}`;
+      return `每${DAY_NAMES[spec.dayOfWeek]} ${time}`;
     case "monthly":
-      return `Monthly on day ${spec.dayOfMonth} at ${time}`;
+      return `每月 ${spec.dayOfMonth} 日 ${time}`;
     default:
       return cron;
   }
@@ -144,12 +144,12 @@ export function nextRunLabel(iso: string | null): string {
   if (isNaN(d.getTime())) return "—";
   const now = Date.now();
   const diff = d.getTime() - now;
-  if (diff < 0) return "Overdue";
+  if (diff < 0) return "已逾期";
   const mins = Math.round(diff / 60_000);
-  if (mins < 1) return "in <1m";
-  if (mins < 60) return `in ${mins}m`;
+  if (mins < 1) return "不到 1 分钟";
+  if (mins < 60) return `${mins} 分钟后`;
   const hrs = Math.round(diff / 3_600_000);
-  if (hrs < 24) return `in ${hrs}h`;
+  if (hrs < 24) return `${hrs} 小时后`;
   const days = Math.round(diff / 86_400_000);
-  return `in ${days}d`;
+  return `${days} 天后`;
 }

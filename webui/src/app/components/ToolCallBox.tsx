@@ -242,7 +242,7 @@ export const ToolCallBox = React.memo<ToolCallBoxProps>(
                   stream={stream}
                   message={uiComponent}
                   namespace={graphId}
-                  meta={{ status, args, result: result ?? "No Result Yet" }}
+                  meta={{ status, args, result: result ?? "暂无结果" }}
                 />
               </div>
             ) : showApproval ? (
@@ -267,7 +267,7 @@ export const ToolCallBox = React.memo<ToolCallBoxProps>(
                 {Object.keys(args).length > 0 && (
                   <div className={cn("mt-4", compact && "mt-2")}>
                     <h4 className="mb-1 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                      Arguments
+                      参数
                     </h4>
                     <div className="space-y-2">
                       {Object.entries(args).map(([key, value]) => {
@@ -340,7 +340,7 @@ export const ToolCallBox = React.memo<ToolCallBoxProps>(
                 {hasResult && (
                   <div className={cn("mt-4", compact && "mt-2")}>
                     <h4 className="mb-1 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                      Result
+                      结果
                     </h4>
                     <pre
                       className={cn(

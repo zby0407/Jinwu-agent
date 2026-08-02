@@ -31,17 +31,17 @@ const STATUS_META: Record<
 > = {
   checking: {
     dot: "bg-[var(--color-warning)]",
-    label: "Connecting…",
+    label: "连接中…",
     pulse: true,
   },
   online: {
     dot: "bg-[var(--color-success)]",
-    label: "Connected",
+    label: "已连接",
     pulse: false,
   },
   offline: {
     dot: "bg-[var(--color-error)]",
-    label: "Offline",
+    label: "离线",
     pulse: false,
   },
 };
@@ -219,12 +219,12 @@ export function HealthIndicator({
   const meta = STATUS_META[status];
   const title =
     status === "online"
-      ? `Connected to ${deploymentUrl}${
+      ? `已连接到 ${deploymentUrl}${
           info?.version ? ` · langgraph ${info.version}` : ""
         }`
       : status === "offline"
-      ? `Can't reach the backend at ${deploymentUrl}. Is the backend running? Click to retry.`
-      : `Checking connection to ${deploymentUrl}…`;
+      ? `无法连接到 ${deploymentUrl} 的后端。请确认后端正在运行，点击可重试。`
+      : `正在检查与 ${deploymentUrl} 的连接…`;
 
   const showReconnect =
     status === "offline" && suggestedUrl !== null && onReconnect !== undefined;
@@ -258,11 +258,11 @@ export function HealthIndicator({
             setStatus("checking");
             onReconnect?.(url);
           }}
-          title={`Backend detected at ${suggestedUrl}. Click to reconnect.`}
-          aria-label={`Reconnect to detected backend ${suggestedUrl}`}
+          title={`检测到后端 ${suggestedUrl}，点击重新连接。`}
+          aria-label={`重新连接到检测到的后端 ${suggestedUrl}`}
           className="h-8 gap-1 px-2 text-xs font-medium text-[var(--brand)] hover:text-[var(--brand)]"
         >
-          Reconnect{" "}
+          重新连接{" "}
           <span className="tabular-nums">
             {suggestedUrl ? shortUrlLabel(suggestedUrl) : ""}
           </span>

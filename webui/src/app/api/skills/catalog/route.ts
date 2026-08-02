@@ -14,7 +14,7 @@ export async function GET(request: NextRequest) {
         error:
           error instanceof Error
             ? error.message
-            : "Failed to load the skills catalog.",
+            : "加载 Skills 目录失败。",
       },
       { status: 502 }
     );

@@ -8,7 +8,7 @@ export async function GET(request: NextRequest) {
     const name = request.nextUrl.searchParams.get("name");
     if (!name) {
       return NextResponse.json(
-        { error: "Missing skill name." },
+        { error: "缺少 Skill 名称。" },
         { status: 400 }
       );
     }
@@ -20,7 +20,7 @@ export async function GET(request: NextRequest) {
         error:
           error instanceof Error
             ? error.message
-            : "Failed to load skill detail.",
+            : "加载 Skill 详情失败。",
       },
       { status: 400 }
     );

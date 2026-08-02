@@ -32,7 +32,7 @@ export async function POST(request: NextRequest) {
         error:
           error instanceof Error
             ? error.message
-            : "Failed to clear generated artifacts.",
+          : "清除已生成产物失败。",
       },
       { status: 400 }
     );

@@ -41,7 +41,7 @@ export function InspectorPanel({
       <div className="flex h-11 shrink-0 items-center gap-2 border-b border-border px-2">
         <div
           role="tablist"
-          aria-label="Inspector"
+          aria-label="研究工作区"
           className="flex items-center gap-1"
         >
           <button
@@ -60,7 +60,7 @@ export function InspectorPanel({
               className="size-4 text-[var(--brand)]"
               aria-hidden="true"
             />
-            Activity
+            活动
           </button>
           <button
             type="button"
@@ -78,7 +78,7 @@ export function InspectorPanel({
               className="size-4 text-[var(--brand)]"
               aria-hidden="true"
             />
-            Workspace
+            工作区
           </button>
           <button
             type="button"
@@ -96,7 +96,7 @@ export function InspectorPanel({
               className="size-4 text-[var(--brand)]"
               aria-hidden="true"
             />
-            Agents
+            Agent
           </button>
         </div>
       </div>

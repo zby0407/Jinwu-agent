@@ -37,7 +37,7 @@ function zipWorkspace(
     if (signal) {
       if (signal.aborted) {
         child.kill("SIGKILL");
-        reject(new Error("Request aborted."));
+        reject(new Error("请求已中止。" ));
         return;
       }
       signal.addEventListener("abort", onAbort, { once: true });
@@ -50,16 +50,16 @@ function zipWorkspace(
       reject(
         (err as NodeJS.ErrnoException).code === "ENOENT"
           ? new Error(
-              "The `zip` command is not available on this system, so the workspace can't be downloaded as an archive."
+          "此系统中没有可用的 `zip` 命令，因此无法将工作区下载为压缩包。"
             )
           : err
       );
     });
     child.on("close", (code) => {
       signal?.removeEventListener("abort", onAbort);
-      if (signal?.aborted) reject(new Error("Request aborted."));
+      if (signal?.aborted) reject(new Error("请求已中止。" ));
       // 12 = "nothing to do" (empty workspace) — treat as a friendly error.
-      else if (code === 12) reject(new Error("The workspace is empty."));
+      else if (code === 12) reject(new Error("工作区为空。" ));
       else if (code !== 0)
         reject(new Error(stderr.trim() || `zip exited with code ${code}`));
       else resolve();
@@ -105,7 +105,7 @@ export async function GET(request: NextRequest) {
         error:
           error instanceof Error
             ? error.message
-            : "Failed to package the workspace.",
+          : "打包工作区失败。",
       },
       { status: 400 }
     );

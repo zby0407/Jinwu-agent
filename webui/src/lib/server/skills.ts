@@ -214,13 +214,13 @@ async function getRepoSnapshot(
   if (!res.ok) {
     throw new Error(
       res.status === 403
-        ? "GitHub rate limit reached — try again in a minute."
+      ? "已达到 GitHub 速率限制，请稍后重试。"
         : `Couldn't reach the skills catalog (GitHub ${res.status}).`
     );
   }
   const data = (await res.json()) as { tree?: TreeBlob[]; truncated?: boolean };
   if (!Array.isArray(data.tree)) {
-    throw new Error("Unexpected response from the skills catalog.");
+    throw new Error("Skills 目录返回了意外响应。" );
   }
   snapshotCache = { at: Date.now(), ref, tree: data.tree };
   return { ref, tree: data.tree };
@@ -414,7 +414,7 @@ export interface SkillDetail {
 /** Full SKILL.md for one skill — the locally-installed copy if present (what the
  *  agent actually uses), else the upstream version at the pinned ref. */
 export async function getSkillDetail(name: string): Promise<SkillDetail> {
-  if (!isValidSkillName(name)) throw new Error("Invalid skill name.");
+  if (!isValidSkillName(name)) throw new Error("Skill 名称无效。" );
 
   let md: string | undefined;
   let installed = false;
@@ -437,11 +437,11 @@ export async function getSkillDetail(name: string): Promise<SkillDetail> {
     const skillMd = tree.find(
       (t) => t.type === "blob" && t.path === `${SKILLS_PREFIX}${name}/SKILL.md`
     );
-    if (!skillMd) throw new Error(`Skill "${name}" was not found.`);
+  if (!skillMd) throw new Error(`未找到 Skill“${name}”。`);
     const res = await fetch(rawUrl(ref, skillMd.path), {
       headers: GITHUB_HEADERS,
     });
-    if (!res.ok) throw new Error(`Failed to load skill (${res.status}).`);
+  if (!res.ok) throw new Error(`加载 Skill 失败（${res.status}）。`);
     md = await res.text();
   }
 
@@ -464,7 +464,7 @@ export async function getSkillDetail(name: string): Promise<SkillDetail> {
 
 /** Download every file of `skills/<name>/` into the install dir, atomically. */
 export async function installSkill(name: string): Promise<{ files: number }> {
-  if (!isValidSkillName(name)) throw new Error("Invalid skill name.");
+  if (!isValidSkillName(name)) throw new Error("Skill 名称无效。" );
 
   const { ref, tree } = await getRepoSnapshot();
   const prefix = `${SKILLS_PREFIX}${name}/`;
@@ -472,20 +472,20 @@ export async function installSkill(name: string): Promise<{ files: number }> {
     (t) => t.type === "blob" && t.path.startsWith(prefix)
   );
   if (blobs.length === 0) {
-    throw new Error(`Skill "${name}" was not found in the catalog.`);
+    throw new Error(`目录中未找到 Skill“${name}”。`);
   }
   if (blobs.length > MAX_SKILL_FILES) {
-    throw new Error("This skill has too many files to install.");
+    throw new Error("此 Skill 包含的文件过多，无法安装。" );
   }
   const totalBytes = blobs.reduce((sum, b) => sum + (b.size ?? 0), 0);
   if (totalBytes > MAX_SKILL_BYTES) {
-    throw new Error("This skill is too large to install.");
+    throw new Error("此 Skill 过大，无法安装。" );
   }
 
   const installRoot = resolve(SKILLS_INSTALL_DIR);
   const destRoot = resolve(installRoot, name);
   if (destRoot !== join(installRoot, name)) {
-    throw new Error("Invalid skill name.");
+    throw new Error("Skill 名称无效。" );
   }
 
   // Download to a temp dir (a dotfile, so it never shows as a skill mid-install),
@@ -497,13 +497,13 @@ export async function installSkill(name: string): Promise<{ files: number }> {
       const rel = blob.path.slice(prefix.length);
       const target = resolve(tmpRoot, rel);
       if (target !== tmpRoot && !target.startsWith(tmpRoot + sep)) {
-        throw new Error("Invalid file path in skill.");
+      throw new Error("Skill 中包含无效文件路径。" );
       }
       const res = await fetch(rawUrl(ref, blob.path), {
         headers: GITHUB_HEADERS,
       });
       if (!res.ok) {
-        throw new Error(`Failed to download ${rel} (${res.status}).`);
+      throw new Error(`下载 ${rel} 失败（${res.status}）。`);
       }
       const buf = Buffer.from(await res.arrayBuffer());
       await fs.mkdir(dirname(target), { recursive: true });

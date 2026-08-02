@@ -34,7 +34,7 @@ function parseCron(cron: Cron): ScheduledTask {
   return {
     cron_id: cron.cron_id,
     name:
-      typeof meta.name === "string" && meta.name ? meta.name : "Unnamed Task",
+      typeof meta.name === "string" && meta.name ? meta.name : "未命名任务",
     prompt: typeof meta.prompt === "string" ? meta.prompt : "",
     schedule: cron.schedule,
     next_run_date: cron.next_run_date ?? null,
@@ -63,7 +63,7 @@ export async function createScheduledTask(params: {
   schedule: string;
 }): Promise<ScheduledTask> {
   const client = makeClient();
-  if (!client) throw new Error("No 金乌 deployment configured.");
+  if (!client) throw new Error("尚未配置金乌部署。" );
   const cron = await client.crons.create(SCHEDULER_GRAPH_ID, {
     input: { messages: [{ role: "user", content: params.prompt }] },
     schedule: params.schedule,
@@ -78,7 +78,7 @@ export async function createScheduledTask(params: {
 
 export async function deleteScheduledTask(cronId: string): Promise<void> {
   const client = makeClient();
-  if (!client) throw new Error("No 金乌 deployment configured.");
+  if (!client) throw new Error("尚未配置金乌部署。" );
   await client.crons.delete(cronId);
 }
 
@@ -104,7 +104,7 @@ export async function updateScheduledTask(params: {
 
 export async function runScheduledTaskNow(prompt: string): Promise<void> {
   const client = makeClient();
-  if (!client) throw new Error("No 金乌 deployment configured.");
+  if (!client) throw new Error("尚未配置金乌部署。" );
   const thread = await client.threads.create({ graphId: SCHEDULER_GRAPH_ID });
   await client.runs.create(thread.thread_id, SCHEDULER_GRAPH_ID, {
     input: { messages: [{ role: "user", content: prompt }] },
@@ -144,7 +144,7 @@ export function useScheduledTasks(): {
           setError(
             err instanceof Error
               ? err.message
-              : "Failed to load scheduled tasks."
+          : "加载定时任务失败。"
           );
           setTasks([]);
         }

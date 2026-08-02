@@ -11,7 +11,7 @@ import {
   Pin,
   PinOff,
   Search,
-  SquarePen,
+  Telescope,
   Trash2,
   X,
 } from "lucide-react";
@@ -54,11 +54,11 @@ import { toast } from "sonner";
 type StatusFilter = "all" | "idle" | "busy" | "interrupted" | "error";
 
 const GROUP_LABELS = {
-  interrupted: "Requiring Attention",
-  today: "Today",
-  yesterday: "Yesterday",
-  week: "This Week",
-  older: "Older",
+  interrupted: "需要处理",
+  today: "今天",
+  yesterday: "昨天",
+  week: "本周",
+  older: "更早",
 } as const;
 
 const STATUS_COLORS: Record<ThreadItem["status"], string> = {
@@ -69,10 +69,10 @@ const STATUS_COLORS: Record<ThreadItem["status"], string> = {
 };
 
 const STATUS_LABELS: Record<ThreadItem["status"], string> = {
-  idle: "Idle",
-  busy: "Busy",
-  interrupted: "Interrupted",
-  error: "Error",
+  idle: "空闲",
+  busy: "运行中",
+  interrupted: "已中断",
+  error: "错误",
 };
 
 function getThreadColor(status: ThreadItem["status"]): string {
@@ -109,7 +109,7 @@ function StatusFilterItem({
 function ErrorState({ message }: { message: string }) {
   return (
     <div className="flex flex-col items-center justify-center p-8 text-center">
-      <p className="text-sm text-red-600">Failed to load research</p>
+      <p className="text-sm text-red-600">加载研究会话失败</p>
       <p className="mt-1 text-xs text-muted-foreground">{message}</p>
     </div>
   );
@@ -132,7 +132,7 @@ function EmptyState() {
   return (
     <div className="flex flex-col items-center justify-center p-8 text-center">
       <MessageSquare className="mb-2 h-12 w-12 text-gray-300" />
-      <p className="text-sm text-muted-foreground">No research yet</p>
+      <p className="text-sm text-muted-foreground">暂无研究会话</p>
     </div>
   );
 }
@@ -336,7 +336,7 @@ export function ThreadList({
       setRenameTarget(null);
       mutateFn();
     } catch {
-      toast.error("Couldn't rename — try again.");
+      toast.error("重命名失败，请重试。");
     } finally {
       actionBusyRef.current = false;
       setActionBusy(false);
@@ -364,7 +364,7 @@ export function ThreadList({
       setDeleteTarget(null);
       mutateFn();
     } catch {
-      toast.error("Couldn't delete — try again.");
+      toast.error("删除失败，请重试。");
     } finally {
       actionBusyRef.current = false;
       setActionBusy(false);
@@ -385,8 +385,8 @@ export function ThreadList({
     } catch {
       toast.error(
         thread.pinned
-          ? "Couldn't unpin — try again."
-          : "Couldn't pin — try again."
+          ? "取消置顶失败，请重试。"
+          : "置顶失败，请重试。"
       );
     } finally {
       pinBusyIdsRef.current.delete(thread.id);
@@ -409,7 +409,7 @@ export function ThreadList({
     try {
       await exportThread(thread.id, thread.title);
     } catch {
-      toast.error("Couldn't export — try again.");
+      toast.error("导出失败，请重试。");
     } finally {
       exportBusyIdsRef.current.delete(thread.id);
       setExportBusyIds((current) => {
@@ -475,8 +475,8 @@ export function ThreadList({
               <div className="ml-2 flex-shrink-0">
                 <span
                   role="img"
-                  aria-label={`Status: ${STATUS_LABELS[thread.status]}`}
-                  title={`Status: ${STATUS_LABELS[thread.status]}`}
+                  aria-label={`状态：${STATUS_LABELS[thread.status]}`}
+                  title={`状态：${STATUS_LABELS[thread.status]}`}
                   className={cn(
                     "h-2 w-2 rounded-full",
                     getThreadColor(thread.status)
@@ -493,10 +493,10 @@ export function ThreadList({
             type="button"
             aria-label={
               thread.pinned
-                ? `Unpin "${thread.title}"`
-                : `Pin "${thread.title}"`
+                ? `取消置顶“${thread.title}”`
+                : `置顶“${thread.title}”`
             }
-            title={thread.pinned ? "Unpin" : "Pin"}
+            title={thread.pinned ? "取消置顶" : "置顶"}
             onClick={() => togglePin(thread)}
             disabled={pinBusy}
             className={cn(
@@ -520,8 +520,8 @@ export function ThreadList({
           </button>
           <button
             type="button"
-            aria-label={`Rename "${thread.title}"`}
-            title="Rename"
+            aria-label={`重命名“${thread.title}”`}
+            title="重命名"
             onClick={() => {
               setRenameTarget(thread);
               setRenameValue(thread.title);
@@ -535,8 +535,8 @@ export function ThreadList({
           </button>
           <button
             type="button"
-            aria-label={`Export "${thread.title}" as JSON`}
-            title="Export JSON"
+            aria-label={`将“${thread.title}”导出为 JSON`}
+            title="导出 JSON"
             onClick={() => runExport(thread)}
             disabled={exportBusy}
             className="rounded p-1 text-muted-foreground transition-colors hover:bg-background hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
@@ -555,8 +555,8 @@ export function ThreadList({
           </button>
           <button
             type="button"
-            aria-label={`Delete "${thread.title}"`}
-            title="Delete"
+            aria-label={`删除“${thread.title}”`}
+            title="删除"
             onClick={() => setDeleteTarget(thread)}
             className="rounded p-1 text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive focus-visible:ring-2 focus-visible:ring-ring"
           >
@@ -586,11 +586,11 @@ export function ThreadList({
         }}
         className="jw-sidebar-nav-button"
       >
-        <SquarePen
+        <Telescope
           className="size-4"
           aria-hidden="true"
         />
-        新对话
+        开始新实验
       </button>
       <button
         type="button"
@@ -647,8 +647,8 @@ export function ThreadList({
             name="research-search"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search research…"
-            aria-label="Search research"
+            placeholder="搜索研究会话…"
+            aria-label="搜索研究会话"
             autoComplete="off"
             spellCheck={false}
             className="w-full rounded-md border border-border bg-background py-1.5 pl-8 pr-8 text-sm outline-none placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring"
@@ -656,7 +656,7 @@ export function ThreadList({
           {search && (
             <button
               type="button"
-              aria-label="Clear research search"
+              aria-label="清除研究会话搜索"
               onClick={() => setSearch("")}
               className="absolute right-1 top-1/2 -translate-y-1/2 rounded p-1 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
             >
@@ -669,7 +669,7 @@ export function ThreadList({
         </div>
       </div>
       <div className="grid flex-shrink-0 grid-cols-[1fr_auto] items-center gap-2 border-b border-border px-3 py-2.5">
-        <h2 className="text-base font-semibold tracking-tight">Recents</h2>
+        <h2 className="text-base font-semibold tracking-tight">最近记录</h2>
         <div className="flex items-center gap-2">
           <Select
             value={statusFilter}
@@ -679,37 +679,37 @@ export function ThreadList({
               <SelectValue />
             </SelectTrigger>
             <SelectContent align="end">
-              <SelectItem value="all">All</SelectItem>
+              <SelectItem value="all">全部</SelectItem>
               <SelectSeparator />
               <SelectGroup>
-                <SelectLabel>Active</SelectLabel>
+                <SelectLabel>活动状态</SelectLabel>
                 <SelectItem value="idle">
                   <StatusFilterItem
                     status="idle"
-                    label="Idle"
+                    label="空闲"
                   />
                 </SelectItem>
                 <SelectItem value="busy">
                   <StatusFilterItem
                     status="busy"
-                    label="Busy"
+                    label="运行中"
                   />
                 </SelectItem>
               </SelectGroup>
               <SelectSeparator />
               <SelectGroup>
-                <SelectLabel>Attention</SelectLabel>
+                <SelectLabel>需要处理</SelectLabel>
                 <SelectItem value="interrupted">
                   <StatusFilterItem
                     status="interrupted"
-                    label="Interrupted"
+                    label="已中断"
                     badge={interruptedCount}
                   />
                 </SelectItem>
                 <SelectItem value="error">
                   <StatusFilterItem
                     status="error"
-                    label="Error"
+                    label="错误"
                   />
                 </SelectItem>
               </SelectGroup>
@@ -718,7 +718,7 @@ export function ThreadList({
           {onClose && (
             <button
               type="button"
-              aria-label={view ? "Close navigation" : "Close research"}
+              aria-label={view ? "关闭导航" : "关闭研究导航"}
               onClick={onClose}
               className="rounded-md p-2 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
             >
@@ -748,7 +748,7 @@ export function ThreadList({
           filtered.length === 0 && (
             <div className="flex flex-col items-center justify-center p-8 text-center">
               <p className="text-sm text-muted-foreground">
-                No research matches your search.
+                没有匹配搜索条件的研究会话。
               </p>
             </div>
           )}
@@ -759,7 +759,7 @@ export function ThreadList({
             {pinned.length > 0 && (
               <div className="mb-3">
                 <h4 className="m-0 px-2.5 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-                  Research
+                  已置顶
                 </h4>
                 <div className="flex flex-col gap-1">
                   {pinned.map((thread) => renderThreadCard(thread))}
@@ -799,10 +799,10 @@ export function ThreadList({
                   {isLoadingMore ? (
                     <>
                       <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                      Loading…
+                      加载中…
                     </>
                   ) : (
-                    "Load More"
+                    "加载更多"
                   )}
                 </Button>
               </div>
@@ -821,9 +821,9 @@ export function ThreadList({
       >
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>Rename research</DialogTitle>
+            <DialogTitle>重命名研究会话</DialogTitle>
             <DialogDescription>
-              Give this conversation a custom title.
+              为该研究会话设置自定义标题。
             </DialogDescription>
           </DialogHeader>
           <Input
@@ -836,7 +836,7 @@ export function ThreadList({
                 submitRename();
               }
             }}
-            placeholder="Enter a title…"
+            placeholder="输入标题…"
             maxLength={100}
             disabled={actionBusy}
           />
@@ -846,13 +846,13 @@ export function ThreadList({
               onClick={() => setRenameTarget(null)}
               disabled={actionBusy}
             >
-              Cancel
+              取消
             </Button>
             <Button
               onClick={submitRename}
               disabled={actionBusy || !renameValue.trim()}
             >
-              {actionBusy ? "Saving…" : "Save"}
+              {actionBusy ? "保存中…" : "保存"}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -879,10 +879,9 @@ export function ThreadList({
           }}
         >
           <DialogHeader>
-            <DialogTitle>Delete this research?</DialogTitle>
+            <DialogTitle>删除此研究会话？</DialogTitle>
             <DialogDescription>
-              “{deleteTarget?.title}” will be permanently deleted. This can’t be
-              undone.
+              “{deleteTarget?.title}”将被永久删除，此操作无法撤销。
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
@@ -891,14 +890,14 @@ export function ThreadList({
               onClick={() => setDeleteTarget(null)}
               disabled={actionBusy}
             >
-              Cancel
+              取消
             </Button>
             <Button
               variant="destructive"
               onClick={confirmDelete}
               disabled={actionBusy}
             >
-              {actionBusy ? "Deleting…" : "Delete"}
+              {actionBusy ? "删除中…" : "删除"}
             </Button>
           </DialogFooter>
         </DialogContent>

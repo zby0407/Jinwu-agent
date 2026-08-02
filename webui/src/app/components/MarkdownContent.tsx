@@ -96,7 +96,7 @@ export const MarkdownContent = React.memo<MarkdownContentProps>(
                   <button
                     type="button"
                     onClick={() => dispatchFileLink(link)}
-                    title={`Open ${link.display}`}
+                  title={`打开 ${link.display}`}
                     className="rounded-sm bg-[var(--color-surface)] px-1 py-0.5 font-mono text-[0.9em] text-primary underline underline-offset-2 hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                   >
                     {link.display}
@@ -145,7 +145,7 @@ export const MarkdownContent = React.memo<MarkdownContentProps>(
                   <button
                     type="button"
                     onClick={() => dispatchFileLink(link)}
-                    title={`Open ${link.display}`}
+                  title={`打开 ${link.display}`}
                     className="text-primary underline underline-offset-2 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                   >
                     {children}

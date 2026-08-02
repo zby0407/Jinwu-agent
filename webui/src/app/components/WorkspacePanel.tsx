@@ -27,7 +27,7 @@ async function listDir(
     `/api/workspace?${new URLSearchParams({ path, threadId })}`
   );
   const body = await res.json().catch(() => null);
-  if (!res.ok) throw new Error(body?.error || "Failed to list workspace.");
+  if (!res.ok) throw new Error(body?.error || "无法列出工作区内容。" );
   return (body?.entries ?? []) as WorkspaceEntry[];
 }
 
@@ -39,7 +39,7 @@ async function listAll(threadId: string): Promise<{
     `/api/workspace?${new URLSearchParams({ recursive: "1", threadId })}`
   );
   const body = await res.json().catch(() => null);
-  if (!res.ok) throw new Error(body?.error || "Failed to load workspace.");
+  if (!res.ok) throw new Error(body?.error || "无法加载工作区。" );
   return {
     entries: (body?.entries ?? []) as WorkspaceEntry[],
     truncated: !!body?.truncated,
@@ -50,7 +50,7 @@ async function listAll(threadId: string): Promise<{
 const CATEGORIES = [
   {
     key: "docs",
-    label: "Papers & docs",
+    label: "论文与文档",
     Icon: FileText,
     exts: [
       "pdf",
@@ -67,7 +67,7 @@ const CATEGORIES = [
   },
   {
     key: "figures",
-    label: "Figures",
+    label: "图表",
     Icon: ImageIcon,
     exts: [
       "png",
@@ -84,7 +84,7 @@ const CATEGORIES = [
   },
   {
     key: "data",
-    label: "Data",
+    label: "数据",
     Icon: Database,
     exts: [
       "json",
@@ -108,7 +108,7 @@ const CATEGORIES = [
   },
   {
     key: "code",
-    label: "Code",
+    label: "代码",
     Icon: Code2,
     exts: [
       "py",
@@ -134,7 +134,7 @@ const CATEGORIES = [
     ],
   },
 ] as const;
-const OTHER = { key: "other", label: "Other", Icon: FileIcon } as const;
+const OTHER = { key: "other", label: "其他", Icon: FileIcon } as const;
 
 const EXT_TO_CATEGORY: Record<string, string> = {};
 for (const cat of CATEGORIES) {
@@ -168,7 +168,7 @@ export function WorkspacePanel() {
 
   const loadDir = useCallback(
     async (path: string) => {
-      if (!threadId) throw new Error("Start or open a research task first.");
+      if (!threadId) throw new Error("请先开始或打开一个研究会话。" );
       setLoading((prev) => new Set(prev).add(path));
       try {
         const entries = await listDir(path, threadId);
@@ -177,7 +177,7 @@ export function WorkspacePanel() {
         return entries;
       } catch (err) {
         if (path === "") {
-          setError(err instanceof Error ? err.message : "Failed to load.");
+          setError(err instanceof Error ? err.message : "加载失败。" );
         }
         throw err;
       } finally {
@@ -193,7 +193,7 @@ export function WorkspacePanel() {
 
   const loadAll = useCallback(async () => {
     if (!threadId) {
-      setError("Start or open a research task first.");
+      setError("请先开始或打开一个研究会话。" );
       return;
     }
     setTypeLoading(true);
@@ -203,7 +203,7 @@ export function WorkspacePanel() {
       setTruncated(truncated);
       setError(null);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load.");
+      setError(err instanceof Error ? err.message : "加载失败。" );
     } finally {
       setTypeLoading(false);
     }
@@ -217,7 +217,7 @@ export function WorkspacePanel() {
     setAllFiles(null);
     setSelected(null);
     if (!threadId) {
-      setError("Start or open a research task first.");
+      setError("请先开始或打开一个研究会话。" );
       setRootLoading(false);
       return;
     }
@@ -283,7 +283,7 @@ export function WorkspacePanel() {
     if (entries.length === 0 && depth === 0) {
       return (
         <p className="px-2 py-6 text-center text-xs text-muted-foreground">
-          No files in the workspace yet
+          工作区中暂无文件
         </p>
       );
     }
@@ -337,7 +337,7 @@ export function WorkspacePanel() {
     if (allFiles.length === 0) {
       return (
         <p className="px-2 py-6 text-center text-xs text-muted-foreground">
-          No files in the workspace yet
+          工作区中暂无文件
         </p>
       );
     }
@@ -346,8 +346,7 @@ export function WorkspacePanel() {
       <div className="space-y-3">
         {truncated && (
           <p className="px-1 text-[11px] text-muted-foreground">
-            Showing the first files only — the workspace has more than the
-            limit.
+            仅显示前若干文件，工作区内容已超出显示上限。
           </p>
         )}
         {groups.map((cat) => {
@@ -408,7 +407,7 @@ export function WorkspacePanel() {
               )}
               aria-pressed={view === m}
             >
-              {m === "tree" ? "Tree" : "By type"}
+              {m === "tree" ? "目录树" : "按类型"}
             </button>
           ))}
         </div>
@@ -421,18 +420,18 @@ export function WorkspacePanel() {
             }
             download
             className="inline-flex items-center gap-1 rounded-md px-1.5 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-            title="Download the whole workspace as a zip"
+            title="将整个工作区下载为 ZIP"
           >
             <Download className="size-3.5" />
-            All
+            全部
           </a>
           <button
             type="button"
             onClick={refresh}
             disabled={refreshing}
             className="inline-flex size-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:opacity-50"
-            aria-label="Refresh workspace"
-            title="Refresh"
+            aria-label="刷新工作区"
+            title="刷新"
           >
             <RefreshCw
               className={cn("size-3.5", refreshing && "animate-spin")}

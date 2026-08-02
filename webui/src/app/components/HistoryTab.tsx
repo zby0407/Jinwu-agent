@@ -42,14 +42,14 @@ function formatTimelineStamp(iso: string): string {
   try {
     const d = new Date(iso);
     if (isToday(iso)) {
-      return new Intl.DateTimeFormat(undefined, {
+      return new Intl.DateTimeFormat("zh-CN", {
         hour: "2-digit",
         minute: "2-digit",
         hourCycle: "h23",
       }).format(d);
     }
     const now = new Date();
-    return new Intl.DateTimeFormat(undefined, {
+    return new Intl.DateTimeFormat("zh-CN", {
       month: "short",
       day: "numeric",
       ...(d.getFullYear() !== now.getFullYear() ? { year: "numeric" } : {}),
@@ -85,10 +85,10 @@ function StatsBar({ items }: { items: TimelineItem[] }) {
   const obsToday = today.filter((i) => i.kind === "observation").length;
 
   const stats = [
-    { n: projectCount, label: "Projects" },
-    { n: items.length, label: "Total" },
-    { n: runsToday, label: "Runs Today" },
-    { n: obsToday, label: "Obs Today" },
+    { n: projectCount, label: "项目" },
+    { n: items.length, label: "总计" },
+    { n: runsToday, label: "今日运行" },
+    { n: obsToday, label: "今日观察" },
   ];
 
   return (
@@ -156,7 +156,7 @@ function EntryCard({
   const [open, setOpen] = useState(defaultOpen);
   const toggle = () => setOpen((o) => !o);
   const cardRef = useRef<HTMLDivElement>(null);
-  const label = `${open ? "Collapse" : "Expand"} ${entry.agent} execution: ${
+  const label = `${open ? "收起" : "展开"}${entry.agent} 的执行记录：${
     entry.summary
   }`;
 
@@ -218,7 +218,7 @@ function EntryCard({
               {entry.obs_ids.length > 0 && (
                 <div className="border-t border-border px-3 py-2.5">
                   <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-                    Linked Observations
+                    关联观察
                   </p>
                   <div className="flex flex-wrap gap-1.5">
                     {entry.obs_ids.map((id) => (
@@ -230,8 +230,8 @@ function EntryCard({
                           onNavigateToObs(id);
                         }}
                         className="border-[var(--brand)]/40 rounded border bg-background px-2 py-0.5 font-mono text-[11px] text-[var(--brand)] transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                        title={`Jump to ${id} in Knowledge graph`}
-                        aria-label={`Jump to observation ${id} in Knowledge graph`}
+                        title={`在记忆图谱中定位 ${id}`}
+                        aria-label={`在记忆图谱中定位观察 ${id}`}
                       >
                         {id.slice(0, 14)}…
                       </button>
@@ -264,8 +264,8 @@ function ObsCard({
       <button
         type="button"
         onClick={() => onNavigateToObs(obs.id)}
-        title="View in Knowledge graph"
-        aria-label={`View observation in Knowledge graph: ${obs.summary}`}
+        title="在记忆图谱中查看"
+        aria-label={`在记忆图谱中查看观察：${obs.summary}`}
         className="hover:border-[var(--brand)]/40 mb-2 min-w-0 flex-1 cursor-pointer overflow-hidden rounded-lg border border-dashed border-border bg-[var(--color-surface)] px-3 py-2.5 text-left transition-colors hover:bg-accent/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
       >
         <div className="flex items-center gap-2">
@@ -304,7 +304,7 @@ export function HistoryTab({
           className="size-4 animate-spin"
           aria-hidden="true"
         />
-        Loading history…
+        正在加载历史记录…
       </div>
     );
   }
@@ -321,7 +321,7 @@ export function HistoryTab({
             className="size-3.5"
             aria-hidden="true"
           />
-          Retry
+          重试
         </button>
       </div>
     );
@@ -329,7 +329,7 @@ export function HistoryTab({
   if (!items || items.length === 0) {
     return (
       <div className="flex flex-1 items-center justify-center text-sm text-muted-foreground">
-        No activity yet.
+        暂无活动记录。
       </div>
     );
   }
@@ -362,7 +362,7 @@ export function HistoryTab({
           </div>
           {truncated && (
             <p className="mt-2 text-center text-xs text-muted-foreground">
-              Showing newest {items.length} items.
+              正在显示最新的 {items.length} 条记录。
             </p>
           )}
         </div>

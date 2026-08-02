@@ -316,7 +316,7 @@ export const ChatMessage = React.memo<ChatMessageProps>(
         if (copyResetTimer.current) clearTimeout(copyResetTimer.current);
         copyResetTimer.current = setTimeout(() => setCopied(false), 2000);
       } else {
-        toast.error("Couldn't copy to clipboard.");
+        toast.error("无法复制到剪贴板。" );
       }
     }, [messageContent]);
     const [expandedSubAgents, setExpandedSubAgents] = useState<
@@ -349,7 +349,7 @@ export const ChatMessage = React.memo<ChatMessageProps>(
               className="size-3 text-[var(--brand)]"
               aria-hidden="true"
             />
-            Background agent reported back
+            后台 Agent 已返回结果
           </span>
         </div>
       );
@@ -391,7 +391,7 @@ export const ChatMessage = React.memo<ChatMessageProps>(
                   className="h-3.5 w-3.5"
                   aria-hidden="true"
                 />
-                Thinking
+                思考过程
               </button>
               {thinkingOpen && (
                 <div className="mt-2 whitespace-pre-wrap break-words border-l-2 border-border pl-3 text-sm leading-relaxed text-muted-foreground">
@@ -407,11 +407,11 @@ export const ChatMessage = React.memo<ChatMessageProps>(
                 aria-hidden="true"
               />
               <span>
-                This turn ended without a response (
+                本轮未生成回答即已结束（
                 <span className="font-mono text-xs">
                   {terminalError.finishReason}
                 </span>
-                ). Re-send your last message to try again.
+                ）。请重新发送上一条消息后重试。
               </span>
             </div>
           )}
@@ -457,7 +457,7 @@ export const ChatMessage = React.memo<ChatMessageProps>(
                   disabled={!editValue.trim()}
                   className="rounded-md border border-[var(--brand)]/60 bg-[var(--brand-solid)] px-3 py-1.5 text-xs font-semibold text-[var(--brand-foreground)] shadow-[inset_0_1px_0_rgba(255,238,174,0.18)] transition-opacity hover:opacity-90 focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-40"
                 >
-                  Send
+                  发送
                 </button>
               </div>
             </form>
@@ -494,13 +494,13 @@ export const ChatMessage = React.memo<ChatMessageProps>(
               {responseVersions && responseVersions.total > 1 && (
                 <div
                   className="mr-1 inline-flex items-center gap-0.5 text-xs text-muted-foreground"
-                  aria-label={`Response version ${responseVersions.current} of ${responseVersions.total}`}
+                  aria-label={`回答版本 ${responseVersions.current} / ${responseVersions.total}`}
                 >
                   <button
                     type="button"
                     onClick={responseVersions.onPrevious}
                     disabled={!responseVersions.onPrevious}
-                    aria-label="Previous response version"
+                    aria-label="上一个回答版本"
                     title="上一个回答"
                     className="inline-flex items-center rounded p-1.5 transition-colors hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-35"
                   >
@@ -516,7 +516,7 @@ export const ChatMessage = React.memo<ChatMessageProps>(
                     type="button"
                     onClick={responseVersions.onNext}
                     disabled={!responseVersions.onNext}
-                    aria-label="Next response version"
+                    aria-label="下一个回答版本"
                     title="下一个回答"
                     className="inline-flex items-center rounded p-1.5 transition-colors hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-35"
                   >
@@ -530,7 +530,7 @@ export const ChatMessage = React.memo<ChatMessageProps>(
               <button
                 type="button"
                 onClick={handleCopy}
-                aria-label={copied ? "Copied" : "Copy message"}
+                aria-label={copied ? "已复制" : "复制消息"}
                 className="inline-flex items-center rounded p-1.5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
               >
                 {copied ? (
@@ -549,7 +549,7 @@ export const ChatMessage = React.memo<ChatMessageProps>(
                 type="button"
                 onClick={onRegenerate}
                 disabled={!canRegenerate}
-                aria-label="Regenerate response"
+                aria-label="重新生成回答"
                 title="重新生成"
                 className="inline-flex items-center rounded p-1.5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-40"
               >
@@ -567,11 +567,11 @@ export const ChatMessage = React.memo<ChatMessageProps>(
                 aria-hidden="true"
               />
               <span>
-                Agent ended its turn unexpectedly (
+                Agent 意外结束了本轮（
                 <span className="font-mono text-xs">
                   {terminalError.finishReason}
                 </span>
-                ). The response above may be incomplete.
+                ）。上方回答可能不完整。
               </span>
             </div>
           )}
@@ -587,13 +587,13 @@ export const ChatMessage = React.memo<ChatMessageProps>(
               {messageVersions && messageVersions.total > 1 && (
                 <div
                   className="mr-1 inline-flex items-center gap-0.5 text-xs text-muted-foreground"
-                  aria-label={`Message version ${messageVersions.current} of ${messageVersions.total}`}
+                  aria-label={`消息版本 ${messageVersions.current} / ${messageVersions.total}`}
                 >
                   <button
                     type="button"
                     onClick={messageVersions.onPrevious}
                     disabled={!messageVersions.onPrevious}
-                    aria-label="Previous message version"
+                    aria-label="上一个消息版本"
                     title="上一个提问版本"
                     className="inline-flex items-center rounded p-1.5 transition-colors hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-35"
                   >
@@ -606,7 +606,7 @@ export const ChatMessage = React.memo<ChatMessageProps>(
                     type="button"
                     onClick={messageVersions.onNext}
                     disabled={!messageVersions.onNext}
-                    aria-label="Next message version"
+                    aria-label="下一个消息版本"
                     title="下一个提问版本"
                     className="inline-flex items-center rounded p-1.5 transition-colors hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-35"
                   >
@@ -617,7 +617,7 @@ export const ChatMessage = React.memo<ChatMessageProps>(
               <button
                 type="button"
                 onClick={handleCopy}
-                aria-label={copied ? "Copied" : "Copy message"}
+                aria-label={copied ? "已复制" : "复制消息"}
                 className="inline-flex items-center rounded p-1.5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
               >
                 {copied ? (
@@ -636,7 +636,7 @@ export const ChatMessage = React.memo<ChatMessageProps>(
                 type="button"
                 onClick={startEditing}
                 disabled={!canEditMessage}
-                aria-label="Edit message"
+                aria-label="编辑消息"
                 className="inline-flex items-center rounded p-1.5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-40"
               >
                 <Pencil
@@ -717,7 +717,7 @@ export const ChatMessage = React.memo<ChatMessageProps>(
                     <div className="w-full max-w-full">
                       <div className="border-border-light rounded-md border bg-[var(--color-surface)] p-4">
                         <h4 className="mb-2 text-xs font-semibold uppercase tracking-wider text-[var(--color-text-secondary)]">
-                          Input
+                          输入
                         </h4>
                         <div className="mb-4">
                           <MarkdownContent
@@ -727,7 +727,7 @@ export const ChatMessage = React.memo<ChatMessageProps>(
                         {(subAgentSteps?.[subAgent.id]?.length ?? 0) > 0 && (
                           <>
                             <h4 className="mb-2 text-xs font-semibold uppercase tracking-wider text-[var(--color-text-secondary)]">
-                              Steps
+                              步骤
                             </h4>
                             <div className="mb-4">
                               <SubAgentSteps
@@ -740,7 +740,7 @@ export const ChatMessage = React.memo<ChatMessageProps>(
                         {subAgent.output && (
                           <>
                             <h4 className="mb-2 text-xs font-semibold uppercase tracking-wider text-[var(--color-text-secondary)]">
-                              Output
+                              输出
                             </h4>
                             <MarkdownContent
                               content={extractSubAgentContent(subAgent.output)}

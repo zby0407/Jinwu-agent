@@ -119,15 +119,15 @@ const MAX_ENTRIES = 2000;
 /** Lexical resolve of a caller path inside `root`: no control chars, no leading
  *  slash override, no hidden segments, no `..` escape. Returns absolute path. */
 function resolveInside(root: string, relPath: string): string {
-  if (hasControlChar(relPath)) throw new Error("Invalid path.");
+  if (hasControlChar(relPath)) throw new Error("路径无效。" );
   const cleaned = relPath.replaceAll("\\", "/").replace(/^\/+/, "");
-  if (!cleaned) throw new Error("A file path is required.");
+  if (!cleaned) throw new Error("必须提供文件路径。" );
   if (cleaned.split("/").some((seg) => seg !== "" && isHiddenEntry(seg))) {
-    throw new Error("Path is not accessible.");
+    throw new Error("无法访问该路径。" );
   }
   const target = resolve(root, cleaned);
   if (target !== root && !target.startsWith(root + sep)) {
-    throw new Error("Path is outside the memory directory.");
+    throw new Error("路径位于记忆目录之外。" );
   }
   return target;
 }
@@ -142,14 +142,14 @@ async function safeResolveExisting(
   try {
     real = await fs.realpath(target);
   } catch {
-    throw new Error("Path is not accessible.");
+      throw new Error("无法访问该路径。" );
   }
   if (real !== root && !real.startsWith(root + sep)) {
-    throw new Error("Path is not accessible.");
+      throw new Error("无法访问该路径。" );
   }
   const rel = relative(root, real);
   if (rel && rel.split(sep).some((s) => s !== "" && isHiddenEntry(s))) {
-    throw new Error("Path is not accessible.");
+    throw new Error("无法访问该路径。" );
   }
   return real;
 }
@@ -168,7 +168,7 @@ async function safeResolveForWrite(
     try {
       const realProbe = await fs.realpath(probe);
       if (realProbe !== root && !realProbe.startsWith(root + sep)) {
-        throw new Error("Path is outside the memory directory.");
+    throw new Error("路径位于记忆目录之外。" );
       }
       break;
     } catch (e) {
@@ -286,13 +286,13 @@ export interface ExecListData {
 /** Read one memory text file. */
 export async function readMemory(relPath: string): Promise<MemoryFile> {
   const root = await canonicalDirIfExists();
-  if (!root) throw new Error("No memory directory found.");
-  if (!isTextFile(relPath)) throw new Error("This file type can't be edited.");
+  if (!root) throw new Error("未找到记忆目录。" );
+  if (!isTextFile(relPath)) throw new Error("无法编辑此文件类型。" );
   const abs = await safeResolveExisting(root, relPath);
   const st = await fs.stat(abs);
-  if (!st.isFile()) throw new Error("Not a file.");
+  if (!st.isFile()) throw new Error("目标不是文件。" );
   if (st.size > MAX_READ_BYTES)
-    throw new Error("This file is too large to open.");
+    throw new Error("文件过大，无法打开。" );
   const content = await fs.readFile(abs, "utf-8");
   return {
     path: relPath.replaceAll("\\", "/").replace(/^\/+/, ""),
@@ -307,12 +307,12 @@ export async function writeMemory(
   relPath: string,
   content: string
 ): Promise<MemoryFile> {
-  if (typeof content !== "string") throw new Error("Content must be a string.");
+  if (typeof content !== "string") throw new Error("内容必须是字符串。" );
   if (Buffer.byteLength(content, "utf-8") > MAX_WRITE_BYTES) {
-    throw new Error("This file is too large to save.");
+    throw new Error("文件过大，无法保存。" );
   }
   if (!isTextFile(relPath)) {
-    throw new Error("Only text/markdown memory files can be saved.");
+    throw new Error("只能保存文本或 Markdown 记忆文件。" );
   }
   const root = await ensureCanonicalDir();
   const target = await safeResolveForWrite(root, relPath);
@@ -521,9 +521,9 @@ export async function listExecutions(): Promise<ExecListData> {
 /** Permanently delete a memory file. */
 export async function deleteMemory(relPath: string): Promise<void> {
   const root = await canonicalDirIfExists();
-  if (!root) throw new Error("No memory directory found.");
+  if (!root) throw new Error("未找到记忆目录。" );
   const abs = await safeResolveExisting(root, relPath);
   const st = await fs.stat(abs);
-  if (!st.isFile()) throw new Error("Only files can be deleted.");
+  if (!st.isFile()) throw new Error("只能删除文件。" );
   await fs.rm(abs, { force: true });
 }

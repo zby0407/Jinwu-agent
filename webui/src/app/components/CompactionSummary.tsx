@@ -38,11 +38,10 @@ export const CompactionSummary = React.memo<CompactionSummaryProps>(
               className="size-3.5 text-[var(--brand)]"
               aria-hidden="true"
             />
-            Conversation compacted
+            会话已压缩
             {typeof summarizedCount === "number" && summarizedCount > 0 && (
               <span className="text-muted-foreground/70">
-                · {summarizedCount} earlier{" "}
-                {summarizedCount === 1 ? "message" : "messages"} summarized
+                · 已总结前 {summarizedCount} 条消息
               </span>
             )}
             <ChevronRight

@@ -40,14 +40,14 @@ export const SkillDetailDialog = React.memo<{
       .then(async (res) => {
         const d = await res.json().catch(() => null);
         if (!res.ok)
-          throw new Error(d?.error || `Failed to load (${res.status})`);
+          throw new Error(d?.error || `加载失败（${res.status}）`);
         return d as FetchedDetail;
       })
       .then((d) => {
         if (!cancelled) setDetail(d);
       })
       .catch((e) => {
-        if (!cancelled) setError(e.message ?? "Failed to load skill detail.");
+        if (!cancelled) setError(e.message ?? "加载 Skill 详情失败。" );
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
@@ -92,7 +92,7 @@ export const SkillDetailDialog = React.memo<{
               )}
               {skill.fileCount != null && (
                 <span className="text-xs text-muted-foreground">
-                  · {skill.fileCount} file{skill.fileCount === 1 ? "" : "s"}
+                  · {skill.fileCount} 个文件
                 </span>
               )}
               {installed && (
@@ -101,7 +101,7 @@ export const SkillDetailDialog = React.memo<{
                     className="size-3"
                     aria-hidden="true"
                   />
-                  Installed
+                  已安装
                 </span>
               )}
             </div>
@@ -112,7 +112,7 @@ export const SkillDetailDialog = React.memo<{
           <div className="pr-3">
             {/* Full description — always shown, un-truncated. */}
             <p className="whitespace-pre-wrap text-sm leading-relaxed text-foreground">
-              {description || "No description."}
+              {description || "暂无说明。"}
             </p>
 
             {/* SKILL.md body — what the skill actually does. */}
@@ -123,7 +123,7 @@ export const SkillDetailDialog = React.memo<{
                     className="size-4 animate-spin"
                     aria-hidden="true"
                   />
-                  Loading skill contents…
+                  正在加载 Skill 内容…
                 </div>
               ) : error ? (
                 <p className="text-sm text-muted-foreground">{error}</p>
@@ -131,7 +131,7 @@ export const SkillDetailDialog = React.memo<{
                 <MarkdownContent content={body} />
               ) : (
                 <p className="text-sm text-muted-foreground">
-                  No additional contents.
+                  暂无更多内容。
                 </p>
               )}
             </div>

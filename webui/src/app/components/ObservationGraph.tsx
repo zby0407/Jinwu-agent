@@ -135,7 +135,7 @@ function NodeDetailPanel({
           error?: string;
         };
         if (!res.ok) {
-          throw new Error(data.error || "Failed to load observation.");
+          throw new Error(data.error || "加载观察记录失败。" );
         }
         setContent(data.content ?? null);
       })
@@ -143,7 +143,7 @@ function NodeDetailPanel({
         if (controller.signal.aborted) return;
         setContent(null);
         setContentError(
-          error instanceof Error ? error.message : "Failed to load observation."
+          error instanceof Error ? error.message : "加载观察记录失败。"
         );
       })
       .finally(() => {
@@ -170,7 +170,7 @@ function NodeDetailPanel({
     try {
       const date = new Date(iso);
       if (Number.isNaN(date.getTime())) return iso;
-      return date.toLocaleDateString(undefined, {
+      return date.toLocaleDateString("zh-CN", {
         year: "numeric",
         month: "short",
         day: "numeric",
@@ -201,8 +201,8 @@ function NodeDetailPanel({
           type="button"
           onClick={onClose}
           className="mt-0.5 inline-flex size-8 flex-shrink-0 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
-          aria-label="Close observation details"
-          title="Close observation details"
+          aria-label="关闭观察详情"
+          title="关闭观察详情"
         >
           <X
             className="h-4 w-4"
@@ -219,7 +219,7 @@ function NodeDetailPanel({
         {relatedEdges.length > 0 && (
           <div className="border-b border-border px-4 py-3">
             <p className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
-              Relations
+              关系
             </p>
             <ul className="space-y-1.5">
               {relatedEdges.map((e, idx) => {
@@ -259,7 +259,7 @@ function NodeDetailPanel({
         {/* Content */}
         <div className="px-4 py-3">
           {loadingContent ? (
-            <p className="text-xs text-muted-foreground">Loading…</p>
+            <p className="text-xs text-muted-foreground">加载中…</p>
           ) : contentError ? (
             <p
               role="alert"
@@ -274,7 +274,7 @@ function NodeDetailPanel({
             />
           ) : (
             <p className="text-xs text-muted-foreground">
-              This observation has no body content.
+              此观察记录没有正文内容。
             </p>
           )}
         </div>
@@ -448,8 +448,8 @@ function GraphCanvas({ data, selectedId, onSelect, w, h }: GraphCanvasProps) {
           type="button"
           onClick={() => zoomAt(w / 2, h / 2, 1.25)}
           className={GRAPH_BUTTON_CLASS}
-          aria-label="Zoom in observation graph"
-          title="Zoom in"
+          aria-label="放大记忆图谱"
+          title="放大"
         >
           <ZoomIn
             className="h-3.5 w-3.5"
@@ -460,8 +460,8 @@ function GraphCanvas({ data, selectedId, onSelect, w, h }: GraphCanvasProps) {
           type="button"
           onClick={() => zoomAt(w / 2, h / 2, 0.8)}
           className={GRAPH_BUTTON_CLASS}
-          aria-label="Zoom out observation graph"
-          title="Zoom out"
+          aria-label="缩小记忆图谱"
+          title="缩小"
         >
           <ZoomOut
             className="h-3.5 w-3.5"
@@ -472,8 +472,8 @@ function GraphCanvas({ data, selectedId, onSelect, w, h }: GraphCanvasProps) {
           type="button"
           onClick={resetView}
           className={GRAPH_BUTTON_CLASS}
-          aria-label="Reset observation graph view"
-          title="Reset view"
+          aria-label="重置记忆图谱视图"
+          title="重置视图"
         >
           <Maximize2
             className="h-3.5 w-3.5"
@@ -491,7 +491,7 @@ function GraphCanvas({ data, selectedId, onSelect, w, h }: GraphCanvasProps) {
               type="button"
               onClick={() => toggleFilter(r)}
               aria-pressed={active}
-              title={`${active ? "Hide" : "Show"} ${r} edges`}
+              title={`${active ? "隐藏" : "显示"}${relationLabel(r)}关系`}
               className={`flex items-center gap-1.5 text-left transition-opacity ${
                 active ? "opacity-100" : "opacity-35"
               }`}
@@ -509,8 +509,8 @@ function GraphCanvas({ data, selectedId, onSelect, w, h }: GraphCanvasProps) {
         <div className="mt-1 flex flex-col gap-0.5 border-t border-border pt-1">
           {(
             [
-              ["semantic", "Semantic"],
-              ["procedural", "Procedural"],
+              ["semantic", "语义记忆"],
+              ["procedural", "过程记忆"],
             ] as const
           ).map(([type, label]) => {
             const active = activeTypes.has(type);
@@ -520,9 +520,7 @@ function GraphCanvas({ data, selectedId, onSelect, w, h }: GraphCanvasProps) {
                 type="button"
                 onClick={() => toggleType(type)}
                 aria-pressed={active}
-                title={`${
-                  active ? "Hide" : "Show"
-                } ${label.toLowerCase()} nodes`}
+                title={`${active ? "隐藏" : "显示"}${label}节点`}
                 className={`flex items-center gap-1.5 text-left transition-opacity ${
                   active ? "opacity-100" : "opacity-35"
                 }`}
@@ -545,7 +543,7 @@ function GraphCanvas({ data, selectedId, onSelect, w, h }: GraphCanvasProps) {
         className="absolute inset-0 cursor-grab active:cursor-grabbing"
         style={{ userSelect: "none" }}
         role="img"
-        aria-label="Observation relationship graph"
+        aria-label="观察关系图"
         onWheel={handleWheel}
         onPointerDown={handlePointerDown}
         onPointerMove={handlePointerMove}
@@ -702,7 +700,7 @@ function GraphCanvas({ data, selectedId, onSelect, w, h }: GraphCanvasProps) {
                 key={node.id}
                 role="button"
                 tabIndex={0}
-                aria-label={`Select observation: ${node.summary}`}
+            aria-label={`选择观察记录：${node.summary}`}
                 className="outline-none [&:focus-visible]:outline-none [&:focus]:outline-none"
                 style={{ cursor: "pointer" }}
                 onClick={(e) => {
@@ -864,9 +862,9 @@ export function ObservationGraph({
       <div className="flex items-center border-b border-border px-4 py-2">
         <span className="text-xs text-muted-foreground">
           {data
-            ? `${data.nodes.length} nodes · ${data.edges.length} edges`
+            ? `${data.nodes.length} 个节点 · ${data.edges.length} 条关系`
             : loading
-            ? "Loading…"
+            ? "加载中…"
             : ""}
         </span>
       </div>
@@ -878,10 +876,10 @@ export function ObservationGraph({
           ref={containerRef}
           className="relative min-w-0 flex-1 overflow-hidden bg-muted/20"
         >
-          {loading && <EmptyState message="Loading observations…" />}
-          {!loading && error && <EmptyState message={`Error: ${error}`} />}
+          {loading && <EmptyState message="正在加载观察记录…" />}
+          {!loading && error && <EmptyState message={`错误：${error}`} />}
           {!loading && !error && data && data.nodes.length === 0 && (
-            <EmptyState message="No observations yet." />
+            <EmptyState message="暂无观察记录。" />
           )}
           {!loading &&
             !error &&

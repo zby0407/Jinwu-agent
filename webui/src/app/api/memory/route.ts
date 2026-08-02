@@ -26,7 +26,7 @@ const MAX_BODY_BYTES = 4 * 1024 * 1024;
 function fail(error: unknown, status = 400) {
   return NextResponse.json(
     {
-      error: error instanceof Error ? error.message : "Memory request failed.",
+      error: error instanceof Error ? error.message : "记忆请求失败。",
     },
     { status }
   );
@@ -55,7 +55,7 @@ export async function PUT(request: NextRequest) {
     }
     const declaredLen = Number(request.headers.get("content-length") || 0);
     if (declaredLen > MAX_BODY_BYTES) {
-      return fail("Request body is too large.", 413);
+      return fail("请求内容过大。", 413);
     }
     const body = (await request.json().catch(() => null)) as {
       path?: unknown;
@@ -65,7 +65,7 @@ export async function PUT(request: NextRequest) {
       return fail("A file path is required.");
     }
     if (typeof body.content !== "string") {
-      return fail("File content is required.");
+      return fail("必须提供文件内容。" );
     }
     const file = await writeMemory(body.path, body.content);
     return NextResponse.json(file);

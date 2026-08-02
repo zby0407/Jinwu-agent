@@ -23,7 +23,7 @@ function sanitizeFileName(name: string) {
     fileName === ".." ||
     hasControlChar(fileName)
   ) {
-    throw new Error("Invalid file name.");
+    throw new Error("文件名无效。" );
   }
   return fileName;
 }
@@ -44,7 +44,7 @@ async function writeUniqueFile(
     const candidate = index === 1 ? fileName : addSuffix(fileName, index);
     const target = resolve(workspaceDir, candidate);
     if (dirname(target) !== workspaceDir) {
-      throw new Error("Invalid file path.");
+      throw new Error("文件路径无效。" );
     }
     try {
       // `wx` never overwrites an existing file (so an upload can't clobber the
@@ -75,7 +75,7 @@ export async function POST(request: NextRequest) {
       declaredLength > MAX_TOTAL_BYTES + 1024 * 1024
     ) {
       return NextResponse.json(
-        { error: "The selected files exceed the 100 MB upload limit." },
+      { error: "所选文件超过 100 MB 上传上限。" },
         { status: 413 }
       );
     }
@@ -86,13 +86,13 @@ export async function POST(request: NextRequest) {
       .filter((value): value is File => typeof value !== "string");
     if (files.length === 0) {
       return NextResponse.json(
-        { error: "Choose at least one file to upload." },
+      { error: "请至少选择一个要上传的文件。" },
         { status: 400 }
       );
     }
     if (files.length > MAX_FILES) {
       return NextResponse.json(
-        { error: `Upload at most ${MAX_FILES} files at a time.` },
+      { error: `每次最多上传 ${MAX_FILES} 个文件。` },
         { status: 400 }
       );
     }
@@ -104,7 +104,7 @@ export async function POST(request: NextRequest) {
       }
       totalBytes += file.size;
       if (totalBytes > MAX_TOTAL_BYTES) {
-        throw new Error("The selected files exceed the 100 MB upload limit.");
+      throw new Error("所选文件超过 100 MB 上传上限。" );
       }
       return { file, fileName: sanitizeFileName(file.name) };
     });
@@ -175,7 +175,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(
       {
         error:
-          error instanceof Error ? error.message : "Failed to upload files.",
+        error instanceof Error ? error.message : "上传文件失败。",
       },
       { status: 400 }
     );

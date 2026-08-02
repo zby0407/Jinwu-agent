@@ -60,14 +60,14 @@ export function ConfigDialog({
   const handleSave = () => {
     const url = deploymentUrl.trim();
     if (!url) {
-      setError("Enter your deployment URL to continue.");
+      setError("请输入部署 URL 后继续。" );
       inputRef.current?.focus();
       return;
     }
     try {
       new URL(url);
     } catch {
-      setError("Enter a valid URL, e.g. http://127.0.0.1:6174");
+      setError("请输入有效的 URL，例如 http://127.0.0.1:6174");
       inputRef.current?.focus();
       return;
     }
@@ -87,16 +87,15 @@ export function ConfigDialog({
     >
       <DialogContent className="sm:max-w-[525px]">
         <DialogHeader>
-          <DialogTitle>Configuration</DialogTitle>
+          <DialogTitle>配置</DialogTitle>
           <DialogDescription>
-            The URL of your 金乌 deployment. By default this is your local
-            deployment (detected automatically) — or a public URL from{" "}
-            <code>jw deploy</code>. Saved in your browser&apos;s local storage.
+            金乌部署的访问地址。默认会自动检测本地部署，也可以填写通过{" "}
+            <code>jw deploy</code> 获得的公开 URL。设置将保存在浏览器本地存储中。
           </DialogDescription>
         </DialogHeader>
         <div className="grid gap-4 py-4">
           <div className="grid gap-2">
-            <Label htmlFor="deploymentUrl">Deployment URL</Label>
+            <Label htmlFor="deploymentUrl">部署 URL</Label>
             <Input
               ref={inputRef}
               id="deploymentUrl"
@@ -136,7 +135,7 @@ export function ConfigDialog({
               type="checkbox"
               checked={collapseAgentActions}
               onChange={(e) => setCollapseAgentActions(e.target.checked)}
-              aria-label="Collapse agent actions by default"
+              aria-label="默认折叠 Agent 操作"
               aria-describedby="collapseAgentActions-description"
               className="mt-1 size-4 rounded border-border accent-[var(--brand)]"
             />
@@ -144,13 +143,12 @@ export function ConfigDialog({
               htmlFor="collapseAgentActions"
               className="text-sm font-normal leading-snug"
             >
-              Collapse agent actions by default
+              默认折叠 Agent 操作
               <span
                 id="collapseAgentActions-description"
                 className="block text-xs text-muted-foreground"
               >
-                Keeps tool-call sequences folded while running and after
-                completion. Approval controls remain visible.
+                工具调用序列在运行期间和完成后保持折叠，审批控件仍会显示。
               </span>
             </Label>
           </div>
@@ -160,9 +158,9 @@ export function ConfigDialog({
             variant="outline"
             onClick={() => onOpenChange(false)}
           >
-            Cancel
+            取消
           </Button>
-          <Button onClick={handleSave}>Save</Button>
+          <Button onClick={handleSave}>保存</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

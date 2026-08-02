@@ -69,12 +69,12 @@ export function SkillsMarketplace() {
     try {
       const res = await fetch("/api/skills");
       const d = await res.json();
-      if (!res.ok) throw new Error(d.error || "Failed to load skills");
+      if (!res.ok) throw new Error(d.error || "加载 Skills 失败" );
       setOther((d.skills ?? []) as SkillCard[]);
     } catch (e) {
       setOther([]);
       setError(
-        e instanceof Error ? e.message : "Failed to load installed skills."
+        e instanceof Error ? e.message : "加载已安装 Skills 失败。"
       );
     }
     setLoading(false);
@@ -92,12 +92,12 @@ export function SkillsMarketplace() {
         `/api/skills/catalog${refresh ? "?refresh=1" : ""}`
       );
       const d = await res.json();
-      if (!res.ok) throw new Error(d.error || "Failed to load catalog");
+      if (!res.ok) throw new Error(d.error || "加载目录失败" );
       setCatalog((d.skills ?? []) as CatalogSkill[]);
     } catch (e) {
       setCatalog(null);
       setCatalogError(
-        e instanceof Error ? e.message : "Failed to load the official catalog."
+        e instanceof Error ? e.message : "加载官方目录失败。"
       );
     }
     setCatalogLoading(false);
@@ -126,7 +126,7 @@ export function SkillsMarketplace() {
         body: JSON.stringify({ name }),
       });
       const d = await res.json();
-      if (!res.ok) throw new Error(d.error || "Failed to install");
+      if (!res.ok) throw new Error(d.error || "安装失败" );
       setCatalog((prev) =>
         prev
           ? prev.map((s) =>
@@ -144,7 +144,7 @@ export function SkillsMarketplace() {
       await load();
     } catch (e) {
       setCatalogError(
-        e instanceof Error ? e.message : "Failed to install the skill."
+        e instanceof Error ? e.message : "安装 Skill 失败。"
       );
     } finally {
       setBusy((b) => {
@@ -164,7 +164,7 @@ export function SkillsMarketplace() {
       });
       if (!res.ok) {
         const d = await res.json();
-        throw new Error(d.error || "Failed to uninstall");
+        throw new Error(d.error || "卸载失败" );
       }
       setOther((prev) => prev.filter((s) => s.name !== name));
       setCatalog((prev) =>
@@ -177,7 +177,7 @@ export function SkillsMarketplace() {
           : prev
       );
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to uninstall");
+      setError(e instanceof Error ? e.message : "卸载失败" );
     } finally {
       setBusy((b) => {
         const next = { ...b };
@@ -203,7 +203,7 @@ export function SkillsMarketplace() {
               Research Skills
             </h2>
             <p className="mt-1 text-sm leading-6 text-muted-foreground">
-              Manage locally installed skills.
+              管理本地已安装的 Skills。
             </p>
           </div>
           <div className="flex items-center gap-1">
@@ -211,8 +211,8 @@ export function SkillsMarketplace() {
               type="button"
               onClick={toggleCatalog}
               aria-pressed={catalogOpen}
-              aria-label="Official catalog"
-              title="Official catalog"
+              aria-label="官方目录"
+              title="官方目录"
               className={`inline-flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs font-medium transition-colors focus-visible:ring-2 focus-visible:ring-ring ${
                 catalogOpen
                   ? "bg-accent text-foreground"
@@ -223,13 +223,13 @@ export function SkillsMarketplace() {
                 className="size-4"
                 aria-hidden="true"
               />
-              Official catalog
+              官方目录
             </button>
             <button
               type="button"
               onClick={() => load(true)}
               disabled={loading}
-              aria-label="Refresh"
+              aria-label="刷新"
               className="rounded-md p-2 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
             >
               <RotateCw
@@ -252,7 +252,7 @@ export function SkillsMarketplace() {
         {catalogOpen && (
           <section className="mb-6">
             <h3 className="mb-2.5 text-xs font-semibold uppercase tracking-wider text-tertiary">
-              Official catalog
+              官方目录
             </h3>
             {catalogError && (
               <p
@@ -271,7 +271,7 @@ export function SkillsMarketplace() {
                   className="size-4 animate-spin"
                   aria-hidden="true"
                 />
-                Loading catalog…
+                正在加载目录…
               </div>
             ) : catalog && catalog.length > 0 ? (
               <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
@@ -280,7 +280,7 @@ export function SkillsMarketplace() {
                     key={s.name}
                     title={s.title}
                     description={s.description}
-                    meta={`${s.fileCount} files`}
+                    meta={`${s.fileCount} 个文件`}
                     installed={s.installed}
                     installedVersion={s.installedVersion}
                     latestVersion={s.latestVersion}
@@ -304,7 +304,7 @@ export function SkillsMarketplace() {
               </div>
             ) : catalog ? (
               <p className="text-sm text-muted-foreground">
-                The official catalog is empty.
+                官方目录为空。
               </p>
             ) : null}
           </section>
@@ -319,18 +319,18 @@ export function SkillsMarketplace() {
               className="size-4 animate-spin"
               aria-hidden="true"
             />
-            Loading skills…
+            正在加载 Skills…
           </div>
         ) : (
           <div className="space-y-6">
             {other.length === 0 ? (
               <p className="text-sm text-muted-foreground">
-                No skills installed.
+                尚未安装 Skills。
               </p>
             ) : (
               <section>
                 <h3 className="mb-2.5 text-xs font-semibold uppercase tracking-wider text-tertiary">
-                  Installed skills
+                  已安装的 Skills
                 </h3>
                 <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
                   {other.map((s) => (
@@ -375,10 +375,9 @@ export function SkillsMarketplace() {
       >
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>Uninstall skill?</DialogTitle>
+            <DialogTitle>卸载 Skill？</DialogTitle>
             <DialogDescription>
-              “{uninstallTarget?.title ?? uninstallTarget?.name}” will be
-              removed from this Web UI. You can install it again later.
+              将从 WebUI 中移除“{uninstallTarget?.title ?? uninstallTarget?.name}”。之后仍可重新安装。
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
@@ -386,13 +385,13 @@ export function SkillsMarketplace() {
               variant="outline"
               onClick={() => setUninstallTarget(null)}
             >
-              Cancel
+              取消
             </Button>
             <Button
               variant="destructive"
               onClick={confirmUninstall}
             >
-              Uninstall
+              卸载
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -437,7 +436,7 @@ function SkillTile({
         type="button"
         onClick={onOpen}
         className="-m-1 flex items-start gap-2.5 rounded-md p-1 text-left transition-colors hover:bg-muted/50 focus-visible:ring-2 focus-visible:ring-ring"
-        title="View details"
+        title="查看详情"
       >
         <Puzzle
           className="mt-0.5 size-5 shrink-0 text-[var(--brand)]"
@@ -460,7 +459,7 @@ function SkillTile({
             )}
           </div>
           <p className="mt-1 line-clamp-2 text-sm leading-6 text-muted-foreground">
-            {description || "No description."}
+            {description || "暂无说明。"}
           </p>
         </div>
       </button>
@@ -471,7 +470,7 @@ function SkillTile({
             onClick={onUpdate}
             disabled={!!busy}
             className="inline-flex items-center gap-1.5 rounded-md bg-[var(--brand-solid)] px-2.5 py-1 text-xs font-medium text-[var(--brand-foreground)] transition-opacity hover:opacity-90 focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
-            title={latestVersion ? `Update to v${latestVersion}` : "Update"}
+            title={latestVersion ? `更新到 v${latestVersion}` : "更新"}
           >
             {busy === "update" ? (
               <Loader2
@@ -485,10 +484,10 @@ function SkillTile({
               />
             )}
             {busy === "update"
-              ? "Updating…"
+              ? "正在更新…"
               : latestVersion
-              ? `Update → v${latestVersion}`
-              : "Update"}
+              ? `更新 → v${latestVersion}`
+              : "更新"}
           </button>
         )}
         {installed ? (
@@ -509,7 +508,7 @@ function SkillTile({
                 aria-hidden="true"
               />
             )}
-            {busy === "uninstall" ? "Removing…" : "Uninstall"}
+            {busy === "uninstall" ? "正在移除…" : "卸载"}
           </button>
         ) : (
           <button
@@ -529,7 +528,7 @@ function SkillTile({
                 aria-hidden="true"
               />
             )}
-            {busy === "install" ? "Installing…" : "Install"}
+            {busy === "install" ? "正在安装…" : "安装"}
           </button>
         )}
       </div>

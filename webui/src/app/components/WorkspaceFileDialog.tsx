@@ -159,7 +159,7 @@ export const WorkspaceFileDialog = React.memo<{
       .then(async (res) => {
         if (!res.ok) {
           const body = await res.json().catch(() => null);
-          throw new Error(body?.error || `Failed to load file (${res.status})`);
+          throw new Error(body?.error || `加载文件失败（${res.status}）`);
         }
         return res.text();
       })
@@ -167,7 +167,7 @@ export const WorkspaceFileDialog = React.memo<{
         if (!cancelled) setContent(text);
       })
       .catch((err) => {
-        if (!cancelled) setError(err.message ?? "Failed to load file.");
+        if (!cancelled) setError(err.message ?? "加载文件失败。" );
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
@@ -212,14 +212,14 @@ export const WorkspaceFileDialog = React.memo<{
         body: JSON.stringify({ content: draft }),
       });
       const data = await res.json().catch(() => null);
-      if (!res.ok) throw new Error(data?.error || "Failed to save.");
+      if (!res.ok) throw new Error(data?.error || "保存失败。" );
       if (!mountedRef.current) return;
       setContent(draft);
       setEditing(false);
       onChanged?.();
     } catch (e) {
       if (mountedRef.current) {
-        setActionError(e instanceof Error ? e.message : "Failed to save.");
+      setActionError(e instanceof Error ? e.message : "保存失败。" );
       }
     } finally {
       if (mountedRef.current) setSaving(false);
@@ -235,7 +235,7 @@ export const WorkspaceFileDialog = React.memo<{
       });
       if (!res.ok) {
         const data = await res.json().catch(() => null);
-        throw new Error(data?.error || "Failed to delete.");
+        throw new Error(data?.error || "删除失败。" );
       }
       onChanged?.();
       onClose();
@@ -244,7 +244,7 @@ export const WorkspaceFileDialog = React.memo<{
         // Close the confirm dialog so the error (rendered in the main dialog)
         // isn't hidden behind the confirm overlay.
         setDeleteOpen(false);
-        setActionError(e instanceof Error ? e.message : "Failed to delete.");
+      setActionError(e instanceof Error ? e.message : "删除失败。" );
       }
     } finally {
       if (mountedRef.current) setDeleting(false);
@@ -298,7 +298,7 @@ export const WorkspaceFileDialog = React.memo<{
                       className="mr-1"
                       aria-hidden="true"
                     />
-                    Cancel
+                    取消
                   </Button>
                   <Button
                     size="sm"
@@ -319,7 +319,7 @@ export const WorkspaceFileDialog = React.memo<{
                         aria-hidden="true"
                       />
                     )}
-                    {saving ? "Saving…" : "Save"}
+                    {saving ? "正在保存…" : "保存"}
                   </Button>
                 </>
               ) : (
@@ -331,14 +331,14 @@ export const WorkspaceFileDialog = React.memo<{
                       className="h-8 px-2"
                       onClick={startEdit}
                       disabled={loading || content === null}
-                      aria-label="Edit file"
+                      aria-label="编辑文件"
                     >
                       <Pencil
                         size={16}
                         className="mr-1"
                         aria-hidden="true"
                       />
-                      Edit
+                      编辑
                     </Button>
                   )}
                   <Button
@@ -356,7 +356,7 @@ export const WorkspaceFileDialog = React.memo<{
                         className="mr-1"
                         aria-hidden="true"
                       />
-                      Download
+                      下载
                     </a>
                   </Button>
                   <Button
@@ -365,8 +365,8 @@ export const WorkspaceFileDialog = React.memo<{
                     className="h-8 px-2 text-muted-foreground hover:text-destructive"
                     onClick={() => setDeleteOpen(true)}
                     disabled={deleting}
-                    aria-label="Delete file"
-                    title="Delete file"
+                    aria-label="删除文件"
+                    title="删除文件"
                   >
                     {deleting ? (
                       <Loader2
@@ -401,9 +401,9 @@ export const WorkspaceFileDialog = React.memo<{
                 value={draft}
                 onChange={(e) => setDraft(e.target.value)}
                 spellCheck={false}
-                aria-label="File content"
+                aria-label="文件内容"
                 className="h-full w-full resize-none rounded-md border border-border bg-background p-4 font-mono text-sm leading-relaxed text-foreground outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
-                placeholder="File is empty…"
+                placeholder="文件为空…"
               />
             ) : kind === "image" ? (
               <ScrollArea className="h-full rounded-md bg-[var(--color-surface)]">
@@ -425,8 +425,8 @@ export const WorkspaceFileDialog = React.memo<{
               <div className="flex h-full flex-col items-center justify-center gap-3 p-12 text-center">
                 <p className="text-sm text-muted-foreground">
                   {tooBigForText
-                    ? "This file is too large to preview inline."
-                    : "This file type can't be previewed."}
+                    ? "文件过大，无法在页面内预览。"
+                    : "此文件类型无法预览。"}
                 </p>
                 <Button
                   variant="outline"
@@ -442,7 +442,7 @@ export const WorkspaceFileDialog = React.memo<{
                       className="mr-1"
                       aria-hidden="true"
                     />
-                    Download file
+                    下载文件
                   </a>
                 </Button>
               </div>
@@ -484,7 +484,7 @@ export const WorkspaceFileDialog = React.memo<{
                   ) : (
                     <div className="flex items-center justify-center p-12">
                       <p className="text-sm text-muted-foreground">
-                        File is empty
+                        文件为空
                       </p>
                     </div>
                   )}
@@ -503,9 +503,9 @@ export const WorkspaceFileDialog = React.memo<{
       >
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>Discard unsaved changes?</DialogTitle>
+            <DialogTitle>放弃未保存的更改？</DialogTitle>
             <DialogDescription>
-              Your edits to “{name}” have not been saved.
+              对“{name}”的编辑尚未保存。
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
@@ -513,13 +513,13 @@ export const WorkspaceFileDialog = React.memo<{
               variant="outline"
               onClick={() => setDiscardAction(null)}
             >
-              Keep Editing
+              继续编辑
             </Button>
             <Button
               variant="destructive"
               onClick={confirmDiscardChanges}
             >
-              Discard
+              放弃更改
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -533,10 +533,9 @@ export const WorkspaceFileDialog = React.memo<{
       >
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>Delete file?</DialogTitle>
+            <DialogTitle>删除文件？</DialogTitle>
             <DialogDescription>
-              “{name}” will be permanently removed from the workspace. This
-              can&apos;t be undone.
+              “{name}”将从工作区中永久移除。此操作无法撤销。
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
@@ -545,14 +544,14 @@ export const WorkspaceFileDialog = React.memo<{
               onClick={() => setDeleteOpen(false)}
               disabled={deleting}
             >
-              Cancel
+              取消
             </Button>
             <Button
               variant="destructive"
               onClick={remove}
               disabled={deleting}
             >
-              {deleting ? "Deleting…" : "Delete"}
+              {deleting ? "正在删除…" : "删除"}
             </Button>
           </DialogFooter>
         </DialogContent>

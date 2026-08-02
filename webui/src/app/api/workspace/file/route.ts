@@ -71,7 +71,7 @@ export async function GET(request: NextRequest) {
 
     const relPath = request.nextUrl.searchParams.get("path");
     if (!relPath) {
-      return NextResponse.json({ error: "Missing path." }, { status: 400 });
+    return NextResponse.json({ error: "缺少路径。" }, { status: 400 });
     }
     const download = request.nextUrl.searchParams.get("download") === "1";
 
@@ -83,7 +83,7 @@ export async function GET(request: NextRequest) {
 
     const stat = await fs.stat(target);
     if (!stat.isFile()) {
-      return NextResponse.json({ error: "Not a file." }, { status: 400 });
+    return NextResponse.json({ error: "目标不是文件。" }, { status: 400 });
     }
 
     const ext = extname(target).slice(1).toLowerCase();
@@ -114,7 +114,7 @@ export async function GET(request: NextRequest) {
   } catch (error) {
     return NextResponse.json(
       {
-        error: error instanceof Error ? error.message : "Failed to read file.",
+      error: error instanceof Error ? error.message : "读取文件失败。",
       },
       { status: 400 }
     );
@@ -197,13 +197,13 @@ export async function PUT(request: NextRequest) {
     const declaredLen = Number(request.headers.get("content-length"));
     if (Number.isFinite(declaredLen) && declaredLen > MAX_BODY_BYTES) {
       return NextResponse.json(
-        { error: "Request body is too large." },
+      { error: "请求内容过大。" },
         { status: 413 }
       );
     }
     const relPath = request.nextUrl.searchParams.get("path");
     if (!relPath) {
-      return NextResponse.json({ error: "Missing path." }, { status: 400 });
+    return NextResponse.json({ error: "缺少路径。" }, { status: 400 });
     }
     let body: { content?: unknown } | null;
     try {
@@ -213,7 +213,7 @@ export async function PUT(request: NextRequest) {
     } catch (e) {
       if (e instanceof Error && e.message === BODY_TOO_LARGE) {
         return NextResponse.json(
-          { error: "Request body is too large." },
+      { error: "请求内容过大。" },
           { status: 413 }
         );
       }
@@ -221,7 +221,7 @@ export async function PUT(request: NextRequest) {
     }
     if (!body || typeof body.content !== "string") {
       return NextResponse.json(
-        { error: "File content is required." },
+      { error: "必须提供文件内容。" },
         { status: 400 }
       );
     }
@@ -236,7 +236,7 @@ export async function PUT(request: NextRequest) {
   } catch (error) {
     return NextResponse.json(
       {
-        error: error instanceof Error ? error.message : "Failed to save file.",
+      error: error instanceof Error ? error.message : "保存文件失败。",
       },
       { status: 400 }
     );
@@ -254,7 +254,7 @@ export async function DELETE(request: NextRequest) {
     }
     const relPath = request.nextUrl.searchParams.get("path");
     if (!relPath) {
-      return NextResponse.json({ error: "Missing path." }, { status: 400 });
+    return NextResponse.json({ error: "缺少路径。" }, { status: 400 });
     }
     const threadId = request.nextUrl.searchParams.get("threadId");
     const workspaceDir = await getWorkspaceDir(threadId);
@@ -264,7 +264,7 @@ export async function DELETE(request: NextRequest) {
     return NextResponse.json(
       {
         error:
-          error instanceof Error ? error.message : "Failed to delete file.",
+        error instanceof Error ? error.message : "删除文件失败。",
       },
       { status: 400 }
     );
