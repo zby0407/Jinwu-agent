@@ -118,10 +118,73 @@ def _cycles_from_canonical_minima(sunspot: pd.DataFrame) -> list[dict]:
     return cycles
 
 
+def load_polar_monthly(path: Path) -> pd.DataFrame:
+    """Load monthly polar-field precursor table produced by load_polar_huairou.py."""
+    df = pd.read_csv(
+        path,
+        parse_dates=["date"] if "date" in pd.read_csv(path, nrows=0).columns else False,
+    )
+    # If a 'date' column is not present, build one from year/month.
+    if "date" not in df.columns:
+        df["date"] = pd.to_datetime(df[["year", "month", "day"]]) if "day" in df.columns else pd.to_datetime(
+            df[["year", "month"]].assign(day=1)
+        )
+    return df
+
+
+def _polar_proxy_in_window(
+    polar: pd.DataFrame,
+    minimum_date: pd.Timestamp,
+    window_months: int,
+    min_months: int,
+) -> dict:
+    """Aggregate polar-field observations around a cycle minimum date."""
+    start = minimum_date - pd.DateOffset(months=window_months)
+    end = minimum_date + pd.DateOffset(months=window_months)
+    window = polar[(polar["date"] >= start) & (polar["date"] <= end)]
+
+    result: dict[str, float | int | str] = {}
+    for hemi, label in [("N", "n"), ("S", "s")]:
+        sub = window[window["hemisphere"] == hemi]
+        n_months = int(sub["date"].dt.to_period("M").nunique())
+        result[f"polar_n_months_{label}"] = n_months
+        if n_months >= min_months:
+            result[f"polar_proxy_min_{label}"] = float(
+                sub["field_mean_corrected"].mean()
+            )
+            result[f"polar_proxy_abs_{label}"] = float(
+                sub["field_mean_corrected"].abs().mean()
+            )
+        else:
+            result[f"polar_proxy_min_{label}"] = float("nan")
+            result[f"polar_proxy_abs_{label}"] = float("nan")
+
+    n_n = result.get("polar_n_months_n", 0)
+    n_s = result.get("polar_n_months_s", 0)
+    if n_n >= min_months and n_s >= min_months:
+        abs_n = result.get("polar_proxy_abs_n", float("nan"))
+        abs_s = result.get("polar_proxy_abs_s", float("nan"))
+        result["polar_proxy_combined"] = float(
+            pd.Series([abs_n, abs_s]).mean(skipna=True)
+        )
+        result["polar_data_quality"] = "good"
+    elif n_n >= min_months or n_s >= min_months:
+        result["polar_proxy_combined"] = float("nan")
+        result["polar_data_quality"] = "single_hemisphere"
+    else:
+        result["polar_proxy_combined"] = float("nan")
+        result["polar_data_quality"] = "insufficient"
+
+    return result
+
+
 def build_cycle_features(
     sunspot: pd.DataFrame,
     f10: pd.DataFrame | None,
+    polar: pd.DataFrame | None,
     cycles: list[dict],
+    polar_window_months: int = 12,
+    polar_min_months: int = 3,
 ) -> pd.DataFrame:
     """Build cycle-level feature table.
 
@@ -168,6 +231,13 @@ def build_cycle_features(
                 row["mean_f10"] = float(f10_seg["f10"].mean())
                 row["peak_f10"] = float(f10_seg["f10"].max())
 
+        if polar is not None and not polar.empty:
+            row.update(
+                _polar_proxy_in_window(
+                    polar, start, polar_window_months, polar_min_months
+                )
+            )
+
         rows.append(row)
 
     return pd.DataFrame(rows)
@@ -178,16 +248,41 @@ def main() -> None:
     parser.add_argument("--sunspot", required=True, help="SILSO monthly sunspot file")
     parser.add_argument("--f10.7", dest="f10", default=None, help="F10.7 data file")
     parser.add_argument("--cycles", default=None, help="JSON file with cycle metadata")
+    parser.add_argument(
+        "--polar-monthly",
+        default=None,
+        help="Monthly polar-field precursor CSV (e.g. from load_polar_huairou.py)",
+    )
+    parser.add_argument(
+        "--polar-window-months",
+        type=int,
+        default=12,
+        help="Months around cycle minimum used for the polar precursor average",
+    )
+    parser.add_argument(
+        "--polar-min-months",
+        type=int,
+        default=3,
+        help="Minimum number of months with polar data required per hemisphere",
+    )
     parser.add_argument("--output", required=True, help="Output CSV path")
     args = parser.parse_args()
 
     sunspot = load_silso(Path(args.sunspot))
     f10 = load_f10(Path(args.f10)) if args.f10 else None
+    polar = load_polar_monthly(Path(args.polar_monthly)) if args.polar_monthly else None
     cycles = None
     if args.cycles:
         cycles = json.loads(Path(args.cycles).read_text())
 
-    features = build_cycle_features(sunspot, f10, cycles or [])
+    features = build_cycle_features(
+        sunspot,
+        f10,
+        polar,
+        cycles or [],
+        polar_window_months=args.polar_window_months,
+        polar_min_months=args.polar_min_months,
+    )
     Path(args.output).parent.mkdir(parents=True, exist_ok=True)
     features.to_csv(args.output, index=False)
     print(f"Wrote {len(features)} cycle features to {args.output}")

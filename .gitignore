@@ -74,3 +74,9 @@ coverage/
 
 # Mutable datasets, project tasks, contract runs, and knowledge exports
 # are all contained by workspace/.
+
+# Generated solar-cycle pipeline outputs (raw data stays outside the repo)
+/data/
+/features/
+/artifacts/
+/.tmp/
