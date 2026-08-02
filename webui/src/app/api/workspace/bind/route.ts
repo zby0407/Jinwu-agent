@@ -61,7 +61,7 @@ export async function POST(request: NextRequest) {
         error:
           error instanceof Error
             ? error.message
-            : "Failed to bind the task workspace.",
+          : "绑定任务工作区失败。",
       },
       { status: 400 }
     );

@@ -67,37 +67,36 @@ interface Template {
 const TEMPLATES: Template[] = [
   {
     icon: ClipboardList,
-    label: "Daily Papers",
-    description: "Track new ML papers against your research preferences.",
-    name: "Daily Papers",
+    label: "每日论文",
+    description: "根据研究偏好跟踪最新机器学习论文。",
+    name: "每日论文",
     prompt:
       "Summarise the latest ML papers from arXiv according to my research preferences with the paper-navigator skill. Focus on papers that are relevant to my current projects, explain why each one matters, and save the summary to ./daily-papers.md in the current workspace.",
     schedule: "0 9 * * *",
   },
   {
     icon: Repeat2,
-    label: "Weekly Research Review",
-    description:
-      "Summarise this week's research progress and future direction.",
-    name: "Weekly Research Review",
+    label: "每周研究复盘",
+    description: "总结本周研究进展与后续方向。",
+    name: "每周研究复盘",
     prompt:
       "Summarise this week's research progress across my active projects. Highlight key results, decisions, blockers, open questions, and what changed in my understanding. Then propose future research directions and concrete next steps. Save the review to ./weekly-research-review.md in the current workspace.",
     schedule: "0 17 * * 5",
   },
   {
     icon: Activity,
-    label: "Weekly Research Plan",
-    description: "Draft a Monday plan for the week's research priorities.",
-    name: "Weekly Research Plan",
+    label: "每周研究计划",
+    description: "制定本周研究重点与周一行动计划。",
+    name: "每周研究计划",
     prompt:
       "Draft this week's research plan based on my active projects, recent progress, project files, and open questions. Prioritise the most important research goals, propose concrete experiments or reading tasks, identify risks, and write a practical schedule for the week. Save the plan to ./weekly-research-plan.md in the current workspace.",
     schedule: "0 8 * * 1",
   },
   {
     icon: FlaskConical,
-    label: "Experiment Backlog",
-    description: "Convert open questions into testable experiment ideas.",
-    name: "Experiment Backlog",
+    label: "实验待办清单",
+    description: "将开放问题转化为可验证的实验构想。",
+    name: "实验待办清单",
     prompt:
       "Review my active project files, recent research notes, and open questions. Turn the most important unresolved ideas into a prioritised experiment backlog with hypotheses, expected signal, required data or code, estimated effort, and success criteria. Save it to ./experiment-backlog.md in the current workspace.",
     schedule: "0 10 * * 2",
@@ -105,10 +104,10 @@ const TEMPLATES: Template[] = [
 ];
 
 function formatAbsoluteDate(iso: string | null): string {
-  if (!iso) return "Not scheduled";
+  if (!iso) return "未安排";
   const date = new Date(iso);
-  if (Number.isNaN(date.getTime())) return "Unknown";
-  return new Intl.DateTimeFormat(undefined, {
+  if (Number.isNaN(date.getTime())) return "未知";
+  return new Intl.DateTimeFormat("zh-CN", {
     month: "short",
     day: "numeric",
     hour: "numeric",
@@ -120,7 +119,7 @@ function formatLongDate(iso: string | null): string {
   if (!iso) return "";
   const date = new Date(iso);
   if (Number.isNaN(date.getTime())) return "";
-  return new Intl.DateTimeFormat(undefined, {
+  return new Intl.DateTimeFormat("zh-CN", {
     dateStyle: "medium",
     timeStyle: "short",
   }).format(date);
@@ -128,8 +127,8 @@ function formatLongDate(iso: string | null): string {
 
 function formatCreatedDate(iso: string): string {
   const date = new Date(iso);
-  if (Number.isNaN(date.getTime())) return "Unknown";
-  return new Intl.DateTimeFormat(undefined, {
+  if (Number.isNaN(date.getTime())) return "未知";
+  return new Intl.DateTimeFormat("zh-CN", {
     month: "short",
     day: "numeric",
     year: "numeric",
@@ -197,22 +196,22 @@ function ScheduleBuilder({
     <div className="space-y-2">
       <div className="grid gap-2 sm:grid-cols-[minmax(9rem,1fr)_auto_auto_auto_auto] sm:items-center">
         <select
-          aria-label="Schedule frequency"
+          aria-label="执行频率"
           value={value.frequency}
           onChange={(e) => set({ frequency: e.target.value as Frequency })}
           className={frequencySelectClass}
         >
-          <option value="daily">Every day</option>
-          <option value="weekly">Every week</option>
-          <option value="monthly">Every month</option>
-          <option value="custom">Custom cron</option>
+          <option value="daily">每天</option>
+          <option value="weekly">每周</option>
+          <option value="monthly">每月</option>
+          <option value="custom">自定义 Cron</option>
         </select>
 
         {value.frequency !== "custom" && (
           <>
             {value.frequency === "weekly" && (
               <select
-                aria-label="Day of week"
+                aria-label="星期"
                 value={value.dayOfWeek}
                 onChange={(e) => set({ dayOfWeek: Number(e.target.value) })}
                 className={daySelectClass}
@@ -230,7 +229,7 @@ function ScheduleBuilder({
 
             {value.frequency === "monthly" && (
               <select
-                aria-label="Day of month"
+                aria-label="每月日期"
                 value={value.dayOfMonth}
                 onChange={(e) => set({ dayOfMonth: Number(e.target.value) })}
                 className={daySelectClass}
@@ -241,7 +240,7 @@ function ScheduleBuilder({
                       key={day}
                       value={day}
                     >
-                      Day {day}
+                      {day} 日
                     </option>
                   )
                 )}
@@ -249,11 +248,11 @@ function ScheduleBuilder({
             )}
 
             <span className="hidden text-xs text-muted-foreground sm:block">
-              at
+              时间
             </span>
             <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-1 sm:col-span-2 sm:w-32">
               <Input
-                aria-label="Hour"
+                aria-label="小时"
                 type="number"
                 min={0}
                 max={23}
@@ -263,7 +262,7 @@ function ScheduleBuilder({
               />
               <span className="font-mono text-muted-foreground">:</span>
               <Input
-                aria-label="Minute"
+                aria-label="分钟"
                 type="number"
                 min={0}
                 max={59}
@@ -391,11 +390,11 @@ function TaskForm({
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
     if (!name.trim()) {
-      toast.error("Task name is required.");
+      toast.error("请输入任务名称。" );
       return;
     }
     if (!prompt.trim()) {
-      toast.error("Task description is required.");
+      toast.error("请输入任务说明。" );
       return;
     }
     if (cronError) {
@@ -413,10 +412,10 @@ function TaskForm({
           schedule: cron,
         });
         if (result.oldTaskDeleted) {
-          toast.success(`"${name.trim()}" updated.`);
+          toast.success(`“${name.trim()}”已更新。`);
         } else {
           toast.warning(
-            `"${name.trim()}" was saved, but the old scheduled task could not be removed.`
+            `“${name.trim()}”已保存，但旧的定时任务未能移除。`
           );
         }
         onSaved(result.task);
@@ -426,7 +425,7 @@ function TaskForm({
           prompt: prompt.trim(),
           schedule: cron,
         });
-        toast.success(`"${name.trim()}" scheduled.`);
+        toast.success(`“${name.trim()}”已安排。`);
         onSaved();
       }
     } catch (err) {
@@ -434,8 +433,8 @@ function TaskForm({
         err instanceof Error
           ? err.message
           : isEditing
-          ? "Failed to update scheduled task."
-          : "Failed to create scheduled task."
+          ? "更新定时任务失败。"
+          : "创建定时任务失败。"
       );
     } finally {
       setSaving(false);
@@ -451,7 +450,7 @@ function TaskForm({
         <button
           type="button"
           onClick={onCancel}
-          aria-label="Back to scheduled tasks"
+          aria-label="返回定时任务列表"
           className="rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring md:hidden"
         >
           <ArrowLeft
@@ -461,7 +460,7 @@ function TaskForm({
         </button>
         <div className="min-w-0 flex-1">
           <h2 className="truncate text-sm font-semibold">
-            {isEditing ? "Edit scheduled task" : "New scheduled task"}
+            {isEditing ? "编辑定时任务" : "新建定时任务"}
           </h2>
           <p className="truncate text-xs text-muted-foreground">
             金乌会按计划自动执行这项任务。
@@ -472,21 +471,21 @@ function TaskForm({
       <ScrollArea className="min-h-0 flex-1">
         <div className="mx-auto flex w-full max-w-3xl flex-col gap-4 p-3 sm:p-5">
           <div className="space-y-1.5">
-            <FieldLabel htmlFor="scheduled-task-name">Task name</FieldLabel>
+            <FieldLabel htmlFor="scheduled-task-name">任务名称</FieldLabel>
             <Input
               id="scheduled-task-name"
               ref={nameRef}
               type="text"
               value={name}
               onChange={(e) => setName(e.target.value)}
-              placeholder="Daily Briefing"
+              placeholder="每日简报"
               autoComplete="off"
             />
           </div>
 
           <div className="space-y-1.5">
             <FieldLabel htmlFor="scheduled-task-prompt">
-              Task description
+              任务说明
             </FieldLabel>
             <Textarea
               id="scheduled-task-prompt"
@@ -499,7 +498,7 @@ function TaskForm({
           </div>
 
           <div className="space-y-1.5">
-            <FieldLabel>Schedule</FieldLabel>
+            <FieldLabel>执行计划</FieldLabel>
             <ScheduleBuilder
               value={spec}
               onChange={setSpec}
@@ -517,7 +516,7 @@ function TaskForm({
           onClick={onCancel}
           disabled={saving}
         >
-          Cancel
+          取消
         </Button>
         <Button
           type="submit"
@@ -531,7 +530,7 @@ function TaskForm({
           ) : (
             <Plus className="size-3.5" />
           )}
-          {isEditing ? "Save changes" : "Create task"}
+          {isEditing ? "保存更改" : "创建任务"}
         </Button>
       </div>
     </form>
@@ -555,10 +554,10 @@ function TaskDetail({ task, onBack, onEdit, onDeleted }: TaskDetailProps) {
     setRunning(true);
     try {
       await runScheduledTaskNow(task.prompt);
-      toast.success(`"${task.name}" started.`);
+      toast.success(`“${task.name}”已启动。`);
     } catch (err) {
       toast.error(
-        err instanceof Error ? err.message : "Failed to start the task."
+        err instanceof Error ? err.message : "启动任务失败。"
       );
     } finally {
       setRunning(false);
@@ -569,12 +568,12 @@ function TaskDetail({ task, onBack, onEdit, onDeleted }: TaskDetailProps) {
     setDeleting(true);
     try {
       await deleteScheduledTask(task.cron_id);
-      toast.success(`"${task.name}" deleted.`);
+      toast.success(`“${task.name}”已删除。`);
       setDeleteOpen(false);
       onDeleted();
     } catch (err) {
       toast.error(
-        err instanceof Error ? err.message : "Failed to delete the task."
+        err instanceof Error ? err.message : "删除任务失败。"
       );
     } finally {
       setDeleting(false);
@@ -588,7 +587,7 @@ function TaskDetail({ task, onBack, onEdit, onDeleted }: TaskDetailProps) {
           <button
             type="button"
             onClick={onBack}
-            aria-label="Back to scheduled tasks"
+            aria-label="返回定时任务列表"
             className="rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring md:hidden"
           >
             <ArrowLeft
@@ -612,7 +611,7 @@ function TaskDetail({ task, onBack, onEdit, onDeleted }: TaskDetailProps) {
             ) : (
               <Play className="size-3.5" />
             )}
-            Run now
+            立即运行
           </Button>
         </div>
 
@@ -621,7 +620,7 @@ function TaskDetail({ task, onBack, onEdit, onDeleted }: TaskDetailProps) {
             <div className="grid gap-2 sm:grid-cols-3">
               <div className="rounded-md border border-border bg-[var(--color-surface)] px-3 py-2">
                 <p className="text-[11px] font-medium uppercase text-muted-foreground">
-                  Next run
+                  下次运行
                 </p>
                 <p
                   className="mt-1 truncate text-sm font-medium tabular-nums"
@@ -631,7 +630,7 @@ function TaskDetail({ task, onBack, onEdit, onDeleted }: TaskDetailProps) {
                     ? `${nextRunLabel(
                         task.next_run_date
                       )} · ${formatAbsoluteDate(task.next_run_date)}`
-                    : "Not scheduled"}
+                    : "未安排"}
                 </p>
               </div>
               <div className="rounded-md border border-border bg-[var(--color-surface)] px-3 py-2">
@@ -644,7 +643,7 @@ function TaskDetail({ task, onBack, onEdit, onDeleted }: TaskDetailProps) {
               </div>
               <div className="rounded-md border border-border bg-[var(--color-surface)] px-3 py-2">
                 <p className="text-[11px] font-medium uppercase text-muted-foreground">
-                  Created
+                  创建时间
                 </p>
                 <p className="mt-1 truncate text-sm">
                   {formatCreatedDate(task.created_at)}
@@ -654,7 +653,7 @@ function TaskDetail({ task, onBack, onEdit, onDeleted }: TaskDetailProps) {
 
             <section className="space-y-1.5">
               <p className="text-xs font-medium text-muted-foreground">
-                Task description
+                任务说明
               </p>
               <div className="max-h-[min(38rem,55vh)] overflow-auto rounded-md border border-border bg-[var(--color-surface)] px-3 py-2.5">
                 {task.prompt ? (
@@ -663,7 +662,7 @@ function TaskDetail({ task, onBack, onEdit, onDeleted }: TaskDetailProps) {
                   </p>
                 ) : (
                   <p className="text-sm italic text-muted-foreground">
-                    No task description stored.
+                    未保存任务说明。
                   </p>
                 )}
               </div>
@@ -673,27 +672,27 @@ function TaskDetail({ task, onBack, onEdit, onDeleted }: TaskDetailProps) {
 
         <div className="flex flex-shrink-0 items-center justify-between gap-2 border-t border-border bg-background px-3 py-2.5 sm:px-5">
           <p className="hidden truncate text-xs text-muted-foreground sm:block">
-            Manual runs create a scheduler thread immediately.
+            手动运行会立即创建一个调度会话。
           </p>
           <div className="ml-auto flex items-center gap-2">
             <Button
               variant="outline"
               size="sm"
               onClick={onEdit}
-              aria-label={`Edit scheduled task "${task.name}"`}
+              aria-label={`编辑定时任务“${task.name}”`}
             >
               <Pencil className="size-3.5" />
-              Edit
+              编辑
             </Button>
             <Button
               variant="outline"
               size="sm"
               onClick={() => setDeleteOpen(true)}
-              aria-label={`Delete scheduled task "${task.name}"`}
+              aria-label={`删除定时任务“${task.name}”`}
               className="text-destructive hover:border-destructive hover:text-destructive"
             >
               <Trash2 className="size-3.5" />
-              Delete
+              删除
             </Button>
           </div>
         </div>
@@ -707,10 +706,9 @@ function TaskDetail({ task, onBack, onEdit, onDeleted }: TaskDetailProps) {
       >
         <DialogContent className="sm:max-w-sm">
           <DialogHeader>
-            <DialogTitle>Delete scheduled task?</DialogTitle>
+            <DialogTitle>删除定时任务？</DialogTitle>
             <DialogDescription>
-              &ldquo;{task.name}&rdquo; will stop running. This cannot be
-              undone.
+              “{task.name}”将停止运行。此操作无法撤销。
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
@@ -720,17 +718,17 @@ function TaskDetail({ task, onBack, onEdit, onDeleted }: TaskDetailProps) {
               onClick={() => setDeleteOpen(false)}
               disabled={deleting}
             >
-              Cancel
+              取消
             </Button>
             <Button
               variant="destructive"
               size="sm"
               onClick={handleDelete}
               disabled={deleting}
-              aria-label={`Confirm delete scheduled task "${task.name}"`}
+              aria-label={`确认删除定时任务“${task.name}”`}
             >
               {deleting && <Loader2 className="size-3.5 animate-spin" />}
-              Delete
+              删除
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -775,7 +773,7 @@ function TaskRow({
             className="truncate tabular-nums"
             title={formatLongDate(nextRun)}
           >
-            {nextRun ? nextRunLabel(nextRun) : "No next run"}
+            {nextRun ? nextRunLabel(nextRun) : "暂无下次运行"}
           </span>
         </span>
       </span>
@@ -872,7 +870,7 @@ export function ScheduledTasksPanel() {
           </span>
           <div className="min-w-0">
             <div className="flex min-w-0 items-center gap-2">
-              <h1 className="truncate text-sm font-semibold">Scheduled</h1>
+              <h1 className="truncate text-sm font-semibold">定时任务</h1>
               {!loading && (
                 <span className="rounded-full bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
                   {tasks.length}
@@ -881,7 +879,7 @@ export function ScheduledTasksPanel() {
             </div>
             <p className="truncate text-xs text-muted-foreground">
               {nextTask?.next_run_date
-                ? `Next: ${nextRunLabel(nextTask.next_run_date)}`
+                ? `下次：${nextRunLabel(nextTask.next_run_date)}`
                 : "金乌定时任务"}
             </p>
           </div>
@@ -891,8 +889,8 @@ export function ScheduledTasksPanel() {
             type="button"
             onClick={refresh}
             disabled={loading}
-            aria-label="Refresh scheduled tasks"
-            title="Refresh scheduled tasks"
+            aria-label="刷新定时任务"
+            title="刷新定时任务"
             className="rounded-md p-2 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
           >
             <RefreshCw
@@ -905,8 +903,8 @@ export function ScheduledTasksPanel() {
             onClick={() => openCreate()}
           >
             <Plus className="size-3.5" />
-            <span className="hidden sm:inline">New task</span>
-            <span className="sm:hidden">New</span>
+            <span className="hidden sm:inline">新建任务</span>
+            <span className="sm:hidden">新建</span>
           </Button>
         </div>
       </header>
@@ -929,8 +927,8 @@ export function ScheduledTasksPanel() {
                 name="scheduled-search"
                 value={query}
                 onChange={(event) => setQuery(event.target.value)}
-                placeholder="Search scheduled tasks..."
-                aria-label="Search scheduled tasks"
+                placeholder="搜索定时任务…"
+                aria-label="搜索定时任务"
                 autoComplete="off"
                 spellCheck={false}
                 className="h-9 pl-8 pr-8"
@@ -939,7 +937,7 @@ export function ScheduledTasksPanel() {
                 <button
                   type="button"
                   onClick={() => setQuery("")}
-                  aria-label="Clear scheduled task search"
+                  aria-label="清空定时任务搜索"
                   className="absolute right-1 top-1/2 -translate-y-1/2 rounded p-1 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
                 >
                   <X
@@ -958,7 +956,7 @@ export function ScheduledTasksPanel() {
                   className="size-4 animate-spin"
                   aria-hidden="true"
                 />
-                Loading tasks...
+                正在加载任务…
               </div>
             ) : error ? (
               <div
@@ -972,7 +970,7 @@ export function ScheduledTasksPanel() {
                   onClick={refresh}
                 >
                   <RefreshCw className="size-3.5" />
-                  Retry
+                  重试
                 </Button>
               </div>
             ) : tasks.length === 0 ? (
@@ -982,14 +980,14 @@ export function ScheduledTasksPanel() {
                     className="mx-auto size-7 text-muted-foreground/60"
                     aria-hidden="true"
                   />
-                  <p className="mt-2 text-sm font-medium">No scheduled tasks</p>
+                  <p className="mt-2 text-sm font-medium">暂无定时任务</p>
                   <p className="mt-1 text-xs text-muted-foreground">
-                    Start from a template or create one from scratch.
+                    可从模板开始，或从头创建任务。
                   </p>
                 </div>
                 <div className="space-y-2">
                   <p className="px-1 text-[11px] font-semibold uppercase text-muted-foreground">
-                    Templates
+                    模板
                   </p>
                   {TEMPLATES.map((template) => (
                     <TemplateButton
@@ -1002,23 +1000,23 @@ export function ScheduledTasksPanel() {
               </div>
             ) : filteredTasks.length === 0 ? (
               <div className="space-y-3 p-4 text-center">
-                <p className="text-sm font-medium">No matching tasks</p>
+                <p className="text-sm font-medium">没有匹配的任务</p>
                 <p className="text-xs text-muted-foreground">
-                  Try a task name, schedule, or description keyword.
+                  请尝试搜索任务名称、计划或说明关键词。
                 </p>
                 <Button
                   variant="outline"
                   size="sm"
                   onClick={() => setQuery("")}
                 >
-                  Clear search
+                  清空搜索
                 </Button>
               </div>
             ) : (
               <div className="p-1.5">
                 <div className="mb-2 flex items-center justify-between px-2 py-1">
                   <p className="text-[11px] font-semibold uppercase text-muted-foreground">
-                    Tasks
+                    任务
                   </p>
                   <p className="text-[11px] text-muted-foreground">
                     {filteredTasks.length}
@@ -1041,7 +1039,7 @@ export function ScheduledTasksPanel() {
                 </div>
                 <div className="mt-3 space-y-2 border-t border-border px-1 py-3">
                   <p className="px-1 text-[11px] font-semibold uppercase text-muted-foreground">
-                    Templates
+                    模板
                   </p>
                   <div className="grid gap-1.5">
                     {TEMPLATES.map((template) => (
@@ -1073,7 +1071,7 @@ export function ScheduledTasksPanel() {
                     className="mx-auto size-9 text-muted-foreground/40"
                     aria-hidden="true"
                   />
-                  <p className="text-sm font-medium">Pick a scheduled task</p>
+                  <p className="text-sm font-medium">选择一个定时任务</p>
                   <p className="text-xs text-muted-foreground">
                     选择下面的模板，或在对话中让金乌创建定时任务。
                   </p>

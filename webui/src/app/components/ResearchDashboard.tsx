@@ -66,11 +66,11 @@ function timeValue(iso: string): number {
 
 function activityAriaLabel(item: ActivityItem): string {
   const kind =
-    item.kind === "observation" ? "recent observation" : "recent execution";
+    item.kind === "observation" ? "近期观察" : "近期执行";
   // formatTime renders an em dash for an unusable timestamp; don't read it out.
   const when = formatTime(new Date(item.createdAtMs || Number.NaN));
   const hasWhen = when !== "" && when !== "—";
-  return `Open ${kind} from ${item.label}${hasWhen ? `, ${when}` : ""}`;
+  return `打开来自${item.label}的${kind}${hasWhen ? `，${when}` : ""}`;
 }
 
 export function ResearchDashboard({
@@ -147,7 +147,7 @@ export function ResearchDashboard({
             id: e.id,
             created_at: e.created_at,
             createdAtMs: timeValue(e.created_at),
-            summary: e.summary || "Execution completed",
+            summary: e.summary || "执行已完成",
             label: e.agent || "agent",
             color: "var(--brand)",
           })),
@@ -188,30 +188,30 @@ export function ResearchDashboard({
   }> = [
     {
       value: obsCount,
-      label: "Knowledge",
+      label: "知识",
       hint: "金乌已沉淀的观察记录。",
       Icon: Network,
       target: { view: "memory", tab: "knowledge" },
     },
     {
       value: runCount + obsCount,
-      label: "Timeline",
-      hint: "Runs and observations on the activity timeline.",
+      label: "时间线",
+      hint: "活动时间线中的运行与观察记录。",
       Icon: Activity,
       target: { view: "memory", tab: "history" },
     },
     {
       value: wsSize.num,
       unit: wsSize.unit,
-      label: "Workspace",
-      hint: "Total size of files in the current workspace.",
+      label: "工作区",
+      hint: "当前工作区文件总大小。",
       Icon: FolderOpen,
       target: { view: "workspace" },
     },
     {
       value: scheduledCount,
-      label: "Scheduled",
-      hint: "Recurring scheduled tasks.",
+      label: "定时任务",
+      hint: "周期性定时任务。",
       Icon: Clock,
       target: { view: "schedule" },
     },
@@ -260,7 +260,7 @@ export function ResearchDashboard({
               aria-hidden="true"
             />
             <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-              Your research
+              你的研究
             </span>
           </div>
           <div className="space-y-1">
@@ -269,8 +269,8 @@ export function ResearchDashboard({
                 key={t.id}
                 type="button"
                 onClick={() => onOpenThread(t.id)}
-                title={`Open ${t.title}`}
-                aria-label={`Open pinned research thread: ${t.title}`}
+                title={`打开${t.title}`}
+                aria-label={`打开置顶研究会话：${t.title}`}
                 className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left transition-colors hover:bg-accent/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               >
                 <MessageSquare
@@ -298,7 +298,7 @@ export function ResearchDashboard({
                 aria-hidden="true"
               />
               <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-                Recent activity
+                近期活动
               </span>
             </div>
             <button
@@ -306,7 +306,7 @@ export function ResearchDashboard({
               onClick={() => onNavigate({ view: "memory", tab: "history" })}
               className="flex items-center gap-1 text-[11px] text-[var(--brand)] transition-opacity hover:opacity-80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             >
-              View all
+              查看全部
               <ArrowRight
                 className="size-3"
                 aria-hidden="true"

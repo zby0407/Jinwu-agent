@@ -162,7 +162,7 @@ export function AgentsPanel({ onReportToMainChat }: AgentsPanelProps) {
         setChatError((e) => ({
           ...e,
           [task.task_id]:
-            "The agent didn't return a reply — it may have hit an error.",
+            "Agent 未返回回答，可能遇到了错误。",
         }));
         return;
       }
@@ -185,8 +185,8 @@ export function AgentsPanel({ onReportToMainChat }: AgentsPanelProps) {
       setChatError((e) => ({
         ...e,
         [task.task_id]: transport
-          ? "Couldn't reach this agent — try again."
-          : "The agent hit an error processing this follow-up.",
+          ? "无法连接此 Agent，请重试。"
+          : "Agent 处理此追问时发生错误。",
       }));
     } finally {
       if (mountedRef.current) {
@@ -201,24 +201,24 @@ export function AgentsPanel({ onReportToMainChat }: AgentsPanelProps) {
   // check_async_task(task_id) to fetch the real result — zero backend change.
   const reportToMain = (task: EnrichedAsyncTask) => {
     if (!onReportToMainChat || !threadId) {
-      toast.error("Open the conversation to notify the main agent.");
+      toast.error("请打开对应会话后再通知主 Agent。" );
       return;
     }
     const result = onReportToMainChat(task, threadId);
     if (result === "sent") {
       setReported((r) => ({ ...r, [asyncTaskReportKey(task)]: true }));
-      toast.success("Reported to the main chat.");
+      toast.success("已通知主会话。" );
       return;
     }
     if (result === "duplicate") {
       setReported((r) => ({ ...r, [asyncTaskReportKey(task)]: true }));
-      toast.info("This result is already in the main chat.");
+      toast.info("此结果已发送到主会话。" );
       return;
     }
     toast.error(
       result === "wrong-thread"
-        ? "The active conversation changed — reopen this task and try again."
-        : "Main chat is busy — try again when it's idle."
+        ? "当前会话已更改，请重新打开此任务后重试。"
+        : "主会话正忙，请等待空闲后重试。"
     );
   };
 
@@ -290,7 +290,7 @@ export function AgentsPanel({ onReportToMainChat }: AgentsPanelProps) {
           ...prev,
           [expandedId]: {
             loading: false,
-            error: "Couldn't load this agent's steps.",
+            error: "无法加载此 Agent 的步骤。",
             prompt: prev[expandedId]?.prompt ?? "",
             steps: prev[expandedId]?.steps ?? [],
           },
@@ -309,10 +309,10 @@ export function AgentsPanel({ onReportToMainChat }: AgentsPanelProps) {
       <div className="flex items-center justify-between gap-2 px-1 pb-2">
         <p className="text-xs text-muted-foreground">
           {runningCount > 0
-            ? `${runningCount} running`
+            ? `${runningCount} 个正在运行`
             : tasks.length > 0
             ? `${tasks.length} total`
-            : "Background agents"}
+            : "后台 Agent"}
         </p>
         <div className="flex items-center gap-1">
           {/* Auto-report toggle: when on, finished agents loop back to the main
@@ -321,11 +321,11 @@ export function AgentsPanel({ onReportToMainChat }: AgentsPanelProps) {
             type="button"
             onClick={toggleAutoNotify}
             aria-pressed={autoNotify}
-            aria-label={`Auto-report ${autoNotify ? "on" : "off"}`}
+            aria-label={`自动通知${autoNotify ? "已开启" : "已关闭"}`}
             title={
               autoNotify
-                ? "Auto-report on: finished agents are sent to the main chat automatically"
-                : "Auto-report off: use each agent's “Notify main chat” button"
+                ? "自动通知已开启：Agent 完成后会自动发送到主会话"
+                : "自动通知已关闭：请使用各 Agent 的“通知主会话”按钮"
             }
             className={cn(
               "inline-flex items-center gap-1 rounded-md px-1.5 py-1 text-[11px] font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
@@ -339,14 +339,14 @@ export function AgentsPanel({ onReportToMainChat }: AgentsPanelProps) {
               aria-hidden="true"
             />
             <span className="hidden min-[340px]:inline">
-              Auto-report {autoNotify ? "On" : "Off"}
+              自动通知{autoNotify ? "已开启" : "已关闭"}
             </span>
           </button>
           <button
             type="button"
             onClick={refresh}
-            aria-label="Refresh agents"
-            title="Refresh"
+            aria-label="刷新 Agent"
+            title="刷新"
             className="rounded p-1 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
           >
             <RefreshCw
@@ -367,7 +367,7 @@ export function AgentsPanel({ onReportToMainChat }: AgentsPanelProps) {
             className="size-4 animate-spin"
             aria-hidden="true"
           />
-          Loading…
+          加载中…
         </div>
       )}
 
@@ -378,7 +378,7 @@ export function AgentsPanel({ onReportToMainChat }: AgentsPanelProps) {
             aria-hidden="true"
           />
           <p className="text-sm text-muted-foreground">
-            No background agents yet.
+            暂无后台 Agent。
           </p>
           <p className="text-xs text-muted-foreground/80">
             金乌委派的长任务（如写作、数据分析）会在后台运行，并显示在这里。
@@ -431,9 +431,7 @@ export function AgentsPanel({ onReportToMainChat }: AgentsPanelProps) {
               {expanded && expired && (
                 <div className="border-t border-border px-2.5 py-2 text-xs">
                   <p className="text-muted-foreground">
-                    This task ran before a backend restart and its records are
-                    gone, so its steps and result can no longer be loaded. Any
-                    files it produced are still in the workspace.
+                    此任务运行于后端重启之前，相关记录已丢失，因此无法继续加载步骤和结果；其生成的文件仍保留在工作区中。
                   </p>
                 </div>
               )}
@@ -446,7 +444,7 @@ export function AgentsPanel({ onReportToMainChat }: AgentsPanelProps) {
                         className="size-3.5 animate-spin"
                         aria-hidden="true"
                       />
-                      Loading steps…
+                      正在加载步骤…
                     </div>
                   )}
                   {detail?.error && (
@@ -456,7 +454,7 @@ export function AgentsPanel({ onReportToMainChat }: AgentsPanelProps) {
                     <div className="flex flex-col gap-2">
                       {detail.prompt && (
                         <div>
-                          <p className="font-semibold text-foreground">Task</p>
+                          <p className="font-semibold text-foreground">任务</p>
                           <p className="whitespace-pre-wrap break-words text-muted-foreground">
                             {detail.prompt.length > 600
                               ? detail.prompt.slice(0, 600) + "…"
@@ -466,13 +464,13 @@ export function AgentsPanel({ onReportToMainChat }: AgentsPanelProps) {
                       )}
                       <div>
                         <p className="mb-1 font-semibold text-foreground">
-                          Steps{" "}
+                          步骤{" "}
                           <span className="font-normal text-muted-foreground">
                             ({detail.steps.length})
                           </span>
                         </p>
                         {detail.steps.length === 0 ? (
-                          <p className="text-muted-foreground">No steps yet.</p>
+                          <p className="text-muted-foreground">暂无步骤。</p>
                         ) : (
                           <SubAgentSteps
                             steps={detail.steps}
@@ -493,8 +491,7 @@ export function AgentsPanel({ onReportToMainChat }: AgentsPanelProps) {
                                 className="size-3.5 text-[var(--brand)]"
                                 aria-hidden="true"
                               />
-                              Auto-report on · future completions notify the
-                              main chat
+                              自动通知已开启 · 后续完成结果将通知主会话
                             </p>
                           ) : (
                             <button
@@ -506,8 +503,8 @@ export function AgentsPanel({ onReportToMainChat }: AgentsPanelProps) {
                               }
                               title={
                                 onReportToMainChat
-                                  ? "Send this result back to the main agent"
-                                  : "Open the conversation to notify the main agent"
+                                  ? "将此结果发送给主 Agent"
+                                  : "打开会话后通知主 Agent"
                               }
                               className="inline-flex items-center gap-1.5 rounded-md border border-border px-2 py-1 text-[11px] font-medium text-foreground transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
                             >
@@ -516,8 +513,8 @@ export function AgentsPanel({ onReportToMainChat }: AgentsPanelProps) {
                                 aria-hidden="true"
                               />
                               {reported[asyncTaskReportKey(task)]
-                                ? "Reported to main chat"
-                                : "Notify main chat"}
+                                ? "已通知主会话"
+                                : "通知主会话"}
                             </button>
                           )}
                         </div>
@@ -530,7 +527,7 @@ export function AgentsPanel({ onReportToMainChat }: AgentsPanelProps) {
                         return (
                           <div className="mt-1 border-t border-border pt-2">
                             <p className="mb-1 text-[11px] text-muted-foreground">
-                              Direct follow-up · Main chat is not notified
+                              直接追问 · 不通知主会话
                             </p>
                             <form
                               onSubmit={(e) => {
@@ -564,10 +561,10 @@ export function AgentsPanel({ onReportToMainChat }: AgentsPanelProps) {
                                 disabled={running || busy}
                                 placeholder={
                                   running
-                                    ? "Agent is working…"
-                                    : "Send a direct follow-up…"
+                                    ? "Agent 正在工作…"
+                                    : "向此 Agent 直接追问…"
                                 }
-                                aria-label="Message this agent"
+                                aria-label="向此 Agent 发送消息"
                                 className="min-w-0 flex-1 rounded-md border border-border bg-background px-2 py-1.5 text-xs outline-none placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-60"
                               />
                               <button
@@ -577,8 +574,8 @@ export function AgentsPanel({ onReportToMainChat }: AgentsPanelProps) {
                                   busy ||
                                   !(chatInput[task.task_id] ?? "").trim()
                                 }
-                                aria-label="Send"
-                                title="Send to this agent"
+                                aria-label="发送"
+                                title="发送给此 Agent"
                                 className="inline-flex size-7 shrink-0 items-center justify-center rounded-md bg-[var(--brand-solid)] text-[var(--brand-foreground)] transition-opacity hover:opacity-90 focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-40"
                               >
                                 {busy ? (

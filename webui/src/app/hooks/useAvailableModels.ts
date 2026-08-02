@@ -131,7 +131,7 @@ export function useAvailableModels(): {
       })
       .catch((err: unknown) => {
         if (cancelled) return;
-        setError(err instanceof Error ? err.message : "Failed to load models.");
+      setError(err instanceof Error ? err.message : "加载模型失败。" );
         setRegistry(EMPTY);
       })
       .finally(() => {

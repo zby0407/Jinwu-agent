@@ -63,7 +63,7 @@ export const MemoryFileDialog = React.memo<{
         setContent(typeof data.content === "string" ? data.content : "");
       } catch (e) {
         if (reqRef.current !== reqId) return;
-        setError(e instanceof Error ? e.message : "Failed to read file.");
+        setError(e instanceof Error ? e.message : "读取文件失败。" );
       } finally {
         if (reqRef.current === reqId) setLoading(false);
       }

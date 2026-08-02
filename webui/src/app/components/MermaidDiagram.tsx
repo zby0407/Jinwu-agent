@@ -130,7 +130,7 @@ const MermaidPreview = React.memo<{ svg: string }>(({ svg }) => {
     <>
       <button
         type="button"
-        aria-label="Open diagram in full view"
+        aria-label="全屏查看图表"
         aria-haspopup="dialog"
         onClick={() => setOpen(true)}
         className="my-4 block max-w-full cursor-zoom-in overflow-x-auto rounded-md bg-[var(--color-surface)] p-4 text-left transition-shadow hover:ring-2 hover:ring-primary/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
@@ -141,16 +141,16 @@ const MermaidPreview = React.memo<{ svg: string }>(({ svg }) => {
         onOpenChange={setOpen}
       >
         <DialogContent className="max-h-[calc(100svh-1rem)] w-[calc(100vw-1rem)] max-w-[calc(100vw-1rem)] overflow-auto p-3 sm:max-h-[92vh] sm:w-[min(1200px,95vw)] sm:max-w-[95vw] sm:p-4">
-          <DialogTitle className="sr-only">Mermaid diagram</DialogTitle>
+          <DialogTitle className="sr-only">Mermaid 图表</DialogTitle>
           <DialogDescription className="sr-only">
-            Full-size preview of the generated Mermaid diagram.
+            查看生成的 Mermaid 图表完整预览。
           </DialogDescription>
           <div className="sticky top-0 z-10 -mx-1 -mt-1 mb-2 flex items-center justify-end gap-1 bg-background/95 pb-2 pr-8 backdrop-blur">
             <button
               type="button"
               onClick={zoomOut}
               disabled={zoom <= 0.75}
-              aria-label="Zoom out"
+              aria-label="缩小"
               className="inline-flex size-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-40"
             >
               <ZoomOut
@@ -168,7 +168,7 @@ const MermaidPreview = React.memo<{ svg: string }>(({ svg }) => {
               type="button"
               onClick={zoomIn}
               disabled={zoom >= 2.5}
-              aria-label="Zoom in"
+              aria-label="放大"
               className="inline-flex size-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-40"
             >
               <ZoomIn
@@ -179,7 +179,7 @@ const MermaidPreview = React.memo<{ svg: string }>(({ svg }) => {
             <button
               type="button"
               onClick={() => setZoom(1)}
-              aria-label="Reset zoom"
+              aria-label="重置缩放"
               className="inline-flex size-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
             >
               <RotateCcw

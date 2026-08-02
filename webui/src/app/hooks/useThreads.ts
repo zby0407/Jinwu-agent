@@ -112,7 +112,7 @@ export function useThreads(props: {
       });
 
       return threads.map((thread): ThreadItem => {
-        let title = "Untitled Thread";
+    let title = "未命名研究会话";
         let description = "";
 
         try {
@@ -155,14 +155,14 @@ export function useThreads(props: {
             // If the first human message yielded no text (odd/attachment-only
             // shape), fall back to the AI preview so the row isn't an opaque
             // "Untitled Thread".
-            if (title === "Untitled Thread" && description) {
+    if (title === "未命名研究会话" && description) {
               title =
                 description.slice(0, 50) + (description.length > 50 ? "…" : "");
             }
           }
         } catch {
           // Fallback to thread ID
-          title = `Thread ${thread.thread_id.slice(0, 8)}`;
+      title = `研究会话 ${thread.thread_id.slice(0, 8)}`;
         }
 
         // A user-set custom title (stored in metadata via rename) always wins.
@@ -171,8 +171,8 @@ export function useThreads(props: {
         )?.title;
         if (typeof customTitle === "string" && customTitle.trim()) {
           title = customTitle.trim();
-        } else if (title === "Untitled Thread") {
-          title = `Task ${thread.thread_id.slice(0, 8)}`;
+    } else if (title === "未命名研究会话") {
+      title = `任务 ${thread.thread_id.slice(0, 8)}`;
         }
 
         // Pinned state is stored in thread metadata (like the custom title),
@@ -238,7 +238,7 @@ function makeThreadsClient(): Client | null {
 /** Permanently delete a thread. Throws if no deployment is configured. */
 export async function deleteThread(id: string): Promise<void> {
   const client = makeThreadsClient();
-  if (!client) throw new Error("No 金乌 deployment configured.");
+  if (!client) throw new Error("尚未配置金乌部署。" );
   await client.threads.delete(id);
 }
 
@@ -262,7 +262,7 @@ async function updateThreadMetadata(
  */
 export async function renameThread(id: string, title: string): Promise<void> {
   const client = makeThreadsClient();
-  if (!client) throw new Error("No 金乌 deployment configured.");
+  if (!client) throw new Error("尚未配置金乌部署。" );
   await updateThreadMetadata(client, id, { title });
 }
 
@@ -272,7 +272,7 @@ export async function renameThread(id: string, title: string): Promise<void> {
  */
 export async function pinThread(id: string, pinned: boolean): Promise<void> {
   const client = makeThreadsClient();
-  if (!client) throw new Error("No 金乌 deployment configured.");
+  if (!client) throw new Error("尚未配置金乌部署。" );
   await updateThreadMetadata(client, id, { pinned });
 }
 
@@ -287,7 +287,7 @@ export async function setThreadModelOverride(
   override: { model: string; model_provider?: string } | null
 ): Promise<void> {
   const client = makeThreadsClient();
-  if (!client) throw new Error("No 金乌 deployment configured.");
+  if (!client) throw new Error("尚未配置金乌部署。" );
   // Passing `null` here keeps the key present in metadata but explicitly
   // un-set, which matches how langgraph treats absence-vs-null in the
   // configurable middleware (`getattr(cfg, "model", None)` accepts both).
@@ -320,7 +320,7 @@ export async function exportThread(
   filenameHint?: string
 ): Promise<void> {
   const client = makeThreadsClient();
-  if (!client) throw new Error("No 金乌 deployment configured.");
+  if (!client) throw new Error("尚未配置金乌部署。" );
   const thread = await client.threads.get(id);
   const blob = new Blob([JSON.stringify(thread, null, 2)], {
     type: "application/json",

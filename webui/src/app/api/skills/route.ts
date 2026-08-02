@@ -83,7 +83,7 @@ export async function GET() {
     return NextResponse.json({ skills });
   } catch (e) {
     return NextResponse.json(
-      { error: e instanceof Error ? e.message : "Failed to read skills" },
+      { error: e instanceof Error ? e.message : "读取 Skills 失败" },
       { status: 500 }
     );
   }
@@ -96,7 +96,7 @@ export async function DELETE(req: NextRequest) {
   // Strict name check (blocks dotfiles like `.installed.yaml`, traversal, odd
   // chars) — must match install-side validation, not the old slash/`..`-only one.
   if (!name || !isValidSkillName(name)) {
-    return NextResponse.json({ error: "Invalid skill name" }, { status: 400 });
+    return NextResponse.json({ error: "Skill 名称无效" }, { status: 400 });
   }
   for (const dir of SKILL_DIRS) {
     const target = resolve(join(dir, name));
@@ -116,5 +116,5 @@ export async function DELETE(req: NextRequest) {
     await recordUninstall(name).catch(() => {});
     return NextResponse.json({ ok: true });
   }
-  return NextResponse.json({ error: "Skill not found" }, { status: 404 });
+  return NextResponse.json({ error: "未找到 Skill" }, { status: 404 });
 }

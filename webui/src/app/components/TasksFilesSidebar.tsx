@@ -43,7 +43,7 @@ export function FilesPopover({
     <>
       {Object.keys(files).length === 0 ? (
         <div className="flex h-full items-center justify-center p-4 text-center">
-          <p className="text-xs text-muted-foreground">No files created yet</p>
+          <p className="text-xs text-muted-foreground">尚未创建文件</p>
         </div>
       ) : (
         <div className="grid grid-cols-[repeat(auto-fill,minmax(256px,1fr))] gap-2">
@@ -176,9 +176,9 @@ export const TasksFilesSidebar = React.memo<{
   }, [todos]);
 
   const groupedLabels = {
-    pending: "Pending",
-    in_progress: "In Progress",
-    completed: "Completed",
+    pending: "待处理",
+    in_progress: "进行中",
+    completed: "已完成",
   };
 
   return (
@@ -187,7 +187,7 @@ export const TasksFilesSidebar = React.memo<{
         <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-hidden">
           <div className="flex items-center justify-between px-3 pb-1.5 pt-2">
             <span className="text-xs font-semibold tracking-wide text-zinc-600">
-              AGENT TASKS
+              AGENT 任务
             </span>
             <button
               onClick={() => setTasksOpen((v) => !v)}
@@ -195,7 +195,7 @@ export const TasksFilesSidebar = React.memo<{
                 "flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground transition-transform duration-200 hover:bg-muted",
                 tasksOpen ? "rotate-180" : "rotate-0"
               )}
-              aria-label="Toggle tasks panel"
+              aria-label="展开或收起任务面板"
             >
               <ChevronDown size={14} />
             </button>
@@ -206,7 +206,7 @@ export const TasksFilesSidebar = React.memo<{
                 {todos.length === 0 ? (
                   <div className="flex h-full items-center justify-center p-4 text-center">
                     <p className="text-xs text-muted-foreground">
-                      No tasks created yet
+                      尚未创建任务
                     </p>
                   </div>
                 ) : (
@@ -237,7 +237,7 @@ export const TasksFilesSidebar = React.memo<{
 
           <div className="flex items-center justify-between px-3 pb-1.5 pt-2">
             <span className="text-xs font-semibold tracking-wide text-zinc-600">
-              FILE SYSTEM
+              文件系统
             </span>
             <button
               onClick={() => setFilesOpen((v) => !v)}
@@ -245,7 +245,7 @@ export const TasksFilesSidebar = React.memo<{
                 "flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground transition-transform duration-200 hover:bg-muted",
                 filesOpen ? "rotate-180" : "rotate-0"
               )}
-              aria-label="Toggle files panel"
+              aria-label="展开或收起文件面板"
             >
               <ChevronDown size={14} />
             </button>

@@ -9,7 +9,7 @@ export async function POST(request: NextRequest) {
     const origin = request.headers.get("origin");
     if (origin && origin !== request.nextUrl.origin) {
       return NextResponse.json(
-        { error: "Cross-origin installs are not allowed." },
+        { error: "不允许跨域安装。" },
         { status: 403 }
       );
     }
@@ -20,7 +20,7 @@ export async function POST(request: NextRequest) {
     const name = body?.name;
     if (typeof name !== "string" || !name) {
       return NextResponse.json(
-        { error: "Missing skill name." },
+        { error: "缺少 Skill 名称。" },
         { status: 400 }
       );
     }
@@ -31,7 +31,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(
       {
         error:
-          error instanceof Error ? error.message : "Failed to install skill.",
+          error instanceof Error ? error.message : "安装 Skill 失败。",
       },
       { status: 400 }
     );

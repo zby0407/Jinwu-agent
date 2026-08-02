@@ -39,7 +39,7 @@ export const SubAgentIndicator = React.memo<SubAgentIndicatorProps>(
             {subAgent.subAgentName}
           </span>
           <span className="text-xs font-normal text-muted-foreground">
-            subagent
+            子 Agent
           </span>
           {isExpanded ? (
             <ChevronUp

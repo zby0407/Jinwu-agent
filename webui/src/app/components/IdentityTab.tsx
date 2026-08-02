@@ -35,14 +35,14 @@ interface ProfileEntry {
 const CORE_ENTRIES: ProfileEntry[] = [
   {
     path: "profile/USER_PROFILE.md",
-    label: "User",
-    description: "Persistent context about the researcher",
+    label: "用户",
+    description: "关于研究者的长期背景信息",
     Icon: User,
   },
   {
     path: "profile/RESEARCH_TASTE.md",
-    label: "Taste",
-    description: "Aesthetic and methodological preferences",
+    label: "研究偏好",
+    description: "审美与方法论偏好",
     Icon: Compass,
   },
   {
@@ -126,7 +126,7 @@ function ContentPanel({ entry }: { entry: ProfileEntry | null }) {
           error?: string;
         };
         if (!r.ok) {
-          throw new Error(d.error || "Failed to load.");
+          throw new Error(d.error || "加载失败。" );
         }
         return d;
       })
@@ -139,7 +139,7 @@ function ContentPanel({ entry }: { entry: ProfileEntry | null }) {
         if (reqRef.current !== reqId) return;
         setContent("");
         setDraft("");
-        setError(e instanceof Error ? e.message : "Failed to load.");
+        setError(e instanceof Error ? e.message : "加载失败。" );
       })
       .finally(() => {
         if (reqRef.current === reqId) setLoading(false);
@@ -157,11 +157,11 @@ function ContentPanel({ entry }: { entry: ProfileEntry | null }) {
         body: JSON.stringify({ path: entry.path, content: draft }),
       });
       const d = (await res.json()) as { error?: string };
-      if (!res.ok) throw new Error(d.error ?? "Failed to save.");
+      if (!res.ok) throw new Error(d.error ?? "保存失败。" );
       setContent(draft);
       setEditing(false);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to save.");
+      setError(e instanceof Error ? e.message : "保存失败。" );
     } finally {
       setSaving(false);
     }
@@ -170,7 +170,7 @@ function ContentPanel({ entry }: { entry: ProfileEntry | null }) {
   if (!entry) {
     return (
       <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
-        Select a profile to view
+        请选择一项身份记忆
       </div>
     );
   }
@@ -192,7 +192,7 @@ function ContentPanel({ entry }: { entry: ProfileEntry | null }) {
                   setDraft(content);
                 }}
               >
-                Cancel
+                取消
               </Button>
               <Button
                 size="sm"
@@ -205,10 +205,10 @@ function ContentPanel({ entry }: { entry: ProfileEntry | null }) {
                       className="size-3.5 animate-spin"
                       aria-hidden="true"
                     />
-                    Saving
+                    正在保存
                   </>
                 ) : (
-                  "Save"
+                  "保存"
                 )}
               </Button>
             </>
@@ -223,7 +223,7 @@ function ContentPanel({ entry }: { entry: ProfileEntry | null }) {
                 className="size-3.5"
                 aria-hidden="true"
               />
-              Edit raw
+              编辑原文
             </Button>
           )}
         </div>
@@ -242,11 +242,11 @@ function ContentPanel({ entry }: { entry: ProfileEntry | null }) {
               className="size-4 animate-spin"
               aria-hidden="true"
             />
-            Loading…
+            加载中…
           </div>
         ) : editing ? (
           <textarea
-            aria-label={`Edit ${entry.label} memory`}
+            aria-label={`编辑${entry.label}记忆`}
             className="size-full resize-none bg-background p-4 font-mono text-sm text-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
@@ -292,7 +292,7 @@ export function IdentityTab({ listing, listingLoading }: IdentityTabProps) {
           return {
             path: e.path,
             label: id.replace(/\/PROJECT_PROFILE\.md$/, ""),
-            description: "Project profile",
+            description: "项目档案",
             Icon: FolderOpen,
           };
         }),
@@ -315,7 +315,7 @@ export function IdentityTab({ listing, listingLoading }: IdentityTabProps) {
     <ScrollArea className="h-full">
       <div className="p-3">
         <p className="mb-2 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
-          Profile
+          身份档案
         </p>
         <div className="space-y-1.5">
           {CORE_ENTRIES.map((entry) => (
@@ -329,7 +329,7 @@ export function IdentityTab({ listing, listingLoading }: IdentityTabProps) {
         </div>
 
         <p className="mb-2 mt-5 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
-          Project Profiles
+          项目档案
         </p>
         {listingLoading ? (
           <div className="flex h-10 items-center gap-2 text-xs text-muted-foreground">
@@ -337,11 +337,11 @@ export function IdentityTab({ listing, listingLoading }: IdentityTabProps) {
               className="size-3.5 animate-spin"
               aria-hidden="true"
             />
-            Loading projects…
+            正在加载项目…
           </div>
         ) : projectEntries.length === 0 ? (
           <p className="text-xs text-muted-foreground">
-            No project profiles yet.
+            暂无项目档案。
           </p>
         ) : (
           <div className="space-y-1.5">

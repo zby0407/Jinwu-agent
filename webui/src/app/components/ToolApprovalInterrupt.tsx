@@ -152,7 +152,7 @@ export function ToolApprovalInterrupt({
           aria-hidden="true"
         />
         <span className="text-xs font-semibold uppercase tracking-wider">
-          Approval Required
+          需要批准
         </span>
       </div>
 
@@ -167,7 +167,7 @@ export function ToolApprovalInterrupt({
       <div className="mb-4 rounded-sm border border-border bg-background p-3">
         <div className="mb-2">
           <span className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
-            Tool
+            工具
           </span>
           <p className="mt-1 font-mono text-sm font-medium text-foreground">
             {actionRequest.name}
@@ -177,7 +177,7 @@ export function ToolApprovalInterrupt({
         {isEditing ? (
           <div>
             <span className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
-              Edit Arguments
+              编辑参数
             </span>
             <div className="mt-2 space-y-3">
               {Object.entries(actionArgs).map(([key, value]) => (
@@ -209,7 +209,7 @@ export function ToolApprovalInterrupt({
         ) : (
           <div>
             <span className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
-              Arguments
+              参数
             </span>
             <pre className="mt-2 overflow-x-auto whitespace-pre-wrap break-all rounded-sm border border-border bg-muted/40 p-2 font-mono text-xs text-foreground">
               {formatValue(actionArgs)}
@@ -222,12 +222,12 @@ export function ToolApprovalInterrupt({
       {showRejectionInput && !isEditing && (
         <div className="mb-4">
           <label className="mb-2 block text-xs font-medium text-foreground">
-            Rejection Message (optional)
+            拒绝原因（选填）
           </label>
           <Textarea
             value={rejectionMessage}
             onChange={(e) => setRejectionMessage(e.target.value)}
-            placeholder="Explain why you're rejecting this action…"
+            placeholder="请说明拒绝此操作的原因…"
             className="text-sm"
             rows={2}
             disabled={isLoading}
@@ -246,7 +246,7 @@ export function ToolApprovalInterrupt({
               onClick={cancelEditing}
               disabled={isLoading}
             >
-              Cancel
+              取消
             </Button>
             <Button
               type="button"
@@ -259,7 +259,7 @@ export function ToolApprovalInterrupt({
                 size={14}
                 aria-hidden="true"
               />
-              {isLoading ? "Saving…" : "Save & Approve"}
+              {isLoading ? "正在保存…" : "保存并批准"}
             </Button>
           </>
         ) : showRejectionInput ? (
@@ -274,7 +274,7 @@ export function ToolApprovalInterrupt({
               }}
               disabled={isLoading}
             >
-              Cancel
+              取消
             </Button>
             <Button
               type="button"
@@ -283,7 +283,7 @@ export function ToolApprovalInterrupt({
               onClick={handleRejectConfirm}
               disabled={isLoading}
             >
-              {isLoading ? "Rejecting…" : "Confirm Reject"}
+              {isLoading ? "正在拒绝…" : "确认拒绝"}
             </Button>
           </>
         ) : (
@@ -301,7 +301,7 @@ export function ToolApprovalInterrupt({
                   size={14}
                   aria-hidden="true"
                 />
-                Reject
+                拒绝
               </Button>
             )}
             {allowedDecisions.includes("edit") && (
@@ -316,7 +316,7 @@ export function ToolApprovalInterrupt({
                   size={14}
                   aria-hidden="true"
                 />
-                Edit
+                编辑
               </Button>
             )}
             {allowedDecisions.includes("approve") && (
@@ -334,7 +334,7 @@ export function ToolApprovalInterrupt({
                   size={14}
                   aria-hidden="true"
                 />
-                {isLoading ? "Approving…" : "Approve"}
+                {isLoading ? "正在批准…" : "批准"}
               </Button>
             )}
           </>

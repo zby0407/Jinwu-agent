@@ -72,7 +72,7 @@ export async function POST(request: NextRequest) {
     const body = (await request.json()) as { threadId?: unknown };
     if (typeof body.threadId !== "string" || !body.threadId.trim()) {
       return NextResponse.json(
-        { error: "threadId is required." },
+      { error: "必须提供 threadId。" },
         { status: 400 }
       );
     }
@@ -116,7 +116,7 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     return NextResponse.json(
       {
-        error: error instanceof Error ? error.message : "Unable to stop task.",
+      error: error instanceof Error ? error.message : "无法停止任务。",
       },
       { status: 500 }
     );

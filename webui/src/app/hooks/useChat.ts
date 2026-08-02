@@ -174,7 +174,7 @@ function formatStreamError(error: unknown): string {
     const combined = name && body ? `${name}: ${body}` : name ?? body ?? "";
     if (combined) return cap(combined);
   }
-  return "Run failed.";
+  return "运行失败。";
 }
 
 function hasHttpStatus(error: unknown, status: number): boolean {
@@ -871,7 +871,7 @@ export function useChat({
           (message) => message.id === messageId
         );
         if (targetIndex < 0) {
-          throw new Error("The response is no longer in the active branch.");
+      throw new Error("此回答已不在当前活动分支中。" );
         }
         let turnHumanIndex = -1;
         for (let index = targetIndex - 1; index >= 0; index -= 1) {
@@ -891,7 +891,7 @@ export function useChat({
             ? messages[turnFirstAssistantIndex].id
             : messageId;
         if (!turnAnchorId) {
-          throw new Error("The start of this response turn could not be found.");
+      throw new Error("找不到此回答轮次的起点。" );
         }
         const optimisticMessages =
           turnFirstAssistantIndex >= 0
@@ -912,7 +912,7 @@ export function useChat({
         const checkpoint = firstSeenState?.parent_checkpoint;
         if (!checkpoint) {
           throw new Error(
-            "The checkpoint before this response is no longer available."
+        "此回答之前的检查点已不可用。"
           );
         }
 
@@ -928,7 +928,7 @@ export function useChat({
           throw new Error(
             typeof payload?.error === "string"
               ? payload.error
-              : "The generated artifacts could not be cleared."
+          : "无法清除已生成的产物。"
           );
         }
 
@@ -995,7 +995,7 @@ export function useChat({
           (message) => message.id === messageId && message.type === "human"
         );
         if (targetIndex < 0) {
-          throw new Error("The message is no longer in the active branch.");
+      throw new Error("此消息已不在当前活动分支中。" );
         }
         const targetMessage = messages[targetIndex];
         if (extractStringFromMessageContent(targetMessage).trim() === editedContent) {
@@ -1014,7 +1014,7 @@ export function useChat({
         const checkpoint = firstSeenState?.parent_checkpoint;
         if (!checkpoint) {
           throw new Error(
-            "The checkpoint before this message is no longer available."
+        "此消息之前的检查点已不可用。"
           );
         }
 

@@ -114,13 +114,13 @@ export function AskUserInterrupt({
                       : "border-border bg-background hover:bg-accent"
                   )}
                 >
-                  Other…
+                  其他…
                 </button>
                 {picked[i] === OTHER && (
                   <Textarea
                     value={answers[i]}
                     onChange={(e) => setAnswer(i, e.target.value)}
-                    placeholder="Type your answer…"
+                    placeholder="请输入回答…"
                     className="text-sm"
                     rows={2}
                     disabled={isLoading}
@@ -133,8 +133,8 @@ export function AskUserInterrupt({
                 onChange={(e) => setAnswer(i, e.target.value)}
                 placeholder={
                   isOptional(q)
-                    ? "Type your answer… (optional)"
-                    : "Type your answer…"
+                    ? "请输入回答…（选填）"
+                    : "请输入回答…"
                 }
                 className="text-sm"
                 rows={2}
@@ -152,7 +152,7 @@ export function AskUserInterrupt({
           onClick={onCancel}
           disabled={isLoading}
         >
-          Cancel
+          取消
         </Button>
         <Button
           size="sm"
@@ -160,7 +160,7 @@ export function AskUserInterrupt({
           disabled={!canSubmit || isLoading}
           className="bg-[var(--brand-solid)] text-[var(--brand-foreground)] hover:opacity-90"
         >
-          {isLoading ? "Submitting…" : "Submit"}
+          {isLoading ? "正在提交…" : "提交"}
         </Button>
       </div>
     </div>

@@ -93,7 +93,7 @@ function HomePageInner({
       const found =
         assistants.find((a) => a.metadata?.["created_by"] === "system") ??
         assistants[0];
-      if (!found) throw new Error("No assistant found for this graph.");
+      if (!found) throw new Error("未找到此图对应的助手。" );
       return found;
     };
 
@@ -280,8 +280,17 @@ function HomePageInner({
               className="size-7 shrink-0 rounded-full object-cover ring-1 ring-[var(--brand)]/70 sm:size-[30px]"
               priority
             />
-            <h1 className="hidden truncate bg-gradient-to-r from-[#fff1b0] to-[#d99a2b] bg-clip-text text-base font-semibold tracking-[0.16em] text-transparent sm:block">
-              金乌
+            <h1 className="hidden sm:block">
+              <span className="sr-only">金乌</span>
+              <Image
+                src="/branding/jinwu-calligraphy-v4.png"
+                alt=""
+                width={54}
+                height={28}
+                className="h-7 w-[54px] object-contain"
+                aria-hidden="true"
+                priority
+              />
             </h1>
           </div>
 
@@ -344,8 +353,8 @@ function HomePageInner({
               variant="ghost"
               size="icon"
               onClick={() => setConfigDialogOpen(true)}
-              aria-label="Settings"
-              title="Settings"
+              aria-label="设置"
+              title="设置"
               className="size-8 text-[var(--brand)]"
             >
               <Settings
@@ -392,7 +401,7 @@ function HomePageInner({
             <div className="absolute inset-0 z-40 flex md:hidden">
               <button
                 type="button"
-                aria-label="Close research"
+                aria-label="关闭研究导航"
                 className="absolute inset-0 bg-black/40"
                 onClick={closeSidebar}
               />
@@ -425,12 +434,12 @@ function HomePageInner({
             <div className="absolute inset-0 z-40 flex justify-end md:hidden">
               <button
                 type="button"
-                aria-label="Close inspector"
+                aria-label="关闭研究工作区"
                 className="absolute inset-0 bg-black/40"
                 onClick={closeInspector}
               />
               <aside
-                aria-label="Inspector"
+                aria-label="研究工作区"
                 className="relative z-10 h-full w-[min(22rem,calc(100vw-2.25rem))] bg-background shadow-xl"
               >
                 <InspectorPanel
@@ -619,7 +628,7 @@ function HomePageContent() {
               onClick={() => setConfigDialogOpen(true)}
               className="mt-4"
             >
-              Open Configuration
+              打开配置
             </Button>
           </div>
         </div>
@@ -647,7 +656,7 @@ export default function HomePage() {
     <Suspense
       fallback={
         <div className="flex h-screen items-center justify-center">
-          <p className="text-muted-foreground">Loading…</p>
+          <p className="text-muted-foreground">加载中…</p>
         </div>
       }
     >

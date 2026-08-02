@@ -128,9 +128,9 @@ interface ChatInterfaceProps {
 }
 
 const SUGGESTED_PROMPTS = [
-  "Survey recent papers on a topic",
-  "Design an experiment plan",
-  "Analyze workspace files",
+  "调研某个主题的最新论文",
+  "设计一份实验方案",
+  "分析工作区文件",
 ];
 
 interface UploadedWorkspaceFile {
@@ -822,7 +822,7 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
           } | null;
           if (!bindResponse.ok) {
             throw new Error(
-              bindData?.error || "Failed to bind the task workspace."
+              bindData?.error || "无法绑定任务工作区。"
             );
           }
           if (bindData?.binding?.workspace) {
@@ -844,17 +844,13 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
             error?: string;
           };
           if (!response.ok || !data.files) {
-            throw new Error(data.error || "Failed to upload files.");
+            throw new Error(data.error || "文件上传失败。");
           }
           setPendingFiles((currentFiles) => [...currentFiles, ...data.files!]);
-          toast.success(
-            `${data.files.length} file${
-              data.files.length === 1 ? "" : "s"
-            } uploaded to the workspace.`
-          );
+          toast.success(`已将 ${data.files.length} 个文件上传到工作区。`);
         } catch (error) {
           toast.error(
-            error instanceof Error ? error.message : "Failed to upload files."
+            error instanceof Error ? error.message : "文件上传失败。"
           );
         } finally {
           setIsUploadingFiles(false);
@@ -888,7 +884,7 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
         try {
           if (cmd.kind === "reset") {
             await setModelOverride(null);
-            toast.success("Model override cleared.");
+            toast.success("已恢复默认模型。");
           } else {
             const next: ModelOverride = {
               model: cmd.model,
@@ -896,16 +892,16 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
             };
             await setModelOverride(next);
             toast.success(
-              `Model set to ${cmd.model}${
+              `模型已切换为 ${cmd.model}${
                 cmd.provider ? ` (${cmd.provider})` : ""
-              }.`
+              }。`
             );
           }
         } catch (err) {
           toast.error(
             err instanceof Error
-              ? `Couldn't update model: ${err.message}`
-              : "Couldn't update model — try again."
+              ? `无法更新模型：${err.message}`
+              : "无法更新模型，请重试。"
           );
         }
       },
@@ -996,7 +992,7 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
         return [target, ...messages.filter((message) => message.id !== id)];
       });
       toast.info(
-        "This message will run next without interrupting the current turn."
+        "此消息将在当前轮次结束后优先发送。"
       );
     }, []);
 
@@ -1560,7 +1556,7 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
         >
           <DialogContent className="sm:max-w-md">
             <DialogHeader>
-              <DialogTitle>Enable Auto-approve?</DialogTitle>
+              <DialogTitle>启用自动批准？</DialogTitle>
               <DialogDescription>
                 金乌将在本次研究中自动执行工具操作，不再逐项请求确认。仅在你信任当前任务和部署环境时启用。
               </DialogDescription>
@@ -1571,9 +1567,8 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
                 aria-hidden="true"
               />
               <p>
-                Auto-approve stays on for this research only — it follows this
-                conversation across views and reloads, and other research keeps
-                its own setting. Turn it off here anytime.
+                自动批准仅对当前研究会话生效，并会在页面切换和重新加载后保留；
+                其他研究会话拥有独立设置。你可以随时在此关闭。
               </p>
             </div>
             <DialogFooter>
@@ -1581,13 +1576,13 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
                 variant="outline"
                 onClick={() => setAutoApproveDialogOpen(false)}
               >
-                Cancel
+                取消
               </Button>
               <Button
                 onClick={enableAutoApprove}
                 className="bg-amber-600 text-white hover:bg-amber-700"
               >
-                Enable Auto-approve
+                启用自动批准
               </Button>
             </DialogFooter>
           </DialogContent>
@@ -1644,16 +1639,16 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
         >
           <DialogContent className="sm:max-w-md">
             <DialogHeader>
-              <DialogTitle>Pick a model for this chat</DialogTitle>
+              <DialogTitle>选择当前会话使用的模型</DialogTitle>
               <DialogDescription>
-                The choice applies per-thread. Type{" "}
+                该选择仅对当前研究会话生效。如需使用列表外的模型名称，可在输入框中输入{" "}
                 <span className="font-mono text-xs">/model &lt;name&gt;</span>{" "}
-                in the composer to use a name not in the list.
+                。
               </DialogDescription>
             </DialogHeader>
             <div className="mt-2 space-y-2">
               <div className="text-xs text-muted-foreground">
-                Current:{" "}
+                当前模型：{" "}
                 <span className="font-mono">
                   {currentModel
                     ? `${currentModel.name}${
@@ -1661,10 +1656,10 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
                           ? ` (${currentModel.provider})`
                           : ""
                       }`
-                    : "deployment default"}
+                    : "部署默认值"}
                 </span>
                 {modelRegistryLoading && (
-                  <span className="ml-2 italic">loading registry…</span>
+                  <span className="ml-2 italic">正在加载模型列表…</span>
                 )}
               </div>
               {isFallbackModelList && (
@@ -1676,12 +1671,13 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
                     {"\u26A0"}
                   </span>
                   <span>
-                    Showing a curated subset — the deployment&rsquo;s
+                    当前显示精选模型列表——部署的
                     <span className="mx-1 font-mono">/api/models</span>
-                    registry didn&rsquo;t load
+                    模型注册表加载失败
                     {modelRegistryError ? ` (${modelRegistryError})` : ""}.
-                    Other short names still work via{" "}
-                    <span className="font-mono">/model &lt;name&gt;</span>.
+                    仍可通过{" "}
+                    <span className="font-mono">/model &lt;name&gt;</span>
+                    使用其他短名称。
                   </span>
                 </div>
               )}
@@ -1689,14 +1685,14 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
                 type="text"
                 value={modelSearch}
                 onChange={(e) => setModelSearch(e.target.value)}
-                placeholder="Filter by name or provider…"
+                placeholder="按名称或提供方筛选…"
                 autoFocus
                 className="w-full rounded-md border border-border bg-background px-3 py-1.5 font-mono text-sm placeholder:font-sans placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               />
               <ul className="max-h-72 space-y-1 overflow-y-auto pl-0">
                 {filteredPickerModels.length === 0 && (
                   <li className="px-3 py-2 text-xs text-muted-foreground">
-                    No models match &ldquo;{modelSearch}&rdquo;.
+                    没有匹配“{modelSearch}”的模型。
                   </li>
                 )}
                 {filteredPickerModels.map((m) => {
@@ -1712,9 +1708,9 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
                     <li key={`${m.model}|${m.model_provider ?? ""}`}>
                       <button
                         type="button"
-                        aria-label={`Select model ${m.model}${
-                          m.model_provider ? ` from ${m.model_provider}` : ""
-                        }${isDefault ? " (default)" : ""}`}
+                        aria-label={`选择模型 ${m.model}${
+                          m.model_provider ? `，提供方 ${m.model_provider}` : ""
+                        }${isDefault ? "（默认）" : ""}`}
                         onClick={async () => {
                           try {
                             await setModelOverride({
@@ -1724,16 +1720,16 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
                                 : {}),
                             });
                             toast.success(
-                              `Model set to ${m.model}${
+                              `模型已设置为 ${m.model}${
                                 m.model_provider ? ` (${m.model_provider})` : ""
-                              }.`
+                              }。`
                             );
                             setModelPickerOpen(false);
                           } catch (err) {
                             toast.error(
                               err instanceof Error
-                                ? `Couldn't update model: ${err.message}`
-                                : "Couldn't update model — try again."
+                                ? `更新模型失败：${err.message}`
+                                : "更新模型失败，请重试。"
                             );
                           }
                         }}
@@ -1746,7 +1742,7 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
                           {m.model}
                           {isDefault && (
                             <span className="ml-2 text-xs font-normal text-muted-foreground">
-                              · default
+                              · 默认
                             </span>
                           )}
                         </span>
@@ -1767,21 +1763,21 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
                 onClick={async () => {
                   try {
                     await setModelOverride(null);
-                    toast.success("Model override cleared.");
+                    toast.success("已恢复使用默认模型。");
                     setModelPickerOpen(false);
                   } catch (err) {
                     toast.error(
                       err instanceof Error
-                        ? `Couldn't clear override: ${err.message}`
-                        : "Couldn't clear override — try again."
+                        ? `恢复默认模型失败：${err.message}`
+                        : "恢复默认模型失败，请重试。"
                     );
                   }
                 }}
                 disabled={!modelOverride}
               >
-                Reset to default
+                恢复默认
               </Button>
-              <Button onClick={() => setModelPickerOpen(false)}>Close</Button>
+              <Button onClick={() => setModelPickerOpen(false)}>关闭</Button>
             </DialogFooter>
           </DialogContent>
         </Dialog>
@@ -1795,7 +1791,7 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
           >
             {isThreadLoading ? (
               <div className="flex items-center justify-center p-8">
-                <p className="text-muted-foreground">Loading…</p>
+                <p className="text-muted-foreground">加载中…</p>
               </div>
             ) : (
               <>
@@ -1954,7 +1950,7 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
         <div className="flex-shrink-0 bg-transparent">
           {queuedMessages.length > 0 && (
             <div
-              aria-label="Queued messages"
+              aria-label="排队消息"
               className="relative mx-auto -mb-4 w-[calc(100%-16px)] max-w-[960px] px-2 sm:w-[calc(100%-24px)]"
             >
               <div className="rounded-b-lg rounded-t-2xl border border-border bg-background pb-5 pt-1 shadow-sm">
@@ -1995,10 +1991,10 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
                             moveQueuedMessage(q.id, 1);
                           }
                         }}
-                        aria-label={`Reorder queued message ${index + 1} of ${
+                        aria-label={`调整第 ${index + 1} 条排队消息的顺序，共 ${
                           queuedMessages.length
-                        }`}
-                        title="Drag to reorder, or use the arrow keys"
+                        } 条`}
+                        title="拖动调整顺序，或使用方向键"
                         className="mt-0.5 inline-flex size-5 shrink-0 cursor-grab items-center justify-center rounded text-muted-foreground/60 focus-visible:ring-2 focus-visible:ring-ring active:cursor-grabbing"
                       >
                         <GripVertical
@@ -2020,8 +2016,7 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
                               className="size-3 shrink-0"
                               aria-hidden="true"
                             />
-                            {q.files.length} file
-                            {q.files.length === 1 ? "" : "s"}
+                            {q.files.length} 个文件
                           </span>
                         )}
                       </div>
@@ -2029,21 +2024,21 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
                         <button
                           type="button"
                           onClick={() => steerQueuedMessage(q.id)}
-                          aria-label="Steer with this message next"
-                          title="Submit next without interrupting the current turn"
+                          aria-label="将此消息设为下一条优先发送"
+                          title="不中断当前轮次，并在下一轮优先发送"
                           className="inline-flex h-7 items-center gap-1 rounded-full px-2 text-xs font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
                         >
                           <CornerDownRight
                             className="size-3.5"
                             aria-hidden="true"
                           />
-                          <span className="hidden sm:inline">Steer</span>
+                          <span className="hidden sm:inline">优先发送</span>
                         </button>
                         <button
                           type="button"
                           onClick={() => removeQueuedMessage(q.id)}
-                          aria-label="Remove queued message"
-                          title="Remove from queue"
+                          aria-label="移除排队消息"
+                          title="从队列中移除"
                           className="inline-flex size-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
                         >
                           <Trash2
@@ -2070,8 +2065,8 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
                           }}
                         >
                           <summary
-                            aria-label="More queued message actions"
-                            title="More actions"
+                            aria-label="更多排队消息操作"
+                            title="更多操作"
                             className="inline-flex size-7 cursor-pointer list-none items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring [&::-webkit-details-marker]:hidden"
                           >
                             <Ellipsis
@@ -2090,7 +2085,7 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
                                 className="size-4"
                                 aria-hidden="true"
                               />
-                              Edit message
+                              编辑消息
                             </button>
                             <button
                               type="button"
@@ -2101,7 +2096,7 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
                                 className="size-4"
                                 aria-hidden="true"
                               />
-                              Close queue
+                              清空队列
                             </button>
                           </div>
                         </details>
@@ -2157,7 +2152,7 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
                                     key="label"
                                     className="ml-[1px] min-w-0 truncate text-sm"
                                   >
-                                    All tasks completed
+                                    所有任务已完成
                                   </span>,
                                 ];
                               }
@@ -2171,9 +2166,9 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
                                     key="label"
                                     className="ml-[1px] min-w-0 truncate text-sm"
                                   >
-                                    Task{" "}
+                                    任务{" "}
                                     {totalTasks - groupedTodos.pending.length}{" "}
-                                    of {totalTasks}
+                                    / {totalTasks}
                                   </span>,
                                   <span
                                     key="content"
@@ -2194,8 +2189,8 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
                                   key="label"
                                   className="ml-[1px] min-w-0 truncate text-sm"
                                 >
-                                  Task{" "}
-                                  {totalTasks - groupedTodos.pending.length} of{" "}
+                                  任务{" "}
+                                  {totalTasks - groupedTodos.pending.length} /{" "}
                                   {totalTasks}
                                 </span>,
                               ];
@@ -2218,7 +2213,7 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
                             aria-expanded={metaOpen === "files"}
                           >
                             <FileIcon size={16} />
-                            Files (State)
+                            文件（状态）
                             <span className="h-4 min-w-4 rounded-full bg-[var(--brand-solid)] px-0.5 text-center text-[10px] leading-[16px] text-[var(--brand-foreground)]">
                               {Object.keys(files).length}
                             </span>
@@ -2252,7 +2247,7 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
                           }
                           aria-expanded={metaOpen === "tasks"}
                         >
-                          Tasks
+                          任务
                         </button>
                       )}
                       {hasFiles && (
@@ -2266,14 +2261,14 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
                           }
                           aria-expanded={metaOpen === "files"}
                         >
-                          Files (State)
+                          文件（状态）
                           <span className="h-4 min-w-4 rounded-full bg-[var(--brand-solid)] px-0.5 text-center text-[10px] leading-[16px] text-[var(--brand-foreground)]">
                             {Object.keys(files).length}
                           </span>
                         </button>
                       )}
                       <button
-                        aria-label="Close"
+                        aria-label="关闭"
                         className="flex-1"
                         onClick={() => setMetaOpen(null)}
                       />
@@ -2293,9 +2288,9 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
                               <h3 className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-tertiary">
                                 {
                                   {
-                                    pending: "Pending",
-                                    in_progress: "In Progress",
-                                    completed: "Completed",
+                                    pending: "待处理",
+                                    in_progress: "进行中",
+                                    completed: "已完成",
                                   }[status]
                                 }
                               </h3>
@@ -2340,14 +2335,14 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
                     className="size-3.5 shrink-0"
                     aria-hidden="true"
                   />
-                  Tool actions will run without review.
+                  工具操作将不经审批直接运行。
                 </span>
                 <button
                   type="button"
                   onClick={turnOffAutoApprove}
                   className="shrink-0 rounded px-2 py-1 font-semibold transition-colors hover:bg-amber-200 focus-visible:ring-2 focus-visible:ring-amber-700 dark:hover:bg-amber-900"
                 >
-                  Turn Off
+                  关闭
                 </button>
               </div>
             )}
@@ -2356,19 +2351,15 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
                 <button
                   type="button"
                   onClick={onShowAgents}
-                  title={`${runningAgents} background agent${
-                    runningAgents === 1 ? "" : "s"
-                  } running — click to view`}
-                  aria-label={`${runningAgents} background agent${
-                    runningAgents === 1 ? "" : "s"
-                  } running — view`}
+                  title={`${runningAgents} 个后台 Agent 正在运行，点击查看`}
+                  aria-label={`查看 ${runningAgents} 个正在运行的后台 Agent`}
                   className="ml-auto flex shrink-0 items-center gap-1.5 rounded px-1.5 py-0.5 font-medium text-[var(--brand)] transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 >
                   <span
                     className="size-2 animate-pulse rounded-full bg-[var(--color-warning)]"
                     aria-hidden="true"
                   />
-                  {runningAgents} agent{runningAgents === 1 ? "" : "s"}
+                  {runningAgents} 个 Agent
                 </button>
               </div>
             )}
@@ -2378,7 +2369,7 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
             >
               {pendingFiles.length > 0 && (
                 <div
-                  aria-label="Attached files"
+                  aria-label="已附加文件"
                   className="flex flex-wrap gap-2 border-b border-border px-3 py-2"
                 >
                   {pendingFiles.map((file) => (
@@ -2399,8 +2390,8 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
                       <button
                         type="button"
                         onClick={() => removePendingFile(file.path)}
-                        aria-label={`Remove ${file.name} from this message`}
-                        title={`Remove ${file.name} from this message`}
+                        aria-label={`从此消息中移除 ${file.name}`}
+                        title={`从此消息中移除 ${file.name}`}
                         className="rounded-sm text-muted-foreground transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
                       >
                         <X
@@ -2433,13 +2424,13 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
                 onKeyDown={handleKeyDown}
-                aria-label="Message"
+                aria-label="消息"
                 disabled={hasPendingInterrupt}
                 placeholder={
                   hasPendingInterrupt
-                    ? "Respond to the request above to continue…"
+                    ? "请先响应上方请求以继续…"
                     : isLoading
-                    ? "Queue a follow-up — sends when this turn finishes…"
+                    ? "输入后续消息，将在当前轮次完成后发送…"
                     : "向金乌提问……"
                 }
                 className="font-inherit min-h-16 max-h-[45vh] w-full flex-none resize-none overflow-y-auto border-0 bg-transparent px-3.5 pb-2.5 pt-3 text-sm leading-6 text-primary outline-none placeholder:text-tertiary disabled:cursor-not-allowed sm:px-4"
@@ -2464,8 +2455,8 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
                     disabled={
                       !assistant || hasPendingInterrupt || isUploadingFiles
                     }
-                    aria-label="Upload files to workspace"
-                    title="Upload files to workspace (max 50 MB each)"
+                    aria-label="上传文件到工作区"
+                    title="上传文件到工作区（单个文件最大 50 MB）"
                     className="inline-flex size-8 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
                   >
                     <Paperclip
@@ -2477,8 +2468,8 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
                     <button
                       type="button"
                       onClick={() => setModelPickerOpen(true)}
-                      title="Click to change model for this chat"
-                      aria-label="Change model for this chat"
+                      title="点击更改当前会话的模型"
+                      aria-label="更改当前会话的模型"
                       className="inline-flex min-w-0 max-w-[min(14rem,38vw)] items-center gap-1.5 rounded-md px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                     >
                       <Sparkles
@@ -2503,7 +2494,7 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
                         : setAutoApproveDialogOpen(true)
                     }
                     aria-pressed={autoApprove}
-                    title="Auto-approve all tool actions in this conversation"
+                    title="自动批准当前会话中的所有工具操作"
                     className={cn(
                       "inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium transition-colors",
                       autoApprove
@@ -2516,7 +2507,7 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
                       aria-hidden="true"
                     />
                     <span className="hidden min-[360px]:inline">
-                      {autoApprove ? "Auto-approve On" : "Auto-approve"}
+                      {autoApprove ? "自动批准：开" : "自动批准"}
                     </span>
                   </button>
                   {onNavigate && workspaceDir && (
@@ -2524,11 +2515,11 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
                       type="button"
                       onClick={() => onNavigate({ view: "workspace" })}
                       title={`${
-                        workspaceOpen ? "Close" : "Open"
-                      } workspace: ${workspaceDir}`}
+                        workspaceOpen ? "关闭" : "打开"
+                      }工作区：${workspaceDir}`}
                       aria-label={`${
-                        workspaceOpen ? "Close" : "Open"
-                      } workspace: ${workspaceDir}`}
+                        workspaceOpen ? "关闭" : "打开"
+                      }工作区：${workspaceDir}`}
                       aria-pressed={Boolean(workspaceOpen)}
                       className="inline-flex min-w-0 items-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
                     >
@@ -2555,26 +2546,26 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
                     }
                     aria-label={
                       isStopping
-                        ? "Stopping generation"
+                        ? "正在停止生成"
                         : isLoading
-                        ? "Stop generating"
-                        : "Send message"
+                        ? "停止生成"
+                        : "发送消息"
                     }
                   >
                     {isStopping ? (
                       <>
                         <Square size={14} />
-                        <span className="hidden sm:inline">Stopping…</span>
+                        <span className="hidden sm:inline">正在停止…</span>
                       </>
                     ) : isLoading ? (
                       <>
                         <Square size={14} />
-                        <span className="hidden sm:inline">Stop</span>
+                        <span className="hidden sm:inline">停止</span>
                       </>
                     ) : (
                       <>
                         <ArrowUp size={18} />
-                        <span className="hidden sm:inline">Send</span>
+                        <span className="hidden sm:inline">发送</span>
                       </>
                     )}
                   </Button>

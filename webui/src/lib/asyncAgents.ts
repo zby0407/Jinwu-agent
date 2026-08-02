@@ -178,16 +178,16 @@ export const ASYNC_STATUS_META: Record<
   AsyncAgentStatus,
   { dot: string; label: string; pulse: boolean }
 > = {
-  running: { dot: "bg-[var(--color-warning)]", label: "Running", pulse: true },
-  success: { dot: "bg-[var(--color-success)]", label: "Done", pulse: false },
-  error: { dot: "bg-[var(--color-error)]", label: "Error", pulse: false },
+  running: { dot: "bg-[var(--color-warning)]", label: "运行中", pulse: true },
+  success: { dot: "bg-[var(--color-success)]", label: "已完成", pulse: false },
+  error: { dot: "bg-[var(--color-error)]", label: "错误", pulse: false },
   cancelled: {
     dot: "bg-muted-foreground",
-    label: "Cancelled",
+    label: "已取消",
     pulse: false,
   },
-  expired: { dot: "bg-muted-foreground", label: "Expired", pulse: false },
-  unknown: { dot: "bg-muted-foreground", label: "Unknown", pulse: false },
+  expired: { dot: "bg-muted-foreground", label: "已失效", pulse: false },
+  unknown: { dot: "bg-muted-foreground", label: "未知", pulse: false },
 };
 
 /** Read + validate the `async_tasks` map from a thread state's `values`. */

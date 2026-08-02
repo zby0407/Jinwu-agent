@@ -164,11 +164,11 @@ export function nodeColor(memory_type: string): string {
 export function relationLabel(relation: string): string {
   switch (relation) {
     case "complements":
-      return "Complements";
+      return "补充";
     case "contradicts":
-      return "Contradicts";
+      return "矛盾";
     case "supersedes":
-      return "Supersedes";
+      return "取代";
     default:
       return relation;
   }

@@ -98,11 +98,11 @@ export function MemoryPanel({
       const data = await res.json().catch(() => ({}));
       if (reqId !== obsReqRef.current) return;
       if (!res.ok)
-        throw new Error((data as { error?: string }).error || "Failed.");
+        throw new Error((data as { error?: string }).error || "加载失败。" );
       setObsData(data as ObsGraphData);
     } catch (e) {
       if (reqId !== obsReqRef.current) return;
-      setObsError(e instanceof Error ? e.message : "Failed to load.");
+      setObsError(e instanceof Error ? e.message : "加载失败。" );
     } finally {
       if (reqId === obsReqRef.current) setObsLoading(false);
     }
@@ -117,11 +117,11 @@ export function MemoryPanel({
       const data = await res.json().catch(() => ({}));
       if (reqId !== execReqRef.current) return;
       if (!res.ok)
-        throw new Error((data as { error?: string }).error || "Failed.");
+        throw new Error((data as { error?: string }).error || "加载失败。" );
       setExecData(data as { entries: ExecEntryClient[]; truncated: boolean });
     } catch (e) {
       if (reqId !== execReqRef.current) return;
-      setExecError(e instanceof Error ? e.message : "Failed to load.");
+      setExecError(e instanceof Error ? e.message : "加载失败。" );
     } finally {
       if (reqId === execReqRef.current) setExecLoading(false);
     }
@@ -188,9 +188,9 @@ export function MemoryPanel({
   }, [execData, obsData]);
 
   const TABS = [
-    { id: "identity" as const, label: "Identity", Icon: Fingerprint },
+    { id: "identity" as const, label: "身份记忆", Icon: Fingerprint },
     { id: "knowledge" as const, label: "记忆图谱", Icon: Network },
-    { id: "history" as const, label: "History", Icon: History },
+    { id: "history" as const, label: "历史记录", Icon: History },
   ];
 
   const handleTabClick = (id: MemoryTab) => {
@@ -209,12 +209,7 @@ export function MemoryPanel({
         <div className="min-w-0">
           <h2 className="text-xl font-semibold sm:text-2xl">金乌记忆</h2>
           <p className="mt-1 text-sm leading-6 text-muted-foreground">
-            金乌的{" "}
-            <span className="font-medium text-[var(--brand)]">
-              self-evolving memory system
-            </span>{" "}
-            — continuously learns and refines what it knows about you, your
-            research taste, and lessons from past experiments.
+            金乌的自演化记忆系统会持续学习并完善对你、你的研究偏好以及过往实验经验的理解。
           </p>
         </div>
         <button
@@ -233,8 +228,8 @@ export function MemoryPanel({
               ? obsLoading
               : listingLoading
           }
-          aria-label="Refresh"
-          title="Refresh"
+          aria-label="刷新"
+          title="刷新"
           className="mt-0.5 flex-shrink-0 rounded-md p-2 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
         >
           <RefreshCw
@@ -253,7 +248,7 @@ export function MemoryPanel({
       <div
         className="grid flex-shrink-0 grid-cols-3 gap-1 border-b border-border px-2 pt-1 sm:flex sm:items-center sm:px-3"
         role="tablist"
-        aria-label="Memory views"
+        aria-label="记忆视图"
       >
         {TABS.map(({ id, label, Icon }) => (
           <button

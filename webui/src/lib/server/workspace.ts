@@ -193,14 +193,14 @@ export async function getBaseWorkspaceDir(): Promise<string> {
   workspace ||= process.env.JW_WORKSPACE_DIR || process.env.agent_WORKSPACE_DIR;
   if (!workspace) {
     throw new Error(
-      "No active 金乌 workspace found. Start the backend with `jw deploy` first."
+      "未找到正在使用的金乌工作区。请先使用 `jw deploy` 启动后端。"
     );
   }
 
   const resolved = resolve(workspace);
   const stat = await fs.stat(resolved);
   if (!stat.isDirectory()) {
-    throw new Error("The active 金乌 workspace is not a directory.");
+    throw new Error("正在使用的金乌工作区不是目录。" );
   }
   // Canonicalize so every containment check compares against the *real* root —
   // the workspace (or a parent) may itself live under a symlink (e.g. macOS
@@ -262,7 +262,7 @@ export async function ensureThreadWorkspace(
   projectId = "default"
 ): Promise<WorkspaceBinding> {
   if (!threadId.trim() || hasControlChar(threadId)) {
-    throw new Error("A valid task thread is required.");
+    throw new Error("需要有效的任务会话。" );
   }
   const base = await getBaseWorkspaceDir();
   const existing = await getWorkspaceBinding(threadId, base);
@@ -347,30 +347,30 @@ export async function getWorkspaceDir(
   threadId?: string | null
 ): Promise<string> {
   if (!threadId?.trim()) {
-    throw new Error("No task selected. Start or open a research task first.");
+    throw new Error("尚未选择任务。请先开始或打开一个研究会话。" );
   }
   const activeBase = await getBaseWorkspaceDir();
   const binding = await getWorkspaceBinding(threadId, activeBase);
   if (!binding) {
     throw new Error(
-      "This task workspace is not bound yet. Send the first message or upload an input first."
+      "此任务尚未绑定工作区。请先发送第一条消息或上传输入文件。"
     );
   }
   const boundBase = await fs.realpath(resolve(binding.base_workspace));
   if (boundBase !== activeBase) {
     throw new Error(
-      "This task belongs to a different active project workspace."
+      "此任务属于另一个正在使用的项目工作区。"
     );
   }
   const workspace = await fs.realpath(resolve(binding.workspace));
   if (workspace !== activeBase && !workspace.startsWith(activeBase + sep)) {
     throw new Error(
-      "The task workspace binding is outside the active project."
+      "任务绑定的工作区位于当前项目之外。"
     );
   }
   const stat = await fs.stat(workspace);
   if (!stat.isDirectory()) {
-    throw new Error("The task workspace is not a directory.");
+    throw new Error("任务工作区不是目录。" );
   }
   return workspace;
 }
@@ -397,7 +397,7 @@ export async function resetGeneratedWorkspace(
     if (protectedEntries.has(entry.name)) continue;
     const target = resolve(workspace, entry.name);
     if (target === workspace || !target.startsWith(workspace + sep)) {
-      throw new Error("Refusing to reset a path outside the task workspace.");
+      throw new Error("无法重置任务工作区之外的路径。" );
     }
     // rm removes a symlink itself rather than following it. The workspace path
     // above is already canonical and containment-checked by getWorkspaceDir.
@@ -421,7 +421,7 @@ export async function resetGeneratedWorkspace(
  */
 export function resolveInside(workspaceDir: string, relPath: string): string {
   if (hasControlChar(relPath)) {
-    throw new Error("Invalid path.");
+    throw new Error("路径无效。" );
   }
   // Normalize separators and strip any leading slashes so the path is always
   // interpreted relative to the workspace root.
@@ -431,12 +431,12 @@ export function resolveInside(workspaceDir: string, relPath: string): string {
   // just unlisted — so a crafted `?path=.langgraph_api` or `?path=large_tool_results`
   // can't read them. `..` is also caught here (and by the boundary check below).
   if (cleaned.split("/").some((seg) => seg !== "" && isHiddenEntry(seg))) {
-    throw new Error("Path is not accessible.");
+    throw new Error("无法访问该路径。" );
   }
   const target = resolve(workspaceDir, cleaned);
   // Must be the workspace dir itself or strictly within it.
   if (target !== workspaceDir && !target.startsWith(workspaceDir + sep)) {
-    throw new Error("Path is outside the workspace.");
+    throw new Error("路径位于工作区之外。" );
   }
   return target;
 }
@@ -462,13 +462,13 @@ export async function safeResolve(
     realTarget = await fs.realpath(target);
   } catch {
     // Missing file or a broken/looping symlink — treat as inaccessible.
-    throw new Error("Path is not accessible.");
+    throw new Error("无法访问该路径。" );
   }
   if (
     realTarget !== workspaceDir &&
     !realTarget.startsWith(workspaceDir + sep)
   ) {
-    throw new Error("Path is not accessible.");
+    throw new Error("无法访问该路径。" );
   }
   // A symlink could point at a hidden/internal entry that lives inside the
   // workspace (e.g. `foo -> .langgraph_api`); re-check the canonical segments.
@@ -477,7 +477,7 @@ export async function safeResolve(
     realRel &&
     realRel.split(sep).some((seg) => seg !== "" && isHiddenEntry(seg))
   ) {
-    throw new Error("Path is not accessible.");
+    throw new Error("无法访问该路径。" );
   }
   return realTarget;
 }
@@ -579,13 +579,13 @@ async function assertParentInside(
   try {
     realParent = await fs.realpath(dirname(target));
   } catch {
-    throw new Error("Path is not accessible.");
+    throw new Error("无法访问该路径。" );
   }
   if (
     realParent !== workspaceDir &&
     !realParent.startsWith(workspaceDir + sep)
   ) {
-    throw new Error("Path is not accessible.");
+    throw new Error("无法访问该路径。" );
   }
 }
 
@@ -609,13 +609,13 @@ export async function writeWorkspaceFile(
   relPath: string,
   content: string
 ): Promise<{ path: string; size: number; mtime: number }> {
-  if (typeof content !== "string") throw new Error("Content must be a string.");
+  if (typeof content !== "string") throw new Error("内容必须是字符串。" );
   if (Buffer.byteLength(content, "utf-8") > MAX_WORKSPACE_WRITE_BYTES) {
-    throw new Error("This file is too large to save.");
+    throw new Error("文件过大，无法保存。" );
   }
   const name = relPath.replaceAll("\\", "/").split("/").pop() || relPath;
   if (!isEditableTextFile(name)) {
-    throw new Error("Only text/code files can be edited.");
+    throw new Error("只能编辑文本或代码文件。" );
   }
   // Never edit *through* a final-component symlink: a planted `note.py ->
   // secret.bin` would otherwise let an editable-looking name overwrite a
@@ -626,10 +626,10 @@ export async function writeWorkspaceFile(
   try {
     linkStat = await fs.lstat(lexical);
   } catch {
-    throw new Error("Only files can be edited.");
+    throw new Error("只能编辑文件。" );
   }
   if (linkStat.isSymbolicLink()) {
-    throw new Error("Editing symlinks is not allowed.");
+    throw new Error("不允许编辑符号链接。" );
   }
   // safeResolve canonicalizes + requires existence, so editing is overwrite-only
   // and a symlink can't redirect the write outside the workspace.
@@ -637,10 +637,10 @@ export async function writeWorkspaceFile(
   // Validate the RESOLVED target's extension too (defends against a parent
   // symlink redirecting the basename), not just the requested name.
   if (!isEditableTextFile(basename(target))) {
-    throw new Error("Only text/code files can be edited.");
+    throw new Error("只能编辑文本或代码文件。" );
   }
   const st = await fs.stat(target);
-  if (!st.isFile()) throw new Error("Only files can be edited.");
+  if (!st.isFile()) throw new Error("只能编辑文件。" );
 
   const tmp = `${target}.${randomUUID()}.tmp`;
   try {
@@ -676,7 +676,7 @@ export async function deleteWorkspaceFile(
   await safeResolve(workspaceDir, relPath);
   const lexical = resolveInside(workspaceDir, relPath);
   const st = await fs.lstat(lexical);
-  if (st.isDirectory()) throw new Error("Only files can be deleted.");
+  if (st.isDirectory()) throw new Error("只能删除文件。" );
   // Re-verify the parent is still inside the workspace just before unlinking, to
   // narrow the TOCTOU window after safeResolve (see assertParentInside).
   await assertParentInside(workspaceDir, lexical);

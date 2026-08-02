@@ -21,7 +21,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json(
       {
         error:
-          error instanceof Error ? error.message : "Failed to load executions.",
+        error instanceof Error ? error.message : "加载执行记录失败。",
       },
       { status: 400, headers: NO_STORE_HEADERS }
     );

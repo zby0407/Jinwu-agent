@@ -26,7 +26,7 @@ export async function GET(request: NextRequest) {
         error:
           error instanceof Error
             ? error.message
-            : "Failed to load observations.",
+          : "加载观察记录失败。",
       },
       { status: 400, headers: NO_STORE_HEADERS }
     );

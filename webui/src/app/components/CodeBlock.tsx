@@ -34,7 +34,7 @@ export const CodeBlock = React.memo<CodeBlockProps>(({ language, value }) => {
       if (copyResetTimer.current) clearTimeout(copyResetTimer.current);
       copyResetTimer.current = setTimeout(() => setCopied(false), 2000);
     } else {
-      toast.error("Couldn't copy to clipboard.");
+      toast.error("无法复制到剪贴板。" );
     }
   }, [value]);
 
@@ -43,7 +43,7 @@ export const CodeBlock = React.memo<CodeBlockProps>(({ language, value }) => {
       <button
         type="button"
         onClick={handleCopy}
-        aria-label={copied ? "Copied" : "Copy code"}
+        aria-label={copied ? "已复制" : "复制代码"}
         className="absolute right-2 top-2 z-10 rounded-md border border-border bg-[var(--color-surface)] p-1.5 text-[var(--color-text-tertiary)] opacity-0 backdrop-blur-sm transition-opacity hover:text-[var(--color-text-primary)] focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-ring group-hover:opacity-100"
       >
         {copied ? (
