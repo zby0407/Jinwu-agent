@@ -193,6 +193,7 @@ class RequestContractTests(unittest.TestCase):
         )
         self.assertEqual(request["schema_version"], REQUEST_VERSION)
         self.assertEqual(request["upstream_materials"], [])
+        self.assertEqual(request["max_candidates"], 3)
         self.assertTrue(request["task_name"].startswith("hypothesis_"))
 
     def test_rejects_short_question(self):

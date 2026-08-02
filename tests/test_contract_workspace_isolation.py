@@ -109,6 +109,9 @@ def test_hypothesis_state_and_freeze_root_are_task_scoped(
         return {"status": "frozen_and_valid"}
 
     monkeypatch.setattr(hypothesis_tools, "freeze_hypothesis_portfolio", fake_freeze)
+    monkeypatch.setattr(
+        hypothesis_tools, "_draft_warnings", lambda _state, _request: []
+    )
     outcome = json.loads(
         hypothesis_tools.scientific_hypothesis_freeze.invoke({}, config=config_a)
     )

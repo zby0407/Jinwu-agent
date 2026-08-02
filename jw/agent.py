@@ -60,7 +60,7 @@ SKILLS_DIR = str(Path(__file__).parent / "subagents")
 DEFAULT_SKILL_SOURCES = ("/skills/",)
 
 
-def _positive_call_limit(value: object, fallback: int) -> int | None:
+def _positive_call_limit(value: object, fallback: int | None) -> int | None:
     """Normalize a configured call budget; zero disables the limit."""
     if isinstance(value, bool):
         return fallback
@@ -69,13 +69,28 @@ def _positive_call_limit(value: object, fallback: int) -> int | None:
     return fallback
 
 
-def _call_limit_middleware(cfg, *, subagent: bool) -> list[AgentMiddleware]:
+def _call_limit_middleware(
+    cfg,
+    *,
+    subagent: bool,
+    model_limit_override: int | None = None,
+) -> list[AgentMiddleware]:
     """Build LangChain's stateful loop guards from JW configuration."""
     if subagent:
         model_limit = _positive_call_limit(
-            getattr(cfg, "subagent_model_call_limit", None),
+            (
+                model_limit_override
+                if model_limit_override is not None
+                else getattr(cfg, "subagent_model_call_limit", None)
+            ),
             DEFAULT_SUBAGENT_MODEL_CALL_LIMIT,
         )
+        hard_model_limit = _positive_call_limit(
+            getattr(cfg, "subagent_model_call_hard_limit", None),
+            None,
+        )
+        if model_limit is not None and hard_model_limit is not None:
+            model_limit = min(model_limit, hard_model_limit)
         tool_limit = _positive_call_limit(
             getattr(cfg, "subagent_tool_call_limit", None),
             DEFAULT_SUBAGENT_TOOL_CALL_LIMIT,
@@ -410,6 +425,7 @@ def _inject_subagent_middleware(
     memory_scheduler = default_memory_scheduler()
     for sa in subs:
         name = str(sa.get("name") or "sub-agent")
+        model_call_limit = sa.pop("_model_call_limit", None)
         source_type = MemorySourceType.SUBAGENT
         memory_middleware = create_memory_middleware(
             memory_dir,
@@ -425,7 +441,11 @@ def _inject_subagent_middleware(
         )
         middleware = [
             TaskCancellationMiddleware(),
-            *_call_limit_middleware(cfg, subagent=True),
+            *_call_limit_middleware(
+                cfg,
+                subagent=True,
+                model_limit_override=model_call_limit,
+            ),
             # Subagents share the main agent's model: use the threaded
             # ``chat_model`` on the pure path, else defer to the factory's
             # ``_ensure_chat_model()`` fallback (when ``chat_model=None``).
@@ -925,6 +945,7 @@ def _get_default_middleware(
     backend_factory=None,
     skills_backend=None,
     skill_sources: list[str] | None = None,
+    model_call_limit_override: int | None = None,
 ):
     """Build the default middleware list.
 
@@ -1021,7 +1042,11 @@ def _get_default_middleware(
             tool_selector_model = get_chat_model(model=aux_model, provider=aux_provider)
     mw = [
         TaskWorkspaceMiddleware(workspace_dir, backend_factory=backend_factory),
-        *_call_limit_middleware(cfg, subagent=for_async_subagent),
+        *_call_limit_middleware(
+            cfg,
+            subagent=for_async_subagent,
+            model_limit_override=model_call_limit_override,
+        ),
     ]
     if skills_backend is not None and skill_sources:
         # DeepAgents normally prepends SkillsMiddleware ahead of every custom

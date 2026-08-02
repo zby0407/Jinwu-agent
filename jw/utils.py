@@ -309,6 +309,20 @@ def load_subagents(
             raise ValueError(f"Subagent {name!r}: 'restrict_tools' must be a boolean")
         subagent["_restrict_tools"] = restrict_tools
 
+        model_call_limit = spec.get("model_call_limit")
+        if model_call_limit is not None:
+            if (
+                isinstance(model_call_limit, bool)
+                or not isinstance(model_call_limit, int)
+                or model_call_limit <= 0
+            ):
+                raise ValueError(
+                    f"Subagent {name!r}: 'model_call_limit' must be a positive integer"
+                )
+            # Internal field consumed by the sync/async middleware builders.
+            # It must never reach DeepAgents' subagent schema.
+            subagent["_model_call_limit"] = model_call_limit
+
         # Internal field: carries the ``async:`` yaml flag through to
         # ``_maybe_swap_async_subagents`` so the swap doesn't need a second
         # yaml pass to discover async-flagged agents. Underscore prefix marks
