@@ -132,6 +132,75 @@ def load_polar_monthly(path: Path) -> pd.DataFrame:
     return df
 
 
+def _select_consistent_polar_epoch(
+    window: pd.DataFrame,
+) -> tuple[pd.DataFrame, dict[str, int | str | bool]]:
+    """Select one instrument/unit definition without averaging incompatible rows.
+
+    A cycle-minimum window can straddle an instrument transition.  The epoch
+    with the greatest distinct-month coverage is selected deterministically;
+    all provenance and exclusion counts are retained in the feature row.
+    """
+    provenance: dict[str, int | str | bool] = {
+        "polar_instrument_epoch": "none",
+        "polar_signal_unit": "none",
+        "polar_signal_definition": "none",
+        "polar_epoch_selection": "no_data",
+        "polar_n_epochs_window": 0,
+        "polar_window_rows_total": len(window),
+        "polar_window_rows_used": 0,
+        "polar_excluded_mixed_rows": 0,
+        "polar_epoch_mixed_window": False,
+        "polar_value_comparability": "within_epoch_only",
+    }
+    if window.empty:
+        return window, provenance
+
+    frame = window.copy()
+    metadata_cols = ["instrument_epoch", "signal_unit", "signal_definition"]
+    for column in metadata_cols:
+        if column not in frame.columns:
+            frame[column] = "unknown"
+        frame[column] = frame[column].fillna("unknown").astype(str)
+
+    coverage = (
+        frame.groupby(metadata_cols, dropna=False)
+        .agg(
+            distinct_months=("date", lambda values: values.dt.to_period("M").nunique()),
+            rows=("date", "size"),
+        )
+        .reset_index()
+        .sort_values(
+            ["distinct_months", "rows", *metadata_cols],
+            ascending=[False, False, True, True, True],
+            kind="stable",
+        )
+    )
+    selected = coverage.iloc[0]
+    mask = pd.Series(True, index=frame.index)
+    for column in metadata_cols:
+        mask &= frame[column] == selected[column]
+    filtered = frame[mask].copy()
+
+    n_epochs = len(coverage)
+    excluded = int(len(frame) - len(filtered))
+    provenance.update(
+        {
+            "polar_instrument_epoch": str(selected["instrument_epoch"]),
+            "polar_signal_unit": str(selected["signal_unit"]),
+            "polar_signal_definition": str(selected["signal_definition"]),
+            "polar_epoch_selection": (
+                "dominant_month_coverage" if n_epochs > 1 else "single_epoch"
+            ),
+            "polar_n_epochs_window": n_epochs,
+            "polar_window_rows_used": len(filtered),
+            "polar_excluded_mixed_rows": excluded,
+            "polar_epoch_mixed_window": n_epochs > 1,
+        }
+    )
+    return filtered, provenance
+
+
 def _polar_proxy_in_window(
     polar: pd.DataFrame,
     minimum_date: pd.Timestamp,
@@ -148,8 +217,9 @@ def _polar_proxy_in_window(
     start = minimum_date - pd.DateOffset(months=window_months)
     end = minimum_date + pd.DateOffset(months=window_months)
     window = polar[(polar["date"] >= start) & (polar["date"] <= end)]
+    window, provenance = _select_consistent_polar_epoch(window)
 
-    result: dict[str, float | int | str] = {}
+    result: dict[str, float | int | str | bool] = dict(provenance)
     for hemi, label in [("N", "n"), ("S", "s")]:
         sub = window[window["hemisphere"] == hemi]
         n_months = int(sub["date"].dt.to_period("M").nunique())

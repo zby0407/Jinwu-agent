@@ -18,6 +18,15 @@ related_ids: [kb_data_source_huairou_smft_polar_1987_2001]
 - `data/huairou_polar_precursor_2002_2017_monthly.csv`：108 行
 - 实际覆盖 2002–2009、2015–2017；2010–2014 无有效本地极区记录
 
+与 1987–2001 产品合并后的档案和特征表为：
+
+- `data/huairou_polar_precursor_1987_2017_daily.csv`：1483 行
+- `data/huairou_polar_precursor_1987_2017_monthly.csv`：342 行
+- `features/cycle_features_1987_2017.csv`：24 个太阳活动周、29 列
+- `features/cycle_features.csv`：同步更新的规范特征表
+
+特征窗口若跨越仪器或单位转换，不直接平均。构建器选择有效月份覆盖最多的单一 `instrument_epoch + signal_unit + signal_definition`，并记录选择策略、窗口年代数和被排除行数。周期 24 因此使用 2002–2008 PULNIX-16 的 5 个有效月份，排除 3 行 2009 标定 V/I。所有极区代理仍标记为 `within_epoch_only`，不同活动周采用不同仪器年代时不得直接解释绝对幅值差异。
+
 运行参数为：2002–2008 使用南北条带 100 行和中心 320×240 参考区；2009、2015–2017 使用 `calibrated_vi` 和中心圆半径 150。2010 的 15 个文件均为 `wpl`，未进入产品。
 
 不同年代没有同期交叉标定，合并表必须保留 `instrument_epoch`、`camera`、`source_format`、`signal_definition`、`signal_unit` 和 `calibration_status`。跨年代下游实验只能作为探索性结果，不能把原始幅度解释为连续、同单位的物理磁场。
