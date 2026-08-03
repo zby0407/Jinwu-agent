@@ -144,6 +144,25 @@ DIRECTION_CLAIM = re.compile(
     r"|higher|lower|increase[sd]?|decrease[sd]?|faster|slower",
     re.IGNORECASE,
 )
+BMR_CONTEXT = re.compile(
+    r"BMR|双极磁区|双极区|倾斜角|Joy(?:'s)?\s+law|Hale",
+    re.IGNORECASE,
+)
+BMR_AMPLITUDE_CAUSALITY = re.compile(
+    r"(?:来源|导致|造成|决定|影响|调制|贡献|扰动|取决)"
+    r"|(?:source|cause|determine|influence|modulate|contribute|perturb|depend)",
+    re.IGNORECASE,
+)
+BMR_PRECURSOR_ORDER = re.compile(
+    r"(?:第\s*)?n\s*(?:活动)?周.{0,100}(?:BMR|双极磁区|双极区|倾斜角)"
+    r".{0,120}(?:第\s*)?n\s*\+\s*1\s*(?:活动)?周"
+    r"|(?:前一|上一|前驱)\s*(?:活动)?(?:周|周期).{0,100}"
+    r"(?:BMR|双极磁区|双极区|倾斜角).{0,120}"
+    r"(?:下一|后一)\s*(?:活动)?(?:周|周期).{0,40}(?:振幅|强度|峰值)"
+    r"|cycle\s+n.{0,100}(?:BMR|bipolar|tilt).{0,120}"
+    r"cycle\s+n\s*\+\s*1.{0,40}(?:amplitude|strength|peak)",
+    re.IGNORECASE,
+)
 LITERATURE_AUTHOR_YEAR = re.compile(
     r"(?<![A-Za-z])([A-Z][A-Za-z-]{2,})(?:\s+(?:et\s+al\.?)|等)?"
     r"\s*[\(（]?\s*((?:19|20)\d{2})",
@@ -789,6 +808,38 @@ def _draft_warnings(
                 )
                 break
         statement_text = str(candidate.get("statement") or "")
+        if (
+            BMR_CONTEXT.search(statement_text)
+            and CYCLE_AMPLITUDE_CONTEXT.search(statement_text)
+            and BMR_AMPLITUDE_CAUSALITY.search(statement_text)
+            and not BMR_PRECURSOR_ORDER.search(statement_text)
+        ):
+            add(
+                "temporal_causal_order_unbound",
+                (
+                    "A BMR/tilt fluctuation is linked causally to cycle amplitude "
+                    "without an explicit precursor timeline. State whether BMRs in "
+                    "cycle n alter the polar seed for cycle n+1; do not let BMRs that "
+                    "emerge during a cycle become a cause of that same cycle's already "
+                    "emerging toroidal-flux amplitude. Otherwise narrow the claim to "
+                    "polar-field uncertainty and record amplitude causality as a gap."
+                ),
+                candidate_id,
+            )
+        if DOMINANCE_CLAIM.search(statement_text) and not DOMINANCE_CLAIM.search(
+            linked_non_wiki_text
+        ):
+            add(
+                "causal_dominance_unbound",
+                (
+                    "The candidate uses determines, dominates, primary, or an "
+                    "equivalent causal-dominance claim, but its linked non-Wiki "
+                    "evidence does not make that comparative attribution. Narrow "
+                    "the statement to the supported association or conditional "
+                    "mechanism, and record causal dominance as an evidence gap."
+                ),
+                candidate_id,
+            )
         if (
             TRANSPORT_CONTEXT.search(statement_text)
             and CYCLE_AMPLITUDE_CONTEXT.search(statement_text)

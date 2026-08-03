@@ -50,8 +50,12 @@ def test_f107_semantic_binding_is_registered_for_main_and_solar_data() -> None:
     solar_data = next(spec for spec in specs if spec["name"] == "solar-data")
 
     assert "bind_f107_dataset_semantics" in solar_feature_names
+    assert "solar_data_open_context" in solar_feature_names
     assert "bind_f107_dataset_semantics" in main_tool_names
     assert "bind_f107_dataset_semantics" in {
+        _tool_name(tool) for tool in solar_data["tools"]
+    }
+    assert "solar_data_open_context" in {
         _tool_name(tool) for tool in solar_data["tools"]
     }
 
@@ -87,9 +91,15 @@ def test_yaml_subagent_resolves_tools_from_canonical_registry() -> None:
         "lit_bundle_build",
         "lit_bundle_read",
     }.issubset(_tool_name(tool) for tool in hypothesis["tools"])
-    assert hypothesis_contract_tools.issubset(
-        _tool_name(tool) for tool in evidence["tools"]
-    )
+    evidence_tool_names = {_tool_name(tool) for tool in evidence["tools"]}
+    assert hypothesis_contract_tools.isdisjoint(evidence_tool_names)
+    assert {
+        "evidence_review_open_context",
+        "evidence_review_submit_verdict",
+        "evidence_review_get_status",
+        "kb_query",
+        "kb_read",
+    }.issubset(evidence_tool_names)
     assert hypothesis["_restrict_tools"] is True
     assert {
         "kb_propose",

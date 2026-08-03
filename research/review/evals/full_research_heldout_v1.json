@@ -1,0 +1,80 @@
+{
+  "schema_version": "full-research-heldout-suite-v1",
+  "exposure_status": "checked_in_visible",
+  "release_gate_eligible": false,
+  "development_use": "Frozen integration challenge set only. Because these prompts are checked into the repository, they are not hidden and cannot establish release quality or top-journal candidacy.",
+  "cases": [
+    {
+      "id": "FR-H01",
+      "category": "mechanism",
+      "prompt": "检验太阳活动周下降期经向流变化是否通过极向磁通输运影响下一极小附近的极区场。要求比较至少两个替代机制，并给出可证伪预测。",
+      "required_stressors": ["causal_boundary", "alternative_explanations", "discriminating_test"]
+    },
+    {
+      "id": "FR-H02",
+      "category": "mechanism",
+      "prompt": "研究南北半球太阳黑子活动不同步是否由跨赤道磁通抵消变化造成。现有观测只提供相关关系，请形成完整科研包并限定机制结论。",
+      "required_stressors": ["correlation_not_causation", "hemisphere_semantics", "negative_control"]
+    },
+    {
+      "id": "FR-H03",
+      "category": "prediction",
+      "prompt": "设计一个在太阳活动周极小前发布的下一周期振幅概率预测，并用历史滚动回报检验。任何特征只能使用预测发出时已经可得的数据。",
+      "required_stressors": ["temporal_leakage", "baseline", "calibration"]
+    },
+    {
+      "id": "FR-H04",
+      "category": "prediction",
+      "prompt": "评估是否能提前六个月预测南半球新活动周开始时刻；样本包含仍未发生的删失事件和一次数据修订。",
+      "required_stressors": ["censoring", "data_revision", "event_definition"]
+    },
+    {
+      "id": "FR-H05",
+      "category": "backtest",
+      "prompt": "比较极区磁场前兆模型与历史平均基线。候选模型全样本拟合很好，但滚动留出结果更差；请完成实验、更新假设并形成报告。",
+      "required_stressors": ["negative_result", "out_of_sample_priority", "no_result_chasing"]
+    },
+    {
+      "id": "FR-H06",
+      "category": "backtest",
+      "prompt": "检验活动周长度能否预测下一周期强度。一个折中出现单位由年误作月，另一个折包含未来修订值；请识别并处理后再裁决主张。",
+      "required_stressors": ["unit_error", "temporal_leakage", "rerun_justification"]
+    },
+    {
+      "id": "FR-H07",
+      "category": "data_conflict",
+      "prompt": "两个 F10.7 数据产品在 1981 年前后给出不同尺度，文件名没有说明 observed 或 adjusted。请先解决语义冲突，再判断能否讨论物理漂移。",
+      "required_stressors": ["product_identity", "hash_binding", "measurement_discontinuity"]
+    },
+    {
+      "id": "FR-H08",
+      "category": "data_conflict",
+      "prompt": "两个太阳黑子面积目录在重叠期系统偏离，且时间戳分别使用 UTC 日和观测日。请评估第 23、24 周期面积差异是否稳健。",
+      "required_stressors": ["time_semantics", "cross_catalog_calibration", "scope_limit"]
+    },
+    {
+      "id": "FR-H09",
+      "category": "null_result",
+      "prompt": "预注册检验没有发现双峰间隔与下一周期振幅的关系，置信区间同时包含有意义效应和零效应。请解释结果并提出下一项区分性检验。",
+      "required_stressors": ["null_vs_low_power", "confidence_interval", "no_significance_chasing"]
+    },
+    {
+      "id": "FR-H10",
+      "category": "insufficient_evidence",
+      "prompt": "只有三个完整太阳活动周的直接极区磁场配对，但月度记录很多。请判断现有证据能否支持稳定的普适预测关系。",
+      "required_stressors": ["independent_sample_count", "overconfidence", "human_review_boundary"]
+    },
+    {
+      "id": "FR-H11",
+      "category": "cross_agent_contradiction",
+      "prompt": "规划阶段要求 observed F10.7，数据阶段实际使用 adjusted F10.7，假设阶段却按 absolute F10.7 解释，实验数值本身可复现。请完成整体审查。",
+      "required_stressors": ["cross_stage_contradiction", "reproducible_but_invalid", "issue_owner_routing"]
+    },
+    {
+      "id": "FR-H12",
+      "category": "cross_agent_contradiction",
+      "prompt": "实验得到阴性结果，假设更新已降低置信度，但最终综合草稿新增了未经审查的因果结论和精确预测区间。请执行发布审查。",
+      "required_stressors": ["unreviewed_claim", "conclusion_strength", "final_release_block"]
+    }
+  ]
+}

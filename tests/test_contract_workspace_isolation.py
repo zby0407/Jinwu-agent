@@ -1,12 +1,18 @@
 from __future__ import annotations
 
+import hashlib
 import json
+from copy import deepcopy
 from pathlib import Path
 
+import pytest
+
 from jw import paths
+from jw.research_review import ResearchReviewStore
 from jw.tools import automatic_experiment as experiment_tools
 from jw.tools import research_planner as planner_tools
 from jw.tools import scientific_hypothesis as hypothesis_tools
+from jw.tools import solar_feature as data_tools
 from jw.workspaces import ensure_thread_workspace
 from scientific_hypothesis.contracts import canonical_json_sha256
 
@@ -30,6 +36,42 @@ def _task_config(tmp_path: Path, monkeypatch, thread_id: str):
         }
     }
     return binding, config
+
+
+def _complete_valid_planner(config):
+    root = Path(__file__).resolve().parents[1]
+    response = json.loads(
+        (root / "research/planner/examples/definition_audit_response.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    brief = json.loads(
+        planner_tools.research_planner_get_brief.invoke(
+            {"request_input": response["research_question"]}, config=config
+        )
+    )
+    sha = brief["request_sha256"]
+    for section_name in planner_tools._PLAN_SECTION_ORDER:
+        result = json.loads(
+            planner_tools.research_planner_update_draft.invoke(
+                {
+                    "section_name": section_name,
+                    "section_json": json.dumps(
+                        response["plan_content"][section_name], ensure_ascii=False
+                    ),
+                    "request_sha256": sha,
+                },
+                config=config,
+            )
+        )
+        assert result["status"] == "draft_section_persisted"
+    validated = json.loads(
+        planner_tools.research_planner_validate_draft.invoke(
+            {"request_sha256": sha}, config=config
+        )
+    )
+    assert validated["status"] == "plan_ready"
+    return response, sha
 
 
 def test_planner_contract_state_and_freeze_root_are_task_scoped(
@@ -76,6 +118,691 @@ def test_planner_contract_state_and_freeze_root_are_task_scoped(
         "runs_root": task_root / "planner" / "runs",
         "path_root": task_root,
     }
+
+
+def test_solar_data_context_blocks_guessed_paths_and_is_idempotent(
+    tmp_path: Path, monkeypatch
+) -> None:
+    binding, config = _task_config(tmp_path, monkeypatch, "data-context-missing")
+    workspace = Path(binding.workspace)
+    plan_path = workspace / "planner" / "runs" / "p1" / "research_plan.json"
+    plan_path.parent.mkdir(parents=True)
+    plan_path.write_text(
+        json.dumps(
+            {
+                "required_datasets": [
+                    {
+                        "id": "ds1",
+                        "name": "SILSO monthly sunspot numbers",
+                        "acquisition_status": "needs_confirmation",
+                    }
+                ],
+                "research_route": [
+                    {
+                        "id": "rs1",
+                        "stage": "data",
+                        "produces_artifact_ids": ["art1"],
+                        "prerequisite_step_ids": [],
+                    },
+                    {
+                        "id": "rs2",
+                        "stage": "hypothesis_generation",
+                        "prerequisite_step_ids": ["rs1"],
+                    },
+                    {
+                        "id": "rs3",
+                        "stage": "experiment_design",
+                        "prerequisite_step_ids": ["rs2"],
+                    },
+                    {
+                        "id": "rs4",
+                        "stage": "experiment_result",
+                        "prerequisite_step_ids": ["rs3"],
+                    },
+                    {
+                        "id": "rs5",
+                        "stage": "hypothesis_update",
+                        "prerequisite_step_ids": ["rs4"],
+                    },
+                ],
+                "research_artifacts": [
+                    {"id": "art1", "producer_step_id": "rs1"}
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    store = ResearchReviewStore(workspace, "data-context-missing")
+    artifact = store.checkpoint_producer_result(
+        stage="planning",
+        producer="solar-planner",
+        content="frozen plan",
+        require_canonical_source=True,
+    )
+    verdict = store.submit_verdict(
+        mode="planning",
+        decision="accept",
+        issues=[],
+        accepted_claims=[artifact["claims"][0]["claim_id"]],
+    )
+    assert verdict["decision"] == "accept", verdict
+
+    context = json.loads(data_tools.solar_data_open_context.invoke({}, config=config))
+    repeated = json.loads(data_tools.solar_data_open_context.invoke({}, config=config))
+
+    assert context["status"] == "input_missing", context
+    assert context["must_stop"] is True
+    assert context["eligible_inputs"] == []
+    assert context["data_steps"][0]["id"] == "rs1"
+    assert context["planned_outputs"][0]["id"] == "art1"
+    assert context["path_policy"].startswith("Only eligible_inputs")
+    assert repeated["receipt_ref"] == context["receipt_ref"]
+    assert repeated["context_sha256"] == context["context_sha256"]
+    assert (workspace / context["receipt_ref"]).is_file()
+    assert len(list((workspace / "receipts" / "datasets").glob("data-context-*.json"))) == 1
+
+
+def test_data_tools_only_resolve_hash_matching_manifest_inputs(
+    tmp_path: Path, monkeypatch
+) -> None:
+    binding, config = _task_config(tmp_path, monkeypatch, "eligible-data-path")
+    workspace = Path(binding.workspace)
+    source = workspace / "inputs" / "observations.csv"
+    source.write_text("date,value\n2024-01,1\n", encoding="utf-8")
+    manifest_path = workspace / "input_manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["inputs"] = [
+        {
+            "path": "/inputs/observations.csv",
+            "role": "user_input",
+            "bytes": source.stat().st_size,
+            "sha256": hashlib.sha256(source.read_bytes()).hexdigest(),
+        }
+    ]
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+    resolved = data_tools._resolve_eligible_data_path(
+        "/inputs/observations.csv", config
+    )
+    assert resolved == source
+    with pytest.raises(PermissionError, match="eligible input"):
+        data_tools._resolve_eligible_data_path("/inputs/guessed.csv", config)
+
+    source.write_text("changed\n", encoding="utf-8")
+    with pytest.raises(PermissionError, match="eligible input"):
+        data_tools._resolve_eligible_data_path(
+            "/inputs/observations.csv", config
+        )
+
+
+def test_planner_incremental_draft_is_atomic_resumable_and_task_scoped(
+    tmp_path: Path, monkeypatch
+) -> None:
+    binding_a, config_a = _task_config(tmp_path, monkeypatch, "planner-draft-a")
+    _binding_b, config_b = _task_config(tmp_path, monkeypatch, "planner-draft-b")
+
+    brief_a = json.loads(
+        planner_tools.research_planner_get_brief.invoke(
+            {"request_input": QUESTION_A}, config=config_a
+        )
+    )
+    sha_a = brief_a["request_sha256"]
+    assert brief_a["draft_checkpoint"]["next_section"] == "scope"
+
+    skipped = json.loads(
+        planner_tools.research_planner_update_draft.invoke(
+            {
+                "section_name": "research_subquestions",
+                "section_json": "[]",
+                "request_sha256": sha_a,
+            },
+            config=config_a,
+        )
+    )
+    assert skipped["status"] == "error"
+    assert "persist prior sections first: scope" in skipped["error"]
+
+    scope = {
+        "objective": "比较两种合成数据方法的可复现实验设计。",
+        "population_or_period": "固定随机种子产生的两组合成样本。",
+        "boundaries": ["仅验证方法实现，不外推到真实太阳活动。"],
+        "non_goals": ["不声称获得真实太阳物理结论。"],
+    }
+    persisted = json.loads(
+        planner_tools.research_planner_update_draft.invoke(
+            {
+                "section_name": "scope",
+                "section_json": json.dumps(scope, ensure_ascii=False),
+                "request_sha256": sha_a,
+            },
+            config=config_a,
+        )
+    )
+    assert persisted["status"] == "draft_section_persisted"
+    assert persisted["completed_sections"] == ["scope"]
+    assert persisted["next_section"] == "research_subquestions"
+    section_receipt = persisted["section_receipt"]
+    assert section_receipt["section_version"] == 1
+    assert (Path(binding_a.workspace) / section_receipt["path"]).is_file()
+
+    state_path = Path(binding_a.workspace) / "planner" / "working_state.json"
+    assert (
+        json.loads(state_path.read_text(encoding="utf-8"))["sections"]["scope"] == scope
+    )
+
+    planner_tools._PLANNER_DRAFTS.clear()
+    resumed = json.loads(
+        planner_tools.research_planner_get_brief.invoke(
+            {"request_input": QUESTION_A}, config=config_a
+        )
+    )
+    assert resumed["draft_checkpoint"]["completed_sections"] == ["scope"]
+    assert resumed["draft_checkpoint"]["next_section"] == "research_subquestions"
+
+    mismatched_rebind = json.loads(
+        planner_tools.research_planner_get_brief.invoke(
+            {"request_input": QUESTION_B}, config=config_a
+        )
+    )
+    assert mismatched_rebind["canonical_request_reused"] is True
+    assert mismatched_rebind["request_sha256"] == sha_a
+    assert mismatched_rebind["draft_checkpoint"]["completed_sections"] == ["scope"]
+    assert mismatched_rebind["brief"]["request"]["research_question"] == QUESTION_A
+
+    brief_b = json.loads(
+        planner_tools.research_planner_get_brief.invoke(
+            {"request_input": QUESTION_B}, config=config_b
+        )
+    )
+    assert brief_b["draft_checkpoint"]["completed_sections"] == []
+    assert brief_b["draft_checkpoint"]["next_section"] == "scope"
+
+
+def test_planner_incremental_draft_rejects_invalid_section_schema(
+    tmp_path: Path, monkeypatch
+) -> None:
+    binding, config = _task_config(tmp_path, monkeypatch, "planner-draft-schema")
+    brief = json.loads(
+        planner_tools.research_planner_get_brief.invoke(
+            {"request_input": QUESTION_A}, config=config
+        )
+    )
+    outcome = json.loads(
+        planner_tools.research_planner_update_draft.invoke(
+            {
+                "section_name": "scope",
+                "section_json": json.dumps(
+                    {"objective": "only one field"}, ensure_ascii=False
+                ),
+                "request_sha256": brief["request_sha256"],
+            },
+            config=config,
+        )
+    )
+    assert outcome["status"] == "error"
+    assert "section schema validation failed" in outcome["error"]
+    repeated = json.loads(
+        planner_tools.research_planner_update_draft.invoke(
+            {
+                "section_name": "scope",
+                "section_json": json.dumps(
+                    {"objective": "only one field"}, ensure_ascii=False
+                ),
+                "request_sha256": brief["request_sha256"],
+            },
+            config=config,
+        )
+    )
+    assert repeated["status"] == "blocked"
+    assert repeated["error_code"] == "PLANNER_SECTION_NO_PROGRESS"
+    assert repeated["must_stop"] is True
+    assert repeated["consecutive_same_error"] == 2
+    assert (Path(binding.workspace) / repeated["failure_receipt_path"]).is_file()
+
+
+def test_planner_evaluation_rule_error_explains_criterion_basis_exclusivity() -> None:
+    invalid = [
+        {
+            "id": "er1",
+            "name": "Leakage gate",
+            "purpose": "Prevent future information from entering training.",
+            "target_step_ids": ["step1"],
+            "outcome": "pass",
+            "check": "No future records are visible in a fold.",
+            "interpretation": "A violation invalidates the fold.",
+            "uncertainty": "Timestamp semantics still require inspection.",
+            "criterion_basis": {
+                "kind": "exact_user_requirement",
+                "basis_text": "Strict no-future-leakage.",
+                "evidence_source_ids": [],
+                "artifact_ids": ["art1"],
+            },
+        }
+    ]
+
+    with pytest.raises(ValueError, match="section schema validation failed") as exc_info:
+        planner_tools._validate_section("evaluation_rules", invalid)
+
+    message = str(exc_info.value)
+    assert "use 'request_based', not alias 'exact_user_requirement'" in message
+    assert "request_based requires evidence_source_ids=[] and artifact_ids=[]" in message
+
+
+def test_planner_feedback_policy_migration_unlocks_old_stop_without_losing_history(
+    tmp_path: Path, monkeypatch
+) -> None:
+    binding, config = _task_config(tmp_path, monkeypatch, "planner-policy-migration")
+    brief = json.loads(
+        planner_tools.research_planner_get_brief.invoke(
+            {"request_input": QUESTION_A}, config=config
+        )
+    )
+    invalid_args = {
+        "section_name": "scope",
+        "section_json": json.dumps({"objective": "incomplete"}),
+        "request_sha256": brief["request_sha256"],
+    }
+    planner_tools.research_planner_update_draft.invoke(invalid_args, config=config)
+    stopped = json.loads(
+        planner_tools.research_planner_update_draft.invoke(invalid_args, config=config)
+    )
+    assert stopped["must_stop"] is True
+
+    state_path = Path(binding.workspace) / "planner" / "working_state.json"
+    state = json.loads(state_path.read_text(encoding="utf-8"))
+    state["failure_policy_version"] = "planner-section-feedback-v1"
+    state_path.write_text(json.dumps(state), encoding="utf-8")
+    planner_tools._PLANNER_DRAFTS.clear()
+
+    resumed = json.loads(
+        planner_tools.research_planner_get_brief.invoke(
+            {"request_input": QUESTION_A}, config=config
+        )
+    )
+    assert resumed["draft_checkpoint"]["next_section"] == "scope"
+    migrated = json.loads(state_path.read_text(encoding="utf-8"))
+    assert migrated["section_failures"] == {}
+    assert migrated["failure_policy_version"] == "planner-section-feedback-v2"
+    receipt = migrated["failure_policy_migrations"][-1]
+    assert receipt["unlocked_sections"] == ["scope"]
+    assert (Path(binding.workspace) / receipt["receipt_path"]).is_file()
+    failure_history = list(
+        (
+            Path(binding.workspace)
+            / "planner"
+            / "drafts"
+            / brief["request_sha256"]
+            / "failures"
+            / "scope"
+        ).glob("f*.json")
+    )
+    assert len(failure_history) == 2
+    old_receipts = {path.name: path.read_text(encoding="utf-8") for path in failure_history}
+
+    after_migration = json.loads(
+        planner_tools.research_planner_update_draft.invoke(
+            invalid_args, config=config
+        )
+    )
+    assert after_migration["status"] == "error"
+    assert after_migration["failure_count"] == 1
+    assert after_migration["failure_receipt_path"].endswith("f0003.json")
+    for name, old_content in old_receipts.items():
+        assert (
+            Path(binding.workspace)
+            / "planner"
+            / "drafts"
+            / brief["request_sha256"]
+            / "failures"
+            / "scope"
+            / name
+        ).read_text(encoding="utf-8") == old_content
+
+
+def test_planner_incremental_draft_reaches_full_preflight_and_survives_reload(
+    tmp_path: Path, monkeypatch
+) -> None:
+    _binding, config = _task_config(tmp_path, monkeypatch, "planner-draft-complete")
+    root = Path(__file__).resolve().parents[1]
+    response = json.loads(
+        (root / "research/planner/examples/definition_audit_response.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    brief = json.loads(
+        planner_tools.research_planner_get_brief.invoke(
+            {"request_input": response["research_question"]}, config=config
+        )
+    )
+    sha = brief["request_sha256"]
+    for section_name in planner_tools._PLAN_SECTION_ORDER:
+        outcome = json.loads(
+            planner_tools.research_planner_update_draft.invoke(
+                {
+                    "section_name": section_name,
+                    "section_json": json.dumps(
+                        response["plan_content"][section_name], ensure_ascii=False
+                    ),
+                    "request_sha256": sha,
+                },
+                config=config,
+            )
+        )
+        assert outcome["status"] == "draft_section_persisted"
+
+    validated = json.loads(
+        planner_tools.research_planner_validate_draft.invoke(
+            {"request_sha256": sha}, config=config
+        )
+    )
+    assert validated["status"] == "plan_ready"
+    assert validated["route_step_count"] >= 1
+
+    planner_tools._PLANNER_DRAFTS.clear()
+    planner_tools._VALIDATED_RESPONSES.clear()
+    resumed = json.loads(
+        planner_tools.research_planner_get_brief.invoke(
+            {"request_input": response["research_question"]}, config=config
+        )
+    )
+    assert resumed["draft_checkpoint"]["missing_sections"] == []
+    assert resumed["draft_checkpoint"]["validated"] is True
+
+
+def test_planner_evidence_revision_invalidates_old_validation_idempotently(
+    tmp_path: Path, monkeypatch
+) -> None:
+    binding, config = _task_config(
+        tmp_path, monkeypatch, "planner-evidence-revision"
+    )
+    response, sha = _complete_valid_planner(config)
+    capsule = {
+        "review_id": "planning-review-0002",
+        "artifact_sha256": "a" * 64,
+        "issues": [
+            {
+                "rule_id": "CROSS_STAGE_CLOSURE",
+                "severity": "critical",
+                "claim_ref": "planning-plan-v1#research_route.stage_sequence",
+                "required_action": (
+                    "Use data -> hypothesis_generation -> experiment_design -> "
+                    "experiment_result -> hypothesis_update."
+                ),
+            }
+        ],
+    }
+
+    registered = planner_tools.register_planner_evidence_revision(
+        "planning-review-0002", capsule, config
+    )
+    assert registered["status"] == "evidence_revision_registered"
+    assert registered["draft_checkpoint"]["next_action"] == "repair_evidence_revision"
+    assert registered["draft_checkpoint"]["validated"] is False
+    assert (Path(binding.workspace) / registered["receipt_path"]).is_file()
+    state = planner_tools._lookup_draft(
+        planner_tools._lookup_request(sha, config), config
+    )
+    assert state["validated_response"] is None
+    assert ("planner-evidence-revision", sha) not in planner_tools._VALIDATED_RESPONSES
+
+    repeated = planner_tools.register_planner_evidence_revision(
+        "planning-review-0002", capsule, config
+    )
+    assert repeated["status"] == "evidence_revision_already_registered"
+    receipts = list(
+        (
+            Path(binding.workspace)
+            / "planner"
+            / "drafts"
+            / sha
+            / "evidence_revisions"
+        ).glob("r*.json")
+    )
+    assert len(receipts) == 1
+
+    changed_scope = deepcopy(response["plan_content"]["scope"])
+    changed_scope["objective"] += " Evidence-reviewed route closure."
+    repaired = json.loads(
+        planner_tools.research_planner_apply_revision_patch.invoke(
+            {
+                "changes_json": json.dumps({"scope": changed_scope}),
+                "request_sha256": sha,
+            },
+            config=config,
+        )
+    )
+    assert repaired["status"] == "plan_ready"
+    assert repaired["resolved_evidence_revision"]["review_id"] == "planning-review-0002"
+    assert repaired["draft_checkpoint"]["pending_evidence_revision"] is None
+    assert repaired["draft_checkpoint"]["next_action"] == "freeze_plan"
+
+    duplicate_args = {
+        "changes_json": json.dumps({"scope": changed_scope}),
+        "request_sha256": sha,
+    }
+    duplicate = json.loads(
+        planner_tools.research_planner_apply_revision_patch.invoke(
+            duplicate_args, config=config
+        )
+    )
+    duplicate_again = json.loads(
+        planner_tools.research_planner_apply_revision_patch.invoke(
+            duplicate_args, config=config
+        )
+    )
+    assert duplicate["status"] == "error"
+    assert duplicate_again["status"] == "blocked"
+    assert duplicate_again["error_code"] == "PLANNER_REVISION_NO_PROGRESS"
+    assert duplicate_again["consecutive_same_error"] == 2
+    failure_path = Path(binding.workspace) / duplicate_again["failure_receipt_path"]
+    assert failure_path.is_file()
+    assert len(list(failure_path.parent.glob("f*.json"))) == 2
+
+
+def test_planner_shadow_revision_deduplicates_and_stops_repeated_schema_failure(
+    tmp_path: Path, monkeypatch
+) -> None:
+    binding, config = _task_config(tmp_path, monkeypatch, "planner-shadow-guard")
+    response, sha = _complete_valid_planner(config)
+    changed_scope = deepcopy(response["plan_content"]["scope"])
+    changed_scope["objective"] += " One bounded revision."
+    args = {
+        "section_name": "scope",
+        "section_json": json.dumps(changed_scope),
+        "request_sha256": sha,
+    }
+    first = json.loads(
+        planner_tools.research_planner_stage_revision_section.invoke(args, config=config)
+    )
+    repeated = json.loads(
+        planner_tools.research_planner_stage_revision_section.invoke(args, config=config)
+    )
+    assert first["status"] == "revision_section_staged"
+    assert first["new_version_written"] is True
+    assert repeated["status"] == "revision_section_already_staged"
+    assert repeated["new_version_written"] is False
+    candidate_versions = list(
+        (
+            Path(binding.workspace)
+            / "planner"
+            / "drafts"
+            / sha
+            / "revision_candidates"
+            / first["base_draft_sha256"]
+            / "scope"
+        ).glob("v*.json")
+    )
+    assert len(candidate_versions) == 1
+
+    invalid_args = {
+        "section_name": "research_route",
+        "section_json": "[]",
+        "request_sha256": sha,
+    }
+    invalid = json.loads(
+        planner_tools.research_planner_stage_revision_section.invoke(
+            invalid_args, config=config
+        )
+    )
+    stopped = json.loads(
+        planner_tools.research_planner_stage_revision_section.invoke(
+            invalid_args, config=config
+        )
+    )
+    assert invalid["status"] == "error"
+    assert invalid["error_code"] == "PLANNER_REVISION_SECTION_INVALID"
+    assert stopped["status"] == "blocked"
+    assert stopped["error_code"] == "PLANNER_REVISION_SECTION_NO_PROGRESS"
+    assert stopped["consecutive_same_error"] == 2
+    assert stopped["must_stop"] is True
+    assert (Path(binding.workspace) / stopped["failure_receipt_path"]).is_file()
+
+
+def test_planner_atomic_revision_patch_rejects_regression_and_accepts_improvement(
+    tmp_path: Path, monkeypatch
+) -> None:
+    binding, config = _task_config(tmp_path, monkeypatch, "planner-atomic-revision")
+    root = Path(__file__).resolve().parents[1]
+    response = json.loads(
+        (root / "research/planner/examples/definition_audit_response.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    brief = json.loads(
+        planner_tools.research_planner_get_brief.invoke(
+            {"request_input": response["research_question"]}, config=config
+        )
+    )
+    sha = brief["request_sha256"]
+    for section_name in planner_tools._PLAN_SECTION_ORDER:
+        outcome = json.loads(
+            planner_tools.research_planner_update_draft.invoke(
+                {
+                    "section_name": section_name,
+                    "section_json": json.dumps(
+                        response["plan_content"][section_name], ensure_ascii=False
+                    ),
+                    "request_sha256": sha,
+                },
+                config=config,
+            )
+        )
+        assert outcome["status"] == "draft_section_persisted"
+
+    invalid_rules = deepcopy(response["plan_content"]["evaluation_rules"])
+    invalid_rules[0]["criterion_basis"] = {
+        "kind": "request_based",
+        "basis_text": "This sentence is absent from the canonical request.",
+        "evidence_source_ids": [],
+        "artifact_ids": [],
+    }
+    state = planner_tools._lookup_draft(
+        planner_tools._lookup_request(sha, config), config
+    )
+    state["sections"]["evaluation_rules"] = invalid_rules
+    state["validated_response"] = None
+    state["validated_response_sha256"] = None
+    planner_tools._persist_draft(state, config)
+    state_path = Path(binding.workspace) / "planner" / "working_state.json"
+    before = json.loads(state_path.read_text(encoding="utf-8"))
+    # Simulate a WebUI/backend restart: the immutable request and draft must be
+    # recoverable from the task workspace without reconstructing user input.
+    with planner_tools._STATE_LOCK:
+        planner_tools._REQUEST_CACHE.clear()
+        planner_tools._ACTIVE_REQUEST_SHA256.clear()
+        planner_tools._PLANNER_DRAFTS.clear()
+    resumed = json.loads(
+        planner_tools.research_planner_get_brief.invoke({}, config=config)
+    )
+    assert resumed["request_sha256"] == sha
+    assert resumed["canonical_request_reused"] is False
+    active_section = json.loads(
+        planner_tools.research_planner_get_section.invoke(
+            {"section_name": "evaluation_rules", "request_sha256": sha},
+            config=config,
+        )
+    )
+    assert active_section["status"] == "draft_section"
+    assert active_section["active_section"] == invalid_rules
+    assert active_section["staged_section"] is None
+    assert active_section["read_only"] is True
+    changed_scope = deepcopy(before["sections"]["scope"])
+    changed_scope["objective"] += " Unrelated rewrite."
+
+    single_write = json.loads(
+        planner_tools.research_planner_update_draft.invoke(
+            {
+                "section_name": "scope",
+                "section_json": json.dumps(changed_scope),
+                "request_sha256": sha,
+            },
+            config=config,
+        )
+    )
+    assert single_write["error_code"] == "PLANNER_COMPLETE_DRAFT_REQUIRES_ATOMIC_PATCH"
+
+    rejected = json.loads(
+        planner_tools.research_planner_apply_revision_patch.invoke(
+            {
+                "changes_json": json.dumps({"scope": changed_scope}),
+                "request_sha256": sha,
+            },
+            config=config,
+        )
+    )
+    assert rejected["status"] == "error"
+    after_reject = json.loads(state_path.read_text(encoding="utf-8"))
+    assert after_reject["sections"]["scope"] == before["sections"]["scope"]
+
+    staged = json.loads(
+        planner_tools.research_planner_stage_revision_section.invoke(
+            {
+                "section_name": "evaluation_rules",
+                "section_json": json.dumps(
+                    response["plan_content"]["evaluation_rules"]
+                ),
+                "request_sha256": sha,
+            },
+            config=config,
+        )
+    )
+    assert staged["status"] == "revision_section_staged"
+    assert staged["active_draft_unchanged"] is True
+    candidate_checkpoint = json.loads(
+        planner_tools.research_planner_get_draft_status.invoke(
+            {"request_sha256": sha}, config=config
+        )
+    )
+    assert candidate_checkpoint["next_action"] == "commit_revision_candidate"
+    candidate_brief = json.loads(
+        planner_tools.research_planner_get_brief.invoke({}, config=config)
+    )
+    assert "MUST be research_planner_commit_revision_candidate" in candidate_brief[
+        "brief"
+    ]["instruction"]
+    staged_section = json.loads(
+        planner_tools.research_planner_get_section.invoke(
+            {"section_name": "evaluation_rules", "request_sha256": sha},
+            config=config,
+        )
+    )
+    assert staged_section["active_section"] == invalid_rules
+    assert staged_section["staged_section"] == response["plan_content"][
+        "evaluation_rules"
+    ]
+    assert staged_section["staged_section_receipt"] == staged["section_receipt"]
+    still_invalid = json.loads(state_path.read_text(encoding="utf-8"))
+    assert still_invalid["sections"]["evaluation_rules"] == invalid_rules
+
+    accepted = json.loads(
+        planner_tools.research_planner_commit_revision_candidate.invoke(
+            {"request_sha256": sha}, config=config
+        )
+    )
+    assert accepted["status"] == "plan_ready"
+    assert accepted["shadow_candidate_committed"] is True
+    assert accepted["baseline_error_count"] >= 1
+    assert accepted["remaining_error_count"] == 0
 
 
 def test_hypothesis_state_and_freeze_root_are_task_scoped(

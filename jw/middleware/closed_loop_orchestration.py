@@ -21,12 +21,24 @@ from langchain_core.messages import ToolMessage
 from langgraph.types import Command
 
 from ..research_protocols import sha256_file
+from ..research_review import ResearchReviewStore
 from ..workspaces import workspace_root_from_config
 
 if TYPE_CHECKING:
     from langchain.agents.middleware.types import ToolCallRequest
 
-_SPECIALISTS = ("solar-planner", "solar-hypothesis", "solar-experiment")
+_SPECIALISTS = (
+    "solar-planner",
+    "solar-hypothesis",
+    "solar-experiment",
+)
+_RECEIPT_SPECIALISTS = (
+    "solar-planner",
+    "solar-data",
+    "solar-hypothesis",
+    "solar-experiment",
+    "solar-evidence",
+)
 _CLOSED_LOOP_MARKERS = (
     "完整研究",
     "完整整合",
@@ -285,6 +297,29 @@ def _latest_valid(
     return None
 
 
+def _accepted_release_verdict(workspace_root: Path) -> Path | None:
+    """Return only the verdict bound to the current accepted release hash."""
+
+    state = _read_json(workspace_root / "research_review" / "run_state.json")
+    task_id = state.get("task_id") if state is not None else None
+    if not isinstance(task_id, str) or not task_id:
+        return None
+    try:
+        store = ResearchReviewStore(workspace_root, task_id)
+        release = store.latest_artifact("final_release")
+        if release is None or store.accepted_release_markdown() is None:
+            return None
+        verdict = store.matching_verdict("final_release", [store.artifact_ref(release)])
+    except (OSError, RuntimeError, ValueError):
+        return None
+    if verdict is None:
+        return None
+    path = (
+        workspace_root / "research_review" / "verdicts" / f"{verdict['review_id']}.json"
+    )
+    return path if path.is_file() else None
+
+
 def closed_loop_receipts(
     workspace_root: Path,
     *,
@@ -316,11 +351,13 @@ def closed_loop_receipts(
             required_measurement_ids,
         ),
     )
+    evidence = _accepted_release_verdict(workspace_root)
     return {
         "solar-data": dataset,
         "solar-planner": planner,
         "solar-hypothesis": hypothesis,
         "solar-experiment": experiment,
+        "solar-evidence": evidence,
     }
 
 
@@ -391,7 +428,7 @@ class ClosedLoopOrchestrationGuardMiddleware(AgentMiddleware[Any, Any, Any]):
                     else {}
                 )
                 if isinstance(statuses, Mapping):
-                    for specialist in _SPECIALISTS:
+                    for specialist in _RECEIPT_SPECIALISTS:
                         row = statuses.get(specialist)
                         if not isinstance(row, Mapping):
                             continue

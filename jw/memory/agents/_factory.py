@@ -86,8 +86,9 @@ def build_memory_agent_graph(
     """Build a background memory graph with the shared model/backend wiring."""
     from deepagents import create_deep_agent
 
-    from ...backends import build_memory_agent_backend
     from ...agent import _ensure_auxiliary_chat_model
+    from ...backends import build_memory_agent_backend
+    from ...middleware.qwen_compat import QwenToolCompatibilityMiddleware
     from ...middleware.utils import disable_thinking
 
     kwargs: dict[str, Any] = {}
@@ -107,13 +108,25 @@ def build_memory_agent_graph(
         # non-thinking copy for the structured memory-worker call.
         model = disable_thinking(model)
 
+    middleware_stack = list(middleware)
+    if not any(
+        isinstance(item, QwenToolCompatibilityMiddleware)
+        for item in middleware_stack
+    ):
+        model_name = str(
+            getattr(model, "model_name", None) or getattr(model, "model", None) or ""
+        )
+        middleware_stack.append(
+            QwenToolCompatibilityMiddleware(default_model=model_name)
+        )
+
     agent = create_deep_agent(
         name=name,
         model=model,
         system_prompt=system_prompt,
         tools=list(tools),
         backend=backend,
-        middleware=list(middleware),
+        middleware=middleware_stack,
         subagents=[],
         skills=skills,
         **kwargs,

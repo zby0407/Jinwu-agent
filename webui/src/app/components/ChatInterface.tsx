@@ -37,6 +37,7 @@ import {
 } from "@/app/components/ActionGroup";
 import { CompactionSummary } from "@/app/components/CompactionSummary";
 import { ResearchDashboard } from "@/app/components/ResearchDashboard";
+import { ResearchReviewPanel } from "@/app/components/ResearchReviewPanel";
 import { isSummarizationMessage } from "@/lib/summarization";
 import { useCollapseAgentActions } from "@/lib/uiSettings";
 import {
@@ -1355,7 +1356,11 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
           }
         }
         let turnEnd = messages.length;
-        for (let index = messageIndex + 1; index < messages.length; index += 1) {
+        for (
+          let index = messageIndex + 1;
+          index < messages.length;
+          index += 1
+        ) {
           if (messages[index].type === "human") {
             turnEnd = index;
             break;
@@ -1379,7 +1384,10 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
               messages[index],
               index
             );
-            if (candidate?.branchOptions && candidate.branchOptions.length > 1) {
+            if (
+              candidate?.branchOptions &&
+              candidate.branchOptions.length > 1
+            ) {
               metadata = candidate;
               break;
             }
@@ -1822,6 +1830,12 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
                       />
                     )}
                   </div>
+                )}
+                {threadId && (
+                  <ResearchReviewPanel
+                    threadId={threadId}
+                    isLoading={isLoading}
+                  />
                 )}
                 {renderedItems.map((item, index) => {
                   if (item.kind === "action-group") {
@@ -2412,11 +2426,11 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
                 onPointerMove={handleComposerResizeMove}
                 onPointerUp={handleComposerResizeEnd}
                 onPointerCancel={handleComposerResizeEnd}
-                className="group flex h-3 shrink-0 touch-none cursor-row-resize select-none items-center justify-center"
+                className="group flex h-3 shrink-0 cursor-row-resize touch-none select-none items-center justify-center"
               >
                 <span
                   aria-hidden="true"
-                  className="h-0.5 w-12 rounded-full bg-border transition-colors group-hover:bg-[var(--brand)] group-focus-within:bg-[var(--brand)]"
+                  className="h-0.5 w-12 rounded-full bg-border transition-colors group-focus-within:bg-[var(--brand)] group-hover:bg-[var(--brand)]"
                 />
               </div>
               <textarea
@@ -2433,7 +2447,7 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
                     ? "输入后续消息，将在当前轮次完成后发送…"
                     : "向金乌提问……"
                 }
-                className="font-inherit min-h-16 max-h-[45vh] w-full flex-none resize-none overflow-y-auto border-0 bg-transparent px-3.5 pb-2.5 pt-3 text-sm leading-6 text-primary outline-none placeholder:text-tertiary disabled:cursor-not-allowed sm:px-4"
+                className="font-inherit max-h-[45vh] min-h-16 w-full flex-none resize-none overflow-y-auto border-0 bg-transparent px-3.5 pb-2.5 pt-3 text-sm leading-6 text-primary outline-none placeholder:text-tertiary disabled:cursor-not-allowed sm:px-4"
                 style={{ height: composerHeight }}
                 rows={2}
               />

@@ -120,7 +120,8 @@ requires = ["setuptools>=68.0"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
-include = ["jw*"]
+where = [".", "src"]
+include = ["jw*", "research_review*"]
 
 [tool.setuptools.package-data]
 jw = [

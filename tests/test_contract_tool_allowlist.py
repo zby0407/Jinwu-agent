@@ -81,6 +81,13 @@ def test_knowledge_base_readonly_bundle_exposes_no_mutation_tools() -> None:
     )
 
 
+def test_evidence_knowledge_inspection_bundle_cannot_build_bundles() -> None:
+    allowed = _bundle_allowlist("knowledge-base-inspection")
+
+    assert allowed == frozenset({"kb_query", "kb_read", "lit_bundle_read"})
+    assert "lit_bundle_build" not in allowed
+
+
 def test_contract_allowlist_blocks_disallowed_tool_at_execution() -> None:
     middleware = ContractToolAllowlistMiddleware(
         _bundle_allowlist("reasoning", "research-planner")
