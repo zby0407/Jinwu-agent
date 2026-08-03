@@ -153,6 +153,17 @@ def test_seed_catalog_and_task_bundles_reference_real_matching_entries() -> None
         for seed_path in bundle["seed_entries"]:
             assert seed_path in seeded_paths, f"{name}: {seed_path}"
 
+    flare_bundle = manifest["task_bundles"]["flare_forecast"]
+    assert len(flare_bundle["seed_entries"]) == 16
+    assert {
+        "concept_flare_forecast_target.md",
+        "data_source_goes_flare_catalog.md",
+        "data_source_hmi_sharp.md",
+        "experiment_paradigm_flare_chronological_backtest.md",
+        "experiment_paradigm_probabilistic_calibration.md",
+        "experiment_paradigm_rare_event_metrics.md",
+    }.issubset(flare_bundle["seed_entries"])
+
 
 def test_built_in_wiki_imports_hypothesis_leverage_entries(
     tmp_path: Path,
@@ -172,6 +183,15 @@ def test_built_in_wiki_imports_hypothesis_leverage_entries(
         "kb_concept_flare_cycle_relation_001",
         "kb_experiment_paradigm_feature_ablation_001",
         "kb_experiment_paradigm_indicator_drift_001",
+        "kb_concept_forecast_time_availability_001",
+        "kb_concept_flare_forecast_target_001",
+        "kb_concept_full_disk_active_region_forecast_001",
+        "kb_data_source_goes_flare_catalog_001",
+        "kb_data_source_hmi_sharp_001",
+        "kb_experiment_paradigm_flare_chronological_backtest_001",
+        "kb_experiment_paradigm_flare_baselines_001",
+        "kb_experiment_paradigm_probabilistic_calibration_001",
+        "kb_experiment_paradigm_rare_event_metrics_001",
     }
     try:
         stats = _stats()

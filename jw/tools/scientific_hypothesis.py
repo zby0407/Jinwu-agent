@@ -37,9 +37,14 @@ from jw.workspaces import (  # noqa: E402
     workspace_root_from_config,
 )
 from scientific_hypothesis.contracts import (  # noqa: E402
+    AMBIGUOUS_SOLAR_CYCLE_TERM,
+    DECISION_RULE_QUALIFIER,
     HARD_NUMERIC_CUTOFF,
     RESPONSE_VERSION,
     SAFE_ID,
+    SOLAR_CYCLE_CONTEXT,
+    UNIVERSAL_SCOPE_CLAIM,
+    VAGUE_DECISION_RULE,
     canonical_json_sha256,
     validate_hypothesis_request,
 )
@@ -52,9 +57,30 @@ from scientific_hypothesis.harness import (  # noqa: E402
     preflight_hypothesis_response,
     validate_evidence_provenance,
 )
+from scientific_hypothesis.reader_view import (  # noqa: E402
+    render_hypothesis_reader_markdown,
+)
+from scientific_hypothesis.tail_search import (  # noqa: E402
+    BENEFIT_METRICS,
+    COST_METRICS,
+    GENERAL_GUIDELINES,
+    GENERATION_OPERATORS,
+    RUBRIC_ITEMS,
+    SEARCH_REGIONS,
+    TAIL_REVIEW_VERSION,
+    TAIL_REVIEWER_MODE,
+    candidate_pool_sha256,
+    tail_review_is_current,
+    tail_review_scoring_guide,
+    validate_and_select_tail_review,
+)
 
 MAX_EVIDENCE_BINDS = 20
 MAX_SAME_CHECKPOINT_FAILURES = 2
+LONG_TAIL_QUERY = re.compile(
+    r"长尾|稀疏候选|罕见机制|非常规假设|\blong[- ]?tail\b|\bnovel hypothes",
+    re.IGNORECASE,
+)
 WORKING_STATE_VERSION = 1
 WORKING_STATE_RELATIVE_PATH = Path("work") / "scientific_hypothesis_state.json"
 DRAFT_OPERATIONS = {
@@ -69,6 +95,8 @@ REQUIRED_CANDIDATE_FIELDS = {
     "id",
     "statement",
     "applicability",
+    "scope_conditions",
+    "epistemic_status",
     "mechanism",
     "assumptions",
     "predictions",
@@ -79,6 +107,7 @@ REQUIRED_CANDIDATE_FIELDS = {
     "confounders",
     "falsification_conditions",
     "next_test",
+    "uncertainty",
     "confidence",
     "evidence_update",
     "prior_version_id",
@@ -178,6 +207,7 @@ class _HypothesisState:
     preflight_attempts: int = 0
     latest_draft: dict[str, Any] | None = None
     latest_draft_sha256: str | None = None
+    tail_review: dict[str, Any] | None = None
     last_validation_error: str | None = None
     same_validation_error_count: int = 0
     persistence_warning: str | None = None
@@ -221,6 +251,7 @@ def _working_state_payload(state: _HypothesisState) -> dict[str, Any]:
         "checkpoint_attempts": state.preflight_attempts,
         "latest_draft": state.latest_draft,
         "latest_draft_sha256": state.latest_draft_sha256,
+        "tail_review": state.tail_review,
         "last_validation_error": state.last_validation_error,
         "same_validation_error_count": state.same_validation_error_count,
         "literature_bundle_attempted": state.literature_bundle_attempted,
@@ -447,6 +478,21 @@ def _draft_warnings(
                 candidate_id,
             )
 
+        if (
+            SOLAR_CYCLE_CONTEXT.search(request["research_question"]) is not None
+            and AMBIGUOUS_SOLAR_CYCLE_TERM.search(
+                json.dumps(candidate, ensure_ascii=False)
+            )
+            is not None
+        ):
+            add(
+                "ambiguous_solar_cycle_unit",
+                "Candidate uses ambiguous '下一周' in a solar-cycle task; write "
+                "'下一周期' or '下一太阳活动周期', or explicitly state a seven-day "
+                "forecast horizon when one week is intended.",
+                candidate_id,
+            )
+
         statement = candidate.get("statement")
         if isinstance(statement, str) and statement.strip():
             normalized = " ".join(statement.split())
@@ -544,6 +590,69 @@ def _draft_warnings(
             add(
                 "high_confidence_unsupported",
                 "High confidence is inconsistent with missing support or opposing evidence.",
+                candidate_id,
+            )
+
+        scope = candidate.get("scope_conditions")
+        required_scope_fields = {
+            "target_system",
+            "temporal_scope",
+            "spatial_scope",
+            "data_scope",
+            "method_scope",
+            "holds_when",
+            "does_not_apply_when",
+            "generalization_limits",
+        }
+        if not isinstance(scope, dict):
+            add(
+                "scope_conditions_missing",
+                "Candidate must separate target, temporal, spatial, data, method, "
+                "holds-when, does-not-apply, and generalization boundaries.",
+                candidate_id,
+            )
+        else:
+            missing_scope = sorted(required_scope_fields - set(scope))
+            empty_scope = sorted(
+                key
+                for key in required_scope_fields & set(scope)
+                if scope.get(key) in (None, "", [])
+            )
+            if missing_scope or empty_scope:
+                details = []
+                if missing_scope:
+                    details.append(f"missing: {', '.join(missing_scope)}")
+                if empty_scope:
+                    details.append(f"empty: {', '.join(empty_scope)}")
+                add(
+                    "scope_conditions_incomplete",
+                    "Boundary conditions are incomplete (" + "; ".join(details) + ").",
+                    candidate_id,
+                )
+
+        epistemic = candidate.get("epistemic_status")
+        if not isinstance(epistemic, dict) or any(
+            not epistemic.get(key)
+            for key in ("claim", "mechanism", "empirical_support", "basis")
+        ):
+            add(
+                "epistemic_status_missing",
+                "Candidate must label the claim, mechanism inference, empirical "
+                "support level, and the basis for those labels.",
+                candidate_id,
+            )
+
+        uncertainty = candidate.get("uncertainty")
+        if (
+            not isinstance(uncertainty, dict)
+            or not uncertainty.get("sources")
+            or not uncertainty.get("implications")
+            or not uncertainty.get("reduction_strategy")
+        ):
+            add(
+                "uncertainty_incomplete",
+                "Candidate must state uncertainty sources, inferential implications, "
+                "and a concrete reduction strategy.",
                 candidate_id,
             )
 
@@ -750,11 +859,29 @@ def _draft_warnings(
             for value in mechanism.get("required_premises", []):
                 if isinstance(value, str):
                     threshold_texts.append(("mechanism.required_premises", value))
-        confidence = candidate.get("confidence")
-        if isinstance(confidence, dict):
-            basis = confidence.get("basis")
-            if isinstance(basis, str):
-                threshold_texts.append(("confidence.basis", basis))
+        if isinstance(scope, dict):
+            for field_name in (
+                "target_system",
+                "temporal_scope",
+                "spatial_scope",
+                "data_scope",
+                "method_scope",
+            ):
+                value = scope.get(field_name)
+                if isinstance(value, str):
+                    threshold_texts.append((f"scope_conditions.{field_name}", value))
+            for field_name in (
+                "holds_when",
+                "does_not_apply_when",
+                "generalization_limits",
+            ):
+                values = scope.get(field_name, [])
+                if isinstance(values, list):
+                    threshold_texts.extend(
+                        (f"scope_conditions.{field_name}", value)
+                        for value in values
+                        if isinstance(value, str)
+                    )
         for field_name in (
             "assumptions",
             "evidence_gaps",
@@ -805,6 +932,18 @@ def _draft_warnings(
                     for value in expected
                     if isinstance(value, str)
                 )
+        if isinstance(uncertainty, dict):
+            for value in uncertainty.get("sources", []):
+                if isinstance(value, str):
+                    threshold_texts.append(("uncertainty.sources", value))
+            for field_name in ("implications", "reduction_strategy"):
+                value = uncertainty.get(field_name)
+                if isinstance(value, str):
+                    threshold_texts.append((f"uncertainty.{field_name}", value))
+        if isinstance(epistemic, dict):
+            value = epistemic.get("basis")
+            if isinstance(value, str):
+                threshold_texts.append(("epistemic_status.basis", value))
         for field_name, value in threshold_texts:
             for match in HARD_NUMERIC_CUTOFF.finditer(value):
                 token = "".join(match.group(0).split()).lower()
@@ -817,6 +956,127 @@ def _draft_warnings(
                         f"{match.group(0)!r}; remove it, make it qualitative, or "
                         "link verified non-Wiki evidence containing the same threshold."
                     ),
+                    candidate_id,
+                )
+
+        empirical_evidence = []
+        verified_evidence = []
+        for evidence_id in linked_evidence_ids:
+            entry = state.evidence_register.get(evidence_id)
+            if entry is None or not entry["verified_support"]:
+                continue
+            verified_evidence.append(entry)
+            if (
+                entry["role"] == "supports"
+                and entry["evidence_kind"] in {"experiment", "literature", "upstream"}
+                and not entry["material_id"].startswith("kb_")
+            ):
+                empirical_evidence.append(entry)
+        if isinstance(epistemic, dict):
+            empirical_level = epistemic.get("empirical_support")
+            if empirical_level in {"verified", "partial"} and not empirical_evidence:
+                add(
+                    "epistemic_support_mismatch",
+                    f"Empirical support is labelled {empirical_level!r}, but no "
+                    "verified non-Wiki supporting evidence is linked.",
+                    candidate_id,
+                )
+            if (
+                epistemic.get("claim") == "evidence_constrained_hypothesis"
+                and not verified_evidence
+            ):
+                add(
+                    "epistemic_claim_mismatch",
+                    "An evidence-constrained claim must link verified evidence.",
+                    candidate_id,
+                )
+            if (
+                epistemic.get("mechanism") == "supported_inference"
+                and not verified_evidence
+            ):
+                add(
+                    "epistemic_mechanism_mismatch",
+                    "A supported mechanism inference must link verified evidence.",
+                    candidate_id,
+                )
+
+        scope_texts: list[str] = []
+        if isinstance(scope, dict):
+            for field_name in (
+                "target_system",
+                "temporal_scope",
+                "spatial_scope",
+                "data_scope",
+                "method_scope",
+            ):
+                value = scope.get(field_name)
+                if isinstance(value, str):
+                    scope_texts.append(value)
+            values = scope.get("holds_when", [])
+            if isinstance(values, list):
+                scope_texts.extend(value for value in values if isinstance(value, str))
+        if not empirical_evidence:
+            for value in [
+                candidate.get("statement", ""),
+                candidate.get("applicability", ""),
+                *scope_texts,
+            ]:
+                if not isinstance(value, str):
+                    continue
+                match = UNIVERSAL_SCOPE_CLAIM.search(value)
+                if match is not None:
+                    add(
+                        "unsupported_scope_generalization",
+                        f"Unbounded scope term {match.group(0)!r} is unsupported; "
+                        "narrow the population/data regime and state the extrapolation limit.",
+                        candidate_id,
+                    )
+                    break
+
+        decision_texts: list[tuple[str, str]] = []
+        falsifiers = candidate.get("falsification_conditions", [])
+        if isinstance(falsifiers, list):
+            decision_texts.extend(
+                ("falsification_conditions", value)
+                for value in falsifiers
+                if isinstance(value, str)
+            )
+        if isinstance(scope, dict):
+            for scope_field in ("holds_when", "does_not_apply_when"):
+                values = scope.get(scope_field, [])
+                if isinstance(values, list):
+                    decision_texts.extend(
+                        (f"scope_conditions.{scope_field}", value)
+                        for value in values
+                        if isinstance(value, str)
+                    )
+        if isinstance(predictions, list):
+            for prediction in predictions:
+                if not isinstance(prediction, dict):
+                    continue
+                for prediction_field in ("statement", "would_weaken_if"):
+                    value = prediction.get(prediction_field)
+                    if isinstance(value, str):
+                        decision_texts.append((f"prediction.{prediction_field}", value))
+        if isinstance(next_test, dict):
+            value = next_test.get("discriminating_power")
+            if isinstance(value, str):
+                decision_texts.append(("next_test.discriminating_power", value))
+            expected_signals = next_test.get("expected_signals", [])
+            if isinstance(expected_signals, list):
+                decision_texts.extend(
+                    ("next_test.expected_signals", value)
+                    for value in expected_signals
+                    if isinstance(value, str)
+                )
+        for field_name, value in decision_texts:
+            match = VAGUE_DECISION_RULE.search(value)
+            if match is not None and DECISION_RULE_QUALIFIER.search(value) is None:
+                add(
+                    "unoperationalized_decision_rule",
+                    f"{field_name} uses vague decision term {match.group(0)!r}; "
+                    "state a directional observable result or a preregistered "
+                    "decision rule/test with an uncertainty bound.",
                     candidate_id,
                 )
 
@@ -912,11 +1172,40 @@ def _draft_summary(
     candidates = draft.get("candidates", [])
     candidate_count = len(candidates) if isinstance(candidates, list) else 0
     warnings = _draft_warnings(state, request)
+    pool_sha256 = (
+        candidate_pool_sha256(candidates) if isinstance(candidates, list) else None
+    )
+    review_current = tail_review_is_current(
+        state.tail_review,
+        draft,
+        evidence_sha256=_evidence_sha256(state.evidence_register),
+    )
+    review_status = (
+        "current"
+        if review_current
+        else ("stale" if state.tail_review is not None else "missing")
+    )
     result = {
         "schema_version": "scientific-hypothesis-draft-status-v1",
         "status": "draft",
         "candidate_count": candidate_count,
         "draft_sha256": state.latest_draft_sha256,
+        "candidate_pool_sha256": pool_sha256,
+        "tail_review_status": review_status,
+        "tail_review_required": candidate_count > 1
+        or bool(
+            candidate_count and LONG_TAIL_QUERY.search(request["research_question"])
+        ),
+        "tail_review_frontier_ids": (
+            state.tail_review.get("pareto_frontier_ids", [])
+            if isinstance(state.tail_review, dict)
+            else []
+        ),
+        "tail_review_selected_ids": (
+            state.tail_review.get("selected_candidate_ids", [])
+            if isinstance(state.tail_review, dict)
+            else []
+        ),
         "checkpoint_available": state.validated_response is not None,
         "draft_differs_from_checkpoint": bool(
             state.latest_draft_sha256
@@ -1009,6 +1298,10 @@ def _load_persisted_state(path: Path) -> _HypothesisState:
         state.latest_draft = draft
         state.latest_draft_sha256 = canonical_json_sha256(draft)
 
+    tail_review = raw.get("tail_review")
+    if isinstance(tail_review, dict):
+        state.tail_review = tail_review
+
     error = raw.get("last_validation_error")
     if isinstance(error, str) and error:
         state.last_validation_error = error
@@ -1055,6 +1348,42 @@ def _load_persisted_state(path: Path) -> _HypothesisState:
     if warnings:
         state.persistence_warning = "; ".join(warnings)
     return state
+
+
+def read_persisted_hypothesis_draft(path: str | Path) -> dict[str, Any]:
+    """Read a task-local draft receipt without mutating or checkpointing it.
+
+    This is the deterministic recovery path used when a specialist exhausts
+    its model-call budget after it has already persisted useful work.
+    """
+
+    state_path = Path(path)
+    state = _load_persisted_state(state_path)
+    if state.request is None:
+        detail = state.persistence_warning or "no bound hypothesis request"
+        raise ValueError(f"persisted hypothesis state is unusable: {detail}")
+    result = _draft_summary(state, state.request, None)
+    result["state_persistence"] = "workspace"
+    result["state_file"] = str(state_path)
+    result["bound_evidence_ids"] = [
+        entry["evidence_id"] for entry in state.evidence_register.all()
+    ]
+    result["draft"] = deepcopy(state.latest_draft)
+    result["tail_review"] = deepcopy(state.tail_review)
+    return result
+
+
+def render_persisted_hypothesis_reader_view(
+    path: str | Path,
+    *,
+    partial_reason: str | None = None,
+) -> str:
+    """Render the persisted contract as a concise researcher-facing response."""
+
+    return render_hypothesis_reader_markdown(
+        read_persisted_hypothesis_draft(path),
+        partial_reason=partial_reason,
+    )
 
 
 def _needs_revision(
@@ -1159,6 +1488,72 @@ def scientific_hypothesis_bind_request(
             request = build_natural_hypothesis_request(supplied)
 
         brief = build_hypothesis_brief(request)
+        brief["tail_search_contract"] = {
+            "schema_version": TAIL_REVIEW_VERSION,
+            "reviewer_mode": TAIL_REVIEWER_MODE,
+            "generation_operators": sorted(GENERATION_OPERATORS),
+            "search_regions": sorted(SEARCH_REGIONS),
+            "rubric_items": list(RUBRIC_ITEMS),
+            "benefit_metrics": list(BENEFIT_METRICS),
+            "cost_metrics": list(COST_METRICS),
+            "metric_levels": ["low", "medium", "high"],
+            "scoring_guide": tail_review_scoring_guide(),
+            "review_shape": {
+                "schema_version": TAIL_REVIEW_VERSION,
+                "candidate_pool_sha256": "copy from scientific_hypothesis_get_draft",
+                "reviewer_mode": TAIL_REVIEWER_MODE,
+                "instance_rubrics": [
+                    {
+                        "id": "unique rubric id",
+                        "candidate_id": "one current candidate id",
+                        "criterion": (
+                            "question-specific necessary condition or flaw check"
+                        ),
+                        "basis": (
+                            "derive from the bound question, bound evidence, or "
+                            "a concrete candidate contrast"
+                        ),
+                        "status": "pass or violation",
+                        "violated_guidelines": (
+                            "zero or more of: " + ", ".join(GENERAL_GUIDELINES)
+                        ),
+                        "rationale": "specific review rationale",
+                    }
+                ],
+                "candidates": [
+                    {
+                        "candidate_id": "current candidate id",
+                        "generation_operator": "one controlled operator",
+                        "search_region": "one controlled search region",
+                        "mechanism_signature": "concise mechanism-specific signature",
+                        "novelty_status": (
+                            "known_baseline, adjacent_possibility, or "
+                            "tail_candidate_unverified"
+                        ),
+                        "rubric": {
+                            key: {
+                                "status": "pass or violation",
+                                "violated_guidelines": (
+                                    "zero or more of: " + ", ".join(GENERAL_GUIDELINES)
+                                ),
+                                "rationale": "specific review rationale",
+                            }
+                            for key in RUBRIC_ITEMS
+                        },
+                        "tail_metrics": dict.fromkeys(
+                            BENEFIT_METRICS + COST_METRICS,
+                            "low, medium, or high",
+                        ),
+                        "reviewer_summary": "violation-first summary",
+                    }
+                ],
+            },
+            "selection_rule": (
+                "Every rubric item is a hard violation gate. Among candidates "
+                "without violations, code recomputes the non-dominated Pareto "
+                "frontier; eligible null_control sentinels are retained."
+            ),
+        }
         context = workspace_context_key(config)
         with _STATE_LOCK:
             existing = _STATES.get(context)
@@ -1491,8 +1886,8 @@ def scientific_hypothesis_bind_literature_evidence(
         bundle_question = " ".join(str(bundle["research_question"]).split())
         if active_question != bundle_question:
             raise ValueError(
-                "任务文献包绑定的研究问题与当前假设请求不一致；"
-                "请用当前问题重新调用 scientific_hypothesis_build_literature_bundle"
+                "任务文献包绑定的研究问题与当前假设请求不一致。"
+                "请用当前问题重新调用 lit_bundle_build"
             )
         _, run_id = _run_context(config)
         bundle_run_id = str(bundle.get("run_id") or "")
@@ -1768,6 +2163,145 @@ def scientific_hypothesis_get_draft(config: RunnableConfig = None) -> str:
         request = _require_active_request(state)
         result = _draft_summary(state, request, config)
         result["draft"] = deepcopy(state.latest_draft)
+        result["tail_review_scoring_guide"] = tail_review_scoring_guide()
+        return _ok(result)
+    except Exception as exc:
+        return _needs_revision(exc, state=state)
+
+
+@tool(parse_docstring=True)
+def scientific_hypothesis_review_tail(
+    review_json: str, config: RunnableConfig = None
+) -> str:
+    """Independently review a candidate pool and apply deterministic tail selection.
+
+    Use this only after persisting the complete candidate pool. The review must
+    use ``scientific-hypothesis-tail-review-v2`` and the current
+    ``candidate_pool_sha256``. It must cover every candidate with a controlled
+    generation operator, one of ``modal_baseline``, ``positive_tail``,
+    ``negative_tail``, or ``null_control`` as its search region, a mechanism
+    signature, an unverified novelty status, seven general violation-first
+    rubric items, at least one question-specific instance rubric per candidate,
+    and six low/medium/high tail metrics. Instance rubrics must be derived from
+    the bound question, bound evidence, or a concrete candidate contrast.
+
+    Every common and instance-specific rubric item has ``status``,
+    ``violated_guidelines``, and ``rationale``. The reviewer must list
+    weaknesses and violated guideline codes first. Status is ``pass`` if and
+    only if that list is empty; otherwise it is ``violation``. The detailed
+    pass conditions, violation conditions, edge rules, and metric anchors are
+    returned by both ``scientific_hypothesis_bind_request`` and
+    ``scientific_hypothesis_get_draft``. Review metrics include mechanism_distance,
+    prediction_disagreement, expected_information_gain, falsifiability,
+    evidence_risk, and test_cost. Mechanism distance is a diversity marker,
+    not a monotonic scientific benefit, so novelty alone cannot dominate a
+    more adjacent candidate. Per-item rubric rewards are logged for later
+    training, but a hard violation cannot be offset by their average or by any
+    tail metric. If violations exist, the draft is preserved for repair.
+    Otherwise code—not the reviewer—recomputes global and per-search-region
+    Pareto frontiers, preserves eligible null controls, and prunes candidates
+    dominated within their search region.
+
+    Args:
+        review_json: Complete independent tail-review JSON for the current pool.
+
+    Returns:
+        JSON string containing violations, the recomputed frontier, selected
+        candidates, pruned candidates, and the updated draft hashes.
+    """
+    state = _state(config)
+    try:
+        request = _require_active_request(state)
+        if not isinstance(state.latest_draft, dict):
+            raise ValueError("No working draft exists to review.")
+        nonblocking_review_warnings = {
+            "candidate_evidence_unlinked",
+            "candidate_not_distinguished",
+            "cross_candidate_literature_citation",
+            "literature_pass_missing",
+            "unattached_literature_evidence",
+            "unattached_wiki_evidence",
+        }
+        blocking_warnings = [
+            warning
+            for warning in _draft_warnings(state, request)
+            if warning["code"] not in nonblocking_review_warnings
+        ]
+        if blocking_warnings:
+            codes = sorted({warning["code"] for warning in blocking_warnings})
+            raise ValueError(
+                "Resolve deterministic draft warnings before independent tail "
+                f"review: {', '.join(codes)}"
+            )
+        payload = json.loads(review_json)
+        review = validate_and_select_tail_review(
+            payload,
+            state.latest_draft,
+            evidence_sha256=_evidence_sha256(state.evidence_register),
+            require_two_sided_tail=bool(
+                LONG_TAIL_QUERY.search(request["research_question"])
+            ),
+        )
+        review["selected_candidate_pool_sha256"] = None
+        state.tail_review = review
+
+        rejected_ids = review["rejected_candidate_ids"]
+        if rejected_ids:
+            _persist_state(config, state)
+            result = _draft_summary(state, request, config)
+            result.update(
+                {
+                    "schema_version": TAIL_REVIEW_VERSION,
+                    "status": "needs_revision",
+                    "draft_changed": False,
+                    "rejected_candidate_ids": rejected_ids,
+                    "message": (
+                        "At least one candidate has a hard rubric violation. "
+                        "Repair or remove those candidates, then review the changed "
+                        "candidate pool again; tail value cannot offset a violation."
+                    ),
+                    "tail_review": deepcopy(review),
+                }
+            )
+            return _ok(result)
+
+        selected_ids = review["selected_candidate_ids"]
+        selected_set = set(selected_ids)
+        draft = deepcopy(state.latest_draft)
+        draft["candidates"] = [
+            candidate
+            for candidate in draft["candidates"]
+            if candidate.get("id") in selected_set
+        ]
+        draft["pairwise_distinctions"] = [
+            row
+            for row in draft.get("pairwise_distinctions", [])
+            if isinstance(row, dict)
+            and row.get("left_id") in selected_set
+            and row.get("right_id") in selected_set
+        ]
+        state.latest_draft = draft
+        state.latest_draft_sha256 = canonical_json_sha256(draft)
+        review["selected_candidate_pool_sha256"] = candidate_pool_sha256(draft)
+        state.tail_review = review
+        state.last_validation_error = None
+        state.same_validation_error_count = 0
+        _persist_state(config, state)
+        result = _draft_summary(state, request, config)
+        result.update(
+            {
+                "schema_version": TAIL_REVIEW_VERSION,
+                "status": "tail_reviewed",
+                "draft_changed": bool(review["dominated_candidate_ids"]),
+                "pareto_frontier_ids": review["pareto_frontier_ids"],
+                "regional_frontier_ids": review["regional_frontier_ids"],
+                "sentinel_candidate_ids": review["sentinel_candidate_ids"],
+                "selected_candidate_ids": selected_ids,
+                "pruned_candidate_ids": review["dominated_candidate_ids"],
+                "search_regions": review["search_regions"],
+                "tail_review": deepcopy(review),
+            }
+        )
         return _ok(result)
     except Exception as exc:
         return _needs_revision(exc, state=state)
@@ -1777,15 +2311,38 @@ def _checkpoint_response(
     state: _HypothesisState,
     response: dict[str, Any],
     config: RunnableConfig | None,
+    *,
+    require_tail_review: bool = False,
 ) -> str:
     state._persistence_lock.acquire()
     try:
         request = _require_active_request(state)
         state.latest_draft = response
         state.latest_draft_sha256 = canonical_json_sha256(response)
-        warnings = _draft_warnings(state, request)
-        if warnings:
-            raise _unresolved_warning_error(warnings, action="checkpoint draft")
+        candidates = response.get("candidates")
+        tail_review_was_current = tail_review_is_current(
+            state.tail_review,
+            response,
+            evidence_sha256=_evidence_sha256(state.evidence_register),
+        )
+        tail_review_required = bool(
+            require_tail_review
+            and isinstance(candidates, list)
+            and (
+                len(candidates) > 1
+                or bool(
+                    candidates and LONG_TAIL_QUERY.search(request["research_question"])
+                )
+            )
+        )
+        if tail_review_required and not tail_review_was_current:
+            raise ValueError(
+                "A current independent tail review is required before checkpointing "
+                "a multi-candidate or explicit long-tail draft. Call "
+                "scientific_hypothesis_review_tail "
+                "with the current candidate_pool_sha256; candidate or evidence "
+                "changes make an earlier review stale."
+            )
         state.preflight_attempts += 1
         result = preflight_hypothesis_response(
             request,
@@ -1802,6 +2359,14 @@ def _checkpoint_response(
             state.checkpoint_evidence_sha256 = _evidence_sha256(state.evidence_register)
             state.latest_draft = checked
             state.latest_draft_sha256 = state.preflight_response_sha256
+            if (
+                require_tail_review
+                and tail_review_was_current
+                and isinstance(state.tail_review, dict)
+            ):
+                state.tail_review["selected_candidate_pool_sha256"] = (
+                    candidate_pool_sha256(checked)
+                )
             checkpoint_created = True
         state.last_validation_error = None
         state.same_validation_error_count = 0
@@ -1876,7 +2441,12 @@ def scientific_hypothesis_checkpoint_draft(config: RunnableConfig = None) -> str
         )
         _persist_state(config, state)
         return outcome
-    return _checkpoint_response(state, deepcopy(state.latest_draft), config)
+    return _checkpoint_response(
+        state,
+        deepcopy(state.latest_draft),
+        config,
+        require_tail_review=True,
+    )
 
 
 @tool(parse_docstring=True)
@@ -1916,8 +2486,13 @@ def scientific_hypothesis_get_status(config: RunnableConfig = None) -> str:
                 "bound_evidence_count": len(state.evidence_register),
                 "draft_available": state.latest_draft is not None,
                 "candidate_count": draft_summary["candidate_count"],
+                "candidate_pool_sha256": draft_summary["candidate_pool_sha256"],
                 "soft_warning_count": draft_summary["soft_warning_count"],
                 "soft_warnings": draft_summary["soft_warnings"],
+                "tail_review_status": draft_summary["tail_review_status"],
+                "tail_review_required": draft_summary["tail_review_required"],
+                "tail_review_frontier_ids": draft_summary["tail_review_frontier_ids"],
+                "tail_review_selected_ids": draft_summary["tail_review_selected_ids"],
                 "checkpoint_available": state.validated_response is not None,
                 "draft_differs_from_checkpoint": draft_differs,
                 "evidence_differs_from_checkpoint": evidence_differs,
@@ -2018,6 +2593,7 @@ SCIENTIFIC_HYPOTHESIS_TOOLS = [
     scientific_hypothesis_bind_literature_evidence,
     scientific_hypothesis_update_draft,
     scientific_hypothesis_get_draft,
+    scientific_hypothesis_review_tail,
     scientific_hypothesis_validate_response,
     scientific_hypothesis_checkpoint_draft,
     scientific_hypothesis_get_status,
@@ -2026,6 +2602,6 @@ SCIENTIFIC_HYPOTHESIS_TOOLS = [
 
 register_tool_bundle("scientific-hypothesis", SCIENTIFIC_HYPOTHESIS_TOOLS)
 
-__all__ = ["SCIENTIFIC_HYPOTHESIS_TOOLS"] + [
+__all__ = ["SCIENTIFIC_HYPOTHESIS_TOOLS", "read_persisted_hypothesis_draft"] + [
     t.name for t in SCIENTIFIC_HYPOTHESIS_TOOLS
 ]

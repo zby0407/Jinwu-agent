@@ -25,6 +25,7 @@ agents:
 # Skills (under jw/skills/) owned by this bundle.
 skills:
   - solar-cycle
+  - solar-flare-forecasting
   - knowledge-base-agent
 
 # Bundle dependency: solar agents assume core agents (planner, research,

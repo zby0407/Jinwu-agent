@@ -9,12 +9,14 @@ The built-in Wiki supports a bounded AI Scientist workflow centered on:
 - Polar-field precursor evidence and its limited historical sample.
 - Stability or drift of relationships among solar-activity indicators.
 - Hypothesis generation, counterevidence review, and next-test selection.
-- Active-region and flare knowledge only where it informs the above tasks or
+- Bounded full-disk or active-region GOES-threshold flare probability
+  forecasts with explicit issue times and prediction windows.
+- Active-region and flare context where it informs solar-cycle tasks or
   prevents misuse of short-duration event data.
 
-The Wiki does not authorize deterministic official forecasting, creation of
-unobserved numerical values, or a claim that one statistical relationship proves
-a dynamo mechanism.
+The Wiki does not authorize fabricated or retrospectively issued forecasts,
+creation of unobserved numerical values, or a claim that one statistical
+relationship proves a dynamo or flare mechanism.
 
 ## Knowledge classes
 
@@ -63,11 +65,14 @@ The first five provide stable built-in domain grounding. `finding` and
 7. Short-duration flare records cannot replace long-duration cycle indicators.
    Flare occurrence may be a manifestation of magnetic activity without being
    a direct measure of the cycle's dynamo state.
-8. Missing data, proxy substitution, calibration revisions, and low sample size
+8. Flare probabilities require an explicit spatial unit, threshold, issue time,
+   prediction window, immutable input snapshot, and leakage-controlled
+   baseline comparison. Hypothesis confidence is not a forecast probability.
+9. Missing data, proxy substitution, calibration revisions, and low sample size
    travel with every downstream conclusion.
-9. A new result that conflicts with canonical knowledge becomes a conflict for
+10. A new result that conflicts with canonical knowledge becomes a conflict for
    review, not an automatic correction and not something to hide.
-10. When the Wiki lacks support, report a knowledge gap and propose the next
+11. When the Wiki lacks support, report a knowledge gap and propose the next
     observation, source review, or experiment.
 
 ## Canonical promotion boundary

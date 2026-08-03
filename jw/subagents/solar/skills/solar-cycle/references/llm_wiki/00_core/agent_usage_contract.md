@@ -6,11 +6,11 @@ subset and must preserve different boundaries.
 | Role | Required Wiki knowledge | Required output behavior |
 | --- | --- | --- |
 | Unified research agent | scope, mechanism map, conflicts, lifecycle | coordinate conflicting evidence; sign candidate writeback; prevent overclaiming |
-| Research planner | known mechanisms, standard experiments, prior gaps | include data, mechanism, falsification, evaluation, and next-test steps; cite entry ids |
-| Data and features | source coverage, calibration, proxy meaning, feature definitions | label missingness, substitutions, drift, units, and physical interpretation |
-| Automatic experiment | backtest, ablation, drift, precursor and robustness paradigms | record versions, splits, metrics, warnings, failures, and compared knowledge ids |
+| Research planner | known mechanisms, forecast definitions, standard experiments, prior gaps | include data, mechanism, falsification, evaluation, and next-test steps; bind issue time and prediction window for forecast tasks |
+| Data and features | source coverage, calibration, availability time, label semantics, proxy meaning, feature definitions | label missingness, substitutions, drift, units, identifiers, and physical interpretation |
+| Automatic experiment | backtest, baseline, calibration, ablation, drift, precursor and robustness paradigms | record versions, splits, metrics, warnings, failures, and compared knowledge ids |
 | Scientific hypothesis | mechanisms, counterconditions, hypothesis templates | produce falsifiable cards; separate observations, experiment results, and mechanisms |
-| Evidence review | canonical boundaries, source limitations, counterexamples, wording risks | score support and pressure from counterevidence; adjust confidence; identify next test |
+| Evidence review | canonical boundaries, source limitations, baselines, probability calibration, counterexamples, wording risks | score support and pressure from counterevidence; verify forecast skill; adjust confidence; identify next test |
 | Knowledge manager | entry schema, promotion, deprecation, conflict and provenance rules | ingest only as candidate; never silently overwrite; preserve lifecycle history |
 
 ## Task-to-agent knowledge handoff
@@ -31,6 +31,8 @@ Every material statement handed from one role to the next must include:
 - A data Agent may not label an empirical proxy as an internal solar quantity.
 - An experiment Agent may not select only favorable cycles or hide failed
   ablations.
+- A forecast experiment may not use random overlapping-window splits, test-set
+  preprocessing, or accuracy as its sole rare-event metric.
 - A hypothesis Agent may not use model plausibility as observational evidence.
 - An evidence reviewer may not treat canonical status as immunity from new
   counterevidence.

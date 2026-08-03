@@ -74,6 +74,22 @@ def make_candidate(cid="cand_dynamo", statement="第24周极小期延长源于�
         "id": cid,
         "statement": statement,
         "applicability": "仅适用于按同一口径评估的第24与第25活动周极小期",
+        "scope_conditions": {
+            "target_system": "按同一口径定义的第24与第25太阳活动周极小期",
+            "temporal_scope": "两个活动周各自的极小期比较窗口",
+            "spatial_scope": "全日面汇总量；不据此推断半球差异",
+            "data_scope": "同一数据产品、版本、平滑和缺测处理后的极小期指标",
+            "method_scope": "使用相同极小期定义进行成对比较",
+            "holds_when": ["两周的观测与极小期定义保持一致"],
+            "does_not_apply_when": ["任一周的仪器或极小期定义发生未校正变化"],
+            "generalization_limits": ["不得外推到其他活动周或不同数据口径"],
+        },
+        "epistemic_status": {
+            "claim": "exploratory_hypothesis",
+            "mechanism": "exploratory_inference",
+            "empirical_support": "none",
+            "basis": "目前没有已绑定实证支持，主张与机制均为待检验解释",
+        },
         "mechanism": {
             "summary": "发电机过程效率下降延缓了极区磁场反转",
             "physical_basis": "依据尚不充分，属于待检验机制设想",
@@ -100,6 +116,11 @@ def make_candidate(cid="cand_dynamo", statement="第24周极小期延长源于�
             "discriminating_power": "发电机解释预测速率不同，测量解释预测速率一致",
             "expected_signals": ["第24周速率更低", "第25周速率正常"],
             "candidate_ids_distinguished": ["cand_dynamo", "cand_measure"],
+        },
+        "uncertainty": {
+            "sources": ["极小期定义、观测误差和有限活动周样本"],
+            "implications": "这些不确定性可能改变差异方向并降低候选间可判别性",
+            "reduction_strategy": "固定数据版本与极小期定义后做口径敏感性分析",
         },
         "confidence": {"level": "low", "basis": "目前没有直接证据，只是机制设想"},
         "evidence_update": None,
@@ -402,6 +423,27 @@ class ResponseContractTests(unittest.TestCase):
                 self.request,
             )
 
+    def test_candidate_requires_confounder_and_structured_boundaries(self):
+        candidate = make_candidate()
+        candidate["confounders"] = []
+        with self.assertRaises(ContractError):
+            validate_hypothesis_response(
+                make_response(
+                    self.request, candidates=[candidate, make_measure_candidate()]
+                ),
+                self.request,
+            )
+
+        candidate = make_candidate()
+        candidate["scope_conditions"]["does_not_apply_when"] = []
+        with self.assertRaises(ContractError):
+            validate_hypothesis_response(
+                make_response(
+                    self.request, candidates=[candidate, make_measure_candidate()]
+                ),
+                self.request,
+            )
+
     def test_clarification_and_blocked_shapes(self):
         for kind, field, rows in (
             (
@@ -566,6 +608,99 @@ class SemanticCheckTests(unittest.TestCase):
             self.register,
         )
         self.assertTrue(any("数值门槛" in error for error in errors))
+
+    def test_unbounded_scope_without_empirical_support_flagged(self):
+        candidate = make_candidate()
+        candidate["scope_conditions"]["target_system"] = "所有太阳活动周和任何观测产品"
+        errors = collect_hypothesis_semantic_errors(
+            self.request,
+            validate_hypothesis_response(
+                make_response(
+                    self.request, candidates=[candidate, make_measure_candidate()]
+                ),
+                self.request,
+            ),
+            self.register,
+        )
+        self.assertTrue(any("无界泛化" in error for error in errors), errors)
+
+    def test_ungrounded_calendar_range_in_scope_flagged(self):
+        candidate = make_candidate()
+        candidate["scope_conditions"]["temporal_scope"] = "适用于2024-2026下降相"
+        errors = collect_hypothesis_semantic_errors(
+            self.request,
+            validate_hypothesis_response(
+                make_response(
+                    self.request, candidates=[candidate, make_measure_candidate()]
+                ),
+                self.request,
+            ),
+            self.register,
+        )
+        self.assertTrue(any("2024-2026" in error for error in errors), errors)
+
+    def test_ambiguous_next_week_term_in_solar_cycle_task_is_flagged(self):
+        candidate = make_candidate(
+            statement="极区场可约束下一周峰值，但具体关系仍需检验"
+        )
+        errors = collect_hypothesis_semantic_errors(
+            self.request,
+            validate_hypothesis_response(
+                make_response(
+                    self.request, candidates=[candidate, make_measure_candidate()]
+                ),
+                self.request,
+            ),
+            self.register,
+        )
+        self.assertTrue(any("有歧义的“下一周”" in error for error in errors), errors)
+
+    def test_vague_falsification_rule_without_operational_definition_flagged(self):
+        candidate = make_candidate()
+        candidate["falsification_conditions"] = ["同口径复算后仍存在显著差异"]
+        errors = collect_hypothesis_semantic_errors(
+            self.request,
+            validate_hypothesis_response(
+                make_response(
+                    self.request, candidates=[candidate, make_measure_candidate()]
+                ),
+                self.request,
+            ),
+            self.register,
+        )
+        self.assertTrue(any("未操作化" in error for error in errors), errors)
+
+    def test_vague_term_with_preregistered_rule_is_accepted(self):
+        candidate = make_candidate()
+        candidate["falsification_conditions"] = [
+            "按预注册的置信区间判定规则，同口径差异仍显著偏离零"
+        ]
+        errors = collect_hypothesis_semantic_errors(
+            self.request,
+            validate_hypothesis_response(
+                make_response(
+                    self.request, candidates=[candidate, make_measure_candidate()]
+                ),
+                self.request,
+            ),
+            self.register,
+        )
+        self.assertFalse(any("未操作化" in error for error in errors), errors)
+
+    def test_epistemic_empirical_support_cannot_exceed_bound_evidence(self):
+        candidate = make_candidate()
+        candidate["epistemic_status"]["empirical_support"] = "verified"
+        errors = collect_hypothesis_semantic_errors(
+            self.request,
+            validate_hypothesis_response(
+                make_response(
+                    self.request, candidates=[candidate, make_measure_candidate()]
+                ),
+                self.request,
+            ),
+            self.register,
+        )
+        self.assertTrue(any("实证支持标为 verified" in error for error in errors), errors)
 
     def test_sourced_numeric_threshold_accepted(self):
         bind_evidence(self.register)  # 摘录中含“约8个月”之外的数值不在门槛里

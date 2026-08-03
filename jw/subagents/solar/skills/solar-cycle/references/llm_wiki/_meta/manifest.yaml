@@ -1,14 +1,14 @@
 schema_version: llm-wiki-manifest-v1
 wiki_id: solar_cycle_co_scientist
-version: 0.2.0
+version: 0.3.0
 status: active
 language: zh-CN
 design_basis: docs/architecture/2026-06-20-solar-cycle-co-scientist-design.md
 purpose:
-  primary_stage: hypothesis_generation
-  consumer: solar-hypothesis
+  primary_stage: multi_stage_research
+  consumer: solar-specialists
   loading_strategy: deterministic_task_bundle
-  statement_zh: 为太阳活动周、极区前兆、代理漂移与耀斑研究生成可区分、可证伪的科学假设
+  statement_zh: 为太阳活动周、极区前兆、代理漂移与耀斑预测提供可追溯的机制、数据和实验约束
   boundary_zh: Wiki 只约束机制、适用范围与检验方法，不替代项目观测或实验事实
 
 scope:
@@ -18,11 +18,12 @@ scope:
     - indicator_drift_analysis
     - dynamo_mechanism_review
     - knowledge_provenance_conflict
+    - flare_forecast
   secondary:
     - active_region_and_flare_context
   out_of_scope:
     - general_astronomy_encyclopedia
-    - unconstrained_space_weather_forecasting
+    - unbounded_operational_space_weather_forecasting
     - raw_book_chunk_storage
     - model_generated_numerical_results
 
@@ -118,6 +119,33 @@ task_bundles:
       - 90_research_memory/index.md
     seed_entries: []
 
+  flare_forecast:
+    title_zh: 太阳耀斑概率预测
+    purpose_zh: 约束全日面或活动区GOES阈值预测的任务定义、数据时点、回测、基线、概率校准与验证
+    modules:
+      - 30_indicators_and_features/index.md
+      - 40_active_regions_and_flares/index.md
+      - 50_data_sources/index.md
+      - 60_experiment_paradigms/index.md
+      - 80_evidence_review/index.md
+    seed_entries:
+      - concept_forecast_time_availability.md
+      - concept_goes_flare_class.md
+      - concept_flare_cycle_relation.md
+      - concept_flare_cme_boundary.md
+      - concept_flare_forecast_target.md
+      - concept_flare_event_association.md
+      - concept_full_disk_active_region_forecast.md
+      - data_source_goes_flare_catalog.md
+      - data_source_hmi_sharp.md
+      - data_source_noaa_solar_region_summary.md
+      - data_source_swpc_flare_forecast_archive.md
+      - experiment_paradigm_flare_chronological_backtest.md
+      - experiment_paradigm_flare_baselines.md
+      - experiment_paradigm_probabilistic_calibration.md
+      - experiment_paradigm_rare_event_metrics.md
+      - experiment_paradigm_forecast_drift_monitoring.md
+
   active_region_and_flare_context:
     title_zh: 活动区与耀斑
     purpose_zh: 约束耀斑统计在活动周假设中的信息边界
@@ -136,15 +164,15 @@ agent_consumers:
   unified_research_agent:
     contract: coordinate scope, conflicts, and candidate writeback
   research_planner:
-    contract: use mechanisms, standard paradigms, and known gaps
+    contract: use mechanisms, forecast definitions, standard paradigms, and known gaps
   data_and_features:
-    contract: use source limitations and feature-to-physics boundaries
+    contract: use source limitations, issue-time availability, label semantics, and feature-to-physics boundaries
   automatic_experiment:
-    contract: use standard paradigms and compare with historical memory
+    contract: use standard paradigms, leakage controls, baselines, and historical memory
   scientific_hypothesis:
     contract: ground mechanisms and bind falsification conditions
   evidence_review:
-    contract: apply canonical boundaries, counterexamples, and wording controls
+    contract: apply canonical boundaries, baseline-relative skill, calibration, counterexamples, and wording controls
   knowledge_manager:
     contract: maintain ingest, lifecycle, conflict, and provenance
 

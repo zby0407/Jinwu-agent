@@ -166,7 +166,7 @@ def test_inject_subagent_adds_configured_open_source_call_limits(
 
 @patch("jw.agent._ensure_chat_model")
 @patch("jw.agent._ensure_config")
-def test_inject_subagent_honours_only_that_specialists_model_call_limit(
+def test_hypothesis_subagent_reserves_finalization_model_calls(
     mock_config, mock_model, tmp_path
 ):
     mock_model.return_value = MagicMock(profile={"max_input_tokens": 200_000})
@@ -184,47 +184,12 @@ def test_inject_subagent_honours_only_that_specialists_model_call_limit(
 
     workspace = tmp_path / "workspace"
     workspace.mkdir()
-    subs = [
-        {"name": "hypothesis-agent", "_model_call_limit": 32},
-        {"name": "teammate-agent"},
-    ]
-
-    _inject_subagent_middleware(subs, workspace_dir=workspace)
-
-    hypothesis_limit = _single_middleware(subs[0], "ModelCallLimitMiddleware")
-    teammate_limit = _single_middleware(subs[1], "ModelCallLimitMiddleware")
-    assert hypothesis_limit.run_limit == 32
-    assert teammate_limit.run_limit == 24
-    assert "_model_call_limit" not in subs[0]
-
-
-@patch("jw.agent._ensure_chat_model")
-@patch("jw.agent._ensure_config")
-def test_operator_hard_limit_caps_specialist_model_call_override(
-    mock_config, mock_model, tmp_path
-):
-    mock_model.return_value = MagicMock(profile={"max_input_tokens": 200_000})
-    cfg = MagicMock()
-    cfg.model = "qwen3.7-plus"
-    cfg.subagent_model_call_limit = 24
-    cfg.subagent_model_call_hard_limit = 20
-    cfg.subagent_tool_call_limit = 48
-    cfg.memory_profile_enabled = False
-    cfg.memory_observations_enabled = False
-    cfg.memory_observation_writer = MemoryObservationWriter.OFF
-    cfg.memory_workers_enabled = False
-    mock_config.return_value = cfg
-
-    from jw.agent import _inject_subagent_middleware
-
-    workspace = tmp_path / "workspace"
-    workspace.mkdir()
-    subs = [{"name": "hypothesis-agent", "_model_call_limit": 48}]
-
+    subs = [{"name": "solar-hypothesis"}]
     _inject_subagent_middleware(subs, workspace_dir=workspace)
 
     model_limit = _single_middleware(subs[0], "ModelCallLimitMiddleware")
-    assert model_limit.run_limit == 20
+    assert model_limit.run_limit == 32
+    assert model_limit.exit_behavior == "end"
 
 
 @patch("jw.agent._ensure_chat_model")

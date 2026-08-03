@@ -23,6 +23,16 @@ MATERIAL_KINDS = {
 EVIDENCE_KINDS = {"experiment", "literature", "upstream", "user"}
 EVIDENCE_ROLES = {"supports", "opposes", "limits", "gap"}
 CONFIDENCE_LEVELS = {"high", "medium", "low"}
+CLAIM_EPISTEMIC_LEVELS = {
+    "exploratory_hypothesis",
+    "evidence_constrained_hypothesis",
+}
+MECHANISM_EPISTEMIC_LEVELS = {
+    "supported_inference",
+    "exploratory_inference",
+    "unknown",
+}
+EMPIRICAL_SUPPORT_LEVELS = {"verified", "partial", "none"}
 EXPERIMENT_OUTCOMES = {"completed", "null_result", "uncertain", "technical_failure"}
 BLOCKER_CODES = {
     "unsupported_scope",
@@ -56,13 +66,48 @@ PERCENTAGE_EXPRESSION = re.compile(
 HARD_NUMERIC_CUTOFF = re.compile(
     r"(?:至少|至多|不少于|不多于|不超过|不低于|不高于|超过|高于|低于|大于|小于|达到)"
     r"[^。；;.!?！？]{0,24}\d+(?:\.\d+)?\s*(?:%|个|倍|年|月|天|小时|σ|sigma)"
+    r"|(?:至少|至多|不少于|不多于|不超过|不低于|不高于)"
+    r"[^。；;.!?！？]{0,24}[一二两三四五六七八九十百]+\s*"
+    r"(?:种|项|次|组|条|个|倍|年|月|天|小时)"
+    r"|(?:采用|使用|比较|纳入)\s*[一二两三四五六七八九十百]+\s*"
+    r"(?:种|项|次|组|条|个)"
     r"|\d+(?:\.\d+)?\s*(?:%|个|倍|年|月|天|小时|σ|sigma)\s*(?:及以上|及以下|以上|以下|之内|以内)"
     r"|(?:p\s*)?(?:<=|>=|<|>|≤|≥)\s*\d+(?:\.\d+)?\s*(?:%|个|倍|年|月|天|小时|σ|sigma)?"
     r"|\d+(?:\.\d+)?\s*(?:%|σ|sigma)\s*(?:偏差|变化|下降|上升|增加|减少|差异|门槛|阈值)"
-    r"|\d+(?:\.\d+)?\s*[-–—~至到]\s*\d+(?:\.\d+)?\s*(?:%|个|倍|年|月|天|小时|周|σ|sigma)"
-    r"|(?:19|20)\d{2}\s*[-–—~至到]\s*(?:19|20)\d{2}\s*年?"
-    r"|(?:约|大约|大致|近)\s*\d+(?:\.\d+)?\s*(?:个)?\s*(?:活动周|周|年|月|天|小时|%)"
+    r"|\d+(?:\.\d+)?\s*%\s*(?:置信|可信|预测|参考)?区间"
+    r"|(?:小于|低于|少于|不超过|缩小到|降至)"
+    r"[^。；;.!?！？]{0,32}(?:一半|三分之[一二两三四五六七八九十]+)"
+    r"|(?:一半|三分之[一二两三四五六七八九十]+)\s*(?:以上|以下|以内)"
+    r"|\d+(?:\.\d+)?\s*[-–—~至到]\s*\d+(?:\.\d+)?\s*(?:%|个|倍|年|月|天|小时|σ|sigma)"
+    r"|(?<!\d)(?:18|19|20|21)\d{2}\s*[-–—~至到]\s*(?:(?:18|19|20|21)\d{2}|\d{2})(?!\d)"
 )
+# “显著”“明显”“稳定”等词若没有可执行判据，会把证伪条件写成审稿人
+# 无法复核的主观判断。允许明确说明判据将预注册/事先定义，或给出可追溯的
+# 误差界与检验方法；否则由语义检查要求改写。
+VAGUE_DECISION_RULE = re.compile(
+    r"显著|明显|大幅|足够|异常|稳健|稳定|强相关|弱相关"
+    r"|\bsignificant(?:ly)?\b|\bsubstantial(?:ly)?\b|\brobust(?:ly)?\b",
+    re.IGNORECASE,
+)
+DECISION_RULE_QUALIFIER = re.compile(
+    r"预注册|事先定义|预先定义|明确判据|判定规则|误差界|置信区间|后验区间"
+    r"|等效界值|非劣界值|检验方法|preregister|pre-register|decision rule"
+    r"|confidence interval|credible interval",
+    re.IGNORECASE,
+)
+UNIVERSAL_SCOPE_CLAIM = re.compile(
+    r"所有|任何|普遍|无论何种|全部活动周|全体活动周"
+    r"|\ball\b|\bany\b|\buniversal(?:ly)?\b|\bgeneral(?:ly)?\b",
+    re.IGNORECASE,
+)
+# “太阳活动周”是领域术语，但把“下一太阳活动周期”缩写成“下一周”会与
+# 一星期预测尺度混淆。仅在问题本身明确讨论 solar cycle 时启用该门禁。
+SOLAR_CYCLE_CONTEXT = re.compile(
+    r"太阳活动周|太阳活动周期|第\s*\d+\s*(?:太阳活动)?周期|下一周期"
+    r"|\bsolar\s+cycle\b",
+    re.IGNORECASE,
+)
+AMBIGUOUS_SOLAR_CYCLE_TERM = re.compile(r"下一周(?!期)|下一(?:太阳)?活动周(?!期)")
 
 # 数据覆盖范围约束（写死的核验规则，与 upstream.KNOWN_DATA_COVERAGES 对应）：
 # 材料只覆盖有限范围时，候选的可泛化表述一旦越界，置信度不得为 high。
@@ -434,6 +479,8 @@ def _validate_candidate(
             "id",
             "statement",
             "applicability",
+            "scope_conditions",
+            "epistemic_status",
             "mechanism",
             "assumptions",
             "predictions",
@@ -444,6 +491,7 @@ def _validate_candidate(
             "confounders",
             "falsification_conditions",
             "next_test",
+            "uncertainty",
             "confidence",
             "evidence_update",
             "prior_version_id",
@@ -479,6 +527,96 @@ def _validate_candidate(
             f"{label}.mechanism.required_premises",
             min_items=1,
             max_items=8,
+        ),
+    }
+
+    scope = _object(candidate["scope_conditions"], f"{label}.scope_conditions")
+    _exact_fields(
+        scope,
+        {
+            "target_system",
+            "temporal_scope",
+            "spatial_scope",
+            "data_scope",
+            "method_scope",
+            "holds_when",
+            "does_not_apply_when",
+            "generalization_limits",
+        },
+        f"{label}.scope_conditions",
+    )
+    scope_row = {
+        "target_system": _text(
+            scope["target_system"],
+            f"{label}.scope_conditions.target_system",
+            max_length=1_000,
+        ),
+        "temporal_scope": _text(
+            scope["temporal_scope"],
+            f"{label}.scope_conditions.temporal_scope",
+            max_length=1_000,
+        ),
+        "spatial_scope": _text(
+            scope["spatial_scope"],
+            f"{label}.scope_conditions.spatial_scope",
+            max_length=1_000,
+        ),
+        "data_scope": _text(
+            scope["data_scope"],
+            f"{label}.scope_conditions.data_scope",
+            max_length=1_000,
+        ),
+        "method_scope": _text(
+            scope["method_scope"],
+            f"{label}.scope_conditions.method_scope",
+            max_length=1_000,
+        ),
+        "holds_when": _string_list(
+            scope["holds_when"],
+            f"{label}.scope_conditions.holds_when",
+            min_items=1,
+            max_items=8,
+        ),
+        "does_not_apply_when": _string_list(
+            scope["does_not_apply_when"],
+            f"{label}.scope_conditions.does_not_apply_when",
+            min_items=1,
+            max_items=8,
+        ),
+        "generalization_limits": _string_list(
+            scope["generalization_limits"],
+            f"{label}.scope_conditions.generalization_limits",
+            min_items=1,
+            max_items=8,
+        ),
+    }
+
+    epistemic = _object(candidate["epistemic_status"], f"{label}.epistemic_status")
+    _exact_fields(
+        epistemic,
+        {"claim", "mechanism", "empirical_support", "basis"},
+        f"{label}.epistemic_status",
+    )
+    epistemic_row = {
+        "claim": _enum(
+            epistemic["claim"],
+            CLAIM_EPISTEMIC_LEVELS,
+            f"{label}.epistemic_status.claim",
+        ),
+        "mechanism": _enum(
+            epistemic["mechanism"],
+            MECHANISM_EPISTEMIC_LEVELS,
+            f"{label}.epistemic_status.mechanism",
+        ),
+        "empirical_support": _enum(
+            epistemic["empirical_support"],
+            EMPIRICAL_SUPPORT_LEVELS,
+            f"{label}.epistemic_status.empirical_support",
+        ),
+        "basis": _text(
+            epistemic["basis"],
+            f"{label}.epistemic_status.basis",
+            max_length=1_000,
         ),
     }
 
@@ -534,6 +672,31 @@ def _validate_candidate(
         ],
     }
 
+    uncertainty = _object(candidate["uncertainty"], f"{label}.uncertainty")
+    _exact_fields(
+        uncertainty,
+        {"sources", "implications", "reduction_strategy"},
+        f"{label}.uncertainty",
+    )
+    uncertainty_row = {
+        "sources": _string_list(
+            uncertainty["sources"],
+            f"{label}.uncertainty.sources",
+            min_items=1,
+            max_items=10,
+        ),
+        "implications": _text(
+            uncertainty["implications"],
+            f"{label}.uncertainty.implications",
+            max_length=1_000,
+        ),
+        "reduction_strategy": _text(
+            uncertainty["reduction_strategy"],
+            f"{label}.uncertainty.reduction_strategy",
+            max_length=1_000,
+        ),
+    }
+
     update = candidate["evidence_update"]
     update_row = None
     if update is not None:
@@ -553,6 +716,8 @@ def _validate_candidate(
         "applicability": _text(
             candidate["applicability"], f"{label}.applicability", max_length=1_000
         ),
+        "scope_conditions": scope_row,
+        "epistemic_status": epistemic_row,
         "mechanism": mechanism_row,
         "assumptions": _string_list(
             candidate["assumptions"], f"{label}.assumptions", min_items=1, max_items=8
@@ -588,7 +753,10 @@ def _validate_candidate(
             max_items=8,
         ),
         "confounders": _string_list(
-            candidate["confounders"], f"{label}.confounders", max_items=10
+            candidate["confounders"],
+            f"{label}.confounders",
+            min_items=1,
+            max_items=10,
         ),
         "falsification_conditions": _string_list(
             candidate["falsification_conditions"],
@@ -597,6 +765,7 @@ def _validate_candidate(
             max_items=8,
         ),
         "next_test": next_test_row,
+        "uncertainty": uncertainty_row,
         "confidence": _validate_confidence(
             candidate["confidence"], f"{label}.confidence"
         ),
@@ -959,6 +1128,7 @@ def validate_hypothesis_portfolio(payload: object) -> dict[str, Any]:
 
 
 __all__ = [
+    "AMBIGUOUS_SOLAR_CYCLE_TERM",
     "BLOCKER_CODES",
     "CONFIDENCE_LEVELS",
     "DATA_COVERAGE_RULES",
@@ -975,6 +1145,7 @@ __all__ = [
     "REQUEST_VERSION",
     "RESPONSE_KINDS",
     "RESPONSE_VERSION",
+    "SOLAR_CYCLE_CONTEXT",
     "ContractError",
     "canonical_json_sha256",
     "clone_json",

@@ -74,6 +74,7 @@ def test_yaml_subagent_resolves_tools_from_canonical_registry() -> None:
         "scientific_hypothesis_bind_literature_evidence",
         "scientific_hypothesis_update_draft",
         "scientific_hypothesis_get_draft",
+        "scientific_hypothesis_review_tail",
         "scientific_hypothesis_validate_response",
         "scientific_hypothesis_checkpoint_draft",
         "scientific_hypothesis_get_status",

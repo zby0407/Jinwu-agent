@@ -19,6 +19,10 @@ prediction, mechanism, falsification, drift, and self-correction questions.
 - Robustness, uncertainty, and sensitivity analysis.
 - Mechanism-diagnostic experiment that distinguishes statistical support from
   physical interpretation.
+- Chronological flare backtest with active-region/event-group isolation.
+- Climatology, persistence, and simple interpretable flare baselines.
+- Probabilistic calibration and rare-event verification.
+- Forecast drift and post-release skill monitoring.
 
 ## Every paradigm must define
 
@@ -38,4 +42,5 @@ The design document requires `通过`, `警告`, `失败`, and `待补充`. A nu
 is not automatically a technical failure. Failed attempts and warnings must
 remain visible to the next Agent.
 
-The seeded `kb_experiment_paradigm_backtest_001` page anchors this module.
+The cycle-level backtest and dedicated flare-forecast paradigms jointly anchor
+this module; their analysis units and leakage controls are not interchangeable.

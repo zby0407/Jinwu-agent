@@ -58,6 +58,7 @@ if TYPE_CHECKING:
 SUBAGENTS_CONFIG = Path(__file__).parent / "subagents"
 SKILLS_DIR = str(Path(__file__).parent / "subagents")
 DEFAULT_SKILL_SOURCES = ("/skills/",)
+HYPOTHESIS_SUBAGENT_MODEL_CALL_LIMIT_FLOOR = 32
 
 
 def _positive_call_limit(value: object, fallback: int | None) -> int | None:
@@ -74,6 +75,7 @@ def _call_limit_middleware(
     *,
     subagent: bool,
     model_limit_override: int | None = None,
+    model_limit_floor: int | None = None,
 ) -> list[AgentMiddleware]:
     """Build LangChain's stateful loop guards from JW configuration."""
     if subagent:
@@ -104,6 +106,8 @@ def _call_limit_middleware(
             getattr(cfg, "agent_tool_call_limit", None),
             DEFAULT_AGENT_TOOL_CALL_LIMIT,
         )
+    if model_limit is not None and model_limit_floor is not None:
+        model_limit = max(model_limit, model_limit_floor)
 
     middleware: list[AgentMiddleware] = []
     if tool_limit is not None:
@@ -445,6 +449,11 @@ def _inject_subagent_middleware(
                 cfg,
                 subagent=True,
                 model_limit_override=model_call_limit,
+                model_limit_floor=(
+                    HYPOTHESIS_SUBAGENT_MODEL_CALL_LIMIT_FLOOR
+                    if name == "solar-hypothesis"
+                    else None
+                ),
             ),
             # Subagents share the main agent's model: use the threaded
             # ``chat_model`` on the pure path, else defer to the factory's

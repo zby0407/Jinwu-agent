@@ -93,6 +93,8 @@
         "id",
         "statement",
         "applicability",
+        "scope_conditions",
+        "epistemic_status",
         "mechanism",
         "assumptions",
         "predictions",
@@ -103,6 +105,7 @@
         "confounders",
         "falsification_conditions",
         "next_test",
+        "uncertainty",
         "confidence",
         "evidence_update",
         "prior_version_id"
@@ -111,6 +114,69 @@
         "id": { "$ref": "#/$defs/safeId" },
         "statement": { "$ref": "#/$defs/shortText" },
         "applicability": { "$ref": "#/$defs/shortText" },
+        "scope_conditions": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "target_system",
+            "temporal_scope",
+            "spatial_scope",
+            "data_scope",
+            "method_scope",
+            "holds_when",
+            "does_not_apply_when",
+            "generalization_limits"
+          ],
+          "properties": {
+            "target_system": { "$ref": "#/$defs/shortText" },
+            "temporal_scope": { "$ref": "#/$defs/shortText" },
+            "spatial_scope": { "$ref": "#/$defs/shortText" },
+            "data_scope": { "$ref": "#/$defs/shortText" },
+            "method_scope": { "$ref": "#/$defs/shortText" },
+            "holds_when": {
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 8,
+              "items": { "$ref": "#/$defs/shortText" }
+            },
+            "does_not_apply_when": {
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 8,
+              "items": { "$ref": "#/$defs/shortText" }
+            },
+            "generalization_limits": {
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 8,
+              "items": { "$ref": "#/$defs/shortText" }
+            }
+          }
+        },
+        "epistemic_status": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["claim", "mechanism", "empirical_support", "basis"],
+          "properties": {
+            "claim": {
+              "enum": [
+                "exploratory_hypothesis",
+                "evidence_constrained_hypothesis"
+              ]
+            },
+            "mechanism": {
+              "enum": [
+                "supported_inference",
+                "exploratory_inference",
+                "unknown"
+              ]
+            },
+            "empirical_support": {
+              "enum": ["verified", "partial", "none"]
+            },
+            "basis": { "$ref": "#/$defs/shortText" }
+          }
+        },
         "mechanism": {
           "type": "object",
           "additionalProperties": false,
@@ -161,6 +227,7 @@
         },
         "confounders": {
           "type": "array",
+          "minItems": 1,
           "maxItems": 10,
           "items": { "$ref": "#/$defs/shortText" }
         },
@@ -171,6 +238,21 @@
           "items": { "$ref": "#/$defs/shortText" }
         },
         "next_test": { "$ref": "#/$defs/nextTest" },
+        "uncertainty": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["sources", "implications", "reduction_strategy"],
+          "properties": {
+            "sources": {
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 10,
+              "items": { "$ref": "#/$defs/shortText" }
+            },
+            "implications": { "$ref": "#/$defs/shortText" },
+            "reduction_strategy": { "$ref": "#/$defs/shortText" }
+          }
+        },
         "confidence": { "$ref": "#/$defs/confidence" },
         "evidence_update": {
           "anyOf": [
