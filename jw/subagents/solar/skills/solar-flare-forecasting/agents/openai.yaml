@@ -1,0 +1,4 @@
+interface:
+  display_name: "Solar Flare Forecasting"
+  short_description: "Leakage-safe solar flare forecast workflows"
+  default_prompt: "Use $solar-flare-forecasting to design and verify a leakage-safe probabilistic solar flare forecast."

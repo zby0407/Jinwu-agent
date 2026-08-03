@@ -26,6 +26,8 @@ counterevidence, adjust confidence, and prevent overstatement.
 - Check that the stated valid range matches the evidence.
 - Replace deterministic forecast language with bounded trend language when
   warranted.
+- For flare probabilities, verify issue-time availability, baseline-relative
+  skill, calibration, rare-event tradeoffs, and failure slices.
 - Trigger a conflict record when a new result contradicts canonical knowledge.
 
 ## Confidence downgrade triggers
@@ -38,6 +40,8 @@ counterevidence, adjust confidence, and prevent overstatement.
 - knowledge source deprecation;
 - result outside an entry's valid range;
 - wording that resembles an official forecast or mechanism proof.
+- flare forecasts that do not beat declared climatology/persistence baselines
+  or have materially unreliable probability bins.
 
 ## Required outcome
 

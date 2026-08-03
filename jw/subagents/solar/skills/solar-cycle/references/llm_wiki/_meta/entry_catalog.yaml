@@ -190,8 +190,9 @@ entries:
     type: concept
     module: indicators_and_features
     title_zh: 预测时点可用性与特征泄漏
-    state: planned
+    state: seeded
     priority: P0
+    path: concept_forecast_time_availability.md
 
   # Module 40: active regions and flares
   - id: kb_concept_solar_active_region_001
@@ -216,8 +217,9 @@ entries:
     type: concept
     module: active_regions_and_flares
     title_zh: GOES软X射线耀斑等级
-    state: planned
-    priority: P1
+    state: seeded
+    priority: P0
+    path: concept_goes_flare_class.md
   - id: kb_concept_flare_energy_measures_001
     type: concept
     module: active_regions_and_flares
@@ -234,9 +236,31 @@ entries:
   - id: kb_concept_flare_cme_boundary_001
     type: concept
     module: active_regions_and_flares
-    title_zh: 耀斑、CME与活动周指标的关系边界
-    state: planned
-    priority: P2
+    title_zh: 耀斑、CME与SEP预测目标边界
+    state: seeded
+    priority: P0
+    path: concept_flare_cme_boundary.md
+  - id: kb_concept_flare_forecast_target_001
+    type: concept
+    module: active_regions_and_flares
+    title_zh: 太阳耀斑概率预测目标
+    state: seeded
+    priority: P0
+    path: concept_flare_forecast_target.md
+  - id: kb_concept_flare_event_association_001
+    type: concept
+    module: active_regions_and_flares
+    title_zh: 耀斑事件窗口与活动区关联
+    state: seeded
+    priority: P0
+    path: concept_flare_event_association.md
+  - id: kb_concept_full_disk_active_region_forecast_001
+    type: concept
+    module: active_regions_and_flares
+    title_zh: 全日面与活动区耀斑预测
+    state: seeded
+    priority: P0
+    path: concept_full_disk_active_region_forecast.md
 
   # Module 50: data sources
   - id: kb_data_source_silso_001
@@ -279,9 +303,31 @@ entries:
   - id: kb_data_source_goes_flare_catalog_001
     type: data_source
     module: data_sources
-    title_zh: GOES耀斑事件目录
-    state: planned
-    priority: P1
+    title_zh: NOAA/NCEI GOES耀斑事件报告
+    state: seeded
+    priority: P0
+    path: data_source_goes_flare_catalog.md
+  - id: kb_data_source_hmi_sharp_001
+    type: data_source
+    module: data_sources
+    title_zh: SDO/HMI Space-weather Active Region Patches
+    state: seeded
+    priority: P0
+    path: data_source_hmi_sharp.md
+  - id: kb_data_source_noaa_solar_region_summary_001
+    type: data_source
+    module: data_sources
+    title_zh: NOAA Solar Region Summary
+    state: seeded
+    priority: P0
+    path: data_source_noaa_solar_region_summary.md
+  - id: kb_data_source_swpc_flare_forecast_archive_001
+    type: data_source
+    module: data_sources
+    title_zh: NOAA/SWPC耀斑概率预报存档
+    state: seeded
+    priority: P0
+    path: data_source_swpc_flare_forecast_archive.md
 
   # Module 60: experiment paradigms
   - id: kb_experiment_paradigm_backtest_001
@@ -347,6 +393,41 @@ entries:
     title_zh: 机制诊断与替代解释比较
     state: planned
     priority: P1
+  - id: kb_experiment_paradigm_flare_chronological_backtest_001
+    type: experiment_paradigm
+    module: experiment_paradigms
+    title_zh: 耀斑预测时间推进与活动区隔离回测
+    state: seeded
+    priority: P0
+    path: experiment_paradigm_flare_chronological_backtest.md
+  - id: kb_experiment_paradigm_flare_baselines_001
+    type: experiment_paradigm
+    module: experiment_paradigms
+    title_zh: 耀斑预测气候率、持续性与可解释基线
+    state: seeded
+    priority: P0
+    path: experiment_paradigm_flare_baselines.md
+  - id: kb_experiment_paradigm_probabilistic_calibration_001
+    type: experiment_paradigm
+    module: experiment_paradigms
+    title_zh: 耀斑概率校准与可靠性检验
+    state: seeded
+    priority: P0
+    path: experiment_paradigm_probabilistic_calibration.md
+  - id: kb_experiment_paradigm_rare_event_metrics_001
+    type: experiment_paradigm
+    module: experiment_paradigms
+    title_zh: 稀有耀斑事件的概率与列联表评价
+    state: seeded
+    priority: P0
+    path: experiment_paradigm_rare_event_metrics.md
+  - id: kb_experiment_paradigm_forecast_drift_monitoring_001
+    type: experiment_paradigm
+    module: experiment_paradigms
+    title_zh: 耀斑预测数据漂移与技能监测
+    state: seeded
+    priority: P0
+    path: experiment_paradigm_forecast_drift_monitoring.md
 
   # Module 70: hypothesis templates
   - id: kb_hypothesis_template_polar_precursor_001

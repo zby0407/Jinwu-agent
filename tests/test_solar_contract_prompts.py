@@ -51,6 +51,7 @@ def test_evidence_agent_uses_hypothesis_contract_tools():
         "scientific_hypothesis_bind_wiki_evidence",
         "scientific_hypothesis_update_draft",
         "scientific_hypothesis_get_draft",
+        "scientific_hypothesis_review_tail",
         "scientific_hypothesis_validate_response",
         "scientific_hypothesis_checkpoint_draft",
         "scientific_hypothesis_get_status",
@@ -107,11 +108,11 @@ def test_hypothesis_agent_reads_wiki_before_generating_candidates():
     )
     assert "immediately persist H0 or the first complete candidate" in text
     assert "make the cached-literature pass before reading any optional" in text
-    assert "默认恰好形成三个机制上可区分的候选" in text
-    assert "普通自然语言入口由绑定合同固定为最多三个候选" in text
-    assert "结构化请求明确给出大于三的 max_candidates" in text
-    assert "不得因为 Wiki 列出了更多模板而扩张" in text
-    assert "不再自行考虑第四或第五个" in text
+    assert "多机制、证据冲突或长尾发现问题先形成 4–6 个机制上可区分的候选池" in text
+    assert "modal_baseline" in text
+    assert "positive_tail" in text
+    assert "negative_tail" in text
+    assert "null_control" in text
     assert "A query hit is source discovery only" in text
     assert "binding tool rechecks canonical status" in text
     assert "never as observational support" in text
@@ -138,12 +139,37 @@ def test_hypothesis_agent_reads_wiki_before_generating_candidates():
     assert "中文研究问题的全部人类可读正文必须使用中文" in text
     assert "固定审查协议必须先单独执行并报告" in text
     assert "scientific_hypothesis_update_draft" in text
+    assert "scientific_hypothesis_review_tail" in text
+    assert "positive_tail" in text
+    assert "negative_tail" in text
+    assert "violation-first" in text
+    assert "instance_rubrics" in text
+    assert "tail_review_scoring_guide" in text
+    assert "violated_guidelines" in text
+    assert "只有 violated_guidelines 为空时 status 才能是 pass" in text
+    assert "七项科学 rubric 的逐项通过与违规边界如下" in text
+    assert "边界未知时" in text
+    assert "噪声空结果不必一次性证伪" in text
+    assert "严格使用以下锚点" in text
+    assert "high 在这里更差" in text
+    assert "Pareto" in text
+    assert "candidate_pool_sha256" in text
     assert "禁止先在自然语言中写完整组合、最后才尝试保存" in text
     assert "必须调用 scientific_hypothesis_get_draft" in text
-    assert "任何自然语言进度说明都不算修订" in text
-    assert "下一轮必须直接发出修订工具调用" in text
-    assert "不得以篇幅为由压缩或省略用户要求的字段" in text
-    assert "已绑定任务文献 evidence_id" in text
+    assert "scope_conditions" in text
+    assert "epistemic_status" in text
+    assert "uncertainty.sources" in text
+    assert "does_not_apply_when" in text
+    assert "generalization_limits" in text
+    assert "显著" in text
+    assert "预注册" in text
+    assert "不得为了简洁省略边界条件" in text
+    assert "不得用“下一周”指代下一太阳活动周期" in text
+    assert "再次调用 scientific_hypothesis_get_draft 留下可回传收尾回执" in text
+    assert (
+        "评分、排序、rubric、search-region、Pareto 与选择轨迹只属于内部工作状态" in text
+    )
+    assert "原始评分结构仍留在内部状态" in text
 
 
 def test_parent_does_not_rewrite_hypothesis_specialist_state():

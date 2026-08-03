@@ -13,7 +13,9 @@ research tasks:
 4. Evidence review of the approximately 11-year cycle and solar-dynamo
    mechanisms.
 5. Knowledge provenance and conflict review.
-6. Secondary active-region and flare context needed by those tasks.
+6. Leakage-controlled full-disk or active-region solar-flare probability
+   forecast design and verification.
+7. Secondary active-region and flare context needed by solar-cycle tasks.
 
 It is not a dump of the JSONbook corpus and it is not a general astronomy
 encyclopedia. JSONbook is an offline reference collection used to write and
@@ -33,6 +35,8 @@ directory.
    gap from model memory and present it as canonical.
 
 This is deterministic task-based loading, not embedding or vector retrieval.
+Explicit flare forecasts load the `flare_forecast` task bundle and follow the
+shared `solar-flare-forecasting` skill; they do not require a new sub-agent.
 
 ## Dynamic literature source layer
 

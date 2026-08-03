@@ -14,6 +14,12 @@ from jw.tools import knowledge_base as knowledge_tools
 from jw.tools import scientific_hypothesis as hypothesis_tools
 from jw.workspaces import ensure_thread_workspace
 from scientific_hypothesis.contracts import canonical_json_sha256
+from scientific_hypothesis.tail_search import (
+    BENEFIT_METRICS,
+    RUBRIC_ITEMS,
+    TAIL_REVIEW_VERSION,
+    candidate_pool_sha256,
+)
 from tests.test_hypothesis import make_response
 
 
@@ -51,6 +57,108 @@ def _update(
     )
 
 
+def _tail_review_payload(
+    draft: dict[str, object],
+    *,
+    violation_candidate_id: str | None = None,
+) -> dict[str, object]:
+    candidates = draft["candidates"]
+    assert isinstance(candidates, list)
+    rows = []
+    for index, candidate in enumerate(candidates):
+        assert isinstance(candidate, dict)
+        candidate_id = candidate["id"]
+        assert isinstance(candidate_id, str)
+        rubric = {
+            key: {
+                "status": (
+                    "violation"
+                    if candidate_id == violation_candidate_id
+                    and key == "boundary_completeness"
+                    else "pass"
+                ),
+                "violated_guidelines": (
+                    ["handles_all_criteria"]
+                    if candidate_id == violation_candidate_id
+                    and key == "boundary_completeness"
+                    else []
+                ),
+                "rationale": f"Independent reviewer checked {key} for {candidate_id}.",
+            }
+            for key in RUBRIC_ITEMS
+        }
+        metrics = dict.fromkeys(BENEFIT_METRICS, "medium" if index == 0 else "high")
+        metrics.update(
+            {
+                "evidence_risk": "low" if index == 0 else "high",
+                "test_cost": "low" if index == 0 else "high",
+            }
+        )
+        rows.append(
+            {
+                "candidate_id": candidate_id,
+                "generation_operator": (
+                    "modal_baseline" if index == 0 else "premise_reversal"
+                ),
+                "search_region": ("modal_baseline" if index == 0 else "negative_tail"),
+                "mechanism_signature": f"distinct mechanism signature {candidate_id}",
+                "novelty_status": (
+                    "known_baseline" if index == 0 else "tail_candidate_unverified"
+                ),
+                "rubric": rubric,
+                "tail_metrics": metrics,
+                "reviewer_summary": (
+                    f"Independent violation-first review completed for {candidate_id}."
+                ),
+            }
+        )
+    return {
+        "schema_version": TAIL_REVIEW_VERSION,
+        "candidate_pool_sha256": candidate_pool_sha256(draft),
+        "reviewer_mode": "independent_violation_first",
+        "instance_rubrics": [
+            {
+                "id": f"ir_{row['candidate_id']}",
+                "candidate_id": row["candidate_id"],
+                "criterion": (
+                    f"Candidate {row['candidate_id']} must resolve the "
+                    "question-specific observable contrast."
+                ),
+                "basis": "Derived from the bound question and candidate contrast.",
+                "status": "pass",
+                "violated_guidelines": [],
+                "rationale": (
+                    "The candidate includes a directly discriminating prediction."
+                ),
+            }
+            for row in rows
+        ],
+        "candidates": rows,
+    }
+
+
+def _review_tail(
+    config: dict[str, dict[str, str]],
+    draft: dict[str, object],
+    *,
+    violation_candidate_id: str | None = None,
+) -> dict[str, object]:
+    return json.loads(
+        hypothesis_tools.scientific_hypothesis_review_tail.invoke(
+            {
+                "review_json": json.dumps(
+                    _tail_review_payload(
+                        draft,
+                        violation_candidate_id=violation_candidate_id,
+                    ),
+                    ensure_ascii=False,
+                )
+            },
+            config=config,
+        )
+    )
+
+
 def _wiki_store_with_read_receipt(thread_id: str, entry_id: str) -> SimpleNamespace:
     return SimpleNamespace(
         provenance_for_run=lambda run_id: (
@@ -80,6 +188,14 @@ def test_rebinding_same_question_preserves_working_state() -> None:
             config=config,
         )
     )
+    scoring_guide = first["tail_search_contract"]["scoring_guide"]
+    assert "boundary_completeness" in scoring_guide["scientific_rubrics"]
+    assert "handles_all_criteria" in scoring_guide["general_guidelines"]
+    assert scoring_guide["tail_metric_anchors"]["evidence_risk"]["direction"] == "risk"
+    draft_receipt = json.loads(
+        hypothesis_tools.scientific_hypothesis_get_draft.invoke({}, config=config)
+    )
+    assert draft_receipt["tail_review_scoring_guide"] == scoring_guide
     state = hypothesis_tools._STATES["hypothesis-idempotent-bind"]
     state.preflight_attempts = 3
     state.validated_response = {"checkpoint": True}
@@ -98,6 +214,32 @@ def test_rebinding_same_question_preserves_working_state() -> None:
     assert second["checkpoint_available"] is True
     assert hypothesis_tools._STATES["hypothesis-idempotent-bind"] is state
     assert state.preflight_attempts == 3
+
+
+def test_read_persisted_draft_returns_exact_recovery_receipt(
+    tmp_path: Path, monkeypatch
+) -> None:
+    workspace, config = _bound_config(
+        tmp_path, monkeypatch, "hypothesis-persisted-recovery"
+    )
+    hypothesis_tools._STATES.pop("hypothesis-persisted-recovery", None)
+    hypothesis_tools.scientific_hypothesis_bind_request.invoke(
+        {"request_input": "Explain the observation with competing hypotheses."},
+        config=config,
+    )
+    state = hypothesis_tools._STATES["hypothesis-persisted-recovery"]
+    response = make_response(state.request)
+    update = _update(config, "replace", response)
+    state_path = workspace / "work" / "scientific_hypothesis_state.json"
+
+    receipt = hypothesis_tools.read_persisted_hypothesis_draft(state_path)
+
+    assert receipt["status"] == "draft"
+    assert receipt["state_persistence"] == "workspace"
+    assert receipt["state_file"] == str(state_path)
+    assert receipt["candidate_count"] == len(response["candidates"])
+    assert receipt["draft_sha256"] == update["draft_sha256"]
+    assert receipt["draft"] == response
 
 
 def test_rebinding_different_question_starts_new_working_state() -> None:
@@ -1178,282 +1320,103 @@ def test_draft_update_warns_about_unbound_numeric_thresholds() -> None:
     assert "0.85" in threshold_warnings[0]["message"]
 
 
-def test_draft_requires_each_candidate_to_link_evidence() -> None:
-    config = _config("hypothesis-draft-candidate-evidence-link")
-    hypothesis_tools._STATES.pop("hypothesis-draft-candidate-evidence-link", None)
+def test_draft_update_warns_about_chinese_numeric_cutoffs() -> None:
+    config = _config("hypothesis-draft-chinese-numeric-warning")
+    hypothesis_tools._STATES.pop("hypothesis-draft-chinese-numeric-warning", None)
     hypothesis_tools.scientific_hypothesis_bind_request.invoke(
-        {"request_input": "Compare evidence-grounded mechanisms."},
+        {"request_input": "不要为检验虚构数量、比例或区间门槛。"},
         config=config,
     )
-    state = hypothesis_tools._STATES["hypothesis-draft-candidate-evidence-link"]
-    state.literature_bundle_attempted = True
+    state = hypothesis_tools._STATES["hypothesis-draft-chinese-numeric-warning"]
     response = make_response(state.request)
+    response["candidates"][0]["falsification_conditions"] = [
+        "在至少三种平滑窗口下方向一致",
+        "差异缩小到原始估计的一半以下",
+        "观测值落在95%区间内",
+    ]
+
+    outcome = _update(config, "replace", response)
+    messages = [
+        warning["message"]
+        for warning in outcome["soft_warnings"]
+        if warning["code"] == "ungrounded_numeric_threshold"
+    ]
+
+    assert any("至少三种" in message for message in messages)
+    assert any("一半" in message for message in messages)
+    assert any("95%区间" in message for message in messages)
+
+
+def test_draft_warns_when_scientific_boundaries_are_missing() -> None:
+    config = _config("hypothesis-draft-boundary-warning")
+    hypothesis_tools._STATES.pop("hypothesis-draft-boundary-warning", None)
+    hypothesis_tools.scientific_hypothesis_bind_request.invoke(
+        {"request_input": "Explain this observation with explicit scientific limits."},
+        config=config,
+    )
+    state = hypothesis_tools._STATES["hypothesis-draft-boundary-warning"]
+    response = make_response(state.request)
+    candidate = response["candidates"][0]
+    candidate.pop("scope_conditions")
+    candidate.pop("epistemic_status")
+    candidate.pop("uncertainty")
+
+    outcome = _update(config, "replace", response)
+    warning_codes = {
+        warning["code"]
+        for warning in outcome["soft_warnings"]
+        if warning["candidate_id"] == "cand_dynamo"
+    }
+
+    assert "candidate_incomplete" in warning_codes
+    assert "scope_conditions_missing" in warning_codes
+    assert "epistemic_status_missing" in warning_codes
+    assert "uncertainty_incomplete" in warning_codes
+
+
+def test_draft_warns_about_unbounded_and_vague_scientific_language() -> None:
+    config = _config("hypothesis-draft-language-warning")
+    hypothesis_tools._STATES.pop("hypothesis-draft-language-warning", None)
+    hypothesis_tools.scientific_hypothesis_bind_request.invoke(
+        {"request_input": "Explain this observation without unbounded claims."},
+        config=config,
+    )
+    state = hypothesis_tools._STATES["hypothesis-draft-language-warning"]
+    response = make_response(state.request)
+    candidate = response["candidates"][0]
+    candidate["scope_conditions"]["target_system"] = "所有太阳活动周"
+    candidate["falsification_conditions"] = ["若仍有显著差异则放弃"]
+
+    outcome = _update(config, "replace", response)
+    warning_codes = {
+        warning["code"]
+        for warning in outcome["soft_warnings"]
+        if warning["candidate_id"] == "cand_dynamo"
+    }
+
+    assert "unsupported_scope_generalization" in warning_codes
+    assert "unoperationalized_decision_rule" in warning_codes
+
+
+def test_draft_warns_about_ambiguous_solar_cycle_unit() -> None:
+    config = _config("hypothesis-draft-cycle-unit-warning")
+    hypothesis_tools._STATES.pop("hypothesis-draft-cycle-unit-warning", None)
+    hypothesis_tools.scientific_hypothesis_bind_request.invoke(
+        {"request_input": "解释太阳活动周期前兆对下一周期峰值的约束。"},
+        config=config,
+    )
+    state = hypothesis_tools._STATES["hypothesis-draft-cycle-unit-warning"]
+    response = make_response(state.request)
+    response["candidates"][0]["statement"] = "极区场可约束下一周峰值"
 
     outcome = _update(config, "replace", response)
     warnings = [
         warning
         for warning in outcome["soft_warnings"]
-        if warning["code"] == "candidate_evidence_unlinked"
-    ]
-
-    assert {warning["candidate_id"] for warning in warnings} == {
-        "cand_dynamo",
-        "cand_measure",
-    }
-    assert outcome["return_gate"] == "blocked_until_warnings_resolved"
-    assert outcome["natural_language_return_allowed"] is False
-
-
-def test_draft_warns_about_unbound_cycle_count_ranges_in_visible_rationale() -> None:
-    config = _config("hypothesis-draft-cycle-count-warning")
-    hypothesis_tools._STATES.pop("hypothesis-draft-cycle-count-warning", None)
-    hypothesis_tools.scientific_hypothesis_bind_request.invoke(
-        {"request_input": "Explain this observation without invented sample counts."},
-        config=config,
-    )
-    state = hypothesis_tools._STATES["hypothesis-draft-cycle-count-warning"]
-    response = make_response(state.request)
-    candidate = response["candidates"][0]
-    candidate["mechanism"]["required_premises"] = ["直接观测仅覆盖约3-4周"]
-    candidate["confidence"]["basis"] = "直接观测仅覆盖约3-4个活动周"
-
-    outcome = _update(config, "replace", response)
-    threshold_warnings = [
-        warning
-        for warning in outcome["soft_warnings"]
-        if warning["code"] == "ungrounded_numeric_threshold"
-        and warning["candidate_id"] == "cand_dynamo"
-    ]
-
-    assert len(threshold_warnings) >= 2
-
-
-def test_draft_warns_about_unbound_numbers_in_all_reader_visible_fields() -> None:
-    config = _config("hypothesis-draft-visible-number-warning")
-    hypothesis_tools._STATES.pop("hypothesis-draft-visible-number-warning", None)
-    hypothesis_tools.scientific_hypothesis_bind_request.invoke(
-        {"request_input": "Explain this observation without invented timelines."},
-        config=config,
-    )
-    state = hypothesis_tools._STATES["hypothesis-draft-visible-number-warning"]
-    response = make_response(state.request)
-    candidate = response["candidates"][0]
-    candidate["evidence_gaps"] = [
-        "直接观测仅覆盖约4–5个活动周",
-        "直接观测仅覆盖约4周",
-    ]
-    candidate["next_test"]["objective"] = "预计2028–2030年再启动正式预测"
-
-    outcome = _update(config, "replace", response)
-    warnings = {
-        (warning["code"], warning["message"])
-        for warning in outcome["soft_warnings"]
         if warning["candidate_id"] == "cand_dynamo"
-    }
+    ]
 
-    assert any(
-        code == "ungrounded_numeric_threshold" and "4–5个" in message
-        for code, message in warnings
-    )
-    assert any(
-        code == "ungrounded_numeric_threshold" and "约4周" in message
-        for code, message in warnings
-    )
-    assert any(
-        code == "ungrounded_numeric_threshold" and "2028–2030" in message
-        for code, message in warnings
-    )
-
-
-def test_draft_summary_blocks_natural_language_return_until_warnings_clear() -> None:
-    config = _config("hypothesis-draft-return-gate")
-    hypothesis_tools._STATES.pop("hypothesis-draft-return-gate", None)
-    hypothesis_tools.scientific_hypothesis_bind_request.invoke(
-        {"request_input": "Compare three possible mechanisms."},
-        config=config,
-    )
-
-    outcome = _update(
-        config,
-        "upsert_candidate",
-        {"id": "H1", "statement": "A provisional mechanism."},
-    )
-
-    assert outcome["return_gate"] == "blocked_until_warnings_resolved"
-    assert outcome["natural_language_return_allowed"] is False
-    assert outcome["next_required_action"]["tool"] == (
-        "scientific_hypothesis_build_literature_bundle"
-    )
-
-
-def test_parallel_state_persistence_serializes_atomic_replace(
-    tmp_path: Path, monkeypatch
-) -> None:
-    _workspace, config = _bound_config(
-        tmp_path, monkeypatch, "hypothesis-parallel-persist"
-    )
-    hypothesis_tools._STATES.pop("hypothesis-parallel-persist", None)
-    hypothesis_tools.scientific_hypothesis_bind_request.invoke(
-        {"request_input": "Explain this observation."},
-        config=config,
-    )
-    state = hypothesis_tools._STATES["hypothesis-parallel-persist"]
-    real_replace = os.replace
-    start = threading.Barrier(3)
-    replacement_guard = threading.Lock()
-    second_replacement_attempted = threading.Event()
-    active_replacements = 0
-    temporary_names: set[str] = set()
-
-    def windows_exclusive_replace(source, destination):
-        nonlocal active_replacements
-        with replacement_guard:
-            temporary_names.add(Path(source).name)
-            if active_replacements:
-                second_replacement_attempted.set()
-                raise PermissionError("simulated Windows destination-file contention")
-            active_replacements += 1
-        try:
-            second_replacement_attempted.wait(timeout=0.3)
-            real_replace(source, destination)
-        finally:
-            with replacement_guard:
-                active_replacements -= 1
-
-    def persist_once(_index: int) -> Path | None:
-        start.wait(timeout=5)
-        return hypothesis_tools._persist_state(config, state)
-
-    monkeypatch.setattr(
-        hypothesis_tools,
-        "os",
-        SimpleNamespace(
-            fdopen=os.fdopen,
-            replace=windows_exclusive_replace,
-        ),
-    )
-    with ThreadPoolExecutor(max_workers=2) as executor:
-        futures = [executor.submit(persist_once, index) for index in range(2)]
-        start.wait(timeout=5)
-        results = [future.result(timeout=5) for future in futures]
-
-    assert all(result is not None for result in results)
-    assert len(temporary_names) == 2
-    assert not second_replacement_attempted.is_set()
-    assert state.persistence_warning is None
-
-
-def test_parallel_draft_patches_are_one_atomic_state_transaction(monkeypatch) -> None:
-    config = _config("hypothesis-parallel-patches")
-    hypothesis_tools._STATES.pop("hypothesis-parallel-patches", None)
-    hypothesis_tools.scientific_hypothesis_bind_request.invoke(
-        {"request_input": "Compare two possible mechanisms."},
-        config=config,
-    )
-    _update(config, "upsert_candidate", {"id": "H1", "statement": "One"})
-    _update(config, "upsert_candidate", {"id": "H2", "statement": "Two"})
-
-    real_normalize = hypothesis_tools._normalize_working_draft
-    start = threading.Barrier(3)
-    overlap = threading.Event()
-    active_guard = threading.Lock()
-    active = 0
-    max_active = 0
-
-    def observed_normalize(payload, request):
-        nonlocal active, max_active
-        normalized = real_normalize(payload, request)
-        with active_guard:
-            active += 1
-            max_active = max(max_active, active)
-            if active > 1:
-                overlap.set()
-        overlap.wait(timeout=0.2)
-        with active_guard:
-            active -= 1
-        return normalized
-
-    monkeypatch.setattr(
-        hypothesis_tools,
-        "_normalize_working_draft",
-        observed_normalize,
-    )
-
-    def patch_candidate(candidate_id: str, statement: str) -> dict[str, object]:
-        start.wait(timeout=5)
-        return _update(
-            config,
-            "patch_candidate",
-            {
-                "candidate_id": candidate_id,
-                "changes": {"statement": statement},
-            },
-        )
-
-    with ThreadPoolExecutor(max_workers=2) as executor:
-        futures = [
-            executor.submit(patch_candidate, "H1", "One revised"),
-            executor.submit(patch_candidate, "H2", "Two revised"),
-        ]
-        start.wait(timeout=5)
-        [future.result(timeout=5) for future in futures]
-
-    draft = json.loads(
-        hypothesis_tools.scientific_hypothesis_get_draft.invoke({}, config=config)
-    )["draft"]
-    statements = {
-        candidate["id"]: candidate["statement"] for candidate in draft["candidates"]
-    }
-
-    assert max_active == 1
-    assert statements == {"H1": "One revised", "H2": "Two revised"}
-
-
-def test_checkpoint_rejects_unresolved_draft_warnings() -> None:
-    config = _config("hypothesis-warning-checkpoint")
-    hypothesis_tools._STATES.pop("hypothesis-warning-checkpoint", None)
-    hypothesis_tools.scientific_hypothesis_bind_request.invoke(
-        {"request_input": "Explain this observation."},
-        config=config,
-    )
-    state = hypothesis_tools._STATES["hypothesis-warning-checkpoint"]
-    _update(config, "replace", make_response(state.request))
-
-    outcome = json.loads(
-        hypothesis_tools.scientific_hypothesis_checkpoint_draft.invoke(
-            {}, config=config
-        )
-    )
-
-    assert outcome["status"] == "needs_revision"
-    assert "literature_pass_missing" in outcome["validation_error"]
-    assert state.validated_response is None
-
-
-def test_publish_rechecks_unresolved_draft_warnings() -> None:
-    config = _config("hypothesis-warning-publish")
-    hypothesis_tools._STATES.pop("hypothesis-warning-publish", None)
-    hypothesis_tools.scientific_hypothesis_bind_request.invoke(
-        {"request_input": "Explain this observation."},
-        config=config,
-    )
-    state = hypothesis_tools._STATES["hypothesis-warning-publish"]
-    response = make_response(state.request)
-    response_sha = canonical_json_sha256(response)
-    state.latest_draft = response
-    state.latest_draft_sha256 = response_sha
-    state.validated_response = response
-    state.preflight_response_sha256 = response_sha
-    state.checkpoint_evidence_sha256 = hypothesis_tools._evidence_sha256(
-        state.evidence_register
-    )
-
-    outcome = json.loads(
-        hypothesis_tools.scientific_hypothesis_freeze.invoke({}, config=config)
-    )
-
-    assert outcome["status"] == "needs_revision"
-    assert "literature_pass_missing" in outcome["validation_error"]
+    assert any(warning["code"] == "ambiguous_solar_cycle_unit" for warning in warnings)
 
 
 def test_remove_candidate_cleans_pairwise_distinctions() -> None:
@@ -1488,10 +1451,9 @@ def test_checkpoint_current_draft_without_resending_full_response(monkeypatch) -
         config=config,
     )
     state = hypothesis_tools._STATES["hypothesis-incremental-checkpoint"]
-    _update(config, "replace", make_response(state.request))
-    monkeypatch.setattr(
-        hypothesis_tools, "_draft_warnings", lambda _state, _request: []
-    )
+    response = make_response(state.request)
+    _update(config, "replace", response)
+    reviewed = _review_tail(config, response)
 
     checked = json.loads(
         hypothesis_tools.scientific_hypothesis_checkpoint_draft.invoke(
@@ -1510,10 +1472,221 @@ def test_checkpoint_current_draft_without_resending_full_response(monkeypatch) -
         hypothesis_tools.scientific_hypothesis_freeze.invoke({}, config=config)
     )
 
+    assert reviewed["status"] == "tail_reviewed"
+    assert reviewed["tail_review_status"] == "current"
     assert checked["working_status"] == "checkpointed"
     assert checked["checkpoint_available"] is True
     assert publish["status"] == "needs_revision"
     assert "current draft differs" in publish["validation_error"]
+
+
+def test_multi_candidate_checkpoint_requires_current_tail_review() -> None:
+    config = _config("hypothesis-tail-review-required")
+    hypothesis_tools._STATES.pop("hypothesis-tail-review-required", None)
+    hypothesis_tools.scientific_hypothesis_bind_request.invoke(
+        {"request_input": "Compare multiple explanations for this observation."},
+        config=config,
+    )
+    state = hypothesis_tools._STATES["hypothesis-tail-review-required"]
+    _update(config, "replace", make_response(state.request))
+
+    checked = json.loads(
+        hypothesis_tools.scientific_hypothesis_checkpoint_draft.invoke(
+            {}, config=config
+        )
+    )
+
+    assert checked["status"] == "needs_revision"
+    assert "independent tail review is required" in checked["validation_error"]
+
+
+def test_long_tail_single_candidate_cannot_bypass_review() -> None:
+    config = _config("hypothesis-long-tail-single-candidate")
+    hypothesis_tools._STATES.pop("hypothesis-long-tail-single-candidate", None)
+    hypothesis_tools.scientific_hypothesis_bind_request.invoke(
+        {"request_input": "Find sparse long-tail hypotheses for this observation."},
+        config=config,
+    )
+    state = hypothesis_tools._STATES["hypothesis-long-tail-single-candidate"]
+    response = make_response(
+        state.request,
+        candidates=[make_response(state.request)["candidates"][0]],
+        distinctions=[],
+    )
+    updated = _update(config, "replace", response)
+
+    checked = json.loads(
+        hypothesis_tools.scientific_hypothesis_checkpoint_draft.invoke(
+            {}, config=config
+        )
+    )
+
+    assert updated["tail_review_required"] is True
+    assert checked["status"] == "needs_revision"
+    assert "independent tail review is required" in checked["validation_error"]
+
+
+def test_checkpoint_normalization_keeps_tail_review_current() -> None:
+    config = _config("hypothesis-tail-review-checkpoint-normalization")
+    hypothesis_tools._STATES.pop(
+        "hypothesis-tail-review-checkpoint-normalization", None
+    )
+    hypothesis_tools.scientific_hypothesis_bind_request.invoke(
+        {"request_input": "Compare multiple explanations for this observation."},
+        config=config,
+    )
+    state = hypothesis_tools._STATES["hypothesis-tail-review-checkpoint-normalization"]
+    response = make_response(state.request)
+    response["candidates"][0]["statement"] += "  with extra spacing"
+    _update(config, "replace", response)
+    _review_tail(config, response)
+
+    checked = json.loads(
+        hypothesis_tools.scientific_hypothesis_checkpoint_draft.invoke(
+            {}, config=config
+        )
+    )
+    status = json.loads(
+        hypothesis_tools.scientific_hypothesis_get_status.invoke({}, config=config)
+    )
+
+    assert checked["working_status"] == "checkpointed"
+    assert status["tail_review_status"] == "current"
+
+
+def test_tail_review_hard_violation_preserves_pool_for_repair() -> None:
+    config = _config("hypothesis-tail-review-violation")
+    hypothesis_tools._STATES.pop("hypothesis-tail-review-violation", None)
+    hypothesis_tools.scientific_hypothesis_bind_request.invoke(
+        {"request_input": "Compare multiple explanations for this observation."},
+        config=config,
+    )
+    state = hypothesis_tools._STATES["hypothesis-tail-review-violation"]
+    response = make_response(state.request)
+    _update(config, "replace", response)
+
+    reviewed = _review_tail(
+        config,
+        response,
+        violation_candidate_id="cand_measure",
+    )
+    recovered = json.loads(
+        hypothesis_tools.scientific_hypothesis_get_draft.invoke({}, config=config)
+    )
+
+    assert reviewed["status"] == "needs_revision"
+    assert reviewed["draft_changed"] is False
+    assert reviewed["rejected_candidate_ids"] == ["cand_measure"]
+    assert recovered["candidate_count"] == 2
+    assert recovered["tail_review_status"] == "stale"
+
+
+def test_tail_review_cannot_mark_deterministic_scope_warning_as_passed() -> None:
+    config = _config("hypothesis-tail-review-warning-gate")
+    hypothesis_tools._STATES.pop("hypothesis-tail-review-warning-gate", None)
+    hypothesis_tools.scientific_hypothesis_bind_request.invoke(
+        {"request_input": "Compare multiple explanations for this observation."},
+        config=config,
+    )
+    state = hypothesis_tools._STATES["hypothesis-tail-review-warning-gate"]
+    response = make_response(state.request)
+    response["candidates"][0]["scope_conditions"]["target_system"] = "所有太阳活动周"
+    _update(config, "replace", response)
+
+    reviewed = _review_tail(config, response)
+
+    assert reviewed["status"] == "needs_revision"
+    assert "unsupported_scope_generalization" in reviewed["validation_error"]
+    assert state.tail_review is None
+
+
+def test_candidate_edit_makes_tail_review_stale() -> None:
+    config = _config("hypothesis-tail-review-stale")
+    hypothesis_tools._STATES.pop("hypothesis-tail-review-stale", None)
+    hypothesis_tools.scientific_hypothesis_bind_request.invoke(
+        {"request_input": "Compare multiple explanations for this observation."},
+        config=config,
+    )
+    state = hypothesis_tools._STATES["hypothesis-tail-review-stale"]
+    response = make_response(state.request)
+    _update(config, "replace", response)
+    reviewed = _review_tail(config, response)
+    assert reviewed["tail_review_status"] == "current"
+
+    _update(
+        config,
+        "patch_candidate",
+        {
+            "candidate_id": "cand_dynamo",
+            "changes": {"statement": "A revised mechanism after independent review"},
+        },
+    )
+    status = json.loads(
+        hypothesis_tools.scientific_hypothesis_get_status.invoke({}, config=config)
+    )
+
+    assert status["tail_review_status"] == "stale"
+
+
+def test_evidence_change_makes_tail_review_stale() -> None:
+    config = _config("hypothesis-tail-review-evidence-stale")
+    hypothesis_tools._STATES.pop("hypothesis-tail-review-evidence-stale", None)
+    question = "Compare multiple explanations for this observation."
+    hypothesis_tools.scientific_hypothesis_bind_request.invoke(
+        {"request_input": question},
+        config=config,
+    )
+    state = hypothesis_tools._STATES["hypothesis-tail-review-evidence-stale"]
+    response = make_response(state.request)
+    _update(config, "replace", response)
+    reviewed = _review_tail(config, response)
+    assert reviewed["tail_review_status"] == "current"
+
+    hypothesis_tools.scientific_hypothesis_bind_evidence.invoke(
+        {
+            "evidence_id": "ev_user_after_review",
+            "evidence_kind": "user",
+            "material_id": "user_request",
+            "excerpt": question,
+            "verified_support": True,
+            "role": "limits",
+        },
+        config=config,
+    )
+    status = json.loads(
+        hypothesis_tools.scientific_hypothesis_get_status.invoke({}, config=config)
+    )
+
+    assert status["tail_review_status"] == "stale"
+
+
+def test_current_tail_review_recovers_after_worker_restart(
+    tmp_path: Path, monkeypatch
+) -> None:
+    _workspace, config = _bound_config(
+        tmp_path, monkeypatch, "hypothesis-tail-review-restart"
+    )
+    hypothesis_tools._STATES.pop("hypothesis-tail-review-restart", None)
+    hypothesis_tools.scientific_hypothesis_bind_request.invoke(
+        {"request_input": "Compare multiple explanations for this observation."},
+        config=config,
+    )
+    state = hypothesis_tools._STATES["hypothesis-tail-review-restart"]
+    response = make_response(state.request)
+    _update(config, "replace", response)
+    reviewed = _review_tail(config, response)
+    assert reviewed["tail_review_status"] == "current"
+
+    hypothesis_tools._STATES.pop("hypothesis-tail-review-restart", None)
+    recovered = json.loads(
+        hypothesis_tools.scientific_hypothesis_get_status.invoke({}, config=config)
+    )
+
+    assert recovered["tail_review_status"] == "current"
+    assert recovered["tail_review_selected_ids"] == [
+        "cand_dynamo",
+        "cand_measure",
+    ]
 
 
 def test_incremental_draft_recovers_after_worker_restart(

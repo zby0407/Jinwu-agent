@@ -2,9 +2,9 @@
 
 ## Purpose
 
-Provide the active-region and flare knowledge needed to interpret magnetic
-activity without confusing short-duration events with the long-term cycle
-state.
+Provide the active-region and flare knowledge needed for bounded short-horizon
+prediction and for interpreting magnetic activity without confusing
+short-duration events with the long-term cycle state.
 
 ## Required knowledge families
 
@@ -25,11 +25,14 @@ state.
 3. Which active-region properties are plausible mechanism inputs?
 4. When can flare counts serve as a secondary cycle feature?
 5. Which event-selection and instrument-coverage effects bias flare statistics?
+6. What spatial unit, GOES threshold, issue time, and prediction window define
+   a forecast instance?
+7. How are unassigned or multi-region events handled without fabricating labels?
 
 ## Boundaries
 
 - Flare class is not total energy.
 - Flares and CMEs are related but neither implies the other in every event.
 - Event catalogs have threshold, coverage, and classification changes.
-- Flare information remains secondary in the current Co-Scientist design unless
-  a dedicated flare research task is explicitly bound.
+- Flare information remains secondary for solar-cycle claims. It becomes
+  first-class only when the `flare_forecast` task bundle is explicitly bound.

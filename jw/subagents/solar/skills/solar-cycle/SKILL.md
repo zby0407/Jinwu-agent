@@ -13,6 +13,10 @@ description: |
 This skill supports end-to-end solar-cycle research: load observations, build physically meaningful
 features, run diagnostic experiments, generate structured hypotheses, and review evidence.
 
+For an explicit GOES-threshold flare target with an issue time and prediction
+window, also load the `solar-flare-forecasting` skill. Keep long-term
+solar-cycle prediction and short-horizon flare probability contracts separate.
+
 ## When to use
 
 - Predicting solar cycle 26 strength or trend

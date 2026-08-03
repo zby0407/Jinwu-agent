@@ -176,7 +176,7 @@ class TestWikiOverviewAndSourcesApi(HttpApiTestCase):
         self.assertEqual(resp.headers["cache-control"], "no-store")
         body = resp.json()
         self.assertTrue(body["available"])
-        self.assertEqual(body["purpose"]["primary_stage"], "hypothesis_generation")
+        self.assertEqual(body["purpose"]["primary_stage"], "multi_stage_research")
         self.assertEqual(
             body["purpose"]["loading_strategy"],
             "deterministic_task_bundle",
@@ -184,6 +184,7 @@ class TestWikiOverviewAndSourcesApi(HttpApiTestCase):
         bundle_ids = {bundle["id"] for bundle in body["task_bundles"]}
         self.assertIn("cycle26_prediction", bundle_ids)
         self.assertIn("polar_precursor_review", bundle_ids)
+        self.assertIn("flare_forecast", bundle_ids)
         entry_ids = {entry["id"] for entry in body["catalog_entries"]}
         self.assertIn("kb_concept_f107_flux_001", entry_ids)
         self.assertIn("kb_mechanism_hemispheric_coupling_001", entry_ids)

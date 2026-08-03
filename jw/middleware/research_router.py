@@ -24,6 +24,7 @@ import hashlib
 import json
 import re
 from collections.abc import Awaitable, Callable, Mapping, Sequence
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, NotRequired
 
 from langchain.agents import AgentState
@@ -34,6 +35,7 @@ from langchain.agents.middleware.types import (
 )
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
+from langgraph.types import Command
 
 from jw.research_protocols import (
     F107_DISCONTINUITY_PROTOCOL,
@@ -127,6 +129,11 @@ _ROUTE_SCHEMA: dict[str, Any] = {
     ],
     "additionalProperties": False,
 }
+
+_MODEL_CALL_BUDGET_STOP = re.compile(
+    r"^\s*Model call limits exceeded:\s*(?:run|thread) limit\b",
+    re.IGNORECASE,
+)
 
 _ROUTER_PROMPT = """You are the routing node for a solar-science research agent.
 Choose the smallest workflow that can truthfully satisfy the latest user request.
@@ -743,6 +750,16 @@ def _latest_user_request(state: object) -> str:
     return _message_text(latest[1]) if latest is not None else ""
 
 
+def _model_request_user_request(request: ModelRequest) -> str:
+    """Read the latest user text from state, falling back to request messages."""
+
+    text = _latest_user_request(request.state)
+    if text:
+        return text
+    latest = _latest_human(list(request.messages))
+    return _message_text(latest[1]) if latest is not None else ""
+
+
 def _direct_hypothesis_task_request(
     request: ToolCallRequest,
 ) -> tuple[ToolCallRequest | None, ToolMessage | None]:
@@ -857,23 +874,59 @@ def _direct_hypothesis_task_request(
         "generic lit_bundle_build tool.\n"
         "4. Bind other non-Wiki material only when it is a traceable inspected artifact; "
         "scenario premises in the request are assumptions, not empirical support.\n"
-        "5. Complete the remaining mechanically distinct candidates with "
-        "scientific_hypothesis_update_draft after the first candidate and literature "
-        "pass are persisted. A natural-language bounded request has a hard maximum "
-        "of three candidates; only a bound structured request with a larger explicit "
-        "max_candidates may raise it. Prefer a smaller persisted portfolio over a larger "
-        "prose-only answer if budget is tight. Confidence must be exactly high, "
-        "medium, or low; Wiki grounding alone cannot justify high confidence.\n"
-        "6. Call scientific_hypothesis_get_draft. Return a faithful, complete "
-        "rendering of that persisted draft. Do not compress or omit fields. For "
-        "every candidate include applicability, mechanism, required premises, "
-        "assumptions, supporting evidence, opposing or limiting evidence, evidence "
-        "gaps, observable predictions and their weakening conditions, alternatives, "
-        "confounders, falsifiers, the most discriminating next test for every "
-        "candidate, and the complete confidence basis for every candidate. Also "
-        "include the real draft_sha256, candidate count, bound Wiki and task-literature "
-        "evidence ids, warnings, pairwise distinctions, and one portfolio-level most "
-        "discriminating next test. Never claim reads or bindings without tool receipts.\n"
+        "4. Persist the first complete candidate as soon as it is ready with "
+        "scientific_hypothesis_update_draft, then build a 4-6 candidate pool for "
+        "multi-mechanism or long-tail questions. Include a modal baseline, both "
+        "positive_tail and negative_tail search regions, and a measurement/null "
+        "control when applicable. Use controlled mechanism mutations rather than "
+        "synonymous rewrites, and do not prematurely discard unfamiliar or "
+        "high-evidence-risk candidates. Prefer a smaller persisted portfolio over "
+        "a larger prose-only answer if budget is tight. Confidence must be exactly high, "
+        "medium, or low; Wiki grounding alone cannot justify high confidence. Every "
+        "candidate must include scope_conditions with target, temporal, spatial, "
+        "data, method, holds-when, does-not-apply, and generalization boundaries; "
+        "epistemic_status separating hypothesis, mechanism inference, and empirical "
+        "support; and uncertainty sources, implications, and reduction strategy. "
+        "These are distinct from assumptions, confounders, and falsifiers. Do not "
+        "use universal scope, unsupported calendar/numeric cutoffs, or vague "
+        "'significant/obvious/stable' decision rules without a preregistered rule "
+        "and uncertainty bound. For a solar-cycle question, write '太阳活动周期' or "
+        "'下一周期'; never use '下一周' to mean the next solar cycle.\n"
+        "5. After the complete pool is persisted, call scientific_hypothesis_get_draft "
+        "for candidate_pool_sha256 and tail_review_scoring_guide. Then act as an "
+        "independent violation-first critic and call "
+        "scientific_hypothesis_review_tail. For every common and instance-specific "
+        "rubric item, list weaknesses and violated_guidelines first; status is pass "
+        "if and only if that list is empty. Apply the guide's explicit pass "
+        "conditions, violation conditions, edge rules, and low/medium/high metric "
+        "anchors instead of scoring by intuition. Treat all seven rubric "
+        "violations as hard gates, and add at least one instance-specific rubric "
+        "per candidate derived from the bound question, evidence, or a concrete "
+        "candidate contrast. Do not combine rubric rewards or the six tail metrics "
+        "into one selection score or choose a winner yourself. The tool recomputes "
+        "global and per-region Pareto frontiers and preserves both tail regions plus "
+        "eligible null controls. Mechanism distance is only a diversity coordinate, "
+        "not a monotonic scientific benefit; a candidate cannot dominate another "
+        "solely because it is stranger. Instance-rubric bases must name a scientific "
+        "premise, evidence limitation, observable, or concrete candidate conflict, "
+        "not merely restate a task or field requirement. Repair and re-review any "
+        "violation "
+        "or stale review, then update pairwise distinctions after pruning.\n"
+        "6. Call scientific_hypothesis_get_draft and leave the complete contract, "
+        "hashes, review trace, and every scientific field in persisted state. In the "
+        "specialist's final response, write a concise researcher-facing Chinese "
+        "summary: lead with the unverified premise and the one or two most "
+        "discriminating next tests; then present each selected candidate in natural "
+        "language with its claim, compact applicability/failure boundary, necessary "
+        "premises, one discriminating prediction and weakening result, main "
+        "alternative/confounder, evidence gap/uncertainty, next test, and qualitative "
+        "confidence. The scoring, ranking, reviewer rubric, search regions, and "
+        "selection trace are internal working state only. Never expose hashes, schema "
+        "names, enum values, candidate ids, search-region labels, Pareto mechanics, "
+        "rubric rewards, tool receipts, raw field tables, or internal workflow terms "
+        "in the chat answer. If the user asks for an audit, translate the audit "
+        "findings into ordinary human-readable prose; the raw scoring structure still "
+        "stays internal. Never claim reads or bindings without tool receipts.\n"
         "Resolve avoidable draft warnings. Do not rely on a parent-written Wiki "
         "summary or unbound 'verified facts'. Do not publish or freeze unless the "
         "user explicitly requests it.\n\n"
@@ -924,8 +977,15 @@ def _latest_specialist_result(
             if isinstance(metadata, Mapping)
             else None
         )
+        unattributed_single_result = bool(
+            len(specialist_call_ids) == 1
+            and call_id in {None, ""}
+            and routed_specialist is None
+        )
         if status == "error" or (
-            call_id not in specialist_call_ids and routed_specialist != specialist
+            call_id not in specialist_call_ids
+            and routed_specialist != specialist
+            and not unattributed_single_result
         ):
             continue
         content = _message_text(message)
@@ -942,12 +1002,72 @@ def _mark_routed_specialist_result(result: object) -> object:
     return result.model_copy(update={"additional_kwargs": metadata})
 
 
+def _map_routed_specialist_result(
+    result: object,
+    config: object,
+) -> object:
+    """Transform both direct and Command-wrapped task tool results."""
+
+    if isinstance(result, ToolMessage):
+        marked = _mark_routed_specialist_result(result)
+        return _require_persisted_hypothesis_draft(marked, config)
+    if not isinstance(result, Command) or not isinstance(result.update, Mapping):
+        return result
+
+    raw_messages = result.update.get("messages")
+    if not isinstance(raw_messages, Sequence) or isinstance(
+        raw_messages,
+        (str, bytes),
+    ):
+        return result
+    mapped_messages = [
+        _require_persisted_hypothesis_draft(
+            _mark_routed_specialist_result(message),
+            config,
+        )
+        if isinstance(message, ToolMessage)
+        else message
+        for message in raw_messages
+    ]
+    if list(raw_messages) == mapped_messages:
+        return result
+    return Command(
+        graph=result.graph,
+        update={**result.update, "messages": mapped_messages},
+        resume=result.resume,
+        goto=result.goto,
+    )
+
+
 def _persisted_hypothesis_draft_status(config: object) -> tuple[bool, str] | None:
     """Return draft receipt status, or None when no task workspace is bound."""
 
+    metadata = config.get("metadata", {}) if isinstance(config, Mapping) else {}
+    configurable = config.get("configurable", {}) if isinstance(config, Mapping) else {}
+    base_workspace = None
+    for values in (metadata, configurable):
+        if not isinstance(values, Mapping):
+            continue
+        candidate = values.get("base_workspace_dir")
+        if isinstance(candidate, str) and candidate.strip():
+            base_workspace = candidate
+            break
     try:
-        root = workspace_root_from_config(config)
+        root = workspace_root_from_config(
+            config,
+            base_workspace=base_workspace,
+        )
     except RuntimeError:
+        root = None
+    if root is None:
+        for values in (metadata, configurable):
+            if not isinstance(values, Mapping):
+                continue
+            candidate = values.get("workspace_dir")
+            if isinstance(candidate, str) and candidate.strip():
+                root = Path(candidate).expanduser().resolve()
+                break
+    if root is None:
         return None
     state_path = root / "work" / "scientific_hypothesis_state.json"
     try:
@@ -970,22 +1090,89 @@ def _require_persisted_hypothesis_draft(
     result: object,
     config: object,
 ) -> object:
-    if not isinstance(result, ToolMessage) or result.status == "error":
-        return result
-    receipt = _persisted_hypothesis_draft_status(config)
-    if receipt is None or receipt[0]:
+    if not isinstance(result, ToolMessage):
         return result
     metadata = dict(result.additional_kwargs)
     metadata["research_router_specialist"] = "solar-hypothesis"
+    if result.status == "error":
+        metadata["research_router_internal_failure"] = _message_text(result)[:2_000]
+        return result.model_copy(
+            update={
+                "content": (
+                    "科学假设子任务没有完成，因此目前没有可交付的研究结论。"
+                    "系统会按原问题重试；如果再次失败，将停止并说明尚缺什么。"
+                ),
+                "additional_kwargs": metadata,
+            }
+        )
+    receipt = _persisted_hypothesis_draft_status(config)
+    if receipt is None:
+        metadata["research_router_internal_failure"] = (
+            "task workspace was not bound for persisted reader rendering"
+        )
+        return result.model_copy(
+            update={
+                "content": (
+                    "这次没有形成能够核对来源和边界的完整研究结果，"
+                    "因此暂时不返回候选结论。请按原问题重试一次。"
+                ),
+                "status": "error",
+                "additional_kwargs": metadata,
+            }
+        )
+    if receipt[0]:
+        content = _message_text(result)
+        budget_stopped = _MODEL_CALL_BUDGET_STOP.search(content) is not None
+        metadata.update(
+            {
+                "research_router_specialist": "solar-hypothesis",
+                "research_router_result_view": "researcher_summary",
+                "research_router_internal_state_path": receipt[1],
+            }
+        )
+        if budget_stopped:
+            metadata.update(
+                {
+                    "research_router_execution_status": "budget_stopped",
+                    "research_router_result_status": "partial",
+                    "research_router_recovered_persisted_draft": True,
+                }
+            )
+        try:
+            from jw.tools.scientific_hypothesis import (
+                render_persisted_hypothesis_reader_view,
+            )
+
+            reader_view = render_persisted_hypothesis_reader_view(
+                receipt[1],
+                partial_reason=content if budget_stopped else None,
+            )
+        except Exception as exc:
+            metadata["research_router_internal_failure"] = str(exc)[:2_000]
+            return result.model_copy(
+                update={
+                    "content": (
+                        "研究内容已经保存，但转换成面向读者的文字时失败了。"
+                        "为避免展示内部数据或未经整理的结论，本次不返回候选内容；"
+                        "请重试一次。"
+                    ),
+                    "status": "error",
+                    "additional_kwargs": metadata,
+                }
+            )
+        return result.model_copy(
+            update={
+                "content": reader_view,
+                "additional_kwargs": metadata,
+            }
+        )
+    metadata["research_router_internal_failure"] = receipt[1]
     return result.model_copy(
         update={
             "content": (
-                "[HYPOTHESIS DRAFT INCOMPLETE] solar-hypothesis returned prose but "
-                f"did not leave a usable persisted draft: {receipt[1]}. Retry the "
-                "same specialist once. It must recover the bound request, call "
-                "scientific_hypothesis_update_draft, then confirm the result with "
-                "scientific_hypothesis_get_draft. Do not let the parent recreate the "
-                "candidate portfolio."
+                "这次没有形成能够核对来源、适用边界和失效条件的完整研究结果，"
+                "因此暂时不返回候选结论。系统会按原问题重试一次，"
+                "不会根据不完整内容自行补写答案。"
             ),
             "status": "error",
             "additional_kwargs": metadata,
@@ -997,7 +1184,7 @@ def _passthrough_hypothesis_result(
     request: ModelRequest,
     response: ModelResponse,
 ) -> ModelResponse:
-    """Force the bounded entry node and preserve its completed result verbatim."""
+    """Force the bounded entry node and preserve its deterministic reader view."""
 
     if not _is_bounded_hypothesis_route(request.state):
         return response
@@ -1038,10 +1225,24 @@ def _passthrough_hypothesis_result(
         and len(response.result[0].tool_calls) == 1
         and response.result[0].tool_calls[0].get("name") == "task"
     ):
-        return response
+        message = response.result[0]
+        call = dict(message.tool_calls[0])
+        raw_args = call.get("args")
+        args = dict(raw_args) if isinstance(raw_args, Mapping) else {}
+        args["subagent_type"] = "solar-hypothesis"
+        # The visible parent trace must remain a genuine black-box handoff. The
+        # execution wrapper injects the specialist's fixed scientific contract;
+        # parent-authored candidate counts, mechanism examples, rankings, or
+        # expected output shapes must not survive into the task call.
+        args["description"] = _model_request_user_request(request)
+        call["args"] = args
+        return ModelResponse(
+            result=[message.model_copy(update={"tool_calls": [call]})],
+            structured_response=response.structured_response,
+        )
 
     request_digest = hashlib.sha256(
-        _latest_user_request(request.state).encode("utf-8")
+        _model_request_user_request(request).encode("utf-8")
     ).hexdigest()[:20]
     return ModelResponse(
         result=[
@@ -1258,12 +1459,15 @@ class ResearchRouterMiddleware(AgentMiddleware[ResearchRoutingState, Any, Any]):
                 if "solar-hypothesis" in completed:
                     suppress_tools = True
                     directive.append(
-                        "The required solar-hypothesis delegation completed. Its tool "
-                        "result is the complete bounded answer and will be passed "
-                        "through verbatim. Do not summarize, translate, reformat, "
-                        "correct, shorten, or expand it. Do not append the full-research "
-                        "planner or experiment chain, and do not invoke a compensating "
-                        "specialist."
+                        "The required solar-hypothesis delegation completed. Its full "
+                        "scientific contract remains persisted internally, and its "
+                        "tool "
+                        "result has already been converted to the deterministic "
+                        "researcher-facing view. Pass that view through unchanged. Do "
+                        "not expose scores, rankings, hashes, schema fields, rubric "
+                        "traces, workflow terminology, or append the "
+                        "full-research planner/experiment chain. Do not invoke a "
+                        "compensating specialist."
                     )
                 elif attempts >= 2:
                     directive.append(
@@ -1436,17 +1640,9 @@ class ResearchRouterMiddleware(AgentMiddleware[ResearchRoutingState, Any, Any]):
         if blocked is not None:
             return blocked
         result = handler(rewritten)
-        rewritten_args = (
-            rewritten.tool_call.get("args", {}) if rewritten is not None else {}
-        )
-        if (
-            rewritten is not request
-            and isinstance(rewritten_args, Mapping)
-            and rewritten_args.get("subagent_type") == "solar-hypothesis"
-        ):
-            result = _mark_routed_specialist_result(result)
+        if rewritten is not request:
             config = getattr(request.runtime, "config", None)
-            result = _require_persisted_hypothesis_draft(result, config)
+            result = _map_routed_specialist_result(result, config)
         return result
 
     async def awrap_tool_call(
@@ -1458,18 +1654,10 @@ class ResearchRouterMiddleware(AgentMiddleware[ResearchRoutingState, Any, Any]):
         if blocked is not None:
             return blocked
         result = await handler(rewritten)
-        rewritten_args = (
-            rewritten.tool_call.get("args", {}) if rewritten is not None else {}
-        )
-        if (
-            rewritten is not request
-            and isinstance(rewritten_args, Mapping)
-            and rewritten_args.get("subagent_type") == "solar-hypothesis"
-        ):
-            result = _mark_routed_specialist_result(result)
+        if rewritten is not request:
             config = getattr(request.runtime, "config", None)
             result = await asyncio.to_thread(
-                _require_persisted_hypothesis_draft,
+                _map_routed_specialist_result,
                 result,
                 config,
             )

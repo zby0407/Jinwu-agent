@@ -14,6 +14,8 @@ from research_layout import PROJECT_ROOT, contract_runs_root
 
 from . import ranking as ranking_mod
 from .contracts import (
+    AMBIGUOUS_SOLAR_CYCLE_TERM,
+    DECISION_RULE_QUALIFIER,
     HARD_NUMERIC_CUTOFF,
     NOVELTY_CLAIM,
     OUTCOME_VERSION,
@@ -21,6 +23,9 @@ from .contracts import (
     PRECISE_PROBABILITY,
     REQUEST_VERSION,
     RESPONSE_VERSION,
+    SOLAR_CYCLE_CONTEXT,
+    UNIVERSAL_SCOPE_CLAIM,
+    VAGUE_DECISION_RULE,
     ContractError,
     canonical_json_sha256,
     validate_evidence_bind,
@@ -229,7 +234,25 @@ def _compact_response_contract() -> dict[str, Any]:
     candidate_shape = {
         "id": "id",
         "statement": "string（精确、可被证据削弱的假设主张）",
-        "applicability": "string（适用范围与边界）",
+        "applicability": "string（面向读者的适用范围摘要）",
+        "scope_conditions": {
+            "target_system": "string（研究对象/总体，不得写成无界的“所有情况”）",
+            "temporal_scope": "string（周期阶段、时间窗或时序关系）",
+            "spatial_scope": "string（全日面、半球、纬度等；不适用时说明原因）",
+            "data_scope": "string（数据产品、版本、分辨率、观测量定义与覆盖）",
+            "method_scope": "string（预处理、比较基准、模型或识别设计）",
+            "holds_when": ["string（主张可解释成立所需的边界条件，至少一条）"],
+            "does_not_apply_when": ["string（明确失效或不适用的情形，至少一条）"],
+            "generalization_limits": [
+                "string（禁止外推的对象/时空/数据范围，至少一条）"
+            ],
+        },
+        "epistemic_status": {
+            "claim": "exploratory_hypothesis 或 evidence_constrained_hypothesis",
+            "mechanism": "supported_inference、exploratory_inference 或 unknown",
+            "empirical_support": "verified、partial 或 none",
+            "basis": "string（解释为何这样分级，事实必须指向已绑定证据）",
+        },
         "mechanism": {
             "summary": "string（可能机制，不等于可观测预测）",
             "physical_basis": "string（机制依据；没有依据时如实写未知）",
@@ -260,6 +283,11 @@ def _compact_response_contract() -> dict[str, Any]:
             "discriminating_power": "string（它如何区分候选，而不是泛泛增加数据）",
             "expected_signals": ["string（各候选下的预期信号差异）"],
             "candidate_ids_distinguished": ["候选 id，至少一个；多个时必须包含本候选"],
+        },
+        "uncertainty": {
+            "sources": ["string（测量、抽样、模型形式或可迁移性不确定性，至少一条）"],
+            "implications": "string（这些不确定性如何影响方向、幅度或可判别性）",
+            "reduction_strategy": "string（哪项数据或分析能实际降低不确定性）",
         },
         "confidence": {
             "level": "high、medium 或 low",
@@ -355,6 +383,8 @@ def build_hypothesis_brief(request_payload: dict[str, Any]) -> dict[str, Any]:
             "candidate_fields": [
                 "statement",
                 "applicability",
+                "scope_conditions",
+                "epistemic_status",
                 "mechanism",
                 "assumptions",
                 "predictions",
@@ -365,6 +395,7 @@ def build_hypothesis_brief(request_payload: dict[str, Any]) -> dict[str, Any]:
                 "confounders",
                 "falsification_conditions",
                 "next_test",
+                "uncertainty",
                 "confidence",
                 "evidence_update",
                 "prior_version_id",
@@ -382,6 +413,9 @@ def build_hypothesis_brief(request_payload: dict[str, Any]) -> dict[str, Any]:
             "判断请求是就绪、需要澄清还是被阻塞",
             "形成机制上可区分的候选假设",
             "机制、预测、替代解释与混杂因素的科学内容",
+            "对象、时空、数据、方法、成立条件、失效条件与外推限制",
+            "主张、机制推断和实证支持的认识论分级",
+            "不确定性来源、影响与降低方案",
             "证据与候选之间的支持、反对、限制关系",
             "定性置信度等级与理由",
             "最有区分力的下一项检验",
@@ -395,6 +429,9 @@ def build_hypothesis_brief(request_payload: dict[str, Any]) -> dict[str, Any]:
             "置信度只写定性等级与理由，不写精确概率。",
             "没有检索证据时不得声称首次提出；新颖性只能标为待核实。",
             "空结果用于更新假设，不自动证伪全部候选；证据冲突时保留竞争候选。",
+            "适用范围摘要不能代替边界条件；必要前提、混杂因素、证伪条件和外推限制必须分开写。",
+            "没有已绑定依据时不得使用无界的“所有/普遍”表述，也不得自行给出日历窗、阈值或“显著/明显”判据。",
+            "每个候选必须明确哪些是探索性假设、哪些是基于证据的机制推断，以及实证支持是否为空。",
             "不执行实验、不声称获得了本次会话之外的实验结果。",
         ],
         "response_contract": _compact_response_contract(),
@@ -543,12 +580,16 @@ def collect_hypothesis_semantic_errors(
     for candidate in candidates:
         confidence = candidate["confidence"]
         empirical_support = []
+        verified_support = []
         for link in candidate["supporting_evidence"]:
             entry = register.get(link["evidence_id"])
+            if entry is not None and entry["verified_support"]:
+                verified_support.append(entry)
             if (
                 entry is not None
                 and entry["verified_support"]
                 and entry["role"] == "supports"
+                and entry["evidence_kind"] in {"experiment", "literature", "upstream"}
                 and not entry["material_id"].startswith("kb_")
             ):
                 empirical_support.append(entry)
@@ -562,6 +603,29 @@ def collect_hypothesis_semantic_errors(
                 f"候选 {candidate['id']} 存在已核验反对证据，"
                 "应保持 medium 或 low 并说明理由，不得标记 high"
             )
+        epistemic = candidate["epistemic_status"]
+        if (
+            epistemic["empirical_support"] in {"verified", "partial"}
+            and not empirical_support
+        ):
+            errors.append(
+                f"候选 {candidate['id']} 把实证支持标为 "
+                f"{epistemic['empirical_support']}，但没有已绑定的非 Wiki 实证支持；"
+                "请改为 none，或绑定可定位的观测/实验/文献证据"
+            )
+        if (
+            epistemic["claim"] == "evidence_constrained_hypothesis"
+            and not verified_support
+        ):
+            errors.append(
+                f"候选 {candidate['id']} 标为 evidence_constrained_hypothesis，"
+                "但没有任何已核验证据约束该主张"
+            )
+        if epistemic["mechanism"] == "supported_inference" and not verified_support:
+            errors.append(
+                f"候选 {candidate['id']} 把机制标为 supported_inference，"
+                "但没有引用已核验证据；无依据时应标为 exploratory_inference 或 unknown"
+            )
 
     # 6. 文本表述：不得声称首次提出（除非后续由新颖性绑定放行），不得写精确概率。
     texts: list[tuple[str, str]] = []
@@ -570,7 +634,7 @@ def collect_hypothesis_semantic_errors(
         texts.append(
             (f"候选 {candidate['id']} 的机制", candidate["mechanism"]["summary"])
         )
-        for index, prediction in enumerate(candidate["predictions"]):
+        for prediction in candidate["predictions"]:
             texts.append(
                 (
                     f"候选 {candidate['id']} 的预测 {prediction['id']}",
@@ -588,7 +652,91 @@ def collect_hypothesis_semantic_errors(
         if PRECISE_PROBABILITY.search(text) is not None:
             errors.append(f"{label} 使用了精确百分比表达置信度，应改为定性等级与理由")
 
-    # 7. 数值门槛追溯：逐个检查候选自己的预测、前提、假设、证伪条件
+    # 7. 时间单位：太阳活动周期问题不得把“下一周期”缩写成“下一周”，
+    # 否则会把约 11 年尺度与一星期尺度混在同一可检验主张中。
+    if SOLAR_CYCLE_CONTEXT.search(request["research_question"]) is not None:
+        for candidate in candidates:
+            candidate_text = json.dumps(candidate, ensure_ascii=False)
+            if AMBIGUOUS_SOLAR_CYCLE_TERM.search(candidate_text) is not None:
+                errors.append(
+                    f"候选 {candidate['id']} 使用了有歧义的“下一周”；"
+                    "太阳活动周期问题必须写“下一周期”或“下一太阳活动周期”，"
+                    "若确指一星期则必须明确写出七天预测尺度"
+                )
+
+    # 8. 范围和判据严谨性：无实证支持时禁止无界泛化；证伪与削弱条件
+    # 不得依赖未操作化的“显著/明显/稳定”等主观词。
+    for candidate in candidates:
+        empirical_support = []
+        for link in candidate["supporting_evidence"]:
+            entry = register.get(link["evidence_id"])
+            if (
+                entry is not None
+                and entry["verified_support"]
+                and entry["role"] == "supports"
+                and entry["evidence_kind"] in {"experiment", "literature", "upstream"}
+                and not entry["material_id"].startswith("kb_")
+            ):
+                empirical_support.append(entry)
+        scope = candidate["scope_conditions"]
+        universal_texts = [
+            candidate["statement"],
+            candidate["applicability"],
+            scope["target_system"],
+            scope["temporal_scope"],
+            scope["spatial_scope"],
+            scope["data_scope"],
+            scope["method_scope"],
+            *scope["holds_when"],
+        ]
+        if not empirical_support:
+            for value in universal_texts:
+                match = UNIVERSAL_SCOPE_CLAIM.search(value)
+                if match is not None:
+                    errors.append(
+                        f"候选 {candidate['id']} 在没有已绑定实证支持时使用了无界泛化"
+                        f"“{match.group(0)}”；请收窄 target_system/时空/数据范围，"
+                        "并在 generalization_limits 中明确禁止外推"
+                    )
+                    break
+
+        decision_texts: list[tuple[str, str]] = [
+            ("证伪条件", value) for value in candidate["falsification_conditions"]
+        ]
+        for scope_field in ("holds_when", "does_not_apply_when"):
+            decision_texts.extend(
+                (f"边界条件 {scope_field}", value)
+                for value in candidate["scope_conditions"][scope_field]
+            )
+        decision_texts.extend(
+            (
+                f"预测 {prediction['id']} 的{field}",
+                prediction[field],
+            )
+            for prediction in candidate["predictions"]
+            for field in ("statement", "would_weaken_if")
+        )
+        decision_texts.append(
+            (
+                "下一项检验的区分依据",
+                candidate["next_test"]["discriminating_power"],
+            )
+        )
+        decision_texts.extend(
+            ("下一项检验的预期信号", value)
+            for value in candidate["next_test"]["expected_signals"]
+        )
+        for field, value in decision_texts:
+            match = VAGUE_DECISION_RULE.search(value)
+            if match is not None and DECISION_RULE_QUALIFIER.search(value) is None:
+                errors.append(
+                    f"候选 {candidate['id']} 的{field}使用了未操作化的判断词"
+                    f"“{match.group(0)}”；请写成方向明确的观测结果，或说明将使用"
+                    "预注册判据、误差界/区间和具体检验方法"
+                )
+
+    # 9. 数值门槛追溯：逐个检查候选自己的预测、前提、假设、边界、
+    # 不确定性、证伪条件
     # 与下一项检验。另一个候选引用的证据、Wiki 机制条目或全局登记簿中的
     # 无关证据都不能替本候选的观测门槛背书。
     for candidate in candidates:
@@ -614,11 +762,56 @@ def collect_hypothesis_semantic_errors(
         }
 
         threshold_fields: list[tuple[str, list[str]]] = [
+            ("候选主张", [candidate["statement"]]),
+            ("适用范围摘要", [candidate["applicability"]]),
+            ("机制摘要", [candidate["mechanism"]["summary"]]),
+            ("机制依据", [candidate["mechanism"]["physical_basis"]]),
             ("必要前提", candidate["mechanism"]["required_premises"]),
             ("关键假设", candidate["assumptions"]),
+            ("成立边界", candidate["scope_conditions"]["holds_when"]),
+            (
+                "失效边界",
+                candidate["scope_conditions"]["does_not_apply_when"],
+            ),
+            (
+                "外推限制",
+                candidate["scope_conditions"]["generalization_limits"],
+            ),
+            ("不确定性来源", candidate["uncertainty"]["sources"]),
+            ("证据缺口", candidate["evidence_gaps"]),
+            ("替代解释", candidate["alternative_explanations"]),
+            ("混杂因素", candidate["confounders"]),
             ("证伪条件", candidate["falsification_conditions"]),
             ("下一项检验预期信号", candidate["next_test"]["expected_signals"]),
         ]
+        for field in (
+            "target_system",
+            "temporal_scope",
+            "spatial_scope",
+            "data_scope",
+            "method_scope",
+        ):
+            threshold_fields.append(
+                (
+                    f"范围 {field}",
+                    [candidate["scope_conditions"][field]],
+                )
+            )
+        threshold_fields.extend(
+            [
+                ("不确定性影响", [candidate["uncertainty"]["implications"]]),
+                (
+                    "不确定性降低方案",
+                    [candidate["uncertainty"]["reduction_strategy"]],
+                ),
+                ("认识论状态依据", [candidate["epistemic_status"]["basis"]]),
+                ("下一项检验目标", [candidate["next_test"]["objective"]]),
+                (
+                    "下一项检验区分力",
+                    [candidate["next_test"]["discriminating_power"]],
+                ),
+            ]
+        )
         for prediction in candidate["predictions"]:
             threshold_fields.extend(
                 [
@@ -781,6 +974,20 @@ def preflight_hypothesis_ranking(
 # ---------------------------------------------------------------------------
 
 _CONFIDENCE_TITLES = {"high": "较高", "medium": "中等", "low": "较低"}
+_CLAIM_STATUS_TITLES = {
+    "exploratory_hypothesis": "探索性假设",
+    "evidence_constrained_hypothesis": "受证据约束的假设",
+}
+_MECHANISM_STATUS_TITLES = {
+    "supported_inference": "基于已核验证据的机制推断",
+    "exploratory_inference": "探索性机制推断",
+    "unknown": "机制依据未知",
+}
+_EMPIRICAL_STATUS_TITLES = {
+    "verified": "已有已核验实证支持",
+    "partial": "仅有部分已核验实证支持",
+    "none": "暂无已核验实证支持",
+}
 _RUBRIC_LABELS = {spec["key"]: spec["label"] for spec in ranking_mod.RUBRIC_DIMENSIONS}
 _EVIDENCE_KIND_TITLES = {
     "experiment": "实验结果",
@@ -901,6 +1108,24 @@ def render_hypothesis_portfolio_markdown(portfolio: dict[str, Any]) -> str:
                 "",
                 f"**适用范围：** {_md(candidate['applicability'])}",
                 "",
+                "**边界条件：**",
+                "",
+                f"- 研究对象：{_md(candidate['scope_conditions']['target_system'])}",
+                f"- 时间/阶段：{_md(candidate['scope_conditions']['temporal_scope'])}",
+                f"- 空间范围：{_md(candidate['scope_conditions']['spatial_scope'])}",
+                f"- 数据与观测口径：{_md(candidate['scope_conditions']['data_scope'])}",
+                f"- 方法与比较口径：{_md(candidate['scope_conditions']['method_scope'])}",
+                f"- 仅在以下条件下解释：{_md_list(candidate['scope_conditions']['holds_when'])}",
+                f"- 不适用情形：{_md_list(candidate['scope_conditions']['does_not_apply_when'])}",
+                f"- 外推限制：{_md_list(candidate['scope_conditions']['generalization_limits'])}",
+                "",
+                "**认识论状态：** "
+                f"{_CLAIM_STATUS_TITLES[candidate['epistemic_status']['claim']]}；"
+                f"{_MECHANISM_STATUS_TITLES[candidate['epistemic_status']['mechanism']]}；"
+                f"{_EMPIRICAL_STATUS_TITLES[candidate['epistemic_status']['empirical_support']]}。",
+                "",
+                f"**状态依据：** {_md(candidate['epistemic_status']['basis'])}",
+                "",
                 f"**可能机制：** {_md(candidate['mechanism']['summary'])}",
                 "",
                 f"**机制依据：** {_md(candidate['mechanism']['physical_basis'])}",
@@ -964,6 +1189,12 @@ def render_hypothesis_portfolio_markdown(portfolio: dict[str, Any]) -> str:
                 f"- 要回答：{_md(candidate['next_test']['objective'])}",
                 f"- 区分力：{_md(candidate['next_test']['discriminating_power'])}",
                 f"- 预期信号差异：{_md_list(candidate['next_test']['expected_signals'])}",
+                "",
+                f"**不确定性来源：** {_md_list(candidate['uncertainty']['sources'])}",
+                "",
+                f"**不确定性影响：** {_md(candidate['uncertainty']['implications'])}",
+                "",
+                f"**降低不确定性的办法：** {_md(candidate['uncertainty']['reduction_strategy'])}",
                 "",
                 f"**当前把握：** {_CONFIDENCE_TITLES[candidate['confidence']['level']]}；"
                 f"{_md(candidate['confidence']['basis'])}",
@@ -1213,13 +1444,13 @@ def freeze_hypothesis_portfolio(
 
 
 __all__ = [
-    "EvidenceRegister",
     "PROJECT_ROOT",
     "RUNS_ROOT",
-    "build_wiki_evidence_excerpt",
+    "EvidenceRegister",
     "build_counterexample_table",
     "build_hypothesis_brief",
     "build_natural_hypothesis_request",
+    "build_wiki_evidence_excerpt",
     "collect_hypothesis_semantic_errors",
     "compile_hypothesis_portfolio",
     "freeze_hypothesis_portfolio",

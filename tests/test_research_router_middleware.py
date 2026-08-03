@@ -11,9 +11,11 @@ from langchain.agents.middleware.types import (
 )
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 from langchain_core.tools import StructuredTool
+from langgraph.types import Command
 
 from jw.middleware.research_router import (
     ResearchRouterMiddleware,
+    _latest_specialist_result,
     _successful_specialists,
     _with_analysis_protocol,
 )
@@ -346,6 +348,56 @@ def test_hypothesis_model_result_replaces_parent_preread_with_task(
     assert call["id"].startswith("call_hypothesis_")
 
 
+def test_hypothesis_model_result_removes_parent_authored_expected_answer(
+    monkeypatch,
+) -> None:
+    middleware = _middleware(monkeypatch)
+    route = _route(
+        "verified_analysis",
+        source_mode="mixed",
+        task_intent="hypothesis_generation",
+        required_specialist="solar-hypothesis",
+    )
+    user_request = "为什么太阳活动周期上升期会出现双峰？"
+    request = _request(
+        route=route,
+        messages=[HumanMessage(user_request)],
+        tools=[_tool("task")],
+    )
+
+    response = middleware.wrap_model_call(
+        request,
+        lambda _inner: ModelResponse(
+            result=[
+                AIMessage(
+                    "我去找专家。",
+                    tool_calls=[
+                        {
+                            "name": "task",
+                            "args": {
+                                "subagent_type": "solar-hypothesis",
+                                "description": (
+                                    "只生成三个候选，并分别使用发电机、通量输运、"
+                                    "活动经度机制。"
+                                ),
+                            },
+                            "id": "task-contaminated",
+                        }
+                    ],
+                )
+            ]
+        ),
+    )
+
+    call = response.result[0].tool_calls[0]
+    assert call["args"] == {
+        "subagent_type": "solar-hypothesis",
+        "description": user_request,
+    }
+    assert "发电机" not in call["args"]["description"]
+    assert response.result[0].content == "我去找专家。"
+
+
 def test_hypothesis_task_execution_rewrites_generic_delegation_to_specialist(
     monkeypatch,
 ) -> None:
@@ -353,6 +405,10 @@ def test_hypothesis_task_execution_rewrites_generic_delegation_to_specialist(
     monkeypatch.setattr(
         "jw.middleware.research_router._persisted_hypothesis_draft_status",
         lambda _config: (True, "/task/work/scientific_hypothesis_state.json"),
+    )
+    monkeypatch.setattr(
+        "jw.tools.scientific_hypothesis.render_persisted_hypothesis_reader_view",
+        lambda _path, *, partial_reason=None: "# 科学假设组合\n\n研究者摘要",
     )
     route = _route(
         "verified_analysis",
@@ -397,13 +453,14 @@ def test_hypothesis_task_execution_rewrites_generic_delegation_to_specialist(
     assert args["subagent_type"] == "solar-hypothesis"
     assert "请形成并维护候选草稿" in args["description"]
     assert "Read the Wiki tree." not in args["description"]
-    assert "concise rendering" not in args["description"]
-    assert "target 3 entries, hard maximum 5" in args["description"]
-    assert "scientific_hypothesis_build_literature_bundle" in args["description"]
-    assert "Never substitute the generic lit_bundle_build tool" in args["description"]
-    assert "most discriminating next test for every candidate" in args["description"]
-    assert "complete confidence basis for every candidate" in args["description"]
+    assert "tail_review_scoring_guide" in args["description"]
+    assert "violated_guidelines" in args["description"]
+    assert "pass if and only if that list is empty" in args["description"]
+    assert result.content == "# 科学假设组合\n\n研究者摘要"
     assert result.additional_kwargs["research_router_specialist"] == "solar-hypothesis"
+    assert (
+        result.additional_kwargs["research_router_result_view"] == "researcher_summary"
+    )
     followup = _prepared(
         middleware,
         _request(
@@ -413,7 +470,7 @@ def test_hypothesis_task_execution_rewrites_generic_delegation_to_specialist(
         ),
     )
     assert followup.tools == []
-    assert "will be passed through verbatim" in followup.system_message.text
+    assert "deterministic researcher-facing view" in followup.system_message.text
 
 
 def test_hypothesis_route_blocks_parent_preread_at_tool_execution(
@@ -545,7 +602,12 @@ def test_hypothesis_task_requires_persisted_draft_receipt(monkeypatch) -> None:
     )
 
     assert result.status == "error"
-    assert "HYPOTHESIS DRAFT INCOMPLETE" in str(result.content)
+    assert "暂时不返回候选结论" in str(result.content)
+    assert "latest_draft is missing" not in str(result.content)
+    assert (
+        result.additional_kwargs["research_router_internal_failure"]
+        == "latest_draft is missing"
+    )
     assert result.additional_kwargs["research_router_specialist"] == "solar-hypothesis"
     retry = _prepared(
         middleware,
@@ -556,6 +618,259 @@ def test_hypothesis_task_requires_persisted_draft_receipt(monkeypatch) -> None:
         ),
     )
     assert [tool.name for tool in retry.tools] == ["task"]
+
+
+def test_hypothesis_task_without_workspace_never_exposes_raw_result(
+    monkeypatch,
+) -> None:
+    middleware = _middleware(monkeypatch)
+    monkeypatch.setattr(
+        "jw.middleware.research_router._persisted_hypothesis_draft_status",
+        lambda _config: None,
+    )
+    route = _route(
+        "verified_analysis",
+        source_mode="mixed",
+        task_intent="hypothesis_generation",
+        required_specialist="solar-hypothesis",
+    )
+    human = HumanMessage("提出竞争假设", id="turn-hypothesis")
+    model_call = AIMessage(
+        "",
+        tool_calls=[
+            {
+                "name": "task",
+                "args": {"subagent_type": "solar-hypothesis"},
+                "id": "task-hypothesis",
+            }
+        ],
+    )
+    request = ToolCallRequest(
+        tool_call=model_call.tool_calls[0],
+        tool=None,
+        state={"research_route": route, "messages": [human, model_call]},
+        runtime=SimpleNamespace(config={}),
+    )
+
+    result = middleware.wrap_tool_call(
+        request,
+        lambda inner: ToolMessage(
+            "rubric_reward=1; Pareto=[H1]; draft_sha256=secret",
+            tool_call_id=str(inner.tool_call["id"]),
+            name="task",
+        ),
+    )
+
+    assert result.status == "error"
+    assert "暂时不返回候选结论" in str(result.content)
+    assert "rubric_reward" not in str(result.content)
+    assert "Pareto" not in str(result.content)
+    assert "draft_sha256" not in str(result.content)
+
+
+def test_hypothesis_task_error_is_humanized(monkeypatch) -> None:
+    middleware = _middleware(monkeypatch)
+    route = _route(
+        "verified_analysis",
+        source_mode="mixed",
+        task_intent="hypothesis_generation",
+        required_specialist="solar-hypothesis",
+    )
+    human = HumanMessage("提出竞争假设", id="turn-hypothesis")
+    model_call = AIMessage(
+        "",
+        tool_calls=[
+            {
+                "name": "task",
+                "args": {"subagent_type": "solar-hypothesis"},
+                "id": "task-hypothesis",
+            }
+        ],
+    )
+    request = ToolCallRequest(
+        tool_call=model_call.tool_calls[0],
+        tool=None,
+        state={"research_route": route, "messages": [human, model_call]},
+        runtime=SimpleNamespace(config={}),
+    )
+
+    result = middleware.wrap_tool_call(
+        request,
+        lambda inner: ToolMessage(
+            "InternalError: schema enum mismatch at candidate_pool_sha256",
+            tool_call_id=str(inner.tool_call["id"]),
+            name="task",
+            status="error",
+        ),
+    )
+
+    assert result.status == "error"
+    assert "科学假设子任务没有完成" in str(result.content)
+    assert "InternalError" not in str(result.content)
+    assert "candidate_pool_sha256" not in str(result.content)
+    assert (
+        "InternalError" in result.additional_kwargs["research_router_internal_failure"]
+    )
+
+
+def test_hypothesis_receipt_uses_runtime_base_workspace(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    from jw.middleware.research_router import _persisted_hypothesis_draft_status
+
+    task_root = tmp_path / "projects" / "default" / "runs" / "run-1"
+    state_path = task_root / "work" / "scientific_hypothesis_state.json"
+    state_path.parent.mkdir(parents=True)
+    state_path.write_text(
+        ('{"latest_draft_sha256":"abc","latest_draft":{"candidates":[{"id":"H0"}]}}'),
+        encoding="utf-8",
+    )
+    calls = []
+
+    def resolve(config, base_workspace=None):
+        calls.append((config, base_workspace))
+        return task_root
+
+    monkeypatch.setattr(
+        "jw.middleware.research_router.workspace_root_from_config",
+        resolve,
+    )
+    config = {
+        "configurable": {"thread_id": "thread-1"},
+        "metadata": {"base_workspace_dir": str(tmp_path)},
+    }
+
+    assert _persisted_hypothesis_draft_status(config) == (True, str(state_path))
+    assert calls == [(config, str(tmp_path))]
+
+
+def test_hypothesis_budget_stop_recovers_persisted_draft(monkeypatch) -> None:
+    middleware = _middleware(monkeypatch)
+    state_path = "/task/work/scientific_hypothesis_state.json"
+    monkeypatch.setattr(
+        "jw.middleware.research_router._persisted_hypothesis_draft_status",
+        lambda _config: (True, state_path),
+    )
+    reader_view = "# 科学假设组合\n\n本次生成提前停止，下面展示的是已经保存的草稿。"
+    monkeypatch.setattr(
+        "jw.tools.scientific_hypothesis.render_persisted_hypothesis_reader_view",
+        lambda path, *, partial_reason=None: reader_view,
+    )
+    route = _route(
+        "verified_analysis",
+        source_mode="mixed",
+        task_intent="hypothesis_generation",
+        required_specialist="solar-hypothesis",
+    )
+    human = HumanMessage("提出并维护竞争假设草稿", id="turn-hypothesis")
+    model_call = AIMessage(
+        "",
+        tool_calls=[
+            {
+                "name": "task",
+                "args": {"subagent_type": "solar-hypothesis", "description": "draft"},
+                "id": "task-hypothesis",
+            }
+        ],
+    )
+    request = ToolCallRequest(
+        tool_call=model_call.tool_calls[0],
+        tool=None,
+        state={"research_route": route, "messages": [human, model_call]},
+        runtime=SimpleNamespace(config={"configurable": {}}),
+    )
+
+    result = middleware.wrap_tool_call(
+        request,
+        lambda inner: ToolMessage(
+            "Model call limits exceeded: run limit (32/32)",
+            tool_call_id=str(inner.tool_call["id"]),
+            name="task",
+        ),
+    )
+
+    assert result.content == reader_view
+    assert result.status == "success"
+    assert (
+        result.additional_kwargs["research_router_execution_status"] == "budget_stopped"
+    )
+    assert result.additional_kwargs["research_router_result_status"] == "partial"
+    assert result.additional_kwargs["research_router_recovered_persisted_draft"] is True
+
+    passthrough = middleware.wrap_model_call(
+        _request(
+            route=route,
+            messages=[human, model_call, result],
+            tools=[_tool("task")],
+        ),
+        lambda _inner: ModelResponse(result=[AIMessage("must not replace recovery")]),
+    )
+    assert passthrough.result[0].content == reader_view
+
+
+def test_hypothesis_budget_stop_recovers_command_wrapped_task_result(
+    monkeypatch,
+) -> None:
+    middleware = _middleware(monkeypatch)
+    state_path = "/task/work/scientific_hypothesis_state.json"
+    monkeypatch.setattr(
+        "jw.middleware.research_router._persisted_hypothesis_draft_status",
+        lambda _config: (True, state_path),
+    )
+    reader_view = "# 科学假设组合\n\n本次生成提前停止，下面展示已保存的草稿。"
+    monkeypatch.setattr(
+        "jw.tools.scientific_hypothesis.render_persisted_hypothesis_reader_view",
+        lambda path, *, partial_reason=None: reader_view,
+    )
+    route = _route(
+        "verified_analysis",
+        source_mode="mixed",
+        task_intent="hypothesis_generation",
+        required_specialist="solar-hypothesis",
+    )
+    human = HumanMessage("提出并维护竞争假设草稿", id="turn-hypothesis")
+    model_call = AIMessage(
+        "",
+        tool_calls=[
+            {
+                "name": "task",
+                "args": {"subagent_type": "solar-hypothesis", "description": "draft"},
+                "id": "task-hypothesis",
+            }
+        ],
+    )
+    request = ToolCallRequest(
+        tool_call=model_call.tool_calls[0],
+        tool=None,
+        state={"research_route": route, "messages": [human, model_call]},
+        runtime=SimpleNamespace(config={"configurable": {}}),
+    )
+
+    result = middleware.wrap_tool_call(
+        request,
+        lambda inner: Command(
+            update={
+                "messages": [
+                    ToolMessage(
+                        "Model call limits exceeded: run limit (32/32)",
+                        tool_call_id=str(inner.tool_call["id"]),
+                    )
+                ],
+                "files": {"/work/a.txt": "preserved"},
+            }
+        ),
+    )
+
+    assert isinstance(result, Command)
+    assert result.update["files"] == {"/work/a.txt": "preserved"}
+    message = result.update["messages"][0]
+    assert isinstance(message, ToolMessage)
+    assert message.content == reader_view
+    assert message.additional_kwargs["research_router_result_status"] == "partial"
+    assert (
+        message.additional_kwargs["research_router_recovered_persisted_draft"] is True
+    )
 
 
 def test_hypothesis_result_is_passed_through_verbatim(monkeypatch) -> None:
@@ -596,6 +911,29 @@ def test_hypothesis_result_is_passed_through_verbatim(monkeypatch) -> None:
 
     assert captured[0].tools == []
     assert response.result[0].content == "# DRAFT\n\nExact specialist body."
+
+
+def test_hypothesis_result_recovers_single_unattributed_tool_message() -> None:
+    call = {
+        "name": "task",
+        "args": {"subagent_type": "solar-hypothesis"},
+        "id": "hypothesis-task",
+    }
+    messages = [
+        HumanMessage("提出竞争假设", id="turn-hypothesis"),
+        AIMessage("", tool_calls=[call]),
+        {
+            "type": "tool",
+            "content": "# 科学假设组合\n\n研究者摘要",
+            "tool_call_id": None,
+            "status": None,
+        },
+    ]
+
+    assert (
+        _latest_specialist_result(messages, "solar-hypothesis")
+        == "# 科学假设组合\n\n研究者摘要"
+    )
 
 
 def test_hypothesis_route_reports_missing_task_tool_without_substitution(
