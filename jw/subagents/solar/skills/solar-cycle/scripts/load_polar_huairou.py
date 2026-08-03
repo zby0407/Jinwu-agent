@@ -447,7 +447,7 @@ def _hemisphere_from_header(header: dict, filename: str) -> str | None:
     """Return 'N' or 'S' from HSOS_NO or filename, or None if ambiguous."""
     hsos_no = str(header.get("HSOS_NO", "")).lower()
     name = Path(filename).stem.lower()
-    token = hsos_no or name
+    token = f"{hsos_no} {name}"
     if "npl" in token:
         return "N"
     if "spl" in token:
@@ -477,7 +477,7 @@ def _should_skip_fits(
     """Return a skip reason, or None if the file should be processed."""
     hsos_no = str(header.get("HSOS_NO", "")).lower()
     name = Path(filename).stem.lower()
-    token = hsos_no or name
+    token = f"{hsos_no} {name}"
 
     if not include_wpl and "wpl" in token:
         return "wpl file skipped by default"

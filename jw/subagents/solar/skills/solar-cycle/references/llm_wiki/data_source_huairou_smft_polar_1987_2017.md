@@ -12,7 +12,13 @@ related_ids: [kb_data_source_huairou_smft_polar_1987_2001]
 
 ## 当前状态
 
-1987–2001 年 `.dat` 数据已经形成日表和月表。2002 年后的 FITS 支持已进入诊断阶段；在双层信号和孔径经人工确认前，不生成 2002–2017 全量正式序列。
+1987–2001 年 `.dat` 数据已经形成日表和月表。2002–2017 本地 FITS 工程产品已于 2026-08-03 生成：
+
+- `data/huairou_polar_precursor_2002_2017_daily.csv`：287 行、2811 个文件观测
+- `data/huairou_polar_precursor_2002_2017_monthly.csv`：108 行
+- 实际覆盖 2002–2009、2015–2017；2010–2014 无有效本地极区记录
+
+运行参数为：2002–2008 使用南北条带 100 行和中心 320×240 参考区；2009、2015–2017 使用 `calibrated_vi` 和中心圆半径 150。2010 的 15 个文件均为 `wpl`，未进入产品。
 
 不同年代没有同期交叉标定，合并表必须保留 `instrument_epoch`、`camera`、`source_format`、`signal_definition`、`signal_unit` 和 `calibration_status`。跨年代下游实验只能作为探索性结果，不能把原始幅度解释为连续、同单位的物理磁场。
 
@@ -28,7 +34,7 @@ related_ids: [kb_data_source_huairou_smft_polar_1987_2001]
 
 ## 双层信号诊断
 
-双层文件当前同时输出以下候选信号：
+诊断阶段同时比较以下候选信号：
 
 - `plane0`
 - `plane1`
@@ -36,7 +42,7 @@ related_ids: [kb_data_source_huairou_smft_polar_1987_2001]
 - `vi = (plane0 - plane1) / (plane0 + plane1)`
 - `calibrated_vi = CALIBRAT × vi`
 
-真实样本显示两个原始 plane 高度相关，派生的差分和 V/I 才呈现明显磁结构。因此生产 CLI 在诊断确认前不提供双层默认信号，必须显式传入 `--fit-signal` 或兼容参数 `--fit-plane`。
+真实样本显示两个原始 plane 高度相关，派生的差分和 V/I 才呈现明显磁结构。正式本地运行显式采用 `--fit-signal calibrated_vi`；加载器仍不设置隐式双层默认值，以防服务器批处理时误用其他信号。
 
 ## 孔径候选
 
@@ -51,6 +57,9 @@ related_ids: [kb_data_source_huairou_smft_polar_1987_2001]
 - 仅接受 `npl`/`spl` 极区标识以及已知的 NAXIS、BITPIX、shape、camera 组合。
 - 本地 2010 年共 15 个 FITS，全部为 `wpl`，因此正式极区序列保留 2010 缺口。
 - 本地处理范围为 2002–2010、2015–2017；2011–2014 和 2018–2026 待服务器处理。
+- 2002–2008 有 4 个 `CONTENT=Q/R/T/U` 非纵场文件被排除。
+- 2015-08-15 有 19 个文件的 FITS 头为全零、缺少 `SIMPLE` 卡，作为损坏文件排除。
+- 2002–2008 的 `detector_count_proxy` 与后期 `header_calibrated_proxy` 不是同一单位；合并产品只用于带分代元数据的档案和探索，禁止直接拟合跨年代绝对幅度。
 
 ## 诊断与服务器命令
 

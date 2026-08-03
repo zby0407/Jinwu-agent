@@ -162,6 +162,12 @@ def test_filters_wpl_and_small_view():
     ) is None
 
 
+def test_filename_hemisphere_fallback_when_hsos_number_is_unhelpful():
+    header = {"HSOS_NO": "AR1234", "CONTENT": "L"}
+    assert loader._hemisphere_from_header(header, "L503npl18041028.fit") == "N"
+    assert loader._should_skip_fits(header, "L503spl18040901.fit", False) is None
+
+
 def test_parse_fits_metadata():
     data = np.zeros((2, 992, 992))
     header = _header(32, data.shape, "IMPERX 1M48")
