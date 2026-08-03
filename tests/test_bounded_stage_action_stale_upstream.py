@@ -6,7 +6,6 @@ after data (its upstream dependency) was re-produced and invalidated hypothesis 
 pending. The router then refused re-delegation because stage_status was pending while
 the bounded action claimed released.
 """
-import json
 from pathlib import Path
 
 from jw.research_review import ResearchReviewStore

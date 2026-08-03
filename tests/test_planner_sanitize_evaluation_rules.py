@@ -1,6 +1,6 @@
 """Sanitizer must coerce mechanical criterion_basis violations to schema-valid form."""
 
-from jw.tools.research_planner import _sanitize_evaluation_rules, _validate_section
+from jw.tools.research_planner import _sanitize_evaluation_rules
 
 
 def _basis(kind, sources, artifacts):
