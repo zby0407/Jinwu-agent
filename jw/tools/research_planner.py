@@ -201,7 +201,9 @@ def _migrate_failure_policy(
 ) -> None:
     """Unlock old no-progress stops only when feedback semantics changed."""
 
-    old_version = str(state.get("failure_policy_version") or "planner-section-feedback-v1")
+    old_version = str(
+        state.get("failure_policy_version") or "planner-section-feedback-v1"
+    )
     if old_version == _DRAFT_FAILURE_POLICY_VERSION:
         state.setdefault("failure_policy_migrations", [])
         return
@@ -331,9 +333,7 @@ def _record_section_failure(
     )
     must_stop = consecutive >= 2 or total >= 6
     failure_dir = (
-        _draft_archive_root(state["request_sha256"], config)
-        / "failures"
-        / section_name
+        _draft_archive_root(state["request_sha256"], config) / "failures" / section_name
     )
     existing_numbers = [
         int(path.stem[1:])
@@ -542,8 +542,7 @@ def register_planner_evidence_revision(
         }
 
     revision_dir = (
-        _draft_archive_root(state["request_sha256"], config)
-        / "evidence_revisions"
+        _draft_archive_root(state["request_sha256"], config) / "evidence_revisions"
     )
     existing_numbers = [
         int(path.stem[1:])
@@ -734,7 +733,9 @@ def _preflight_error_count(error: str) -> int:
     matched = re.search(r"发现\s*(\d+)\s*组问题", error)
     if matched:
         return int(matched.group(1))
-    bullet_count = sum(1 for line in error.splitlines() if line.lstrip().startswith("- "))
+    bullet_count = sum(
+        1 for line in error.splitlines() if line.lstrip().startswith("- ")
+    )
     return max(1, bullet_count)
 
 
@@ -749,7 +750,9 @@ def _preflight_sections(
         )
         if result.get("status") == "plan_ready":
             return result, "", 0
-        error = str(result.get("error") or "planner preflight did not become plan_ready")
+        error = str(
+            result.get("error") or "planner preflight did not become plan_ready"
+        )
     except Exception as exc:
         error = str(exc)
     return None, error, _preflight_error_count(error)
@@ -1224,7 +1227,9 @@ def research_planner_apply_revision_patch(
     try:
         request = _lookup_request(request_sha256, config)
         state = _lookup_draft(request, config)
-        missing = [name for name in _PLAN_SECTION_ORDER if name not in state["sections"]]
+        missing = [
+            name for name in _PLAN_SECTION_ORDER if name not in state["sections"]
+        ]
         if missing:
             raise ValueError(
                 "multi-section revision requires a complete draft; missing: "
@@ -1265,8 +1270,7 @@ def research_planner_apply_revision_patch(
             raise ValueError(
                 "revision patch rejected without mutation: full-plan error count "
                 f"would change from {baseline_count} to {candidate_count}; "
-                "the count must strictly decrease. Candidate errors: "
-                + candidate_error
+                "the count must strictly decrease. Candidate errors: " + candidate_error
             )
 
         receipts: dict[str, Any] = {}
@@ -1302,9 +1306,7 @@ def research_planner_apply_revision_patch(
         return _ok(
             {
                 "status": (
-                    "plan_ready"
-                    if candidate_count == 0
-                    else "revision_patch_persisted"
+                    "plan_ready" if candidate_count == 0 else "revision_patch_persisted"
                 ),
                 "changed_sections": list(receipts),
                 "section_receipts": receipts,
@@ -1330,9 +1332,7 @@ def research_planner_apply_revision_patch(
                     "error": error,
                     "error_fingerprint": failure["error_fingerprint"],
                     "failure_count": failure["policy_failure_count"],
-                    "consecutive_same_error": failure[
-                        "consecutive_same_error"
-                    ],
+                    "consecutive_same_error": failure["consecutive_same_error"],
                     "must_stop": failure["must_stop"],
                     "failure_receipt_path": failure["receipt_path"],
                     "instruction": (
@@ -1373,11 +1373,12 @@ def research_planner_stage_revision_section(
             raise ValueError("shadow revision staging requires a complete active draft")
         value = json.loads(section_json)
         _validate_section(section_name, value)
-        base_sha256 = canonical_json_sha256(
-            _draft_response(request, state["sections"])
-        )
+        base_sha256 = canonical_json_sha256(_draft_response(request, state["sections"]))
         candidate = state.get("revision_candidate")
-        if not isinstance(candidate, dict) or candidate.get("base_draft_sha256") != base_sha256:
+        if (
+            not isinstance(candidate, dict)
+            or candidate.get("base_draft_sha256") != base_sha256
+        ):
             candidate = {
                 "schema_version": "research-planner-revision-candidate-v1",
                 "base_draft_sha256": base_sha256,
@@ -1467,7 +1468,9 @@ def research_planner_stage_revision_section(
                 "status": "revision_section_staged",
                 "base_draft_sha256": base_sha256,
                 "staged_sections": [
-                    name for name in _PLAN_SECTION_ORDER if name in candidate["sections"]
+                    name
+                    for name in _PLAN_SECTION_ORDER
+                    if name in candidate["sections"]
                 ],
                 "section_receipt": candidate["receipts"][section_name],
                 "active_draft_unchanged": True,

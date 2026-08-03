@@ -6,14 +6,7 @@ from pathlib import Path
 import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
-SKILL_DIR = (
-    ROOT
-    / "jw"
-    / "subagents"
-    / "solar"
-    / "skills"
-    / "solar-flare-forecasting"
-)
+SKILL_DIR = ROOT / "jw" / "subagents" / "solar" / "skills" / "solar-flare-forecasting"
 
 
 def _load_script(name: str):

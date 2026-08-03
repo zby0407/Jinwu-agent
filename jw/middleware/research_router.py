@@ -386,9 +386,7 @@ def _is_research_continuation_request(text: str) -> bool:
     )
 
 
-def _continuation_route(
-    state: Mapping[str, Any], text: str
-) -> dict[str, Any] | None:
+def _continuation_route(state: Mapping[str, Any], text: str) -> dict[str, Any] | None:
     """Preserve a v2 workflow route across a terse continuation turn.
 
     Older checkpoints may already have overwritten their useful route with a
@@ -423,11 +421,13 @@ def _continuation_route(
     history = messages[: latest[0]] if latest is not None else messages
     for message in reversed(history):
         if (
-            isinstance(message, HumanMessage)
-            or _message_role(message) in {"human", "user"}
-        ) and not _is_research_continuation_request(
-            _message_text(message)
-        ) and _explicit_full_research(_message_text(message)):
+            (
+                isinstance(message, HumanMessage)
+                or _message_role(message) in {"human", "user"}
+            )
+            and not _is_research_continuation_request(_message_text(message))
+            and _explicit_full_research(_message_text(message))
+        ):
             return {
                 "mode": "full_research",
                 "source_mode": "mixed",
@@ -450,10 +450,7 @@ def _continuation_route(
             else getattr(message, "tool_call_id", "")
         )
         for message in history
-        if (
-            isinstance(message, ToolMessage)
-            or _message_role(message) == "tool"
-        )
+        if (isinstance(message, ToolMessage) or _message_role(message) == "tool")
         and _message_text(message).lstrip().startswith("[RESEARCH REVIEW BLOCKED]")
     }
     stage = ""

@@ -17,8 +17,7 @@ from .workspaces import register_project_data_file
 _USER_AGENT = "Jinwu-research-data/2.0"
 _SILSO_AUTHORITY_URL = "https://www.sidc.be/SILSO/DATA/SN_m_tot_V2.0.txt"
 _SILSO_MIRROR_URL = (
-    "http://www.wdcb.ru/stp/data/solar.act/sunspot/SILSO/ver2/"
-    "SN_m/SN_m_tot_V2.0.txt"
+    "http://www.wdcb.ru/stp/data/solar.act/sunspot/SILSO/ver2/SN_m/SN_m_tot_V2.0.txt"
 )
 _SILSO_DOI = "https://doi.org/10.24414/qnza-ac80"
 _POLAR_PERSISTENT_ID = "doi:10.7910/DVN/KF96B2"
@@ -74,7 +73,9 @@ def _validate_polar_field(payload: bytes) -> dict[str, Any]:
     if rows and rows[0][0].strip() == "N MWO Date":
         rows = rows[1:]
     if len(rows) < 100 or any(len(row) != 12 for row in rows):
-        raise ValueError("polar-field data must contain at least 100 twelve-column rows")
+        raise ValueError(
+            "polar-field data must contain at least 100 twelve-column rows"
+        )
     try:
         north_years = [float(row[0]) for row in rows]
         south_years = [float(row[6]) for row in rows]

@@ -559,9 +559,7 @@ def register_project_data_file(
     if not source.is_file() or source.is_symlink():
         raise ValueError("source_path must be a regular file")
 
-    project_root = base / "projects" / _slug(
-        project_id, fallback=DEFAULT_PROJECT_ID
-    )
+    project_root = base / "projects" / _slug(project_id, fallback=DEFAULT_PROJECT_ID)
     with _LOCK:
         shared = _ensure_project_layout(project_root, project_id, base)
         data_root = (shared / "data").resolve()
@@ -585,9 +583,7 @@ def register_project_data_file(
                 )
         else:
             destination.parent.mkdir(parents=True, exist_ok=True)
-            temporary = destination.with_name(
-                f".{destination.name}.{os.getpid()}.tmp"
-            )
+            temporary = destination.with_name(f".{destination.name}.{os.getpid()}.tmp")
             try:
                 shutil.copyfile(source, temporary)
                 if _sha256_file(temporary) != source_sha256:
@@ -597,9 +593,7 @@ def register_project_data_file(
                 temporary.unlink(missing_ok=True)
 
         registered_at = utc_now()
-        provenance_relative = relative.with_name(
-            f"{relative.name}.provenance.json"
-        )
+        provenance_relative = relative.with_name(f"{relative.name}.provenance.json")
         provenance_payload = {
             "schema_version": "project-data-provenance-v1",
             "dataset_id": dataset_id.strip(),
@@ -625,9 +619,7 @@ def register_project_data_file(
             "role": "primary_data",
             "bytes": source_bytes,
             "sha256": source_sha256,
-            "provenance_ref": (
-                f"/project/data/{provenance_relative.as_posix()}"
-            ),
+            "provenance_ref": (f"/project/data/{provenance_relative.as_posix()}"),
             "registered_at": registered_at,
         }
         existing = next(

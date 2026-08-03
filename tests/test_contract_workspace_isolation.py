@@ -165,9 +165,7 @@ def test_solar_data_context_blocks_guessed_paths_and_is_idempotent(
                         "prerequisite_step_ids": ["rs4"],
                     },
                 ],
-                "research_artifacts": [
-                    {"id": "art1", "producer_step_id": "rs1"}
-                ],
+                "research_artifacts": [{"id": "art1", "producer_step_id": "rs1"}],
             }
         ),
         encoding="utf-8",
@@ -199,7 +197,10 @@ def test_solar_data_context_blocks_guessed_paths_and_is_idempotent(
     assert repeated["receipt_ref"] == context["receipt_ref"]
     assert repeated["context_sha256"] == context["context_sha256"]
     assert (workspace / context["receipt_ref"]).is_file()
-    assert len(list((workspace / "receipts" / "datasets").glob("data-context-*.json"))) == 1
+    assert (
+        len(list((workspace / "receipts" / "datasets").glob("data-context-*.json")))
+        == 1
+    )
 
 
 def test_data_tools_only_resolve_hash_matching_manifest_inputs(
@@ -230,9 +231,7 @@ def test_data_tools_only_resolve_hash_matching_manifest_inputs(
 
     source.write_text("changed\n", encoding="utf-8")
     with pytest.raises(PermissionError, match="eligible input"):
-        data_tools._resolve_eligible_data_path(
-            "/inputs/observations.csv", config
-        )
+        data_tools._resolve_eligible_data_path("/inputs/observations.csv", config)
 
 
 def test_planner_incremental_draft_is_atomic_resumable_and_task_scoped(
@@ -380,12 +379,16 @@ def test_planner_evaluation_rule_error_explains_criterion_basis_exclusivity() ->
         }
     ]
 
-    with pytest.raises(ValueError, match="section schema validation failed") as exc_info:
+    with pytest.raises(
+        ValueError, match="section schema validation failed"
+    ) as exc_info:
         planner_tools._validate_section("evaluation_rules", invalid)
 
     message = str(exc_info.value)
     assert "use 'request_based', not alias 'exact_user_requirement'" in message
-    assert "request_based requires evidence_source_ids=[] and artifact_ids=[]" in message
+    assert (
+        "request_based requires evidence_source_ids=[] and artifact_ids=[]" in message
+    )
 
 
 def test_planner_feedback_policy_migration_unlocks_old_stop_without_losing_history(
@@ -437,12 +440,12 @@ def test_planner_feedback_policy_migration_unlocks_old_stop_without_losing_histo
         ).glob("f*.json")
     )
     assert len(failure_history) == 2
-    old_receipts = {path.name: path.read_text(encoding="utf-8") for path in failure_history}
+    old_receipts = {
+        path.name: path.read_text(encoding="utf-8") for path in failure_history
+    }
 
     after_migration = json.loads(
-        planner_tools.research_planner_update_draft.invoke(
-            invalid_args, config=config
-        )
+        planner_tools.research_planner_update_draft.invoke(invalid_args, config=config)
     )
     assert after_migration["status"] == "error"
     assert after_migration["failure_count"] == 1
@@ -512,9 +515,7 @@ def test_planner_incremental_draft_reaches_full_preflight_and_survives_reload(
 def test_planner_evidence_revision_invalidates_old_validation_idempotently(
     tmp_path: Path, monkeypatch
 ) -> None:
-    binding, config = _task_config(
-        tmp_path, monkeypatch, "planner-evidence-revision"
-    )
+    binding, config = _task_config(tmp_path, monkeypatch, "planner-evidence-revision")
     response, sha = _complete_valid_planner(config)
     capsule = {
         "review_id": "planning-review-0002",
@@ -551,11 +552,7 @@ def test_planner_evidence_revision_invalidates_old_validation_idempotently(
     assert repeated["status"] == "evidence_revision_already_registered"
     receipts = list(
         (
-            Path(binding.workspace)
-            / "planner"
-            / "drafts"
-            / sha
-            / "evidence_revisions"
+            Path(binding.workspace) / "planner" / "drafts" / sha / "evidence_revisions"
         ).glob("r*.json")
     )
     assert len(receipts) == 1
@@ -612,10 +609,14 @@ def test_planner_shadow_revision_deduplicates_and_stops_repeated_schema_failure(
         "request_sha256": sha,
     }
     first = json.loads(
-        planner_tools.research_planner_stage_revision_section.invoke(args, config=config)
+        planner_tools.research_planner_stage_revision_section.invoke(
+            args, config=config
+        )
     )
     repeated = json.loads(
-        planner_tools.research_planner_stage_revision_section.invoke(args, config=config)
+        planner_tools.research_planner_stage_revision_section.invoke(
+            args, config=config
+        )
     )
     assert first["status"] == "revision_section_staged"
     assert first["new_version_written"] is True
@@ -777,9 +778,10 @@ def test_planner_atomic_revision_patch_rejects_regression_and_accepts_improvemen
     candidate_brief = json.loads(
         planner_tools.research_planner_get_brief.invoke({}, config=config)
     )
-    assert "MUST be research_planner_commit_revision_candidate" in candidate_brief[
-        "brief"
-    ]["instruction"]
+    assert (
+        "MUST be research_planner_commit_revision_candidate"
+        in candidate_brief["brief"]["instruction"]
+    )
     staged_section = json.loads(
         planner_tools.research_planner_get_section.invoke(
             {"section_name": "evaluation_rules", "request_sha256": sha},
@@ -787,9 +789,9 @@ def test_planner_atomic_revision_patch_rejects_regression_and_accepts_improvemen
         )
     )
     assert staged_section["active_section"] == invalid_rules
-    assert staged_section["staged_section"] == response["plan_content"][
-        "evaluation_rules"
-    ]
+    assert (
+        staged_section["staged_section"] == response["plan_content"]["evaluation_rules"]
+    )
     assert staged_section["staged_section_receipt"] == staged["section_receipt"]
     still_invalid = json.loads(state_path.read_text(encoding="utf-8"))
     assert still_invalid["sections"]["evaluation_rules"] == invalid_rules

@@ -63,16 +63,14 @@ def test_polar_validator_binds_columns_and_century_coverage() -> None:
 
 
 def test_precursor_cycle_builder_uses_complete_cycles_and_preminimum_fields(
-    tmp_path
+    tmp_path,
 ) -> None:
     monthly = []
     for year in range(1749, 2026):
         for month in range(1, 13):
             decimal = year + (month - 0.5) / 12
             value = 5 + 100 * (1 - math.cos(2 * math.pi * (decimal - 1902) / 11))
-            monthly.append(
-                f"{year} {month:02d} {decimal:.3f} {value:.4f} 1.0 10"
-            )
+            monthly.append(f"{year} {month:02d} {decimal:.3f} {value:.4f} 1.0 10")
     sunspot = tmp_path / "silso.txt"
     sunspot.write_text("\n".join(monthly) + "\n", encoding="ascii")
 
@@ -82,10 +80,7 @@ def test_precursor_cycle_builder_uses_complete_cycles_and_preminimum_fields(
     )
     polar_rows = [header]
     for year in range(1900, 2025):
-        polar_rows.append(
-            f"{year}.7,1.0,0.1,NaN,NaN,NaN,"
-            f"{year}.2,-1.2,0.1,NaN,NaN,NaN"
-        )
+        polar_rows.append(f"{year}.7,1.0,0.1,NaN,NaN,NaN,{year}.2,-1.2,0.1,NaN,NaN,NaN")
     polar = tmp_path / "polar.csv"
     polar.write_text("\n".join(polar_rows) + "\n", encoding="utf-8")
 

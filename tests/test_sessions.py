@@ -2475,8 +2475,8 @@ class TestRestoreWebuiThreadsToGlobalStore(unittest.IsolatedAsyncioTestCase):
         mock_global_store = MagicMock()
         mock_global_store.get.side_effect = mock_store.get
         mock_global_store.__getitem__ = lambda self, key: mock_store[key]
-        mock_global_store.__setitem__ = (
-            lambda self, key, value: mock_store.__setitem__(key, value)
+        mock_global_store.__setitem__ = lambda self, key, value: mock_store.__setitem__(
+            key, value
         )
         fake_module = MagicMock()
         fake_module.GLOBAL_STORE = mock_global_store

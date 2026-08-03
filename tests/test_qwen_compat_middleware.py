@@ -42,9 +42,7 @@ def _request(*tools, messages=None, model=None, tool_choice=None):
         updated.system_message = kwargs.get("system_message", request.system_message)
         updated.model = kwargs.get("model", request.model)
         updated.tool_choice = kwargs.get("tool_choice", request.tool_choice)
-        updated.model_settings = kwargs.get(
-            "model_settings", request.model_settings
-        )
+        updated.model_settings = kwargs.get("model_settings", request.model_settings)
         return updated
 
     request.override.side_effect = override
@@ -184,9 +182,7 @@ def test_forced_tool_choice_removes_stale_qwen_thinking_controls():
     ):
         assert middleware.wrap_model_call(request, handler) == "ok"
 
-    assert handler.call_args.args[0].model.extra_body == {
-        "enable_thinking": False
-    }
+    assert handler.call_args.args[0].model.extra_body == {"enable_thinking": False}
 
 
 def test_middleware_keeps_qwen_thinking_available_for_auto_tool_choice():
@@ -280,9 +276,9 @@ def test_qwen_closed_loop_uses_native_thinking_without_think_tool(system_text):
         assert middleware.wrap_model_call(request, handler) == "ok"
 
     prepared = handler.call_args.args[0]
-    assert [tool.name if hasattr(tool, "name") else tool["name"] for tool in prepared.tools] == [
-        "read_dataset"
-    ]
+    assert [
+        tool.name if hasattr(tool, "name") else tool["name"] for tool in prepared.tools
+    ] == ["read_dataset"]
     assert prepared.model.extra_body["enable_thinking"] is True
 
 
@@ -408,9 +404,7 @@ def test_planner_turn_disables_parallel_tools_and_serializes_provider_violation(
     assert prepared.model_settings["parallel_tool_calls"] is False
     assert [call["id"] for call in response.result[0].tool_calls] == ["call-read"]
     assert response.result[0].content == ""
-    assert response.result[0].response_metadata[
-        "jw_deferred_parallel_tool_calls"
-    ] == 1
+    assert response.result[0].response_metadata["jw_deferred_parallel_tool_calls"] == 1
 
 
 @pytest.mark.parametrize(
@@ -436,9 +430,7 @@ def test_planner_deterministic_checkpoint_disables_thinking_and_forces_tool(
         *tools,
         messages=[
             ToolMessage(
-                content=json.dumps(
-                    {"draft_checkpoint": {"next_action": next_action}}
-                ),
+                content=json.dumps({"draft_checkpoint": {"next_action": next_action}}),
                 tool_call_id="call-brief",
                 name=receipt_tool,
             )
@@ -492,9 +484,7 @@ def test_planner_no_deliberation_transition_is_not_forced_remotely(
         *tools,
         messages=[
             ToolMessage(
-                content=json.dumps(
-                    {"draft_checkpoint": {"next_action": next_action}}
-                ),
+                content=json.dumps({"draft_checkpoint": {"next_action": next_action}}),
                 tool_call_id="call-brief",
                 name=receipt_tool,
             )
@@ -579,9 +569,7 @@ def test_data_stage_forces_context_open_before_any_data_tool():
         {"name": "prepare_solar_precursor_cycle_table"},
     ]
     request = _request(*tools, messages=[HumanMessage(content="prepare data")])
-    request.system_message = SystemMessage(
-        content="[RESEARCH_PRODUCER_V2]\nstage=data"
-    )
+    request.system_message = SystemMessage(content="[RESEARCH_PRODUCER_V2]\nstage=data")
     handler = MagicMock(return_value="ok")
 
     with patch(
@@ -629,9 +617,7 @@ def test_data_stage_routes_curated_precursor_inputs_to_specialized_adapter():
         name="solar_data_open_context",
     )
     request = _request(*tools, messages=[HumanMessage(content="prepare data"), context])
-    request.system_message = SystemMessage(
-        content="[RESEARCH_PRODUCER_V2]\nstage=data"
-    )
+    request.system_message = SystemMessage(content="[RESEARCH_PRODUCER_V2]\nstage=data")
     handler = MagicMock(return_value="ok")
 
     with patch(
@@ -666,9 +652,7 @@ def test_data_stage_does_not_force_prepare_when_context_is_missing_inputs():
         name="solar_data_open_context",
     )
     request = _request(*tools, messages=[HumanMessage(content="prepare data"), context])
-    request.system_message = SystemMessage(
-        content="[RESEARCH_PRODUCER_V2]\nstage=data"
-    )
+    request.system_message = SystemMessage(content="[RESEARCH_PRODUCER_V2]\nstage=data")
     handler = MagicMock(return_value="ok")
 
     with patch(
@@ -902,7 +886,9 @@ def test_middleware_compacts_consecutive_identical_tool_rounds_before_qwen():
         middleware.wrap_model_call(request, handler)
 
     visible = captured["messages"]
-    calls = [item for item in visible if isinstance(item, AIMessage) and item.tool_calls]
+    calls = [
+        item for item in visible if isinstance(item, AIMessage) and item.tool_calls
+    ]
     results = [item for item in visible if isinstance(item, ToolMessage)]
     assert len(calls) == 1
     assert len(results) == 1

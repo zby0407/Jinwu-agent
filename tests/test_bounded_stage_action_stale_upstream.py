@@ -6,6 +6,7 @@ after data (its upstream dependency) was re-produced and invalidated hypothesis 
 pending. The router then refused re-delegation because stage_status was pending while
 the bounded action claimed released.
 """
+
 from pathlib import Path
 
 from jw.research_review import ResearchReviewStore
@@ -23,7 +24,9 @@ def _issue() -> dict:
     }
 
 
-def test_bounded_stage_action_returns_dependency_refresh_when_upstream_stale(tmp_path: Path) -> None:
+def test_bounded_stage_action_returns_dependency_refresh_when_upstream_stale(
+    tmp_path: Path,
+) -> None:
     store = ResearchReviewStore(tmp_path, "task-1")
     store.checkpoint_producer_result(
         stage="planning", producer="solar-planner", content="plan v1"

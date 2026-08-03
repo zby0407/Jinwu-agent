@@ -178,9 +178,7 @@ def _eligible_input_records(config: RunnableConfig | None) -> list[dict[str, obj
     return eligible
 
 
-def _resolve_eligible_data_path(
-    value: str, config: RunnableConfig | None
-) -> Path:
+def _resolve_eligible_data_path(value: str, config: RunnableConfig | None) -> Path:
     requested = value.strip()
     record = next(
         (item for item in _eligible_input_records(config) if item["path"] == requested),
@@ -249,7 +247,9 @@ def _build_solar_precursor_cycle_rows(
     )
     minima = search_indices[local_minima].tolist()
     if not minima or not 1901 <= monthly[minima[0]][0] <= 1903:
-        raise RuntimeError("detected cycle minima do not match the SILSO cycle-14 anchor")
+        raise RuntimeError(
+            "detected cycle minima do not match the SILSO cycle-14 anchor"
+        )
 
     polar_lines = [
         line
@@ -264,7 +264,9 @@ def _build_solar_precursor_cycle_rows(
     for row in polar_reader:
         for hemisphere, prefix in (("north", "N"), ("south", "S")):
             for source in ("MWO", "WSO"):
-                date_value = _parse_number(str(row.get(f"{prefix} {source} Date") or ""))
+                date_value = _parse_number(
+                    str(row.get(f"{prefix} {source} Date") or "")
+                )
                 field_value = _parse_number(
                     str(row.get(f"{prefix} {source} PField") or "")
                 )
@@ -313,9 +315,7 @@ def _build_solar_precursor_cycle_rows(
                 "minimum_date": f"{start_year:04d}-{start_month:02d}",
                 "minimum_smoothed_sunspot_number": round(float(smoothed[start]), 6),
                 "maximum_date": f"{peak_year:04d}-{peak_month:02d}",
-                "peak_smoothed_sunspot_number": round(
-                    float(smoothed[peak_index]), 6
-                ),
+                "peak_smoothed_sunspot_number": round(float(smoothed[peak_index]), 6),
                 "polar_field_proxy_gauss": round(
                     (abs(north[1]) + abs(south[1])) / 2, 6
                 ),
@@ -386,7 +386,9 @@ def solar_data_open_context(config: RunnableConfig = None) -> str:
             raise RuntimeError("accepted planning artifact has no canonical plan")
         plan_path = (root / plan_ref).resolve()
         if not plan_path.is_relative_to(root) or not plan_path.is_file():
-            raise RuntimeError("canonical planning source is outside the task workspace")
+            raise RuntimeError(
+                "canonical planning source is outside the task workspace"
+            )
         plan = json.loads(plan_path.read_text(encoding="utf-8"))
         if not isinstance(plan, dict):
             raise RuntimeError("canonical research plan is not an object")
@@ -404,7 +406,9 @@ def solar_data_open_context(config: RunnableConfig = None) -> str:
             if isinstance(item, dict) and item.get("stage") == "data"
         ]
         producer_step_ids = {
-            str(item.get("id")) for item in data_steps if isinstance(item.get("id"), str)
+            str(item.get("id"))
+            for item in data_steps
+            if isinstance(item.get("id"), str)
         }
         planned_outputs = [
             item
@@ -448,7 +452,9 @@ def solar_data_open_context(config: RunnableConfig = None) -> str:
                 "never guess /project/data, /inputs, /skills, or prior-run paths."
             ),
         }
-        relative_path = Path("receipts") / "datasets" / f"data-context-{digest[:16]}.json"
+        relative_path = (
+            Path("receipts") / "datasets" / f"data-context-{digest[:16]}.json"
+        )
         receipt_path = root / relative_path
         if not receipt_path.exists():
             _atomic_write_json(receipt_path, receipt)
@@ -473,9 +479,7 @@ def solar_data_open_context(config: RunnableConfig = None) -> str:
 
 
 @tool(parse_docstring=True)
-def audit_solar_data_quality(
-    csv_path: str, config: RunnableConfig = None
-) -> str:
+def audit_solar_data_quality(csv_path: str, config: RunnableConfig = None) -> str:
     """Audit data quality of a solar physics CSV file (read-only).
 
     Skill: solar-cycle / audit-solar-data
@@ -671,12 +675,9 @@ def prepare_solar_precursor_cycle_table(
         ):
             raise PermissionError("sunspot_path is not the curated SILSO input")
         if not (
-            polar_record
-            and polar_record.get("dataset_id") == "mwo-wso-polar-field-v2"
+            polar_record and polar_record.get("dataset_id") == "mwo-wso-polar-field-v2"
         ):
-            raise PermissionError(
-                "polar_field_path is not the curated MWO/WSO input"
-            )
+            raise PermissionError("polar_field_path is not the curated MWO/WSO input")
         sunspot = _resolve_eligible_data_path(sunspot_path, config)
         polar = _resolve_eligible_data_path(polar_field_path, config)
         rows = _build_solar_precursor_cycle_rows(sunspot, polar)

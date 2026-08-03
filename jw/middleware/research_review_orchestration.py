@@ -214,16 +214,16 @@ def _register_planner_validation_revision(
             )
     if not issues:
         return None
-    detail = validation.get("error") or validation.get("message") or "draft failed preflight"
+    detail = (
+        validation.get("error") or validation.get("message") or "draft failed preflight"
+    )
     capsule = {
         "review_id": f"planner-validation-revision-{len(issues)}",
         "decision": "revise",
         "summary": str(detail),
         "issues": issues,
     }
-    return register_planner_evidence_revision(
-        capsule["review_id"], capsule, config
-    )
+    return register_planner_evidence_revision(capsule["review_id"], capsule, config)
 
 
 def _result_tool_message(result: object) -> ToolMessage | None:
@@ -481,15 +481,15 @@ def _prior_task_failure_fingerprints(
                 if not isinstance(call, Mapping) or call.get("name") != "task":
                     continue
                 args = call.get("args")
-                if not isinstance(args, Mapping) or args.get("subagent_type") != subagent_type:
+                if (
+                    not isinstance(args, Mapping)
+                    or args.get("subagent_type") != subagent_type
+                ):
                     continue
                 call_id = call.get("id")
                 if isinstance(call_id, str):
                     matching_call_ids.add(call_id)
-        if (
-            message_type == "tool"
-            and str(tool_call_id) in matching_call_ids
-        ):
+        if message_type == "tool" and str(tool_call_id) in matching_call_ids:
             stripped = content.lstrip()
             if stripped.startswith(("[TOOL ERROR]", "[TOOL ERROR CAPSULE]")):
                 if _is_transient_task_failure(stripped):
@@ -502,7 +502,9 @@ def _prior_task_failure_fingerprints(
                 "[RESEARCH REVIEW BLOCKED] producer local preflight failed before "
                 "Evidence review:"
             ):
-                fingerprints.append(hashlib.sha256(stripped.encode("utf-8")).hexdigest())
+                fingerprints.append(
+                    hashlib.sha256(stripped.encode("utf-8")).hexdigest()
+                )
     return tuple(fingerprints)
 
 
@@ -541,7 +543,10 @@ def _prior_transient_task_failure_count(state: object, subagent_type: str) -> in
                 if not isinstance(call, Mapping) or call.get("name") != "task":
                     continue
                 args = call.get("args")
-                if not isinstance(args, Mapping) or args.get("subagent_type") != subagent_type:
+                if (
+                    not isinstance(args, Mapping)
+                    or args.get("subagent_type") != subagent_type
+                ):
                     continue
                 call_id = call.get("id")
                 if isinstance(call_id, str):
@@ -741,9 +746,7 @@ class ResearchReviewOrchestrationMiddleware(AgentMiddleware[Any, Any, Any]):
                     request, f"expected {expected}, received {actual or '<missing>'}"
                 ),
             )
-        failure_fingerprints = _prior_task_failure_fingerprints(
-            request.state, expected
-        )
+        failure_fingerprints = _prior_task_failure_fingerprints(request.state, expected)
         if len(failure_fingerprints) >= 2:
             receipt = store.block_for_tool_failures(
                 stage=action["stage"],
@@ -764,7 +767,11 @@ class ResearchReviewOrchestrationMiddleware(AgentMiddleware[Any, Any, Any]):
                 name=name,
                 status="error",
             )
-            return request, action, Command(update={"messages": [message]}, goto="__end__")
+            return (
+                request,
+                action,
+                Command(update={"messages": [message]}, goto="__end__"),
+            )
         transient_failures = _prior_transient_task_failure_count(
             request.state, expected
         )
@@ -794,7 +801,11 @@ class ResearchReviewOrchestrationMiddleware(AgentMiddleware[Any, Any, Any]):
                 name=name,
                 status="error",
             )
-            return request, action, Command(update={"messages": [message]}, goto="__end__")
+            return (
+                request,
+                action,
+                Command(update={"messages": [message]}, goto="__end__"),
+            )
         description = str(args.get("description") or "").strip()
         action_reserved = False
         if action["kind"] == "review":
@@ -812,9 +823,7 @@ class ResearchReviewOrchestrationMiddleware(AgentMiddleware[Any, Any, Any]):
                     "decision": deterministic["decision"],
                     "verdict_sha256": deterministic["verdict_sha256"],
                     "next_owner": deterministic["next_owner"],
-                    "carry_forward_limits": deterministic[
-                        "carry_forward_limits"
-                    ],
+                    "carry_forward_limits": deterministic["carry_forward_limits"],
                 }
                 return (
                     request,
@@ -973,9 +982,7 @@ class ResearchReviewOrchestrationMiddleware(AgentMiddleware[Any, Any, Any]):
                         except Exception:
                             revision_checkpoint = None
                         if revision_checkpoint is not None:
-                            issue_count = len(
-                                revision_checkpoint.get("issues", [])
-                            )
+                            issue_count = len(revision_checkpoint.get("issues", []))
                             return _with_result_content(
                                 result,
                                 f"{producer_text}\n\n"
@@ -986,9 +993,9 @@ class ResearchReviewOrchestrationMiddleware(AgentMiddleware[Any, Any, Any]):
                                 "attempt resumes at repair_evidence_revision and "
                                 "must stage replacements for only the named "
                                 "sections, then commit once. checkpoint="
-                                + json.dumps(
-                                    revision_checkpoint, ensure_ascii=False
-                                )[:4000],
+                                + json.dumps(revision_checkpoint, ensure_ascii=False)[
+                                    :4000
+                                ],
                             )
                         return self._blocked(
                             request,

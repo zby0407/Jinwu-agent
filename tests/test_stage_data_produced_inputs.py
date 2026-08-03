@@ -6,6 +6,7 @@ Bug: the experiment_design producer kept binding input_refs to paths that were n
 readable in the run workspace (planning-declared provenance paths, empty inputs/),
 so design.json was never persisted and experiment_design failed twice.
 """
+
 import json
 from pathlib import Path
 
@@ -65,9 +66,8 @@ def test_stages_produced_csv_and_canonical_refs(tmp_path: Path) -> None:
     assert "inputs/solar_precursor_cycle_features.csv" in staged
     assert "inputs/solar_precursor_cycle_table.json" in staged
     assert (
-        (tmp_path / "inputs" / "solar_precursor_cycle_features.csv").read_bytes()
-        == csv_path.read_bytes()
-    )
+        tmp_path / "inputs" / "solar_precursor_cycle_features.csv"
+    ).read_bytes() == csv_path.read_bytes()
 
 
 def test_staging_is_idempotent(tmp_path: Path) -> None:

@@ -128,9 +128,7 @@ def _dashscope_request_timeout() -> float:
             f"{_DASHSCOPE_REQUEST_TIMEOUT_MAX_S:g} seconds"
         ) from exc
     if not isfinite(value) or not (
-        _DASHSCOPE_REQUEST_TIMEOUT_MIN_S
-        <= value
-        <= _DASHSCOPE_REQUEST_TIMEOUT_MAX_S
+        _DASHSCOPE_REQUEST_TIMEOUT_MIN_S <= value <= _DASHSCOPE_REQUEST_TIMEOUT_MAX_S
     ):
         raise ValueError(
             "JW_DASHSCOPE_REQUEST_TIMEOUT_S must be between "
@@ -159,6 +157,7 @@ def _dashscope_max_retries() -> int:
             f"{_DASHSCOPE_MAX_RETRIES_MAX}"
         )
     return value
+
 
 # Model registry: list of (short_name, model_id, provider)
 # Allows same short_name across different providers.
@@ -549,9 +548,7 @@ def get_chat_model(
         _original_provider = provider
         base_url_default, api_key_env = _OPENAI_ROUTED_PROVIDERS[provider]
         if provider in {"dashscope", "dashscope-code"}:
-            kwargs.setdefault(
-                "stream_chunk_timeout", _dashscope_stream_chunk_timeout()
-            )
+            kwargs.setdefault("stream_chunk_timeout", _dashscope_stream_chunk_timeout())
             kwargs.setdefault("timeout", _dashscope_request_timeout())
             kwargs.setdefault("max_retries", _dashscope_max_retries())
         if provider == "custom-openai":

@@ -125,9 +125,7 @@ def test_registered_project_data_is_immutable_and_available_to_new_runs(
         provenance={"source_url": "https://example.test/official"},
     )
     binding = ensure_thread_workspace("registered-data-thread", base)
-    manifest = json.loads(
-        Path(binding.workspace, "input_manifest.json").read_text()
-    )
+    manifest = json.loads(Path(binding.workspace, "input_manifest.json").read_text())
 
     assert record["role"] == "primary_data"
     assert manifest["project_inputs"] == [
@@ -146,9 +144,7 @@ def test_registered_project_data_is_immutable_and_available_to_new_runs(
     staged = Path(binding.project_shared, "data/solar/silso_v2/authoritative.csv")
     staged.write_text("changed\n", encoding="utf-8")
     repeated = ensure_thread_workspace("registered-data-thread", base)
-    refreshed = json.loads(
-        Path(repeated.workspace, "input_manifest.json").read_text()
-    )
+    refreshed = json.loads(Path(repeated.workspace, "input_manifest.json").read_text())
     assert refreshed["project_inputs"] == []
 
 

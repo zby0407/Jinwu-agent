@@ -262,14 +262,12 @@ class QwenToolCompatibilityMiddleware(AgentMiddleware):
             "system_message": system_message,
             "messages": projected_messages,
         }
-        planning_revision_context = (
-            "[RESEARCH_PRODUCER_V2]" in str(system_message.content)
-            and "stage=planning" in str(system_message.content)
-        )
-        data_stage_context = (
-            "[RESEARCH_PRODUCER_V2]" in str(system_message.content)
-            and "stage=data" in str(system_message.content)
-        )
+        planning_revision_context = "[RESEARCH_PRODUCER_V2]" in str(
+            system_message.content
+        ) and "stage=planning" in str(system_message.content)
+        data_stage_context = "[RESEARCH_PRODUCER_V2]" in str(
+            system_message.content
+        ) and "stage=data" in str(system_message.content)
         closed_loop_context = any(
             marker in str(system_message.content)
             for marker in ("[RESEARCH_PRODUCER_V2]", "[EVIDENCE_REVIEW_V2]")
@@ -392,7 +390,10 @@ class QwenToolCompatibilityMiddleware(AgentMiddleware):
             return None
         if not isinstance(payload, Mapping):
             return None
-        if payload.get("must_stop") is True or payload.get("status") != "inputs_available":
+        if (
+            payload.get("must_stop") is True
+            or payload.get("status") != "inputs_available"
+        ):
             return None
         eligible = payload.get("eligible_inputs")
         if not isinstance(eligible, Sequence) or isinstance(eligible, (str, bytes)):
@@ -517,7 +518,9 @@ class QwenToolCompatibilityMiddleware(AgentMiddleware):
                 stripped.append(message)
                 continue
             additional.pop("reasoning_content", None)
-            stripped.append(message.model_copy(update={"additional_kwargs": additional}))
+            stripped.append(
+                message.model_copy(update={"additional_kwargs": additional})
+            )
         return stripped
 
     @staticmethod
@@ -544,7 +547,10 @@ class QwenToolCompatibilityMiddleware(AgentMiddleware):
             "preserve_thinking_present=%s reasoning_in_history=%s",
             type(model).__name__,
             str(getattr(model, "model_name", None) or getattr(model, "model", "")),
-            _safe_host(getattr(model, "openai_api_base", None) or getattr(model, "base_url", None)),
+            _safe_host(
+                getattr(model, "openai_api_base", None)
+                or getattr(model, "base_url", None)
+            ),
             _safe_tool_choice_label(tool_choice),
             extra_body.get("enable_thinking"),
             "thinking_budget" in extra_body,
@@ -566,9 +572,10 @@ class QwenToolCompatibilityMiddleware(AgentMiddleware):
                 compacted.append(message)
                 continue
             rendered = cls._message_text(message)
-            if not rendered.lstrip().startswith("[TOOL ERROR]") or len(
-                rendered
-            ) <= _TOOL_ERROR_COMPACT_THRESHOLD:
+            if (
+                not rendered.lstrip().startswith("[TOOL ERROR]")
+                or len(rendered) <= _TOOL_ERROR_COMPACT_THRESHOLD
+            ):
                 compacted.append(message)
                 continue
             summary = "tool execution failed"
@@ -720,7 +727,8 @@ class QwenToolCompatibilityMiddleware(AgentMiddleware):
     @staticmethod
     def _serialize_planner_revision_calls(
         response: ModelResponse,
-        *, enabled: bool,
+        *,
+        enabled: bool,
     ) -> ModelResponse:
         """Keep one bounded planner revision call if a provider ignores the flag."""
         if not enabled or not isinstance(response, ModelResponse):
@@ -915,8 +923,10 @@ class QwenToolCompatibilityMiddleware(AgentMiddleware):
         for index in range(len(messages) - 1, -1, -1):
             message = messages[index]
             if isinstance(message, ToolMessage):
-                if cls._message_text(message).lstrip().startswith(
-                    _RESEARCH_REVIEW_BLOCKED_PREFIXES
+                if (
+                    cls._message_text(message)
+                    .lstrip()
+                    .startswith(_RESEARCH_REVIEW_BLOCKED_PREFIXES)
                 ):
                     blocked_index = index
                 break

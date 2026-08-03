@@ -242,7 +242,7 @@ def test_router_recovers_legacy_bounded_stage_on_explicit_continuation(
             ),
             wrong_call,
             wrong_result,
-            HumanMessage("恢复研究审查状态机", id="turn-legacy-continue")
+            HumanMessage("恢复研究审查状态机", id="turn-legacy-continue"),
         ],
         "research_route": {
             **_route(
@@ -905,7 +905,6 @@ def test_hypothesis_budget_stop_recovers_persisted_draft(monkeypatch) -> None:
     # With the bounded review action returning a fresh tool call, the passthrough
     # response may differ when state hasn't advanced. The key invariant is that
     # the recovered draft was already served above.
-
 
 
 def test_hypothesis_budget_stop_recovers_command_wrapped_task_result(

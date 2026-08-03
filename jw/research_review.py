@@ -375,7 +375,11 @@ class ResearchReviewStore:
             if not isinstance(created_at, str):
                 continue
             receipts.append((created_at, path.as_posix(), payload))
-        return max(receipts, default=None, key=lambda item: item[:2])[2] if receipts else None
+        return (
+            max(receipts, default=None, key=lambda item: item[:2])[2]
+            if receipts
+            else None
+        )
 
     def block_for_tool_failures(
         self,
@@ -389,11 +393,7 @@ class ResearchReviewStore:
         if PRODUCER_FOR_STAGE.get(stage) != producer:
             raise ValueError(f"{producer} does not own stage {stage}")
         stable_fingerprints = sorted(
-            {
-                value
-                for value in fingerprints
-                if re.fullmatch(r"[0-9a-f]{64}", value)
-            }
+            {value for value in fingerprints if re.fullmatch(r"[0-9a-f]{64}", value)}
         )
         with self._transaction():
             failure_dir = self.root / "failures" / stage
@@ -499,7 +499,10 @@ class ResearchReviewStore:
                 prior = _read_json(path)
                 if isinstance(prior, dict) and prior.get("change_id") == change_id:
                     return prior
-            if state["status"] != "blocked" and state["stage_status"].get(stage) != "blocked":
+            if (
+                state["status"] != "blocked"
+                and state["stage_status"].get(stage) != "blocked"
+            ):
                 raise RuntimeError("research run is not blocked by a tool failure")
             artifact = self.latest_artifact(stage)
             verdict = (
@@ -1164,9 +1167,7 @@ class ResearchReviewStore:
             "dependency_graph": state["dependency_graph"],
         }
 
-    def _review_artifact_projection(
-        self, artifact: dict[str, Any]
-    ) -> dict[str, Any]:
+    def _review_artifact_projection(self, artifact: dict[str, Any]) -> dict[str, Any]:
         """Return the minimal immutable artifact view needed to start review.
 
         This is deliberately not a replacement ResearchArtifactV2 and therefore
@@ -1340,7 +1341,8 @@ class ResearchReviewStore:
                 hypothesis_positions = [
                     index
                     for index, stage in enumerate(stages)
-                    if stage in {
+                    if stage
+                    in {
                         "hypothesis",
                         "hypothesis_generation",
                         "hypothesis_update",
@@ -1383,9 +1385,7 @@ class ResearchReviewStore:
                             "data, hypothesis generation, experiment_design, "
                             "experiment_result, and hypothesis update path."
                         ),
-                        "fingerprint": issue_fingerprint(
-                            rule_id, claim_ref, owner
-                        ),
+                        "fingerprint": issue_fingerprint(rule_id, claim_ref, owner),
                     }
                 ]
         return []
@@ -1471,8 +1471,7 @@ class ResearchReviewStore:
             manifest_by_ref = {
                 str(item.get("source_ref")): item
                 for item in manifest
-                if isinstance(item, Mapping)
-                and isinstance(item.get("source_ref"), str)
+                if isinstance(item, Mapping) and isinstance(item.get("source_ref"), str)
             }
             curated_context: tuple[str, dict[str, Any]] | None = None
             for source in manifest:
@@ -1532,9 +1531,7 @@ class ResearchReviewStore:
                                 "context whose status is inputs_available and whose "
                                 "eligible inputs satisfy the accepted plan."
                             ),
-                            "fingerprint": issue_fingerprint(
-                                rule_id, claim_ref, owner
-                            ),
+                            "fingerprint": issue_fingerprint(rule_id, claim_ref, owner),
                         }
                     ]
                 eligible = context.get("eligible_inputs")
@@ -1571,8 +1568,7 @@ class ResearchReviewStore:
 
             valid = bool(
                 receipt
-                and receipt.get("schema_version")
-                == "solar-precursor-cycle-table-v1"
+                and receipt.get("schema_version") == "solar-precursor-cycle-table-v1"
                 and receipt.get("status") == "verified"
                 and receipt.get("row_count") == 10
                 and receipt.get("cycle_numbers") == list(range(15, 25))
@@ -1596,13 +1592,21 @@ class ResearchReviewStore:
                     )
                 )
                 if not valid:
-                    defect = "the cycle-table receipt is not bound to the context hashes"
+                    defect = (
+                        "the cycle-table receipt is not bound to the context hashes"
+                    )
 
             if valid and receipt is not None:
                 outputs = receipt.get("outputs")
-                output = outputs[0] if isinstance(outputs, list) and len(outputs) == 1 else None
+                output = (
+                    outputs[0]
+                    if isinstance(outputs, list) and len(outputs) == 1
+                    else None
+                )
                 output_ref = output.get("path") if isinstance(output, Mapping) else None
-                output_sha = output.get("sha256") if isinstance(output, Mapping) else None
+                output_sha = (
+                    output.get("sha256") if isinstance(output, Mapping) else None
+                )
                 output_path = (
                     (self.workspace_root / output_ref).resolve()
                     if isinstance(output_ref, str)
@@ -1635,7 +1639,9 @@ class ResearchReviewStore:
                 except (KeyError, TypeError, ValueError):
                     valid = False
                 if not valid:
-                    defect = "the cycle table violates cycle coverage or pre-minimum cutoffs"
+                    defect = (
+                        "the cycle table violates cycle coverage or pre-minimum cutoffs"
+                    )
 
             if not valid:
                 rule_id = "DATA_SEMANTICS_BOUND"
@@ -2087,7 +2093,9 @@ class ResearchReviewStore:
                     source_ref = item.get("source_ref")
                     if not isinstance(source_ref, str):
                         continue
-                    path = (self.workspace_root / source_ref.removeprefix("/")).resolve()
+                    path = (
+                        self.workspace_root / source_ref.removeprefix("/")
+                    ).resolve()
                     try:
                         path.relative_to(self.workspace_root)
                         corpus.append(path.read_text(encoding="utf-8"))
@@ -2216,8 +2224,7 @@ class ResearchReviewStore:
                 if claim["claim_id"] in accepted_claim_set
             }
             independent_required = mode == "final_release" or (
-                mode in {"hypothesis", "integration"}
-                and "mechanism" in accepted_kinds
+                mode in {"hypothesis", "integration"} and "mechanism" in accepted_kinds
             )
             if (
                 independent_required
@@ -2392,9 +2399,7 @@ class ResearchReviewStore:
             self._save_state(state)
             return verdict
 
-    def revision_capsule(
-        self, review_id: str, owner: str
-    ) -> dict[str, Any]:
+    def revision_capsule(self, review_id: str, owner: str) -> dict[str, Any]:
         """Return the compact producer-facing view of one immutable verdict."""
 
         verdict = next(
@@ -2624,9 +2629,7 @@ class ResearchReviewStore:
                 default=None,
             )
             current = (
-                self.matching_verdict(
-                    latest["review_mode"], latest["artifact_refs"]
-                )
+                self.matching_verdict(latest["review_mode"], latest["artifact_refs"])
                 if latest is not None
                 else None
             )

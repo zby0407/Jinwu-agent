@@ -210,9 +210,7 @@ def test_policy_registry_severity_is_a_deterministic_floor(tmp_path: Path) -> No
     )
 
     assert verdict["issues"][0]["severity"] == "major"
-    capsule = store.revision_capsule(
-        verdict["review_id"], "solar-hypothesis"
-    )
+    capsule = store.revision_capsule(verdict["review_id"], "solar-hypothesis")
     assert validate_revision_capsule(capsule) == capsule
     assert capsule["verdict_sha256"] == verdict["verdict_sha256"]
     assert capsule["unresolved_issues"][0]["fingerprint"] == issue["fingerprint"]
@@ -228,9 +226,7 @@ def test_same_cycle_bmr_causality_cannot_be_model_accepted(tmp_path: Path) -> No
     artifact = store.checkpoint_producer_result(
         stage="hypothesis",
         producer="solar-hypothesis",
-        content=(
-            "下一太阳活动周期振幅受该周期自身BMR倾斜角随机涨落影响。"
-        ),
+        content=("下一太阳活动周期振幅受该周期自身BMR倾斜角随机涨落影响。"),
         phase="bounded_hypothesis",
     )
 
@@ -1139,14 +1135,14 @@ def test_adaptive_review_blocks_after_two_no_progress_repeats(tmp_path: Path) ->
         )
 
     assert verdict["decision"] == "block"
-    assert any(
-        issue["rule_id"] == "NO_PROGRESS_STOP" for issue in verdict["issues"]
-    )
+    assert any(issue["rule_id"] == "NO_PROGRESS_STOP" for issue in verdict["issues"])
     assert store.load_state()["status"] == "blocked"
 
 
 def test_lowered_severity_counts_as_progress(tmp_path: Path) -> None:
-    store = ResearchReviewStore(tmp_path, "severity-progress-task", no_progress_patience=2)
+    store = ResearchReviewStore(
+        tmp_path, "severity-progress-task", no_progress_patience=2
+    )
     verdict = None
     for version, severity in [(1, "critical"), (2, "major"), (3, "major")]:
         store.checkpoint_producer_result(
@@ -1587,11 +1583,14 @@ def test_orchestration_registers_planner_evidence_revision_before_delegation(
             )
         )
         assert result["status"] == "draft_section_persisted"
-    assert json.loads(
-        planner_tools.research_planner_validate_draft.invoke(
-            {"request_sha256": brief["request_sha256"]}, config=config
-        )
-    )["status"] == "plan_ready"
+    assert (
+        json.loads(
+            planner_tools.research_planner_validate_draft.invoke(
+                {"request_sha256": brief["request_sha256"]}, config=config
+            )
+        )["status"]
+        == "plan_ready"
+    )
 
     store = ResearchReviewStore(workspace, thread_id)
     artifact = store.checkpoint_producer_result(
@@ -2031,8 +2030,10 @@ def test_wrong_task_call_is_deterministically_redirected_to_independent_review(
     monkeypatch.setattr(
         research_independent_review,
         "func",
-        lambda mode, config=None: redirected.append((mode, config))
-        or '{"ok":false,"message":"heterogeneous reviewer unavailable"}',
+        lambda mode, config=None: (
+            redirected.append((mode, config))
+            or '{"ok":false,"message":"heterogeneous reviewer unavailable"}'
+        ),
     )
     route = {
         "research_route": {
@@ -2228,9 +2229,7 @@ def test_orchestration_short_circuits_model_for_deterministic_review_defect(
 ) -> None:
     config = _config(tmp_path, monkeypatch, "deterministic-review-task")
     binding = ensure_thread_workspace("deterministic-review-task", tmp_path)
-    store = ResearchReviewStore(
-        Path(binding.workspace), "deterministic-review-task"
-    )
+    store = ResearchReviewStore(Path(binding.workspace), "deterministic-review-task")
     store.checkpoint_producer_result(
         stage="hypothesis",
         producer="solar-hypothesis",
@@ -2359,9 +2358,7 @@ def test_same_qwen_family_cannot_satisfy_heterogeneous_release_gate(
         lambda **_kwargs: pytest.fail("same-family reviewer must not be invoked"),
     )
 
-    result = json.loads(
-        research_independent_review.func("hypothesis", config=config)
-    )
+    result = json.loads(research_independent_review.func("hypothesis", config=config))
 
     assert result["ok"] is False
     assert "no genuinely heterogeneous auxiliary model family" in result["message"]

@@ -25,7 +25,13 @@ def test_alias_kinds_are_normalized_and_id_lists_enforced():
     ]
     fixed = _sanitize_evaluation_rules([dict(v) for v in value])
     kinds = [v["criterion_basis"]["kind"] for v in fixed]
-    assert kinds == ["request_based", "data_based", "qualitative", "source_based", "data_based"]
+    assert kinds == [
+        "request_based",
+        "data_based",
+        "qualitative",
+        "source_based",
+        "data_based",
+    ]
     # source_based keeps sources, drops artifacts; data_based keeps artifacts, drops sources
     assert fixed[3]["criterion_basis"]["evidence_source_ids"] == ["ES-3"]
     assert fixed[3]["criterion_basis"]["artifact_ids"] == []
