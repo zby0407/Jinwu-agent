@@ -1,0 +1,28 @@
+{
+  "thresholds": {
+    "latitude_min_deg": 60.0,
+    "latitude_max_deg": 75.0,
+    "central_meridian_max_deg": 50.0,
+    "min_pairs_per_hemisphere": 3
+  },
+  "pairs": [
+    {
+      "smft": "D:/极区前兆/2023/01/20230101/L523npl230101000000.fit",
+      "hemisphere": "N",
+      "hmi_magnetogram": "D:/local_hmi/hmi.M_720s.20230101_000000_TAI.magnetogram.fits",
+      "hmi_continuum": "D:/local_hmi/hmi.Ic_720s.20230101_000000_TAI.continuum.fits",
+      "smft_control_points": [
+        [100.0, 100.0],
+        [800.0, 100.0],
+        [100.0, 800.0],
+        [800.0, 800.0]
+      ],
+      "hmi_control_points": [
+        [1850.0, 350.0],
+        [2200.0, 350.0],
+        [1850.0, 700.0],
+        [2200.0, 700.0]
+      ]
+    }
+  ]
+}

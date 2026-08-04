@@ -62,6 +62,11 @@ related_ids: [kb_data_source_huairou_smft_polar_1987_2017]
   SOLIS/VSM 在 2017-10-22 后离线迁站，HMI 对照在未提供本地文件且禁止下载
   的条件下不能做像素级或区域平均符号检验。
 
+仓库已提供只读取本地文件的 `validate_polar_huairou_hmi.py` 和配对清单示例。
+该验证器能从同日 HMI 连续谱共配准恢复 SMFT→HMI 几何，用 HMI WCS 构造固定
+日面纬带，并联合判定 P0/P1 符号、区域极性一致性和 `CALIBRAT` 回归斜率；当前
+没有真实本地 HMI 输入，因此这些门槛仍保持未通过。
+
 在上述未通过项解决前，不得优化月平均，也不得进行跨年代绝对幅度标定。
 
 ## 复现命令

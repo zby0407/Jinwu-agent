@@ -60,6 +60,25 @@ python jw\subagents\solar\skills\solar-cycle\scripts\validate_polar_huairou.py `
   --records-output artifacts\polar_validation\audit_records.csv
 ```
 
+同日 HMI 文件由用户在本地提供后，用
+`huairou_hmi_manifest.example.json` 复制出实际清单。每对记录包含 SMFT 两平面
+FITS、HMI 720 s LOS 磁图、HMI 连续谱、半球，以及至少 3 对对应控制点（坐标顺序
+均为 `x, y`）；也可直接提供从 SMFT 到 HMI 像素的 2×3 仿射矩阵。验证器不会
+访问网络：
+
+```powershell
+python jw\subagents\solar\skills\solar-cycle\scripts\validate_polar_huairou_hmi.py `
+  --manifest D:\local_hmi\huairou_hmi_manifest.json `
+  --output artifacts\polar_validation\hmi_reference_audit.json
+```
+
+验证器利用连续谱梯度相关独立检查仿射配准；通过 HMI WCS、`CRLT_OBS` 和
+`RSUN_OBS` 计算逐像素日面纬度、中央经度和 `mu`；在 60–75°、中央经度
+±50° 的固定纬带中，分别检验 `(P0-P1)/(P0+P1)` 两种符号、区域平均极性，
+以及 HMI LOS 对 `V/I` 的弱场回归斜率。默认要求南北半球各至少 3 对非模糊
+同日样本，且每对文件的观测时刻相差不超过 120 分钟。该实现补齐了本地验证入口，但在真实 HMI 文件运行并通过前，不改变
+本报告的“未通过”结论，也不会解锁生产加载器。
+
 ## 主要资料
 
 - Xu et al. (2021), RAA 21, 67: SMFT `Vl/Vr` 与 `V/I` 定义。
