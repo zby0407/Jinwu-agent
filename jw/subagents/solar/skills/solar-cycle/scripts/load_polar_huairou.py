@@ -5,12 +5,13 @@ This script handles two instrument epochs:
 
 * 1987-2001: legacy little-endian 16-bit signed integer ``.dat`` images. The
   first 128 bytes are treated as an opaque binary prefix and skipped.
-* 2002-2017: FITS files produced by the Huairou Solar Observing Station (HSOS)
+* 2002 onward: FITS files produced by the Huairou Solar Observing Station (HSOS)
   35 cm SMFT longitudinal magnetograph. File formats vary across this period:
 
   - 2002-2008: 640x480 single-plane (``CONTENT='L'``, ``BITPIX=16``) images.
   - 2009-2010: 992x1000 two-plane cubes (``BITPIX=32``, ``NAXIS3=2``).
-  - 2015-2017: 992x992 two-plane cubes (``BITPIX=32``, ``NAXIS3=2``).
+  - 2015-2017 and verified 2020-2023 samples: 992x992 two-plane cubes
+    (``BITPIX=32``, ``NAXIS3=2``).
 
 For the two-plane epochs, no production signal is selected by default.  The
 diagnostic workflow compares both stored planes, their difference, Stokes V/I,
@@ -535,14 +536,22 @@ def parse_fits_meta(path: Path, header: dict, data: np.ndarray) -> dict:
     }
 
 
-def _instrument_epoch(shape: tuple[int, int], camera: str) -> str:
+def _instrument_epoch(shape: tuple[int, int], camera: str, year: int) -> str:
+    """Identify a verified acquisition cohort without merging archive gaps."""
     camera_upper = camera.upper()
     if shape == (480, 640) and "PULNIX" in camera_upper:
         return "pulnix_fit16_2002_2008"
     if shape == (1000, 992) and "PULNIX" in camera_upper:
         return "pulnix_fit32_2009_2010"
     if shape == (992, 992) and "IMPERX" in camera_upper:
-        return "imperx_fit32_2015_2017"
+        if 2015 <= year <= 2017:
+            return "imperx_fit32_2015_2017"
+        if 2020 <= year <= 2023:
+            return "imperx_fit32_2020_2023"
+        raise ValueError(
+            "Unsupported IMPERX acquisition year "
+            f"{year} for shape={shape}, camera={camera}"
+        )
     raise ValueError(f"Unsupported instrument epoch for shape={shape}, camera={camera}")
 
 
@@ -726,6 +735,15 @@ def extract_features(
     }
 
 
+def _validate_fits_features(features: dict) -> None:
+    """Reject FITS frames whose selected signal has no measurable spread."""
+    strength = float(features["field_mean_abs"])
+    if not np.isfinite(strength) or strength <= 0:
+        raise ValueError(
+            "degenerate polar signal: field_mean_abs must be finite and positive"
+        )
+
+
 # ---------------------------------------------------------------------------
 # Per-file processors
 # ---------------------------------------------------------------------------
@@ -869,7 +887,11 @@ def process_file_fits(
     else:
         raise ValueError(f"Unsupported aperture mode {aperture_mode!r}")
 
-    instrument_epoch = _instrument_epoch(meta["shape"], meta["camera"])
+    _validate_fits_features(feats)
+
+    instrument_epoch = _instrument_epoch(
+        meta["shape"], meta["camera"], meta["year"]
+    )
 
     return {
         "date": meta["date"],

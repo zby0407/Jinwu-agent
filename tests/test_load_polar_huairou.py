@@ -152,6 +152,12 @@ def test_nonfinite_zero_and_saturation_masks():
     assert result["valid_pixel_ratio"] == pytest.approx(0.9)
 
 
+def test_degenerate_fits_features_are_rejected():
+    with pytest.raises(ValueError, match="degenerate polar signal"):
+        loader._validate_fits_features({"field_mean_abs": 0.0})
+    loader._validate_fits_features({"field_mean_abs": 0.01})
+
+
 def test_filters_wpl_and_small_view():
     assert loader._should_skip_fits({"HSOS_NO": "10wpl"}, "L510wpl.fit", False)
     assert loader._should_skip_fits(
@@ -176,6 +182,19 @@ def test_parse_fits_metadata():
     assert meta["hemisphere"] == "N"
     assert meta["shape"] == (992, 992)
     assert meta["n_planes"] == 2
+
+
+def test_imperx_epoch_distinguishes_new_archive_cohort():
+    assert (
+        loader._instrument_epoch((992, 992), "IMPERX 1M48", 2015)
+        == "imperx_fit32_2015_2017"
+    )
+    assert (
+        loader._instrument_epoch((992, 992), "IMPERX 1M48", 2020)
+        == "imperx_fit32_2020_2023"
+    )
+    with pytest.raises(ValueError, match="acquisition year"):
+        loader._instrument_epoch((992, 992), "IMPERX 1M48", 2019)
 
 
 def test_legacy_dat_regression_and_metadata(tmp_path: Path):
