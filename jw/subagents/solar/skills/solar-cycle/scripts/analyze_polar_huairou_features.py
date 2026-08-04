@@ -653,7 +653,7 @@ def analyze(
             "first_daily_date": daily["date"].min().strftime("%Y-%m-%d"),
             "last_daily_date": daily["date"].max().strftime("%Y-%m-%d"),
             "years_with_data": sorted(daily["date"].dt.year.unique().tolist()),
-            "years_without_data_inside_range": [
+            "years_without_polar_output_inside_range": [
                 year
                 for year in range(
                     daily["date"].dt.year.min(), daily["date"].dt.year.max() + 1
@@ -691,7 +691,9 @@ def analyze(
                 "processing_errors": sum(
                     row["processing_errors"] for row in run_summary["year_results"]
                 ),
-                "empty_years": run_summary["inventory"]["empty_years"],
+                "empty_polar_years": run_summary["inventory"].get(
+                    "empty_polar_years", run_summary["inventory"]["empty_years"]
+                ),
                 "artifact_validation": server_artifact_validation,
             }
             if run_summary

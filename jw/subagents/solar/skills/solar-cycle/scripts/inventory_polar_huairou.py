@@ -31,22 +31,31 @@ RECORD_COLUMNS = [
 ]
 
 
-def discover_polar_fits(root: Path, start_year: int, end_year: int) -> list[Path]:
-    """Return filename-labelled NPL/SPL FITS files in the requested years."""
+def discover_archive_fits(root: Path, start_year: int, end_year: int) -> list[Path]:
+    """Return all FITS files in the requested year directories."""
     paths: list[Path] = []
     for year in range(start_year, end_year + 1):
         year_dir = root / str(year)
         if not year_dir.is_dir():
             continue
         for path in year_dir.rglob("*"):
-            name = path.stem.lower()
-            if (
-                path.is_file()
-                and path.suffix.lower() in {".fit", ".fits"}
-                and ("npl" in name or "spl" in name)
-            ):
+            if path.is_file() and path.suffix.lower() in {".fit", ".fits"}:
                 paths.append(path)
     return sorted(paths)
+
+
+def _is_polar_filename(path: Path) -> bool:
+    name = path.stem.lower()
+    return "npl" in name or "spl" in name
+
+
+def discover_polar_fits(root: Path, start_year: int, end_year: int) -> list[Path]:
+    """Return filename-labelled NPL/SPL FITS files in the requested years."""
+    return [
+        path
+        for path in discover_archive_fits(root, start_year, end_year)
+        if _is_polar_filename(path)
+    ]
 
 
 def inspect_file(path: Path, root: Path) -> dict:
@@ -223,7 +232,9 @@ def run_inventory(
     root: Path, start_year: int, end_year: int
 ) -> tuple[dict, pd.DataFrame]:
     """Inspect every polar candidate and return a JSON summary plus records."""
-    paths = discover_polar_fits(root, start_year, end_year)
+    archive_paths = discover_archive_fits(root, start_year, end_year)
+    paths = [path for path in archive_paths if _is_polar_filename(path)]
+    nonpolar_paths = [path for path in archive_paths if not _is_polar_filename(path)]
     records = [inspect_file(path, root) for path in paths]
     frame = pd.DataFrame(records, columns=RECORD_COLUMNS)
     frame = mark_duplicate_copies(frame)
@@ -231,6 +242,12 @@ def run_inventory(
 
     status_counts = Counter(record["status"] for record in records)
     year_counts = Counter(record["year"] for record in records)
+    archive_year_counts = Counter(
+        int(path.relative_to(root).parts[0]) for path in archive_paths
+    )
+    nonpolar_year_counts = Counter(
+        int(path.relative_to(root).parts[0]) for path in nonpolar_paths
+    )
     hemisphere_counts = Counter(
         (record["year"], record["hemisphere"]) for record in records
     )
@@ -252,7 +269,9 @@ def run_inventory(
         "polar_dir": str(root),
         "start_year": start_year,
         "end_year": end_year,
+        "archive_fits_files": len(archive_paths),
         "candidate_files": len(paths),
+        "nonpolar_fits_files": len(nonpolar_paths),
         "supported_files": status_counts["supported"],
         "unsupported_files": status_counts["unsupported"],
         "read_error_files": status_counts["read_error"],
@@ -263,10 +282,18 @@ def run_inventory(
             if status.startswith("excluded_")
         ),
         "empty_years": [year for year in years if year_counts[year] == 0],
+        "empty_polar_years": [year for year in years if year_counts[year] == 0],
+        "years_with_archive_fits_but_no_polar_candidates": [
+            year
+            for year in years
+            if archive_year_counts[year] > 0 and year_counts[year] == 0
+        ],
         "years": [
             {
                 "year": year,
+                "archive_fits_files": archive_year_counts[year],
                 "files": year_counts[year],
+                "nonpolar_fits_files": nonpolar_year_counts[year],
                 "north_files": hemisphere_counts[(year, "N")],
                 "south_files": hemisphere_counts[(year, "S")],
             }

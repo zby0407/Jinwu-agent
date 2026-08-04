@@ -155,3 +155,26 @@ def test_inventory_routes_schema_v3(tmp_path: Path):
     assert summary["supported_files"] == 1
     assert summary["unsupported_files"] == 0
     assert records.iloc[0]["instrument_epoch"] == "hsos_fit32_2026_schema_v3"
+
+
+def test_inventory_distinguishes_nonpolar_archive_year_from_empty_archive(
+    tmp_path: Path,
+):
+    root = tmp_path / "archive"
+    full_disk = root / "2018" / "20180905" / "L518ful180905015753.fit"
+    full_disk.parent.mkdir(parents=True)
+    full_disk.write_bytes(b"not opened because it has no polar filename marker")
+
+    summary, records = inventory.run_inventory(root, 2018, 2019)
+
+    assert records.empty
+    assert summary["archive_fits_files"] == 1
+    assert summary["candidate_files"] == 0
+    assert summary["nonpolar_fits_files"] == 1
+    assert summary["empty_polar_years"] == [2018, 2019]
+    assert summary["years_with_archive_fits_but_no_polar_candidates"] == [2018]
+    year_rows = {row["year"]: row for row in summary["years"]}
+    assert year_rows[2018]["archive_fits_files"] == 1
+    assert year_rows[2018]["nonpolar_fits_files"] == 1
+    assert year_rows[2018]["files"] == 0
+    assert year_rows[2019]["archive_fits_files"] == 0

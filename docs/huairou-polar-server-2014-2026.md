@@ -49,7 +49,11 @@ python3 -m venv .venv
 
 检查 JSON 中的 `unsupported_files` 和 `read_error_files`。任一非零时不得运行批
 处理；应把 JSON/CSV 下载回本地，根据真实 FITS 样本补充并测试格式支持。空年份
-会列在 `empty_years`，属于覆盖缺口但不会被伪造数据填补。
+会列在 `empty_years`（兼容字段）和 `empty_polar_years`，表示没有文件名标记为
+`NPL/SPL` 的极区候选，不等于该年度归档目录完全没有 FITS。盘点摘要同时记录
+`archive_fits_files`、`nonpolar_fits_files` 和
+`years_with_archive_fits_but_no_polar_candidates`；例如 `FUL` 全日面文件不会被冒充为
+南北极观测。覆盖缺口不会被伪造数据填补。
 
 `duplicate_files` 记录存在同尺寸无后缀原件的 `(1)/(2)` 下载副本；这些副本不
 参与统计。`excluded_files` 仅记录经过审计的已知坏文件或非 SMFT 派生布局，具体
