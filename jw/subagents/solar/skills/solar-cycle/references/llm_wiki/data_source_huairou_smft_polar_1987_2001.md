@@ -2,7 +2,7 @@
 id: kb_data_source_huairou_smft_polar_1987_2001
 type: data_source
 title: 怀柔太阳观测站 SMFT 极区纵向磁场（1987–2001，.dat 归档）
-source_type: instrument_archive
+source_type: dataset_doc
 source_ref: "Huairou Solar Observing Station, Beijing Astronomical Observatory; 35 cm SMFT longitudinal magnetograph"
 confidence: medium
 status: canonical

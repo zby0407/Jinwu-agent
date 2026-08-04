@@ -2,10 +2,10 @@
 id: kb_data_source_huairou_smft_polar_1987_2017
 type: data_source
 title: 怀柔太阳观测站 SMFT 极区纵向磁场（1987–2017）
-source_type: instrument_archive
+source_type: dataset_doc
 source_ref: "Huairou Solar Observing Station; 35 cm Solar Magnetic Field Telescope"
 confidence: medium
-status: diagnostic
+status: candidate
 valid_range: 1987-12-29 to 2017; 2010 has no accepted polar frames locally
 related_ids: [kb_data_source_huairou_smft_polar_1987_2001]
 ---

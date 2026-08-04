@@ -2,10 +2,10 @@
 id: kb_data_source_huairou_smft_polar_2020_2023
 type: data_source
 title: 怀柔太阳观测站 SMFT 极区纵向磁场（2020–2023）
-source_type: instrument_archive
+source_type: dataset_doc
 source_ref: "Huairou Solar Observing Station; 35 cm Solar Magnetic Field Telescope"
 confidence: medium
-status: diagnostic_failed_validation_gate
+status: candidate
 valid_range: 2020-01-25 to 2023-12-17; no accepted polar frames in 2021
 related_ids: [kb_data_source_huairou_smft_polar_1987_2017]
 ---

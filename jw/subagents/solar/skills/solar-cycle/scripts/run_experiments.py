@@ -113,7 +113,7 @@ def experiment_polar_precursor(features: pd.DataFrame) -> dict:
     if proxy_col not in features.columns:
         return {
             "experiment": "polar_precursor",
-            "error": f"No polar proxy column in features",
+            "error": "No polar proxy column in features",
             "note": "Run build_features.py with --polar-monthly to produce this column",
         }
 
