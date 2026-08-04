@@ -158,6 +158,13 @@ def test_degenerate_fits_features_are_rejected():
     loader._validate_fits_features({"field_mean_abs": 0.01})
 
 
+def test_unvalidated_geometry_requires_explicit_diagnostic_override():
+    with pytest.raises(ValueError, match="no validated solar WCS"):
+        loader._require_validated_geometry("imperx_fit32_2020_2023", False)
+    loader._require_validated_geometry("imperx_fit32_2020_2023", True)
+    loader._require_validated_geometry("imperx_fit32_2015_2017", False)
+
+
 def test_filters_wpl_and_small_view():
     assert loader._should_skip_fits({"HSOS_NO": "10wpl"}, "L510wpl.fit", False)
     assert loader._should_skip_fits(

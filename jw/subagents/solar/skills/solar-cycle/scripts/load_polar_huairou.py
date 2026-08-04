@@ -76,6 +76,7 @@ FITS_SIGNAL_CHOICES = (
     "calibrated_vi",
 )
 FITS_APERTURE_CHOICES = ("auto", "polar-strip", "center-circle", "center-box")
+UNVALIDATED_GEOMETRY_EPOCHS = {"imperx_fit32_2020_2023"}
 
 MONTH_MAP = {
     name: idx
@@ -744,6 +745,15 @@ def _validate_fits_features(features: dict) -> None:
         )
 
 
+def _require_validated_geometry(instrument_epoch: str, allow_unvalidated: bool) -> None:
+    """Stop production use of epochs that do not yet have a solar WCS mask."""
+    if instrument_epoch in UNVALIDATED_GEOMETRY_EPOCHS and not allow_unvalidated:
+        raise ValueError(
+            f"{instrument_epoch} has no validated solar WCS/fixed-latitude mask; "
+            "use --allow-unvalidated-geometry only for diagnostic output"
+        )
+
+
 # ---------------------------------------------------------------------------
 # Per-file processors
 # ---------------------------------------------------------------------------
@@ -759,6 +769,7 @@ def process_file(
     fit_aperture_box: tuple[int, int] = DEFAULT_FITS_APERTURE_BOX,
     skip_wpl: bool = True,
     include_small_view: bool = False,
+    allow_unvalidated_geometry: bool = False,
 ) -> dict:
     """Process a single file and return a record dict.
 
@@ -779,6 +790,7 @@ def process_file(
             fit_aperture_box=fit_aperture_box,
             skip_wpl=skip_wpl,
             include_small_view=include_small_view,
+            allow_unvalidated_geometry=allow_unvalidated_geometry,
         )
 
     if ext == ".dat":
@@ -842,6 +854,7 @@ def process_file_fits(
     fit_aperture_box: tuple[int, int] = DEFAULT_FITS_APERTURE_BOX,
     skip_wpl: bool = True,
     include_small_view: bool = False,
+    allow_unvalidated_geometry: bool = False,
 ) -> dict:
     """Process a single FITS file."""
     raw_data, header = _read_fits_image(path)
@@ -853,6 +866,10 @@ def process_file_fits(
         raise ValueError(skip_reason)
 
     meta = parse_fits_meta(path, header, raw_data)
+    instrument_epoch = _instrument_epoch(
+        meta["shape"], meta["camera"], meta["year"]
+    )
+    _require_validated_geometry(instrument_epoch, allow_unvalidated_geometry)
     data, normalization = normalize_fits_data(raw_data, header)
     arr, signal_definition, signal_unit, calibration_status = select_fits_signal(
         data, header, fit_signal, fit_plane
@@ -888,10 +905,6 @@ def process_file_fits(
         raise ValueError(f"Unsupported aperture mode {aperture_mode!r}")
 
     _validate_fits_features(feats)
-
-    instrument_epoch = _instrument_epoch(
-        meta["shape"], meta["camera"], meta["year"]
-    )
 
     return {
         "date": meta["date"],
@@ -1074,6 +1087,14 @@ def main() -> None:
         default="200,200",
         help="Centered polar aperture box as 'WIDTH,HEIGHT'.",
     )
+    parser.add_argument(
+        "--allow-unvalidated-geometry",
+        action="store_true",
+        help=(
+            "Allow diagnostic output for epochs without a validated solar WCS/"
+            "fixed-latitude mask; never use such output as a production precursor."
+        ),
+    )
     args = parser.parse_args()
 
     polar_dir = Path(args.polar_dir)
@@ -1124,6 +1145,7 @@ def main() -> None:
         "fit_aperture_box": args.fit_aperture_box,
         "skip_wpl": args.skip_wpl,
         "include_small_view": args.include_small_view,
+        "allow_unvalidated_geometry": args.allow_unvalidated_geometry,
     }
 
     with ProcessPoolExecutor(max_workers=args.workers) as executor:
