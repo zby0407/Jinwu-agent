@@ -76,7 +76,47 @@ FITS_SIGNAL_CHOICES = (
     "calibrated_vi",
 )
 FITS_APERTURE_CHOICES = ("auto", "polar-strip", "center-circle", "center-box")
-UNVALIDATED_GEOMETRY_EPOCHS = {"imperx_fit32_2020_2023"}
+UNVALIDATED_GEOMETRY_EPOCHS = {
+    "pulnix_fit16_2011_2014",
+    "imperx_fit32_2018_2026",
+}
+
+DAILY_COLUMNS = [
+    "date",
+    "hemisphere",
+    "instrument_epoch",
+    "camera",
+    "source_format",
+    "signal_definition",
+    "signal_unit",
+    "calibration_status",
+    "byte_order_normalization",
+    "field_mean_raw",
+    "field_mean_center",
+    "field_mean_corrected",
+    "field_mean_abs",
+    "valid_pixel_ratio",
+    "n_obs",
+]
+
+MONTHLY_COLUMNS = [
+    "year",
+    "month",
+    "hemisphere",
+    "instrument_epoch",
+    "camera",
+    "source_format",
+    "signal_definition",
+    "signal_unit",
+    "calibration_status",
+    "byte_order_normalization",
+    "field_mean_raw",
+    "field_mean_center",
+    "field_mean_corrected",
+    "field_mean_abs",
+    "n_days",
+    "polarity_strength",
+]
 
 MONTH_MAP = {
     name: idx
@@ -541,14 +581,26 @@ def _instrument_epoch(shape: tuple[int, int], camera: str, year: int) -> str:
     """Identify a verified acquisition cohort without merging archive gaps."""
     camera_upper = camera.upper()
     if shape == (480, 640) and "PULNIX" in camera_upper:
-        return "pulnix_fit16_2002_2008"
+        if 2002 <= year <= 2008:
+            return "pulnix_fit16_2002_2008"
+        if 2011 <= year <= 2014:
+            return "pulnix_fit16_2011_2014"
+        raise ValueError(
+            "Unsupported PULNIX FIT16 acquisition year "
+            f"{year} for shape={shape}, camera={camera}"
+        )
     if shape == (1000, 992) and "PULNIX" in camera_upper:
-        return "pulnix_fit32_2009_2010"
+        if 2009 <= year <= 2010:
+            return "pulnix_fit32_2009_2010"
+        raise ValueError(
+            "Unsupported PULNIX FIT32 acquisition year "
+            f"{year} for shape={shape}, camera={camera}"
+        )
     if shape == (992, 992) and "IMPERX" in camera_upper:
         if 2015 <= year <= 2017:
             return "imperx_fit32_2015_2017"
-        if 2020 <= year <= 2023:
-            return "imperx_fit32_2020_2023"
+        if 2018 <= year <= 2026:
+            return "imperx_fit32_2018_2026"
         raise ValueError(
             "Unsupported IMPERX acquisition year "
             f"{year} for shape={shape}, camera={camera}"
@@ -1176,11 +1228,11 @@ def main() -> None:
         return
 
     df = pd.DataFrame(records)
-    df_daily = aggregate_daily(df)
+    df_daily = aggregate_daily(df)[DAILY_COLUMNS]
     df_daily.to_csv(out_path, index=False)
     print(f"Wrote {len(df_daily)} daily rows to {out_path}")
 
-    df_monthly = aggregate_monthly(df_daily)
+    df_monthly = aggregate_monthly(df_daily)[MONTHLY_COLUMNS]
     df_monthly.to_csv(monthly_path, index=False)
     print(f"Wrote {len(df_monthly)} monthly rows to {monthly_path}")
 

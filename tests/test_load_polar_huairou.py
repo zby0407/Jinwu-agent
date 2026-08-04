@@ -160,8 +160,8 @@ def test_degenerate_fits_features_are_rejected():
 
 def test_unvalidated_geometry_requires_explicit_diagnostic_override():
     with pytest.raises(ValueError, match="no validated solar WCS"):
-        loader._require_validated_geometry("imperx_fit32_2020_2023", False)
-    loader._require_validated_geometry("imperx_fit32_2020_2023", True)
+        loader._require_validated_geometry("imperx_fit32_2018_2026", False)
+    loader._require_validated_geometry("imperx_fit32_2018_2026", True)
     loader._require_validated_geometry("imperx_fit32_2015_2017", False)
 
 
@@ -198,10 +198,14 @@ def test_imperx_epoch_distinguishes_new_archive_cohort():
     )
     assert (
         loader._instrument_epoch((992, 992), "IMPERX 1M48", 2020)
-        == "imperx_fit32_2020_2023"
+        == "imperx_fit32_2018_2026"
+    )
+    assert (
+        loader._instrument_epoch((992, 992), "IMPERX 1M48", 2026)
+        == "imperx_fit32_2018_2026"
     )
     with pytest.raises(ValueError, match="acquisition year"):
-        loader._instrument_epoch((992, 992), "IMPERX 1M48", 2019)
+        loader._instrument_epoch((992, 992), "IMPERX 1M48", 2014)
 
 
 def test_legacy_dat_regression_and_metadata(tmp_path: Path):

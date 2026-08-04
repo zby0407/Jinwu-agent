@@ -1,0 +1,191 @@
+#!/usr/bin/env python3
+"""Inventory Huairou SMFT polar FITS layouts before server processing."""
+
+from __future__ import annotations
+
+import argparse
+import json
+from collections import Counter
+from pathlib import Path
+
+import load_polar_huairou as loader
+import pandas as pd
+
+WCS_KEYS = ("CTYPE1", "CTYPE2", "CRPIX1", "CRPIX2", "CDELT1", "CDELT2")
+RECORD_COLUMNS = [
+    "file",
+    "year",
+    "hemisphere",
+    "shape",
+    "naxis",
+    "bitpix",
+    "camera",
+    "calibrat",
+    "wcs_complete",
+    "instrument_epoch",
+    "status",
+    "error",
+]
+
+
+def discover_polar_fits(root: Path, start_year: int, end_year: int) -> list[Path]:
+    """Return filename-labelled NPL/SPL FITS files in the requested years."""
+    paths: list[Path] = []
+    for year in range(start_year, end_year + 1):
+        year_dir = root / str(year)
+        if not year_dir.is_dir():
+            continue
+        for path in year_dir.rglob("*"):
+            name = path.stem.lower()
+            if (
+                path.is_file()
+                and path.suffix.lower() in {".fit", ".fits"}
+                and ("npl" in name or "spl" in name)
+            ):
+                paths.append(path)
+    return sorted(paths)
+
+
+def inspect_file(path: Path, root: Path) -> dict:
+    """Read and classify one FITS file without producing a science record."""
+    relative = path.relative_to(root)
+    fallback_year = int(relative.parts[0])
+    record = {
+        "file": str(relative),
+        "year": fallback_year,
+        "hemisphere": "N" if "npl" in path.stem.lower() else "S",
+        "shape": "",
+        "naxis": "",
+        "bitpix": "",
+        "camera": "",
+        "calibrat": "",
+        "wcs_complete": False,
+        "instrument_epoch": "",
+        "status": "read_error",
+        "error": "",
+    }
+    try:
+        raw, header = loader._read_fits_image(path)
+        meta = loader.parse_fits_meta(path, header, raw)
+        record.update(
+            {
+                "hemisphere": meta["hemisphere"],
+                "shape": "x".join(str(value) for value in raw.shape),
+                "naxis": raw.ndim,
+                "bitpix": meta["bitpix"],
+                "camera": meta["camera"],
+                "calibrat": str(header.get("CALIBRAT", "")),
+                "wcs_complete": all(key in header for key in WCS_KEYS),
+            }
+        )
+        skip_reason = loader._should_skip_fits(header, path.name, False)
+        if skip_reason:
+            raise ValueError(skip_reason)
+        loader.normalize_fits_data(raw, header)
+        record["instrument_epoch"] = loader._instrument_epoch(
+            meta["shape"], meta["camera"], meta["year"]
+        )
+        record["status"] = "supported"
+    except ValueError as exc:
+        record["status"] = "unsupported"
+        record["error"] = str(exc)
+    except Exception as exc:  # pragma: no cover - real archive defense
+        record["status"] = "read_error"
+        record["error"] = repr(exc)
+    return record
+
+
+def run_inventory(
+    root: Path, start_year: int, end_year: int
+) -> tuple[dict, pd.DataFrame]:
+    """Inspect every polar candidate and return a JSON summary plus records."""
+    paths = discover_polar_fits(root, start_year, end_year)
+    records = [inspect_file(path, root) for path in paths]
+    frame = pd.DataFrame(records, columns=RECORD_COLUMNS)
+
+    status_counts = Counter(record["status"] for record in records)
+    year_counts = Counter(record["year"] for record in records)
+    hemisphere_counts = Counter(
+        (record["year"], record["hemisphere"]) for record in records
+    )
+    signatures = Counter(
+        (
+            record["year"],
+            record["shape"],
+            record["bitpix"],
+            record["camera"],
+            record["calibrat"],
+            record["wcs_complete"],
+            record["instrument_epoch"],
+            record["status"],
+        )
+        for record in records
+    )
+    years = list(range(start_year, end_year + 1))
+    summary = {
+        "polar_dir": str(root),
+        "start_year": start_year,
+        "end_year": end_year,
+        "candidate_files": len(paths),
+        "supported_files": status_counts["supported"],
+        "unsupported_files": status_counts["unsupported"],
+        "read_error_files": status_counts["read_error"],
+        "empty_years": [year for year in years if year_counts[year] == 0],
+        "years": [
+            {
+                "year": year,
+                "files": year_counts[year],
+                "north_files": hemisphere_counts[(year, "N")],
+                "south_files": hemisphere_counts[(year, "S")],
+            }
+            for year in years
+        ],
+        "signatures": [
+            {
+                "year": key[0],
+                "shape": key[1],
+                "bitpix": key[2],
+                "camera": key[3],
+                "calibrat": key[4],
+                "wcs_complete": key[5],
+                "instrument_epoch": key[6],
+                "status": key[7],
+                "files": count,
+            }
+            for key, count in sorted(signatures.items(), key=lambda item: item[0])
+        ],
+    }
+    return summary, frame
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--polar-dir", required=True, type=Path)
+    parser.add_argument("--start-year", type=int, default=2014)
+    parser.add_argument("--end-year", type=int, default=2026)
+    parser.add_argument(
+        "--output", type=Path, default=Path("artifacts/inventory_2014_2026.json")
+    )
+    parser.add_argument(
+        "--records-output",
+        type=Path,
+        default=Path("artifacts/inventory_2014_2026.csv"),
+    )
+    args = parser.parse_args()
+    if args.start_year > args.end_year:
+        parser.error("--start-year must not exceed --end-year")
+
+    summary, records = run_inventory(
+        args.polar_dir, args.start_year, args.end_year
+    )
+    args.output.parent.mkdir(parents=True, exist_ok=True)
+    args.output.write_text(
+        json.dumps(summary, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+    )
+    args.records_output.parent.mkdir(parents=True, exist_ok=True)
+    records.to_csv(args.records_output, index=False)
+    print(json.dumps(summary, ensure_ascii=False, indent=2))
+
+
+if __name__ == "__main__":
+    main()
