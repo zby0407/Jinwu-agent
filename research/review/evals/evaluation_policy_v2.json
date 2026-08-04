@@ -1,0 +1,69 @@
+{
+  "schema_version": "research-review-evaluation-policy-v2",
+  "development_challenge_suite_file": "full_research_heldout_v1.json",
+  "hidden_release_suite": {
+    "prompt_storage": "external_to_repository",
+    "minimum_cases_per_variant": 12,
+    "must_not_participate_in_prompt_or_policy_tuning": true,
+    "required_record_visibility": "external_hidden"
+  },
+  "variants": {
+    "A": "current_main",
+    "B": "main_plus_pr11",
+    "C": "research_review_v2_adaptive",
+    "D": "research_review_v2_fixed_3"
+  },
+  "frozen_controls": [
+    "model",
+    "endpoint",
+    "input_snapshot",
+    "source_cutoff",
+    "fresh_workspace",
+    "scoring_rubric"
+  ],
+  "blind_review": {
+    "randomize_variant_order": true,
+    "reviewer_views": ["domain", "methods_statistics", "reproducibility"],
+    "hide_variant_identity": true
+  },
+  "reviewer_calibration": {
+    "critical_false_release_max": 0,
+    "major_recall_min": 0.9,
+    "stale_approval_block_rate_min": 1.0,
+    "unreviewed_claim_block_rate_min": 1.0
+  },
+  "adaptive_promotion": {
+    "minimum_blind_score_gain": 5.0,
+    "or_minimum_unresolved_major_critical_reduction": 0.2,
+    "false_release_must_not_increase": true,
+    "max_cost_ratio_vs_fixed_3": 2.0,
+    "max_p95_latency_ratio_vs_fixed_3": 2.0
+  },
+  "top_journal_candidate_gate": {
+    "external_hidden_suite_required": true,
+    "all_hard_gates": true,
+    "unresolved_critical_max": 0,
+    "real_experiment_reproducible": true,
+    "all_visible_claims_traceable": true,
+    "blind_review_majority_required": true
+  },
+  "hidden_record_contract": {
+    "hard_gates_passed": "boolean",
+    "unresolved_critical": "non_negative_integer",
+    "real_experiment_reproducible": "boolean",
+    "all_visible_claims_traceable": "boolean",
+    "blind_review_votes": {
+      "domain": "boolean",
+      "methods_statistics": "boolean",
+      "reproducibility": "boolean"
+    }
+  },
+  "evidence_layers": [
+    "static_checks",
+    "real_program_execution",
+    "automated_tests",
+    "real_model_calls",
+    "held_out_evaluation",
+    "scientific_validation"
+  ]
+}

@@ -3,16 +3,16 @@
 Without this, an MCP tool (or any tool) that raises an exception at runtime
 crashes the entire agent loop because LangGraph's default ToolNode error handler
 only catches argument-validation errors (ToolInvocationError), not execution
-errors.
-
-With this middleware, the exception is caught and surfaced to the agent as a
-ToolMessage with ``status="error"`` containing the traceback.  The agent can
-then decide to retry, use a different tool, or yield to the user.
+errors.  The full traceback stays in server logs; persisted conversation state
+receives only a bounded, hash-addressable error capsule.
 """
 
 from __future__ import annotations
 
+import hashlib
 import logging
+import re
+import sys
 import traceback
 from collections.abc import Awaitable, Callable
 from typing import TYPE_CHECKING, Any
@@ -63,14 +63,34 @@ class ToolErrorHandlerMiddleware(AgentMiddleware):
             return _build_error_message(request)
 
 
+_SENSITIVE_FRAGMENT = re.compile(
+    r"(?i)(authorization\s*[:=]\s*bearer\s+|api[_-]?key\s*[:=]\s*|"
+    r"token\s*[:=]\s*|password\s*[:=]\s*)[^\s,;]+"
+)
+
+
+def _safe_exception_summary(exc: BaseException | None) -> str:
+    if exc is None:
+        return "Exception: tool execution failed"
+    rendered = f"{type(exc).__name__}: {exc}".replace("\n", " ").strip()
+    rendered = _SENSITIVE_FRAGMENT.sub(r"\1[REDACTED]", rendered)
+    return rendered[:600] or f"{type(exc).__name__}: tool execution failed"
+
+
 def _build_error_message(request: ToolCallRequest) -> ToolMessage:
     tb = traceback.format_exc()
     tool_name = request.tool_call.get("name", "unknown_tool")
     logger.error("Tool %r raised an exception:\n%s", tool_name, tb)
+    exc = sys.exc_info()[1]
+    summary = _safe_exception_summary(exc)
+    fingerprint = hashlib.sha256(f"{tool_name}\0{summary}".encode()).hexdigest()
     content = (
-        f"[TOOL ERROR] Tool '{tool_name}' failed with an exception:\n\n{tb}\n"
-        "You may retry the tool call, try an alternative approach, "
-        "or inform the user about the failure."
+        "[TOOL ERROR CAPSULE]\n"
+        f"fingerprint={fingerprint}\n"
+        f"tool={tool_name}\n"
+        f"error={summary}\n"
+        "retry_policy=one identical graph-level retry is allowed; after two "
+        "identical failures stop"
     )
     return ToolMessage(
         content=content,

@@ -895,6 +895,11 @@ KB_READONLY_TOOLS = [
     lit_bundle_build,
     lit_bundle_read,
 ]
+KB_INSPECTION_TOOLS = [
+    kb_query,
+    kb_read,
+    lit_bundle_read,
+]
 
 register_tool_bundle("knowledge-base", KB_TOOLS)
 register_tool_bundle(
@@ -902,7 +907,12 @@ register_tool_bundle(
     KB_READONLY_TOOLS,
     include_in_main=False,
 )
+register_tool_bundle(
+    "knowledge-base-inspection",
+    KB_INSPECTION_TOOLS,
+    include_in_main=False,
+)
 
-__all__ = ["KB_READONLY_TOOLS", "KB_TOOLS"] + [
-    t.name for t in (*KB_TOOLS, *KB_READONLY_TOOLS)
+__all__ = ["KB_INSPECTION_TOOLS", "KB_READONLY_TOOLS", "KB_TOOLS"] + [
+    t.name for t in (*KB_TOOLS, *KB_READONLY_TOOLS, *KB_INSPECTION_TOOLS)
 ]

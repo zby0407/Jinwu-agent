@@ -67,6 +67,7 @@ from .state import (
     load_state,
     read_json,
     save_state,
+    utc_now,
 )
 from .verification import AssessmentRequired, create_early_record, verify_attempt
 
@@ -2265,6 +2266,19 @@ def prepare(
     if state["phase"] == "verification_finished" and state["outcome"] != "technical_failure":
         raise ServiceError("only technical_failure permits a repair attempt")
     request = _load_request(root)
+    # A design validated in an earlier (design-phase) session carries a wall budget
+    # measured from bind time; resuming that frozen design for execution must start a
+    # fresh execution budget, otherwise the design-phase clock makes execution
+    # impossible. Reset once, at the first attempt of a validated design with no
+    # prior attempts. Attempt-count limits are untouched (no attempts have run yet).
+    if (
+        state["phase"] == "design_validated"
+        and int(state.get("attempt_count", 0)) == 0
+        and not state.get("execution_budget_reset_at")
+    ):
+        state["created_at"] = utc_now()
+        state["execution_budget_reset_at"] = state["created_at"]
+        save_state(root, state)
     _require_run_budget(state, request)
     design = read_json(root / "design.json")
     stage_id = state.get("current_stage_id")

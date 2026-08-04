@@ -2437,6 +2437,69 @@ class TestRestoreWebuiThreadsToGlobalStore(unittest.IsolatedAsyncioTestCase):
 
         return patch("jw.sessions._api_workspace_dir", return_value=self._WS)
 
+    async def test_startup_interrupts_stale_runs_before_queue_recovery(self):
+        """A persisted running/pending operation must not execute after restart."""
+        import sys
+        import uuid as _uuid_mod
+        from unittest.mock import MagicMock, patch
+
+        from jw.sessions import _restore_webui_threads_to_global_store
+
+        thread_id = "11111111-2222-3333-4444-555555555555"
+        running_id = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
+        pending_id = "bbbbbbbb-cccc-dddd-eeee-ffffffffffff"
+        finished_id = "cccccccc-dddd-eeee-ffff-000000000000"
+        thread = {
+            "thread_id": _uuid_mod.UUID(thread_id),
+            "status": "busy",
+            "metadata": {},
+        }
+        runs = [
+            {
+                "run_id": _uuid_mod.UUID(running_id),
+                "thread_id": _uuid_mod.UUID(thread_id),
+                "status": "running",
+            },
+            {
+                "run_id": _uuid_mod.UUID(pending_id),
+                "thread_id": _uuid_mod.UUID(thread_id),
+                "status": "pending",
+            },
+            {
+                "run_id": _uuid_mod.UUID(finished_id),
+                "thread_id": _uuid_mod.UUID(thread_id),
+                "status": "success",
+            },
+        ]
+        mock_store: dict = {"threads": [thread], "runs": runs}
+        mock_global_store = MagicMock()
+        mock_global_store.get.side_effect = mock_store.get
+        mock_global_store.__getitem__ = lambda self, key: mock_store[key]
+        mock_global_store.__setitem__ = lambda self, key, value: mock_store.__setitem__(
+            key, value
+        )
+        fake_module = MagicMock()
+        fake_module.GLOBAL_STORE = mock_global_store
+
+        with tempfile.TemporaryDirectory() as td:
+            db = os.path.join(td, "sessions.db")
+            self._make_db_with_threads(db, [thread_id])
+            with (
+                patch("jw.sessions.get_db_path", return_value=_mock_path(db)),
+                patch.dict(
+                    sys.modules, {"langgraph_runtime_inmem.database": fake_module}
+                ),
+                self._patch_workspace(),
+            ):
+                await _restore_webui_threads_to_global_store()
+
+        assert [run["status"] for run in runs] == [
+            "interrupted",
+            "interrupted",
+            "success",
+        ]
+        assert thread["status"] == "idle"
+
     async def test_restores_uuid_threads_into_global_store(self):
         """UUID-format thread IDs from SQLite are injected into GlobalStore."""
         import sys

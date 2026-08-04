@@ -872,6 +872,53 @@ def _patch_deepseek_reasoning_passback(model: Any) -> None:
     model._get_request_payload = _patched
 
 
+def _patch_qwen_reasoning_passback(model: Any) -> None:
+    """Preserve captured Qwen reasoning_content in multi-step tool loops.
+
+    Qwen3.7 only reuses prior thinking when ``preserve_thinking`` is enabled,
+    and its API requires the corresponding assistant reasoning_content to be
+    sent back with tool results.  LangChain captures that provider field via
+    the module patch above but otherwise drops it from outgoing messages.
+    Unlike DeepSeek, Qwen does not require an empty placeholder on unrelated
+    historical assistant messages, so only captured content is injected.
+    """
+
+    import functools
+
+    from langchain_core.messages import AIMessage
+
+    orig = getattr(model, "_get_request_payload", None)
+    if orig is None:
+        return
+
+    @functools.wraps(orig)
+    def _patched(input_: Any, *, stop: Any = None, **kwargs: Any) -> dict:
+        try:
+            lc_messages = model._convert_input(input_).to_messages()
+        except Exception:
+            return orig(input_, stop=stop, **kwargs)
+        reasoning = [
+            message.additional_kwargs.get("reasoning_content")
+            for message in lc_messages
+            if isinstance(message, AIMessage)
+        ]
+        payload = orig(input_, stop=stop, **kwargs)
+        messages = payload.get("messages")
+        if not isinstance(messages, list):
+            return payload
+        index = 0
+        for message in messages:
+            if not isinstance(message, dict) or message.get("role") != "assistant":
+                continue
+            value = reasoning[index] if index < len(reasoning) else None
+            if isinstance(value, str) and value:
+                message["reasoning_content"] = value
+            index += 1
+        return payload
+
+    model._get_request_payload = _patched
+
+
 # ---------------------------------------------------------------------------
 # Patch: forward CLI's live (model, model_provider) into deepagents'
 # start_async_task / update_async_task tool calls so the deployed graph

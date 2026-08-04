@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import os
 import warnings
+from math import isfinite
 from typing import Any
 
 from langchain.chat_models import init_chat_model
@@ -22,6 +23,7 @@ from .patches import (
     _patch_deepseek_reasoning_passback,
     _patch_openai_compat_content,
     _patch_openrouter_strip_responses_reasoning,
+    _patch_qwen_reasoning_passback,
 )
 
 _MINIMAX_ANTHROPIC_BASE_URL = "https://api.minimaxi.com/anthropic"
@@ -67,6 +69,95 @@ _THINKING_CAPABLE_PROVIDERS: set[str] = {"minimax"}
 
 _TRUTHY_ENV_VALUES = {"1", "true", "yes", "on"}
 _FALSEY_ENV_VALUES = {"0", "false", "no", "off"}
+
+_DASHSCOPE_STREAM_CHUNK_TIMEOUT_DEFAULT_S = 300.0
+_DASHSCOPE_STREAM_CHUNK_TIMEOUT_MIN_S = 30.0
+_DASHSCOPE_STREAM_CHUNK_TIMEOUT_MAX_S = 900.0
+_DASHSCOPE_REQUEST_TIMEOUT_DEFAULT_S = 300.0
+_DASHSCOPE_REQUEST_TIMEOUT_MIN_S = 30.0
+_DASHSCOPE_REQUEST_TIMEOUT_MAX_S = 900.0
+_DASHSCOPE_MAX_RETRIES_DEFAULT = 0
+_DASHSCOPE_MAX_RETRIES_MAX = 2
+
+
+def _dashscope_stream_chunk_timeout() -> float:
+    """Return a finite idle-chunk watchdog suitable for long Qwen reasoning.
+
+    LangChain's generic 120-second default can terminate a healthy DashScope
+    stream after many chunks when a reasoning model pauses before its next
+    tool call.  Keep the watchdog enabled, but give research workloads a
+    bounded, explicitly configurable allowance.
+    """
+
+    raw = os.environ.get("JW_DASHSCOPE_STREAM_CHUNK_TIMEOUT_S", "").strip()
+    if not raw:
+        return _DASHSCOPE_STREAM_CHUNK_TIMEOUT_DEFAULT_S
+    try:
+        value = float(raw)
+    except ValueError as exc:
+        raise ValueError(
+            "JW_DASHSCOPE_STREAM_CHUNK_TIMEOUT_S must be a number between "
+            f"{_DASHSCOPE_STREAM_CHUNK_TIMEOUT_MIN_S:g} and "
+            f"{_DASHSCOPE_STREAM_CHUNK_TIMEOUT_MAX_S:g} seconds"
+        ) from exc
+    if not isfinite(value) or not (
+        _DASHSCOPE_STREAM_CHUNK_TIMEOUT_MIN_S
+        <= value
+        <= _DASHSCOPE_STREAM_CHUNK_TIMEOUT_MAX_S
+    ):
+        raise ValueError(
+            "JW_DASHSCOPE_STREAM_CHUNK_TIMEOUT_S must be between "
+            f"{_DASHSCOPE_STREAM_CHUNK_TIMEOUT_MIN_S:g} and "
+            f"{_DASHSCOPE_STREAM_CHUNK_TIMEOUT_MAX_S:g} seconds"
+        )
+    return value
+
+
+def _dashscope_request_timeout() -> float:
+    """Return the total timeout for one DashScope request attempt."""
+
+    raw = os.environ.get("JW_DASHSCOPE_REQUEST_TIMEOUT_S", "").strip()
+    if not raw:
+        return _DASHSCOPE_REQUEST_TIMEOUT_DEFAULT_S
+    try:
+        value = float(raw)
+    except ValueError as exc:
+        raise ValueError(
+            "JW_DASHSCOPE_REQUEST_TIMEOUT_S must be a number between "
+            f"{_DASHSCOPE_REQUEST_TIMEOUT_MIN_S:g} and "
+            f"{_DASHSCOPE_REQUEST_TIMEOUT_MAX_S:g} seconds"
+        ) from exc
+    if not isfinite(value) or not (
+        _DASHSCOPE_REQUEST_TIMEOUT_MIN_S <= value <= _DASHSCOPE_REQUEST_TIMEOUT_MAX_S
+    ):
+        raise ValueError(
+            "JW_DASHSCOPE_REQUEST_TIMEOUT_S must be between "
+            f"{_DASHSCOPE_REQUEST_TIMEOUT_MIN_S:g} and "
+            f"{_DASHSCOPE_REQUEST_TIMEOUT_MAX_S:g} seconds"
+        )
+    return value
+
+
+def _dashscope_max_retries() -> int:
+    """Bound hidden SDK retries so the research state machine owns retry policy."""
+
+    raw = os.environ.get("JW_DASHSCOPE_MAX_RETRIES", "").strip()
+    if not raw:
+        return _DASHSCOPE_MAX_RETRIES_DEFAULT
+    try:
+        value = int(raw)
+    except ValueError as exc:
+        raise ValueError(
+            "JW_DASHSCOPE_MAX_RETRIES must be an integer between 0 and "
+            f"{_DASHSCOPE_MAX_RETRIES_MAX}"
+        ) from exc
+    if not 0 <= value <= _DASHSCOPE_MAX_RETRIES_MAX:
+        raise ValueError(
+            "JW_DASHSCOPE_MAX_RETRIES must be between 0 and "
+            f"{_DASHSCOPE_MAX_RETRIES_MAX}"
+        )
+    return value
+
 
 # Model registry: list of (short_name, model_id, provider)
 # Allows same short_name across different providers.
@@ -456,6 +547,10 @@ def get_chat_model(
     elif provider in _OPENAI_ROUTED_PROVIDERS:
         _original_provider = provider
         base_url_default, api_key_env = _OPENAI_ROUTED_PROVIDERS[provider]
+        if provider in {"dashscope", "dashscope-code"}:
+            kwargs.setdefault("stream_chunk_timeout", _dashscope_stream_chunk_timeout())
+            kwargs.setdefault("timeout", _dashscope_request_timeout())
+            kwargs.setdefault("max_retries", _dashscope_max_retries())
         if provider == "custom-openai":
             base_url = os.environ.get("CUSTOM_OPENAI_BASE_URL", "")
             if not base_url:
@@ -572,6 +667,10 @@ def get_chat_model(
     # + tool_use scenarios.
     if _original_provider == "deepseek":
         _patch_deepseek_reasoning_passback(chat_model)
+    if _original_provider in {"dashscope", "dashscope-code"} and str(
+        model_id
+    ).casefold().startswith("qwen3"):
+        _patch_qwen_reasoning_passback(chat_model)
 
     if _is_openai_proxy:
         _patch_ccproxy_system_to_developer(chat_model)

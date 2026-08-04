@@ -12,6 +12,7 @@ from jw.middleware.closed_loop_orchestration import (
     closed_loop_receipts,
 )
 from jw.research_protocols import sha256_file
+from jw.research_review import ResearchReviewStore
 
 
 @dataclass
@@ -120,6 +121,21 @@ def test_allows_hypothesis_without_planner_freeze(tmp_path: Path, monkeypatch) -
     result = middleware.wrap_tool_call(request, lambda _request: sentinel)
 
     assert result is sentinel
+
+
+def test_historical_stage_acceptance_is_not_a_release_receipt(tmp_path: Path) -> None:
+    store = ResearchReviewStore(tmp_path, "task-1")
+    artifact = store.checkpoint_producer_result(
+        stage="planning", producer="solar-planner", content="bounded plan"
+    )
+    store.submit_verdict(
+        mode="planning",
+        decision="accept",
+        issues=[],
+        accepted_claims=[artifact["claims"][0]["claim_id"]],
+    )
+
+    assert closed_loop_receipts(tmp_path)["solar-evidence"] is None
 
 
 def test_allows_hypothesis_after_real_planner_freeze(

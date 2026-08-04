@@ -835,6 +835,7 @@ def _get_scoped_backend_factory():
 
     from .workspaces import (
         bootstrap_legacy_bindings,
+        cached_bindings_for_resolved_base,
         get_cached_binding_for_resolved_base,
         preload_bindings,
         scope_thread_id,
@@ -880,6 +881,34 @@ def _get_scoped_backend_factory():
     cache: dict[tuple[str, str | None], object] = {}
     lock = threading.RLock()
 
+    def _binding_key(binding) -> tuple[str, str | None]:
+        if binding.legacy:
+            return (binding.workspace, None)
+        return (binding.workspace, binding.project_shared)
+
+    # A resumed checkpoint can enter directly at ``tools`` and therefore skip
+    # TaskWorkspaceMiddleware.before_agent.  Prewarm every persisted binding at
+    # graph construction so SkillsMiddleware never has to canonicalize paths on
+    # the ASGI event loop after a service restart or page refresh.
+    for persisted_binding in cached_bindings_for_resolved_base(base_workspace):
+        key = _binding_key(persisted_binding)
+        if key in cache:
+            continue
+        try:
+            cache[key] = _build_default_composite_backend(
+                key[0],
+                project_shared_dir=key[1],
+                root_precreated=True,
+                skills_backend=shared_skills_backend,
+                memory_backend=shared_memory_backend,
+            )
+        except Exception:
+            logging.getLogger(__name__).warning(
+                "Failed to prewarm persisted task backend for thread %s.",
+                persisted_binding.thread_id,
+                exc_info=True,
+            )
+
     def _factory(runtime):
         config = getattr(runtime, "config", None)
         thread_id = scope_thread_id(config if isinstance(config, dict) else None)
@@ -909,12 +938,7 @@ def _get_scoped_backend_factory():
                 "Task workspace binding was not initialized before backend "
                 f"resolution (thread_id={thread_id})."
             )
-        if binding is None:
-            key = (base_workspace, None)
-        elif binding.legacy:
-            key = (binding.workspace, None)
-        else:
-            key = (binding.workspace, binding.project_shared)
+        key = (base_workspace, None) if binding is None else _binding_key(binding)
         with lock:
             backend = cache.get(key)
         if backend is None:
@@ -985,6 +1009,7 @@ def _get_default_middleware(
         ContractToolAllowlistMiddleware,
         ModelFallbackMiddleware,
         QwenToolCompatibilityMiddleware,
+        ResearchReviewOrchestrationMiddleware,
         ResearchRouterMiddleware,
         TaskCancellationMiddleware,
         TaskWorkspaceMiddleware,
@@ -1072,6 +1097,11 @@ def _get_default_middleware(
             VirtualPathCodeGuardMiddleware(),
             *(
                 [ResearchRouterMiddleware(model=model)]
+                if not for_async_subagent
+                else []
+            ),
+            *(
+                [ResearchReviewOrchestrationMiddleware()]
                 if not for_async_subagent
                 else []
             ),

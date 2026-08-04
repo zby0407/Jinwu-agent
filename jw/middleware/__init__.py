@@ -39,6 +39,7 @@ from .qwen_compat import (
     is_qwen_model,
     validate_qwen_tool_schema,
 )
+from .research_review_orchestration import ResearchReviewOrchestrationMiddleware
 from .research_router import ResearchRouterMiddleware, ResearchRoutingState
 from .runtime_context import RuntimeContextMiddleware, create_runtime_context_middleware
 from .scheduler import (
@@ -49,7 +50,7 @@ from .task_cancellation import TaskCancellationMiddleware
 from .task_workspace import TaskWorkspaceMiddleware
 from .tool_error_handler import ToolErrorHandlerMiddleware
 from .tool_selector import create_tool_selector_middleware
-from .utils import disable_thinking
+from .utils import configure_qwen_thinking, disable_thinking
 from .virtual_path_code_guard import VirtualPathCodeGuardMiddleware
 
 __all__ = [
@@ -67,6 +68,7 @@ __all__ = [
     "Question",
     "QwenToolCompatibilityMiddleware",
     "QwenToolSchemaError",
+    "ResearchReviewOrchestrationMiddleware",
     "ResearchRouterMiddleware",
     "ResearchRoutingState",
     "RuntimeContextMiddleware",
@@ -86,6 +88,7 @@ __all__ = [
     "create_tool_selector_middleware",
     "default_memory_scheduler",
     "disable_thinking",
+    "configure_qwen_thinking",
     "is_qwen_model",
     "load_fallback_chain",
     "validate_qwen_tool_schema",

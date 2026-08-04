@@ -16,6 +16,7 @@ from .registry import (
     resolve_tool_bundles,
 )
 from .research_planner import RESEARCH_PLANNER_TOOLS
+from .research_review import RESEARCH_RELEASE_TOOLS, RESEARCH_REVIEW_TOOLS
 from .scientific_hypothesis import SCIENTIFIC_HYPOTHESIS_TOOLS
 from .search import fetch_webpage_content, tavily_search
 from .skill_manager import skill_manager
@@ -26,6 +27,7 @@ from .solar_feature import (
     dataset_statistics,
     engineer_solar_features,
     prepare_solar_experiment,
+    solar_data_open_context,
 )
 from .think import think_tool
 
@@ -34,6 +36,8 @@ __all__ = [
     "KB_READONLY_TOOLS",
     "KB_TOOLS",
     "RESEARCH_PLANNER_TOOLS",
+    "RESEARCH_RELEASE_TOOLS",
+    "RESEARCH_REVIEW_TOOLS",
     "SCIENTIFIC_HYPOTHESIS_TOOLS",
     "SOLAR_FEATURE_TOOLS",
     "TOOL_BUNDLE_ENTRY_POINT_GROUP",
@@ -50,6 +54,7 @@ __all__ = [
     "register_tool_bundle",
     "resolve_tool_bundles",
     "skill_manager",
+    "solar_data_open_context",
     "tavily_search",
     "think_tool",
 ]

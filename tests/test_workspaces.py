@@ -9,6 +9,7 @@ import sqlite3
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
 from langchain_core.messages import HumanMessage
 
 from jw.middleware.task_workspace import TaskWorkspaceMiddleware
@@ -21,6 +22,7 @@ from jw.workspaces import (
     get_cached_binding,
     preload_bindings,
     read_binding,
+    register_project_data_file,
     scope_thread_id,
 )
 
@@ -104,6 +106,72 @@ def test_legacy_data_is_imported_as_manifested_project_input(tmp_path, monkeypat
     context = json.loads(Path(binding.workspace, "context_snapshot.json").read_text())
     assert context["project_data_virtual_path"] == "/project/data/"
     assert context["project_input_count"] == 1
+
+
+def test_registered_project_data_is_immutable_and_available_to_new_runs(
+    tmp_path, monkeypatch
+):
+    registry = tmp_path / "registry"
+    base = tmp_path / "workspace"
+    source = tmp_path / "authoritative.csv"
+    source.write_text("year,value\n2024,1.25\n", encoding="utf-8")
+    monkeypatch.setenv("JW_WORKSPACE_BINDINGS_DIR", str(registry))
+
+    record = register_project_data_file(
+        base,
+        source,
+        "solar/silso_v2/authoritative.csv",
+        dataset_id="silso-monthly-v2",
+        provenance={"source_url": "https://example.test/official"},
+    )
+    binding = ensure_thread_workspace("registered-data-thread", base)
+    manifest = json.loads(Path(binding.workspace, "input_manifest.json").read_text())
+
+    assert record["role"] == "primary_data"
+    assert manifest["project_inputs"] == [
+        {
+            "bytes": source.stat().st_size,
+            "dataset_id": "silso-monthly-v2",
+            "path": "/project/data/solar/silso_v2/authoritative.csv",
+            "provenance_ref": (
+                "/project/data/solar/silso_v2/authoritative.csv.provenance.json"
+            ),
+            "role": "primary_data",
+            "sha256": hashlib.sha256(source.read_bytes()).hexdigest(),
+            "source": "registered_project_data",
+        }
+    ]
+    staged = Path(binding.project_shared, "data/solar/silso_v2/authoritative.csv")
+    staged.write_text("changed\n", encoding="utf-8")
+    repeated = ensure_thread_workspace("registered-data-thread", base)
+    refreshed = json.loads(Path(repeated.workspace, "input_manifest.json").read_text())
+    assert refreshed["project_inputs"] == []
+
+
+def test_registered_project_data_path_cannot_be_overwritten(tmp_path, monkeypatch):
+    registry = tmp_path / "registry"
+    base = tmp_path / "workspace"
+    first = tmp_path / "first.csv"
+    second = tmp_path / "second.csv"
+    first.write_text("value\n1\n", encoding="utf-8")
+    second.write_text("value\n2\n", encoding="utf-8")
+    monkeypatch.setenv("JW_WORKSPACE_BINDINGS_DIR", str(registry))
+    register_project_data_file(
+        base,
+        first,
+        "solar/versioned.csv",
+        dataset_id="solar-data-v1",
+        provenance={},
+    )
+
+    with pytest.raises(FileExistsError, match="immutable"):
+        register_project_data_file(
+            base,
+            second,
+            "solar/versioned.csv",
+            dataset_id="solar-data-v2",
+            provenance={},
+        )
 
 
 def test_legacy_code_and_outputs_are_preserved_but_not_declared_as_inputs(
@@ -386,6 +454,61 @@ def test_scoped_backend_factory_avoids_filesystem_resolution_on_event_loop(
     backend = asyncio.run(resolve_from_async_node())
     assert backend.routes["/skills/"]._primary.cwd == real_workspace / "skills"
     assert backend.routes["/memories/"].cwd == memories_dir
+
+
+def test_scoped_backend_factory_prewarms_persisted_thread_for_tools_resume(
+    tmp_path, monkeypatch
+):
+    """A post-restart tools checkpoint must resolve without before_agent."""
+    from blockbuster import BlockBuster
+
+    import jw.agent as agent_module
+
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    data_dir = tmp_path / "data"
+    memories_dir = data_dir / "memories"
+    global_skills_dir = data_dir / "skills"
+    memories_dir.mkdir(parents=True)
+    global_skills_dir.mkdir()
+    monkeypatch.setenv("JW_WORKSPACE_BINDINGS_DIR", str(tmp_path / "registry"))
+    binding = ensure_thread_workspace("resume-tools-thread", workspace)
+    monkeypatch.setattr(agent_module._paths_mod, "WORKSPACE_ROOT", workspace)
+    monkeypatch.setattr(
+        agent_module._paths_mod, "USER_SKILLS_DIR", workspace / "skills"
+    )
+    monkeypatch.setattr(agent_module._paths_mod, "GLOBAL_SKILLS_DIR", global_skills_dir)
+    monkeypatch.setattr(agent_module._paths_mod, "MEMORIES_DIR", memories_dir)
+    monkeypatch.setattr(agent_module._paths_mod, "DATA_DIR", data_dir)
+    monkeypatch.setattr(
+        agent_module,
+        "_ensure_config",
+        lambda *_args, **_kwargs: SimpleNamespace(
+            sandbox_execute_timeout=30,
+            dangerous_mode=False,
+        ),
+    )
+
+    factory = agent_module._get_scoped_backend_factory()
+    runtime = SimpleNamespace(
+        config={
+            "configurable": {
+                "thread_id": binding.thread_id,
+                "workspace_thread_id": binding.thread_id,
+            }
+        }
+    )
+
+    async def resolve_from_resumed_tools_node():
+        blocker = BlockBuster()
+        blocker.activate()
+        try:
+            return factory(runtime)
+        finally:
+            blocker.deactivate()
+
+    backend = asyncio.run(resolve_from_resumed_tools_node())
+    assert backend.default.cwd == Path(binding.workspace)
 
 
 def test_legacy_bootstrap_preserves_existing_threads_and_is_idempotent(

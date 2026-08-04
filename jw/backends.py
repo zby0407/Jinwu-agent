@@ -1151,9 +1151,18 @@ def convert_virtual_paths_in_command(
     )
 
 
-def _structured_artifact_snapshot(root: Path) -> dict[str, tuple[int, int]]:
-    """Return cheap change signatures for structured files below *root*."""
-    snapshot: dict[str, tuple[int, int]] = {}
+def _structured_artifact_snapshot(
+    root: Path,
+) -> dict[str, tuple[int, int, str | None]]:
+    """Return content-aware change signatures for structured files below *root*.
+
+    Size and mtime alone miss same-size rewrites on filesystems with coarse
+    timestamp resolution. Bounded files are therefore hashed in the snapshot;
+    large files retain the cheap metadata signature and are hashed only when
+    they are later emitted in a manifest.
+    """
+
+    snapshot: dict[str, tuple[int, int, str | None]] = {}
     if not root.is_dir():
         return snapshot
 
@@ -1175,7 +1184,11 @@ def _structured_artifact_snapshot(root: Path) -> dict[str, tuple[int, int]]:
                 relative = path.relative_to(root).as_posix()
             except OSError:
                 continue
-            snapshot[relative] = (stat.st_mtime_ns, stat.st_size)
+            snapshot[relative] = (
+                stat.st_mtime_ns,
+                stat.st_size,
+                _sha256_file(path, stat.st_size),
+            )
     return snapshot
 
 
@@ -1195,8 +1208,8 @@ def _sha256_file(path: Path, size: int) -> str | None:
 
 def _structured_artifact_manifest(
     root: Path,
-    before: dict[str, tuple[int, int]],
-    after: dict[str, tuple[int, int]],
+    before: dict[str, tuple[int, int, str | None]],
+    after: dict[str, tuple[int, int, str | None]],
 ) -> str | None:
     """Render a bounded, machine-readable manifest for changed data artifacts."""
     changed = [
@@ -1209,7 +1222,7 @@ def _structured_artifact_manifest(
 
     files: list[dict[str, object]] = []
     for relative in sorted(changed)[:_ARTIFACT_MANIFEST_MAX_FILES]:
-        _, size = after[relative]
+        _, size, content_sha256 = after[relative]
         path = root / relative
         item: dict[str, object] = {
             "path": "/" + relative,
@@ -1217,7 +1230,7 @@ def _structured_artifact_manifest(
             "media_type": _STRUCTURED_ARTIFACT_MEDIA_TYPES[path.suffix.casefold()],
             "bytes": size,
         }
-        sha256 = _sha256_file(path, size)
+        sha256 = content_sha256 or _sha256_file(path, size)
         if sha256 is not None:
             item["sha256"] = sha256
         files.append(item)

@@ -2331,15 +2331,21 @@ def test_structured_memory_worker_disables_thinking(monkeypatch, tmp_path):
 
     class FakeModel:
         def __init__(self):
+            self.model_name = "qwen3.7-plus"
             self.thinking = {"type": "enabled"}
             self.reasoning = None
             self.model_kwargs = {"thinking": {"type": "enabled"}}
+            self.extra_body = None
 
         def model_copy(self, *, update):
-            assert update == {"thinking": None}
+            assert update == {
+                "thinking": None,
+                "extra_body": {"enable_thinking": False},
+            }
             clone = FakeModel()
             clone.thinking = None
             clone.model_kwargs = {}
+            clone.extra_body = update["extra_body"]
             return clone
 
     class FakeAgent:
@@ -2369,6 +2375,61 @@ def test_structured_memory_worker_disables_thinking(monkeypatch, tmp_path):
 
     assert captured["model"].thinking is None
     assert captured["response_format"] is memory_worker.SubagentMemoryDecision
+    assert any(
+        type(item).__name__ == "QwenToolCompatibilityMiddleware"
+        for item in captured["middleware"]
+    )
+
+
+def test_structured_dashscope_auxiliary_worker_disables_thinking(monkeypatch, tmp_path):
+    import importlib
+
+    import deepagents
+
+    from jw.memory.agents import _factory
+
+    agent_module = importlib.import_module("jw.agent")
+
+    class FakeModel:
+        def __init__(self):
+            self.model_name = "deepseek-v4-pro"
+            self.thinking = None
+            self.reasoning = None
+            self.model_kwargs = {}
+            self.extra_body = None
+            self.openai_api_base = "https://dashscope.aliyuncs.com/compatible-mode/v1"
+
+        def model_copy(self, *, update):
+            assert update == {"extra_body": {"enable_thinking": False}}
+            clone = FakeModel()
+            clone.extra_body = update["extra_body"]
+            return clone
+
+    class FakeAgent:
+        def with_config(self, config):
+            return self
+
+    captured = {}
+
+    def fake_create_deep_agent(**kwargs):
+        captured.update(kwargs)
+        return FakeAgent()
+
+    monkeypatch.setattr(agent_module, "_ensure_auxiliary_chat_model", FakeModel)
+    monkeypatch.setattr(deepagents, "create_deep_agent", fake_create_deep_agent)
+
+    _factory.build_memory_agent_graph(
+        name="memory-worker",
+        system_prompt="test",
+        memory_dir=tmp_path / "memories",
+        workspace_dir=tmp_path / "workspace",
+        tools=[],
+        middleware=[],
+        response_format=memory_worker.SubagentMemoryDecision,
+        backend=object(),
+    )
+
+    assert captured["model"].extra_body == {"enable_thinking": False}
 
 
 def _memory_tool_names(middleware) -> list[str]:

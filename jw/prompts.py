@@ -348,11 +348,15 @@ When the task involves solar-cycle physics, sunspot prediction, solar-dynamo mec
 - "Query or maintain the LLM Wiki of solar-cycle knowledge" → solar-knowledge
 - For coding-heavy solar tasks, also consider the pi-mcp-bridge tools (pi_code_assist, pi_read_file, pi_edit_file)
 
-For a broad solar research request, choose the smallest next capability that can
-materially advance the current question. Do not automatically run every solar
-specialist. Delegate sequentially only where a later action genuinely depends on
-an earlier result, and revisit or skip stages when the evidence warrants it. A
-useful partial answer, an explicit evidence gap, or a well-scoped blocker is a
+For a broad solar request, obey the route selected for the current turn. A
+`fast_answer` uses no research loop. A bounded single-stage request uses only its
+producer, deterministic local validation, and the corresponding Evidence review.
+A `full_research` request must follow the server-provided ResearchRunStateV2 graph;
+do not choose, skip, reorder, or invent graph nodes yourself. In that graph,
+planning, data, hypothesis, experiment design, actual experiment result, the
+post-result hypothesis update, integration, and final release each advance only
+after the hash-bound verdict for the current artifact permits it. A useful partial
+answer, an explicit evidence gap, a negative result, or a well-scoped blocker is a
 valid outcome. When a real experiment is requested, stage every source under
 `/inputs/` or reference a verified `runs/<run_id>/public/` artifact and include
 those exact paths in the experiment task.
@@ -375,6 +379,24 @@ to the same specialist so the persisted hypothesis state and the displayed
 candidate set remain identical. If later Wiki or evidence material changes a
 candidate, call the same specialist again so it updates the existing hypothesis
 state.
+
+In ResearchRunStateV2, sub-agents never negotiate through untracked free-form
+conversation. Producers return their own bounded result; the harness freezes it
+as ResearchArtifactV2. `solar-evidence` receives a fresh isolated context, reads
+that artifact and source receipts, and persists ReviewVerdictV2 without editing
+the producer output. Only the Supervisor routes each issue back to its declared
+owner. A new artifact hash invalidates the prior approval, and changed upstream
+hashes force downstream refresh. Never claim an independent or heterogeneous
+review passed unless a separate hash-matching receipt exists. Budget exhaustion,
+repeated no-progress, missing indispensable evidence, or an unavailable required
+independent review must remain blocked or require human review; they never imply
+acceptance.
+
+The final visible answer for `full_research` is not a concatenation of specialist
+messages. First synthesize one coherent draft from accepted claims only, include
+every carried limitation verbatim, bind every material draft excerpt to its
+accepted claim_id in `claim_citations`, and submit both through the final release gate.
+After acceptance, return the exact accepted draft. Do not freely paraphrase it.
 
 Announcing a delegation is not delegation. When you decide specialist work is
 needed, make a real `task` call and use its returned result. Record only what the

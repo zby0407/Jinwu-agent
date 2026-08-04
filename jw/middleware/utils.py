@@ -32,20 +32,42 @@ def disable_thinking(model: BaseChatModel) -> BaseChatModel:
     if getattr(model, "reasoning", None) or "reasoning" in model_kwargs:
         updates["reasoning"] = None
 
-    # DashScope's OpenAI-compatible Qwen endpoint enables thinking server-side,
-    # so there may be no local ``thinking``/``reasoning`` field to clear.
-    # Forced/object tool_choice (including structured output) is rejected while
-    # that mode is active. Detect the model family and explicitly disable it on
+    # DashScope's OpenAI-compatible endpoint can enable thinking server-side,
+    # so there may be no local ``thinking``/``reasoning`` field to clear. This
+    # applies not only to Qwen names: DashScope-hosted auxiliary families can
+    # reject schema-forced tool choice with the same provider error. Detect the
+    # provider endpoint as well as the Qwen family and explicitly disable it on
     # the copied request model, preserving any other extra_body options.
     model_name = (
         str(getattr(model, "model_name", None) or getattr(model, "model", None) or "")
         .casefold()
         .rsplit("/", 1)[-1]
     )
-    if model_name.startswith(("qwen", "qwq")):
+    base_url = str(
+        getattr(model, "openai_api_base", None)
+        or getattr(model, "base_url", None)
+        or ""
+    ).casefold()
+    dashscope_hosted = "dashscope.aliyuncs.com" in base_url
+    if model_name.startswith(("qwen", "qwq")) or dashscope_hosted:
         extra_body = dict(getattr(model, "extra_body", None) or {})
+        # Do not leave mutually inconsistent thinking controls attached to a
+        # forced-tool request. Some DashScope model routes still classify the
+        # request as thinking-enabled when preserve_thinking/thinking_budget
+        # survive beside enable_thinking=false.
+        extra_body.pop("thinking_budget", None)
+        extra_body.pop("preserve_thinking", None)
         extra_body["enable_thinking"] = False
         updates["extra_body"] = extra_body
+        if any(
+            key in model_kwargs
+            for key in ("enable_thinking", "thinking_budget", "preserve_thinking")
+        ):
+            cleaned_model_kwargs = dict(model_kwargs)
+            cleaned_model_kwargs.pop("enable_thinking", None)
+            cleaned_model_kwargs.pop("thinking_budget", None)
+            cleaned_model_kwargs.pop("preserve_thinking", None)
+            updates["model_kwargs"] = cleaned_model_kwargs
 
     if not updates:
         return model
@@ -58,6 +80,35 @@ def disable_thinking(model: BaseChatModel) -> BaseChatModel:
         # Fallback for non-Pydantic or unusual model classes
         # Note: bind() may not effectively override first-class Pydantic fields
         return model.bind(**updates)
+
+
+def configure_qwen_thinking(
+    model: BaseChatModel,
+    *,
+    thinking_budget: int,
+    preserve_thinking: bool = True,
+) -> BaseChatModel:
+    """Return a Qwen request model with an explicit bounded thinking policy."""
+
+    model_name = (
+        str(getattr(model, "model_name", None) or getattr(model, "model", None) or "")
+        .casefold()
+        .rsplit("/", 1)[-1]
+    )
+    if not model_name.startswith("qwen3"):
+        return model
+    extra_body = dict(getattr(model, "extra_body", None) or {})
+    extra_body.update(
+        {
+            "enable_thinking": True,
+            "thinking_budget": thinking_budget,
+            "preserve_thinking": preserve_thinking,
+        }
+    )
+    try:
+        return model.model_copy(update={"extra_body": extra_body})
+    except Exception:
+        return model.bind(extra_body=extra_body)
 
 
 def append_to_system_message(

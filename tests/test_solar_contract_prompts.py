@@ -15,9 +15,19 @@ def _read(relative: str) -> str:
 
 def test_solar_planner_supports_explore_checkpoint_and_publish_modes():
     text = _read("jw/subagents/solar/solar_planner.yaml")
+    assert "tool_bundles: [research-planner]" in text
+    assert "think-tool loop" in text
     assert "Default to exploration mode" in text
     assert "checkpoint/publication mode" in text
-    assert "Freeze only when publication was requested" in text
+    assert "[RESEARCH_PRODUCER_V2]" in text
+    assert "MUST call research_planner_get_brief" in text
+    assert "research_planner_update_draft" in text
+    assert "exactly one plan_content section per call" in text
+    assert "draft_checkpoint.next_section" in text
+    assert "research_planner_validate_draft" in text
+    assert "research_planner_freeze_plan before returning" in text
+    assert "not permission to return an unfrozen draft" in text
+    assert "freeze only when publication was requested" in text
     assert "planner/runs/<run_id>/" in text
 
 
@@ -28,41 +38,44 @@ def test_parent_accepts_partial_results_and_bounds_repair():
     assert "If it recurs, stop the loop" in text
 
 
-def test_knowledge_agent_requires_bound_focus_and_confidence_cap():
+def test_solar_data_requires_hash_bound_inputs_before_discovery():
+    text = _read("jw/subagents/solar/solar_data.yaml")
+    assert "tool_bundles: [solar-features]" in text
+    assert "first and only discovery action is `solar_data_open_context`" in text
+    assert "Only paths in its `eligible_inputs`" in text
+    assert "never guess `/project/data`" in text
+    assert "must_stop=true" in text
+
+
+def test_knowledge_agent_is_read_only_and_routes_changes_to_humans():
     text = _read("jw/subagents/solar/solar_knowledge.yaml")
-    assert "lit_feed_catalog → lit_feed_sync" in text
-    assert "raw source layer and never becomes a Wiki claim automatically" in text
-    assert "lit_bind_task → lit_search → lit_fetch" in text
-    assert "hard maximum of medium" in text
-    assert "A DOI identifies a source but is not promotion evidence" in text
-    assert "cross-run replication or a named expert review" in text
-    assert "a paper or DOI never auto-promotes" in text
+    assert "tool_bundles: [reasoning, knowledge-base-inspection]" in text
+    assert "restrict_tools: true" in text
+    assert "never propose, import, patch, promote, deprecate, or decide" in text
+    assert "kb_query" in text
+    assert "kb_read" in text
+    assert "human-review recommendation" in text
 
 
-def test_evidence_agent_uses_hypothesis_contract_tools():
+def test_evidence_agent_is_read_only_and_uses_typed_review_tools():
     text = _read("jw/subagents/solar/solar_evidence.yaml")
-    assert "tool_bundles: [reasoning, scientific-hypothesis]" in text
-    hypothesis_tools = {
-        tool.name for tool in get_tool_bundles()["scientific-hypothesis"]
-    }
-    for name in (
-        "scientific_hypothesis_bind_request",
-        "scientific_hypothesis_bind_evidence",
-        "scientific_hypothesis_bind_wiki_evidence",
-        "scientific_hypothesis_update_draft",
-        "scientific_hypothesis_get_draft",
-        "scientific_hypothesis_review_tail",
-        "scientific_hypothesis_validate_response",
-        "scientific_hypothesis_checkpoint_draft",
-        "scientific_hypothesis_get_status",
-        "scientific_hypothesis_freeze",
-    ):
-        assert name in hypothesis_tools
     assert (
-        "Call scientific_hypothesis_freeze only when publication was explicitly requested"
-        in text
+        "tool_bundles: [reasoning, research-review, knowledge-base-inspection]" in text
     )
-    assert "patch the affected candidate rather than rewriting the portfolio" in text
+    assert "restrict_tools: true" in text
+    review_tools = {tool.name for tool in get_tool_bundles()["research-review"]}
+    for name in (
+        "evidence_review_open_context",
+        "evidence_review_submit_verdict",
+        "evidence_review_get_status",
+    ):
+        assert name in review_tools
+    assert "research_independent_review" not in review_tools
+    assert "research_independent_review" in {
+        tool.name for tool in get_tool_bundles()["research-release"]
+    }
+    assert "never author, patch, overwrite" in text
+    assert "never edit the producer artifact" in text
 
 
 def test_hypothesis_agent_reads_wiki_before_generating_candidates():

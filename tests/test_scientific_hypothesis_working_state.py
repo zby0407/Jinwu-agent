@@ -1,9 +1,6 @@
 from __future__ import annotations
 
 import json
-import os
-import threading
-from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -659,6 +656,54 @@ def test_draft_rejects_unsupported_transport_amplitude_direction() -> None:
 
     assert "transport_amplitude_overclaim" in warning_codes
     assert "transport_direction_overclaim" in warning_codes
+
+
+def test_draft_rejects_unbound_causal_dominance_without_transport_terms() -> None:
+    config = _config("hypothesis-unbound-causal-dominance")
+    hypothesis_tools._STATES.pop("hypothesis-unbound-causal-dominance", None)
+    hypothesis_tools.scientific_hypothesis_bind_request.invoke(
+        {"request_input": "What constrains the next solar-cycle amplitude?"},
+        config=config,
+    )
+    state = hypothesis_tools._STATES["hypothesis-unbound-causal-dominance"]
+    state.literature_bundle_attempted = True
+    response = make_response(state.request)
+    response["candidates"][0]["statement"] = (
+        "The polar precursor is the primary determinant of the next-cycle peak."
+    )
+
+    outcome = _update(config, "replace", response)
+    warning_codes = {
+        warning["code"]
+        for warning in outcome["soft_warnings"]
+        if warning["candidate_id"] == "cand_dynamo"
+    }
+
+    assert "causal_dominance_unbound" in warning_codes
+
+
+def test_draft_rejects_same_cycle_bmr_amplitude_causality_without_timeline() -> None:
+    config = _config("hypothesis-bmr-temporal-order")
+    hypothesis_tools._STATES.pop("hypothesis-bmr-temporal-order", None)
+    hypothesis_tools.scientific_hypothesis_bind_request.invoke(
+        {"request_input": "什么因素控制下一太阳活动周振幅？"},
+        config=config,
+    )
+    state = hypothesis_tools._STATES["hypothesis-bmr-temporal-order"]
+    state.literature_bundle_attempted = True
+    response = make_response(state.request)
+    response["candidates"][0]["statement"] = (
+        "下一周期振幅受该周期自身BMR倾斜角随机涨落影响。"
+    )
+
+    outcome = _update(config, "replace", response)
+    warning_codes = {
+        warning["code"]
+        for warning in outcome["soft_warnings"]
+        if warning["candidate_id"] == "cand_dynamo"
+    }
+
+    assert "temporal_causal_order_unbound" in warning_codes
 
 
 def test_draft_rejects_transport_dominance_for_numbered_cycle_peak() -> None:

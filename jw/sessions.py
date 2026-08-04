@@ -1811,6 +1811,41 @@ async def _restore_webui_threads_to_global_store() -> None:
 
     try:
         rows: list[Any] = []
+        # The in-memory runtime persists its operation registry separately from
+        # graph checkpoints. If the process exits before a cancellation flush,
+        # a stale ``running``/``pending`` row is loaded on the next start and the
+        # queue executes that old user turn again. Local research tasks must
+        # never resume implicitly across a server restart: their immutable
+        # artifacts remain available, while execution requires a fresh run.
+        stale_run_ids: set[uuid.UUID] = set()
+        now = datetime.now(UTC)
+        for run in GLOBAL_STORE.get("runs", []):
+            if not isinstance(run, dict) or run.get("status") not in {
+                "running",
+                "pending",
+            }:
+                continue
+            run["status"] = "interrupted"
+            run["updated_at"] = now
+            run_id = _to_uuid_safe(run.get("run_id"))
+            if run_id is not None:
+                stale_run_ids.add(run_id)
+        if stale_run_ids:
+            stale_thread_ids = {
+                thread_id
+                for run in GLOBAL_STORE.get("runs", [])
+                if _to_uuid_safe(run.get("run_id")) in stale_run_ids
+                and (thread_id := _to_uuid_safe(run.get("thread_id"))) is not None
+            }
+            for thread in GLOBAL_STORE.get("threads", []):
+                if _to_uuid_safe(thread.get("thread_id")) in stale_thread_ids:
+                    thread["status"] = "idle"
+                    thread["updated_at"] = now
+            _logger.warning(
+                "WebUI startup interrupted %d stale pending/running run(s); "
+                "automatic cross-restart execution is disabled.",
+                len(stale_run_ids),
+            )
         # Restore scope: graph threads belonging to THIS server's workspace.
         # sessions.db is machine-global, so an unscoped restore would
         # resurrect every workspace's history into this server's thread

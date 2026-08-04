@@ -128,7 +128,11 @@ _QUOTED_INPUT_PATTERNS = (
 _UNQUOTED_INPUT_PATTERN = re.compile(
     rf"(?<![A-Za-z0-9_./-])"
     rf"(?P<path>{_INPUT_PREFIX}/"
-    r"""[^\s"'`“”‘’，。；;：:！？!?、<>{}\[\]()（）]+)"""
+    r"""[^\s"'`“”‘’，。；：！？、<>{}\[\]()（）]+)"""
+)
+_STAGED_SIDECAR_PATH = re.compile(
+    r"""(?:@|staged\s+sidecar\s+|staged_data_inputs\s*[=:]\s*\[?\"?)"""
+    r"""(?:/?(?:work/)?)?(?P<path>inputs/_staged\.json)\b"""
 )
 _FIXED_SEED_PATTERNS = (
     re.compile(
@@ -1245,6 +1249,39 @@ def normalize_run_budget(value: object) -> dict[str, int]:
 
 
 def _explicit_input_refs(task: str) -> list[dict[str, Any]]:
+    """Extract explicit input paths from a natural-language task string.
+
+    The _staged.json sidecar (written by the research state machine) takes
+    precedence over regex-parsed paths: when the task references it, every
+    entry it declares is a hash-bound input_ref that the experiment contract
+    must honour.
+    """
+    # _staged.json sidecar takes absolute priority.
+    staged_match = _STAGED_SIDECAR_PATH.search(task)
+    if staged_match:
+        sidecar_path = staged_match.group("path")
+        try:
+            from automatic_experiment.paths import current_task_workspace
+
+            workspace = current_task_workspace()
+            if workspace is not None:
+                sidecar_file = workspace / sidecar_path
+                if sidecar_file.is_file():
+                    sidecar = json.loads(sidecar_file.read_text(encoding="utf-8"))
+                    refs = sidecar.get("input_refs")
+                    if isinstance(refs, list) and refs:
+                        return [
+                            {
+                                "id": row.get("id", f"input_{index:02d}"),
+                                "path": row["path"],
+                                "description": row.get("description", ""),
+                                "required": bool(row.get("required", True)),
+                            }
+                            for index, row in enumerate(refs, start=1)
+                            if isinstance(row, dict) and isinstance(row.get("path"), str)
+                        ]
+        except Exception:
+            pass  # Fall through to regex-based extraction.
     matches: list[tuple[int, str]] = []
     for pattern in _QUOTED_INPUT_PATTERNS:
         matches.extend(
@@ -1298,11 +1335,39 @@ def default_request(task: str) -> dict[str, Any]:
     if _ONE_STAGE_PATTERN.search(exact):
         run_budget["max_stages"] = 1
     explicit_seed = _explicit_seed(exact)
+    refs = _explicit_input_refs(exact)
+    # If the regex-based extraction returned an _staged.json entry, replace it
+    # with the sidecar's actual declared inputs (prevents loading the sidecar
+    # file as if it were a data input).
+    staged_paths = [r["path"] for r in refs if r["path"].endswith("_staged.json")]
+    if staged_paths:
+        try:
+            from automatic_experiment.paths import current_task_workspace
+
+            workspace = current_task_workspace()
+            if workspace is not None:
+                sidecar_file = workspace / staged_paths[0]
+                if sidecar_file.is_file():
+                    sidecar = json.loads(sidecar_file.read_text(encoding="utf-8"))
+                    declared = sidecar.get("input_refs")
+                    if isinstance(declared, list) and declared:
+                        refs = [
+                            {
+                                "id": row.get("id", f"input_{index:02d}"),
+                                "path": row["path"],
+                                "description": row.get("description", ""),
+                                "required": bool(row.get("required", True)),
+                            }
+                            for index, row in enumerate(declared, start=1)
+                            if isinstance(row, dict) and isinstance(row.get("path"), str)
+                        ]
+        except Exception:
+            pass  # sidecar load failure is non-fatal; keep regex result
     return {
         "schema_version": REQUEST_VERSION,
         "task_name": f"question_{digest}",
         "task": exact,
-        "input_refs": _explicit_input_refs(exact),
+        "input_refs": refs,
         "success_criteria": [],
         "method_constraints": [],
         "resource_budget": resource_budget,

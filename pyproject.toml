@@ -120,7 +120,8 @@ requires = ["setuptools>=68.0"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
-include = ["jw*"]
+where = [".", "src"]
+include = ["jw*", "research_review*"]
 
 [tool.setuptools.package-data]
 jw = [
@@ -197,7 +198,7 @@ ignore = [
 ]
 fixable = ["ALL"]
 unfixable = []
-allowed-confusables = ["–", "❯", "：", "（", "）", "，"]
+allowed-confusables = ["–", "❯", "：", "（", "）", "，", "；", "？"]
 
 [tool.ruff.format]
 quote-style = "double"

@@ -50,16 +50,18 @@ class TestBuildErrorMessage:
 
         assert "broken_tool" in msg.content
 
-    def test_content_includes_traceback(self):
+    def test_content_is_bounded_capsule_without_traceback(self):
         req = _make_request()
         try:
             raise RuntimeError("something went wrong")
         except RuntimeError:
             msg = _build_error_message(req)
 
+        assert msg.content.startswith("[TOOL ERROR CAPSULE]")
         assert "RuntimeError" in msg.content
         assert "something went wrong" in msg.content
-        assert "Traceback" in msg.content
+        assert "Traceback" not in msg.content
+        assert "fingerprint=" in msg.content
 
     def test_content_includes_retry_guidance(self):
         req = _make_request()
@@ -69,6 +71,33 @@ class TestBuildErrorMessage:
             msg = _build_error_message(req)
 
         assert "retry" in msg.content.lower()
+
+    def test_content_redacts_secret_shaped_fragments(self):
+        req = _make_request()
+        try:
+            raise RuntimeError("authorization: Bearer should-not-persist")
+        except RuntimeError:
+            msg = _build_error_message(req)
+
+        assert "should-not-persist" not in msg.content
+        assert "[REDACTED]" in msg.content
+
+    def test_same_tool_and_exception_have_stable_fingerprint(self):
+        req = _make_request("stable_tool")
+
+        def fail_from_one_place():
+            raise ConnectionError("connection lost")
+
+        messages = []
+        for _ in range(2):
+            try:
+                fail_from_one_place()
+            except ConnectionError:
+                messages.append(_build_error_message(req))
+
+        first = str(messages[0].content).splitlines()[1]
+        second = str(messages[1].content).splitlines()[1]
+        assert first == second
 
 
 # ---------------------------------------------------------------------------

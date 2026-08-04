@@ -272,6 +272,23 @@ def get_cached_binding_for_resolved_base(
         return _BINDING_CACHE.get((resolved_base_workspace, thread_id))
 
 
+def cached_bindings_for_resolved_base(
+    resolved_base_workspace: str,
+) -> tuple[WorkspaceBinding, ...]:
+    """Return a stable snapshot of bindings already loaded for one base.
+
+    Graph construction uses this to prewarm task backends before the async run
+    loop starts.  The snapshot performs no path resolution or registry I/O.
+    """
+
+    with _LOCK:
+        return tuple(
+            binding
+            for (base, _thread_id), binding in _BINDING_CACHE.items()
+            if base == resolved_base_workspace
+        )
+
+
 def preload_bindings(base_workspace: str | Path) -> int:
     """Load persisted bindings for one base workspace into the process cache.
 
@@ -514,6 +531,121 @@ def _ensure_project_layout(
     return shared
 
 
+def register_project_data_file(
+    base_workspace: str | Path,
+    source_path: str | Path,
+    relative_path: str | Path,
+    *,
+    dataset_id: str,
+    provenance: Mapping[str, Any],
+    project_id: str = DEFAULT_PROJECT_ID,
+) -> dict[str, Any]:
+    """Register one immutable, provenance-bound project data file.
+
+    This is intentionally separate from the legacy ``<workspace>/data``
+    mirror. Registered research inputs are project-owned and therefore are not
+    pruned when a legacy source disappears. A path may be registered again
+    only when its bytes are identical; changed releases need a new versioned
+    relative path.
+    """
+
+    base = Path(base_workspace).expanduser().resolve()
+    source = Path(source_path).expanduser().resolve()
+    relative = Path(relative_path)
+    if not dataset_id.strip():
+        raise ValueError("dataset_id is required")
+    if relative.is_absolute() or not relative.parts or ".." in relative.parts:
+        raise ValueError("relative_path must remain inside project data")
+    if not source.is_file() or source.is_symlink():
+        raise ValueError("source_path must be a regular file")
+
+    project_root = base / "projects" / _slug(project_id, fallback=DEFAULT_PROJECT_ID)
+    with _LOCK:
+        shared = _ensure_project_layout(project_root, project_id, base)
+        data_root = (shared / "data").resolve()
+        destination = (data_root / relative).resolve()
+        try:
+            destination.relative_to(data_root)
+        except ValueError as exc:
+            raise ValueError("relative_path escaped project data") from exc
+
+        source_sha256 = _sha256_file(source)
+        source_bytes = source.stat().st_size
+        if destination.exists():
+            if (
+                not destination.is_file()
+                or destination.is_symlink()
+                or _sha256_file(destination) != source_sha256
+            ):
+                raise FileExistsError(
+                    "registered project-data paths are immutable; use a new "
+                    "versioned relative_path"
+                )
+        else:
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            temporary = destination.with_name(f".{destination.name}.{os.getpid()}.tmp")
+            try:
+                shutil.copyfile(source, temporary)
+                if _sha256_file(temporary) != source_sha256:
+                    raise OSError("staged project data failed SHA-256 verification")
+                os.replace(temporary, destination)
+            finally:
+                temporary.unlink(missing_ok=True)
+
+        registered_at = utc_now()
+        provenance_relative = relative.with_name(f"{relative.name}.provenance.json")
+        provenance_payload = {
+            "schema_version": "project-data-provenance-v1",
+            "dataset_id": dataset_id.strip(),
+            "data_path": relative.as_posix(),
+            "data_sha256": source_sha256,
+            "bytes": source_bytes,
+            "registered_at": registered_at,
+            "provenance": dict(provenance),
+        }
+        _atomic_write_json(data_root / provenance_relative, provenance_payload)
+
+        catalog_path = shared / "project_data_catalog.json"
+        try:
+            catalog = json.loads(catalog_path.read_text(encoding="utf-8"))
+        except (OSError, TypeError, ValueError, json.JSONDecodeError):
+            catalog = {}
+        raw_files = catalog.get("files", []) if isinstance(catalog, Mapping) else []
+        files = [dict(item) for item in raw_files if isinstance(item, Mapping)]
+        record = {
+            "dataset_id": dataset_id.strip(),
+            "path": relative.as_posix(),
+            "virtual_path": f"/project/data/{relative.as_posix()}",
+            "role": "primary_data",
+            "bytes": source_bytes,
+            "sha256": source_sha256,
+            "provenance_ref": (f"/project/data/{provenance_relative.as_posix()}"),
+            "registered_at": registered_at,
+        }
+        existing = next(
+            (item for item in files if item.get("path") == relative.as_posix()),
+            None,
+        )
+        if existing is not None:
+            if existing.get("sha256") != source_sha256:
+                raise FileExistsError(
+                    "catalog path already points to different immutable bytes"
+                )
+            record = existing
+        else:
+            files.append(record)
+        _atomic_write_json(
+            catalog_path,
+            {
+                "schema_version": "project-data-catalog-v1",
+                "files": sorted(files, key=lambda item: str(item.get("path") or "")),
+                "updated_at": registered_at,
+            },
+        )
+        _PROJECT_INPUT_CACHE.pop(str(shared.resolve()), None)
+        return dict(record)
+
+
 def _project_input_records(binding: WorkspaceBinding) -> list[dict[str, Any]]:
     cache_key = str(Path(binding.project_shared).resolve())
     cached = _PROJECT_INPUT_CACHE.get(cache_key)
@@ -523,7 +655,7 @@ def _project_input_records(binding: WorkspaceBinding) -> list[dict[str, Any]]:
     try:
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     except (OSError, TypeError, ValueError, json.JSONDecodeError):
-        return []
+        manifest = {}
     raw_files = manifest.get("files", []) if isinstance(manifest, Mapping) else []
     if not isinstance(raw_files, list):
         return []
@@ -549,6 +681,55 @@ def _project_input_records(binding: WorkspaceBinding) -> list[dict[str, Any]]:
                 "source": "project_shared_data",
             }
         )
+    catalog_path = Path(binding.project_shared) / "project_data_catalog.json"
+    try:
+        catalog = json.loads(catalog_path.read_text(encoding="utf-8"))
+    except (OSError, TypeError, ValueError, json.JSONDecodeError):
+        catalog = {}
+    catalog_files = catalog.get("files", []) if isinstance(catalog, Mapping) else []
+    known_paths = {str(item["path"]) for item in records}
+    data_root = Path(binding.project_shared) / "data"
+    if isinstance(catalog_files, list):
+        for item in catalog_files:
+            if not isinstance(item, Mapping):
+                continue
+            virtual_path = item.get("virtual_path")
+            sha256 = item.get("sha256")
+            size = item.get("bytes")
+            relative_text = item.get("path")
+            if not (
+                isinstance(virtual_path, str)
+                and isinstance(sha256, str)
+                and isinstance(size, int)
+                and isinstance(relative_text, str)
+                and virtual_path not in known_paths
+            ):
+                continue
+            relative = Path(relative_text)
+            candidate = (data_root / relative).resolve()
+            try:
+                candidate.relative_to(data_root.resolve())
+            except ValueError:
+                continue
+            if (
+                not candidate.is_file()
+                or candidate.is_symlink()
+                or candidate.stat().st_size != size
+                or _sha256_file(candidate) != sha256
+            ):
+                continue
+            records.append(
+                {
+                    "path": virtual_path,
+                    "role": "primary_data",
+                    "bytes": size,
+                    "sha256": sha256,
+                    "source": "registered_project_data",
+                    "dataset_id": str(item.get("dataset_id") or ""),
+                    "provenance_ref": str(item.get("provenance_ref") or ""),
+                }
+            )
+            known_paths.add(virtual_path)
     _PROJECT_INPUT_CACHE[cache_key] = tuple(dict(item) for item in records)
     return records
 
@@ -575,6 +756,10 @@ def _refresh_run_scope_records(binding: WorkspaceBinding) -> None:
     """Keep both new and existing runs aware of available project data."""
 
     run_root = Path(binding.workspace)
+    # ``ensure_thread_workspace`` is the synchronous trust boundary. Rebuild
+    # the cache here so an externally changed or removed registered file is
+    # never retained merely because an earlier run saw valid bytes.
+    _PROJECT_INPUT_CACHE.pop(str(Path(binding.project_shared).resolve()), None)
     project_inputs = _project_input_records(binding)
     input_manifest_path = run_root / "input_manifest.json"
     try:

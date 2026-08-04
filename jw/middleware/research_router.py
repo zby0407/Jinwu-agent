@@ -43,6 +43,7 @@ from jw.research_protocols import (
     detect_analysis_protocol,
     f107_discontinuity_directive,
 )
+from jw.research_review import store_from_config
 from jw.workspaces import workspace_root_from_config
 
 from .closed_loop_orchestration import closed_loop_receipts
@@ -55,11 +56,21 @@ ResearchMode = Literal["fast_answer", "verified_analysis", "full_research"]
 SourceMode = Literal["none", "local", "external", "mixed"]
 TaskIntent = Literal[
     "general",
+    "research_planning",
+    "data_preparation",
     "hypothesis_generation",
     "hypothesis_comparison",
     "hypothesis_update",
+    "experiment_design",
+    "experiment_run",
 ]
-RequiredSpecialist = Literal["none", "solar-hypothesis"]
+RequiredSpecialist = Literal[
+    "none",
+    "solar-planner",
+    "solar-data",
+    "solar-hypothesis",
+    "solar-experiment",
+]
 
 _ROUTE_SCHEMA: dict[str, Any] = {
     "title": "ResearchRoute",
@@ -95,23 +106,31 @@ _ROUTE_SCHEMA: dict[str, Any] = {
             "type": "string",
             "enum": [
                 "general",
+                "research_planning",
+                "data_preparation",
                 "hypothesis_generation",
                 "hypothesis_comparison",
                 "hypothesis_update",
+                "experiment_design",
+                "experiment_run",
             ],
             "description": (
-                "The bounded professional intent. Select a hypothesis intent when "
-                "the user asks to generate, compare/review, or update scientific "
-                "hypotheses; otherwise select general."
+                "The bounded professional intent for planning, data, hypotheses, "
+                "or experiment design/execution; otherwise select general."
             ),
         },
         "required_specialist": {
             "type": "string",
-            "enum": ["none", "solar-hypothesis"],
+            "enum": [
+                "none",
+                "solar-planner",
+                "solar-data",
+                "solar-hypothesis",
+                "solar-experiment",
+            ],
             "description": (
-                "The specialist that must handle this bounded request. All three "
-                "hypothesis intents require solar-hypothesis. Use none for general "
-                "requests and for full_research, whose graph owns its own stages."
+                "The specialist matching the bounded intent. Use none for general "
+                "requests and full_research, whose graph owns its stages."
             ),
         },
         "reason": {
@@ -150,11 +169,15 @@ Routes:
   competing hypotheses, experiment/validation, and final research report.
 
 Professional intents:
+- research_planning: produce or revise a bounded research plan.
+- data_preparation: inspect, clean, align, or feature-engineer a bounded dataset.
 - hypothesis_generation: generate or formulate scientific hypotheses.
 - hypothesis_comparison: compare, rank, or review competing hypotheses.
 - hypothesis_update: revise or update hypotheses using new evidence.
-All three are bounded verified_analysis requests with
-required_specialist=solar-hypothesis. They must not be promoted to full_research
+- experiment_design: design a bounded experiment without claiming execution.
+- experiment_run: execute or resume a bounded accepted experiment.
+Each is a bounded verified_analysis request with its matching solar specialist.
+Hypothesis tasks must not be promoted to full_research
 unless the user explicitly asks for the complete planner -> hypothesis ->
 experiment workflow. Use task_intent=general and required_specialist=none for
 full_research because that route owns its fixed specialist graph.
@@ -167,10 +190,36 @@ the requested result."""
 
 _FULL_RESEARCH_STAGES = (
     "solar-planner",
+    "solar-data",
     "solar-hypothesis",
     "solar-experiment",
+    "solar-evidence",
 )
-_RECEIPT_SPECIALISTS = {*_FULL_RESEARCH_STAGES, "solar-data"}
+_RECEIPT_SPECIALISTS = set(_FULL_RESEARCH_STAGES)
+_BOUNDED_STAGE_BY_SPECIALIST_INTENT = {
+    ("solar-planner", "research_planning"): "planning",
+    ("solar-data", "data_preparation"): "data",
+    ("solar-hypothesis", "hypothesis_generation"): "hypothesis",
+    ("solar-hypothesis", "hypothesis_comparison"): "hypothesis",
+    ("solar-hypothesis", "hypothesis_update"): "hypothesis",
+    ("solar-experiment", "experiment_design"): "experiment_design",
+    ("solar-experiment", "experiment_run"): "experiment_result",
+}
+_BOUNDED_ROUTE_BY_STAGE = {
+    "planning": ("solar-planner", "research_planning"),
+    "data": ("solar-data", "data_preparation"),
+    "hypothesis": ("solar-hypothesis", "hypothesis_update"),
+    "experiment_design": ("solar-experiment", "experiment_design"),
+    "experiment_result": ("solar-experiment", "experiment_run"),
+}
+_RESEARCH_CONTINUATION_ACTION = re.compile(
+    r"(?:继续|恢复|接着|resume|continue)", re.IGNORECASE
+)
+_RESEARCH_CONTINUATION_CONTEXT = re.compile(
+    r"(?:科研闭环|研究闭环|状态机|审查|返修|独立复核|独立审查|"
+    r"next[_ -]?action|research\s+(?:loop|review)|revision|review)",
+    re.IGNORECASE,
+)
 _LOCAL_DISCOVERY_TOOLS = ("ls", "glob")
 _LOCAL_READ_TOOLS = ("read_file",)
 _EXTERNAL_EVIDENCE_TOOLS = (
@@ -242,6 +291,40 @@ _HYPOTHESIS_INTENT_PATTERNS: tuple[tuple[TaskIntent, re.Pattern[str]], ...] = (
         ),
     ),
 )
+_BOUNDED_FALLBACK_PATTERNS = (
+    (
+        "research_planning",
+        "solar-planner",
+        re.compile(
+            r"(?:制定|生成|修订|完善).{0,16}(?:研究计划|研究规划|实验路线)",
+            re.IGNORECASE,
+        ),
+    ),
+    (
+        "data_preparation",
+        "solar-data",
+        re.compile(
+            r"(?:清洗|对齐|准备|构建|提取).{0,16}(?:数据|特征|dataset|features?)",
+            re.IGNORECASE,
+        ),
+    ),
+    (
+        "experiment_run",
+        "solar-experiment",
+        re.compile(
+            r"(?:运行|执行|重跑|恢复|继续).{0,16}(?:实验|回测|experiment|backtest)",
+            re.IGNORECASE,
+        ),
+    ),
+    (
+        "experiment_design",
+        "solar-experiment",
+        re.compile(
+            r"(?:设计|制定|审查|完善).{0,16}(?:实验|回测|experiment|backtest)",
+            re.IGNORECASE,
+        ),
+    ),
+)
 
 
 class ResearchRoutingState(AgentState):
@@ -295,6 +378,133 @@ def _turn_key(message: object) -> str:
     return hashlib.sha256(_message_text(message).encode("utf-8")).hexdigest()
 
 
+def _is_research_continuation_request(text: str) -> bool:
+    """Recognize an explicit request to advance the persisted research graph."""
+    return bool(
+        _RESEARCH_CONTINUATION_ACTION.search(text)
+        and _RESEARCH_CONTINUATION_CONTEXT.search(text)
+    )
+
+
+def _continuation_route(state: Mapping[str, Any], text: str) -> dict[str, Any] | None:
+    """Preserve a v2 workflow route across a terse continuation turn.
+
+    Older checkpoints may already have overwritten their useful route with a
+    generic one.  For those only, recover the last explicit graph node from the
+    same thread's trace.  Do not read a workspace here: ``before_agent`` may run
+    before task-workspace binding, which would risk cross-run state leakage.
+    """
+    if not _is_research_continuation_request(text):
+        return None
+    prior = state.get("research_route")
+    if isinstance(prior, Mapping):
+        mode = prior.get("mode")
+        prior_reason = str(prior.get("reason") or "")
+        bounded_stage = _BOUNDED_STAGE_BY_SPECIALIST_INTENT.get(
+            (
+                str(prior.get("required_specialist")),
+                str(prior.get("task_intent")),
+            )
+        )
+        derived_continuation_route = prior_reason.startswith(
+            ("recovered ", "explicit continuation ")
+        )
+        if not derived_continuation_route and (
+            mode == "full_research" or bounded_stage is not None
+        ):
+            resumed = dict(prior)
+            resumed["reason"] = "explicit continuation of persisted research graph"
+            return resumed
+
+    messages = list(state.get("messages", []))
+    latest = _latest_human(messages)
+    history = messages[: latest[0]] if latest is not None else messages
+    for message in reversed(history):
+        if (
+            (
+                isinstance(message, HumanMessage)
+                or _message_role(message) in {"human", "user"}
+            )
+            and not _is_research_continuation_request(_message_text(message))
+            and _explicit_full_research(_message_text(message))
+        ):
+            return {
+                "mode": "full_research",
+                "source_mode": "mixed",
+                "needs_computation": True,
+                "task_intent": "general",
+                "required_specialist": "none",
+                "reason": "recovered full research graph from same-thread trace",
+            }
+
+    specialist_to_stage = {
+        "solar-planner": "planning",
+        "solar-data": "data",
+        "solar-hypothesis": "hypothesis",
+        "solar-experiment": "experiment_result",
+    }
+    blocked_call_ids = {
+        str(
+            message.get("tool_call_id")
+            if isinstance(message, Mapping)
+            else getattr(message, "tool_call_id", "")
+        )
+        for message in history
+        if (isinstance(message, ToolMessage) or _message_role(message) == "tool")
+        and _message_text(message).lstrip().startswith("[RESEARCH REVIEW BLOCKED]")
+    }
+    stage = ""
+    for message in reversed(history):
+        raw_calls = (
+            message.get("tool_calls", [])
+            if isinstance(message, Mapping)
+            else getattr(message, "tool_calls", [])
+        )
+        if not isinstance(raw_calls, Sequence) or isinstance(raw_calls, (str, bytes)):
+            continue
+        for call in reversed(raw_calls):
+            if not isinstance(call, Mapping):
+                continue
+            if str(call.get("id") or "") in blocked_call_ids:
+                continue
+            args = call.get("args")
+            if call.get("name") == "research_independent_review" and isinstance(
+                args, Mapping
+            ):
+                stage = str(args.get("review_mode") or "")
+                break
+            if call.get("name") == "task" and isinstance(args, Mapping):
+                stage = specialist_to_stage.get(
+                    str(args.get("subagent_type") or ""), ""
+                )
+                if stage:
+                    break
+        if stage:
+            break
+
+    if stage in {"integration", "final_release"}:
+        return {
+            "mode": "full_research",
+            "source_mode": "mixed",
+            "needs_computation": True,
+            "task_intent": "general",
+            "required_specialist": "none",
+            "reason": "recovered full research graph from same-thread trace",
+        }
+    bounded = _BOUNDED_ROUTE_BY_STAGE.get(stage)
+    if bounded is None:
+        return None
+    specialist, intent = bounded
+    return {
+        "mode": "verified_analysis",
+        "source_mode": "local",
+        "needs_computation": stage == "experiment_result",
+        "task_intent": intent,
+        "required_specialist": specialist,
+        "reason": f"recovered bounded {stage} graph from same-thread trace",
+    }
+
+
 def _hypothesis_intent(text: str) -> TaskIntent | None:
     """Return an explicit bounded hypothesis intent, if present."""
 
@@ -326,6 +536,8 @@ def _specialize_hypothesis_route(
     required_specialist = normalized.get("required_specialist")
     if text_intent is not None:
         routed_intent = text_intent
+    elif (required_specialist, routed_intent) in _BOUNDED_STAGE_BY_SPECIALIST_INTENT:
+        return normalized
     elif (
         routed_intent
         not in {
@@ -405,6 +617,16 @@ def _fallback_route(text: str) -> dict[str, Any]:
             "required_specialist": "solar-hypothesis",
             "reason": "router unavailable; explicit hypothesis intent kept specialized",
         }
+    for intent, specialist, pattern in _BOUNDED_FALLBACK_PATTERNS:
+        if pattern.search(text):
+            return {
+                "mode": "verified_analysis",
+                "source_mode": "mixed",
+                "needs_computation": intent == "experiment_run",
+                "task_intent": intent,
+                "required_specialist": specialist,
+                "reason": "router unavailable; explicit bounded specialist intent preserved",
+            }
     if _DATA_FALLBACK.search(text):
         local = bool(re.search(r"(?:本地|现有|已有|workspace|local|provided)", text))
         return {
@@ -447,11 +669,22 @@ def _validated_route(value: object, *, fallback_text: str) -> dict[str, Any]:
         or task_intent
         not in {
             "general",
+            "research_planning",
+            "data_preparation",
             "hypothesis_generation",
             "hypothesis_comparison",
             "hypothesis_update",
+            "experiment_design",
+            "experiment_run",
         }
-        or required_specialist not in {"none", "solar-hypothesis"}
+        or required_specialist
+        not in {
+            "none",
+            "solar-planner",
+            "solar-data",
+            "solar-hypothesis",
+            "solar-experiment",
+        }
         or not isinstance(reason, str)
     ):
         return _fallback_route(fallback_text)
@@ -628,7 +861,7 @@ def _workspace_verified_specialists(
     """Resolve real task-local stage artifacts, or None for unbound test/CLI calls."""
 
     try:
-        config = getattr(request.runtime, "config", None)
+        config = _request_config(request)
         root = workspace_root_from_config(
             config if isinstance(config, Mapping) else None
         )
@@ -760,6 +993,36 @@ def _model_request_user_request(request: ModelRequest) -> str:
     return _message_text(latest[1]) if latest is not None else ""
 
 
+def _request_config(request: object) -> Mapping[str, Any] | None:
+    """Resolve RunnableConfig for both model and tool middleware requests.
+
+    Current LangGraph ModelRequest.runtime has no config field. Reading it there
+    silently selected the deployment workspace instead of the task workspace.
+    ToolCallRequest retains runtime.config, so it remains the direct-call fallback
+    after the documented context-local accessor.
+    """
+
+    try:
+        from langgraph.config import get_config
+
+        active = get_config()
+    except Exception:
+        active = None
+    if isinstance(active, Mapping):
+        return active
+    runtime = getattr(request, "runtime", None)
+    fallback = getattr(runtime, "config", None)
+    return fallback if isinstance(fallback, Mapping) else None
+
+
+def _bounded_review_action(request: object) -> dict[str, Any]:
+    return store_from_config(_request_config(request)).bounded_hypothesis_action()
+
+
+def _bounded_stage_action(request: object, stage: str) -> dict[str, Any]:
+    return store_from_config(_request_config(request)).bounded_stage_action(stage)
+
+
 def _direct_hypothesis_task_request(
     request: ToolCallRequest,
 ) -> tuple[ToolCallRequest | None, ToolMessage | None]:
@@ -770,6 +1033,13 @@ def _direct_hypothesis_task_request(
     call = request.tool_call
     call_id = str(call.get("id") or "hypothesis-routing-blocked")
     call_name = str(call.get("name") or "unknown")
+    if call_name == "research_independent_review":
+        try:
+            action = _bounded_review_action(request)
+        except Exception:
+            action = {}
+        if action.get("kind") == "independent_review":
+            return request, None
     if call_name != "task":
         return None, ToolMessage(
             content=(
@@ -852,7 +1122,45 @@ def _direct_hypothesis_task_request(
             )
             return request.override(tool_call={**call, "args": rewritten_args}), None
 
+    try:
+        review_action = _bounded_review_action(request)
+    except Exception as exc:
+        return None, ToolMessage(
+            content=(
+                "[HYPOTHESIS REVIEW BLOCKED] The task-scoped review state could not "
+                f"be loaded: {type(exc).__name__}: {exc}"
+            ),
+            tool_call_id=call_id,
+            name="task",
+            status="error",
+        )
+    if review_action["kind"] == "review":
+        args = call.get("args")
+        rewritten_args = dict(args) if isinstance(args, Mapping) else {}
+        rewritten_args.update(
+            {
+                "subagent_type": "solar-evidence",
+                "description": (
+                    "Review the current bounded hypothesis artifact independently. "
+                    "review_mode=hypothesis. Call evidence_review_open_context first, "
+                    "then persist exactly one hash-bound verdict. Never edit the draft."
+                ),
+            }
+        )
+        return request.override(tool_call={**call, "args": rewritten_args}), None
+    if review_action["kind"] in {"released", "terminal"}:
+        return None, ToolMessage(
+            content=(
+                "[HYPOTHESIS REVIEW BLOCKED] This stage is already terminal or "
+                "accepted; no additional delegation is allowed."
+            ),
+            tool_call_id=call_id,
+            name="task",
+            status="error",
+        )
+
     user_request = _latest_user_request(request.state)
+    review_issues = review_action.get("issues", [])
     description = (
         "Handle this as the bounded solar-hypothesis specialist. Use only the "
         "verbatim user request below as the task contract; parent prose is not "
@@ -930,6 +1238,7 @@ def _direct_hypothesis_task_request(
         "Resolve avoidable draft warnings. Do not rely on a parent-written Wiki "
         "summary or unbound 'verified facts'. Do not publish or freeze unless the "
         "user explicitly requests it.\n\n"
+        f"<review_issues>{json.dumps(review_issues, ensure_ascii=False)}</review_issues>\n"
         "<latest_user_request>\n"
         f"{user_request}\n"
         "</latest_user_request>"
@@ -1188,15 +1497,22 @@ def _passthrough_hypothesis_result(
 
     if not _is_bounded_hypothesis_route(request.state):
         return response
-    content = _latest_specialist_result(
-        list(request.messages),
-        "solar-hypothesis",
-    )
-    if content is not None:
-        return ModelResponse(
-            result=[AIMessage(content=content)],
-            structured_response=response.structured_response,
+    try:
+        action = _bounded_review_action(request)
+    except Exception:
+        return response
+    if action.get("kind") == "terminal":
+        return response
+    if action.get("kind") == "released":
+        content = _latest_specialist_result(
+            list(request.messages),
+            "solar-hypothesis",
         )
+        if content is not None:
+            return ModelResponse(
+                result=[AIMessage(content=content)],
+                structured_response=response.structured_response,
+            )
 
     calls, _ = _calls_since_latest_human(list(request.messages))
     attempts = _attempt_count(
@@ -1211,7 +1527,11 @@ def _passthrough_hypothesis_result(
             "solar-hypothesis",
         ),
     )
-    if attempts >= 2 or _available_tool(request.tools, ("task",)) is None:
+    if (
+        action.get("kind") == "producer"
+        and action.get("phase") == "hypothesis"
+        and attempts >= 2
+    ) or _available_tool(request.tools, ("task",)) is None:
         return response
 
     # Tool filtering is advisory in several upstream middleware layers: a
@@ -1219,31 +1539,24 @@ def _passthrough_hypothesis_result(
     # Normalize the actual model result as well, so bounded hypothesis turns
     # reach the specialist in one graph step rather than spending a round on
     # blocked parent-side reads.
+    expected_agent = (
+        "solar-evidence" if action.get("kind") == "review" else "solar-hypothesis"
+    )
     if (
         len(response.result) == 1
         and isinstance(response.result[0], AIMessage)
         and len(response.result[0].tool_calls) == 1
         and response.result[0].tool_calls[0].get("name") == "task"
+        and isinstance(response.result[0].tool_calls[0].get("args"), Mapping)
+        and response.result[0].tool_calls[0]["args"].get("subagent_type")
+        == expected_agent
     ):
-        message = response.result[0]
-        call = dict(message.tool_calls[0])
-        raw_args = call.get("args")
-        args = dict(raw_args) if isinstance(raw_args, Mapping) else {}
-        args["subagent_type"] = "solar-hypothesis"
-        # The visible parent trace must remain a genuine black-box handoff. The
-        # execution wrapper injects the specialist's fixed scientific contract;
-        # parent-authored candidate counts, mechanism examples, rankings, or
-        # expected output shapes must not survive into the task call.
-        args["description"] = _model_request_user_request(request)
-        call["args"] = args
-        return ModelResponse(
-            result=[message.model_copy(update={"tool_calls": [call]})],
-            structured_response=response.structured_response,
-        )
+        return response
 
     request_digest = hashlib.sha256(
-        _model_request_user_request(request).encode("utf-8")
+        _latest_user_request(request.state).encode("utf-8")
     ).hexdigest()[:20]
+    action = _bounded_review_action(request)
     return ModelResponse(
         result=[
             AIMessage(
@@ -1252,14 +1565,243 @@ def _passthrough_hypothesis_result(
                     {
                         "name": "task",
                         "args": {
-                            "subagent_type": "solar-hypothesis",
-                            "description": "bounded hypothesis route",
+                            "subagent_type": expected_agent,
+                            "description": "bounded hypothesis review route",
                         },
                         "id": f"call_hypothesis_{request_digest}",
                     }
                 ],
             )
         ],
+        structured_response=response.structured_response,
+    )
+
+
+def _passthrough_accepted_release(
+    request: ModelRequest,
+    response: ModelResponse,
+) -> ModelResponse:
+    """Render only the exact final draft accepted by the hash-bound release gate."""
+
+    route = request.state.get("research_route")
+    if not isinstance(route, Mapping) or route.get("mode") != "full_research":
+        return response
+    config = _request_config(request)
+    try:
+        report = store_from_config(config).accepted_release_markdown()
+    except Exception:
+        return response
+    if not isinstance(report, str) or not report.strip():
+        return response
+    return ModelResponse(
+        result=[AIMessage(content=report)],
+        structured_response=response.structured_response,
+    )
+
+
+def _single_response_tool_call(response: ModelResponse) -> dict[str, Any] | None:
+    if len(response.result) != 1 or not isinstance(response.result[0], AIMessage):
+        return None
+    calls = response.result[0].tool_calls
+    return calls[0] if len(calls) == 1 else None
+
+
+def _blocked_model_response(response: ModelResponse, reason: str) -> ModelResponse:
+    return ModelResponse(
+        result=[AIMessage(content=f"[RESEARCH REVIEW BLOCKED] {reason}")],
+        structured_response=response.structured_response,
+    )
+
+
+def _enforce_v2_action_response(
+    request: ModelRequest,
+    response: ModelResponse,
+) -> ModelResponse:
+    """Prevent prose from bypassing a required producer, review, or release node."""
+
+    route = request.state.get("research_route")
+    if not isinstance(route, Mapping):
+        return response
+    mode = route.get("mode")
+    config = _request_config(request)
+    try:
+        if mode == "full_research":
+            action = store_from_config(config).next_action()
+        elif mode == "verified_analysis":
+            stage = _BOUNDED_STAGE_BY_SPECIALIST_INTENT.get(
+                (
+                    str(route.get("required_specialist")),
+                    str(route.get("task_intent")),
+                )
+            )
+            if stage is None:
+                return response
+            action = (
+                _bounded_review_action(request)
+                if stage == "hypothesis"
+                else store_from_config(config).bounded_stage_action(stage)
+            )
+        else:
+            return response
+    except Exception as exc:
+        return _blocked_model_response(
+            response,
+            f"task-scoped v2 state unavailable: {type(exc).__name__}: {exc}",
+        )
+
+    if action["kind"] == "terminal":
+        status = str(action.get("status") or "blocked")
+        reason = str(action.get("reason") or "unresolved review gate")
+        return ModelResponse(
+            result=[
+                AIMessage(
+                    content=(
+                        "[RESEARCH REVIEW TERMINAL] No further tool action is "
+                        f"allowed in this turn. status={status}; reason={reason}. "
+                        "The current artifact and unresolved review requirements "
+                        "remain persisted; do not claim release acceptance."
+                    )
+                )
+            ],
+            structured_response=response.structured_response,
+        )
+    if action["kind"] == "released":
+        return response
+    existing = _single_response_tool_call(response)
+    digest = hashlib.sha256(
+        _latest_user_request(request.state).encode("utf-8")
+    ).hexdigest()[:16]
+
+    if action["kind"] in {"producer", "review"}:
+        expected_agent = (
+            "solar-evidence" if action["kind"] == "review" else action["producer"]
+        )
+        if (
+            existing is not None
+            and existing.get("name") == "task"
+            and isinstance(existing.get("args"), Mapping)
+            and existing["args"].get("subagent_type") == expected_agent
+        ):
+            return response
+        if _available_tool(request.tools, ("task",)) is None:
+            return _blocked_model_response(
+                response,
+                f"required task node {expected_agent} is unavailable; no unreviewed prose was released",
+            )
+        return ModelResponse(
+            result=[
+                AIMessage(
+                    content="",
+                    tool_calls=[
+                        {
+                            "name": "task",
+                            "args": {
+                                "subagent_type": expected_agent,
+                                "description": (
+                                    "deterministic ResearchRunStateV2 producer route"
+                                    if action["kind"] == "producer"
+                                    else "deterministic ReviewVerdictV2 review route"
+                                ),
+                            },
+                            "id": f"call_research_{digest}_{action['stage']}",
+                        }
+                    ],
+                )
+            ],
+            structured_response=response.structured_response,
+        )
+
+    tool_name = {
+        "independent_review": "research_independent_review",
+        "prepare_release": "research_release_prepare",
+    }.get(action["kind"])
+    if tool_name is None:
+        return _blocked_model_response(
+            response, f"unsupported deterministic action {action['kind']}"
+        )
+    if existing is not None and existing.get("name") == tool_name:
+        return response
+    if _available_tool(request.tools, (tool_name,)) is None:
+        return _blocked_model_response(
+            response,
+            f"required {tool_name} node is unavailable; no unreviewed prose was released",
+        )
+    if action["kind"] == "independent_review":
+        args = {"review_mode": action["review_mode"]}
+    else:
+        draft = "\n".join(
+            _message_text(item)
+            for item in response.result
+            if isinstance(item, AIMessage)
+        ).strip()
+        if not draft:
+            return _blocked_model_response(
+                response,
+                "the final draft was empty and could not enter the release gate",
+            )
+        release_context = action.get("release_context", {})
+        claims = (
+            release_context.get("claims", [])
+            if isinstance(release_context, Mapping)
+            else []
+        )
+        citations = [
+            {"claim_id": claim["claim_id"], "draft_excerpt": claim["text"]}
+            for claim in claims
+            if isinstance(claim, Mapping)
+            and isinstance(claim.get("claim_id"), str)
+            and isinstance(claim.get("text"), str)
+            and claim["text"] in draft
+        ]
+        if not citations:
+            return _blocked_model_response(
+                response,
+                "the prose response contained no exact accepted claim citation; "
+                "generate claim_citations and call research_release_prepare",
+            )
+        args = {"draft_markdown": draft, "claim_citations": citations}
+    return ModelResponse(
+        result=[
+            AIMessage(
+                content="",
+                tool_calls=[
+                    {
+                        "name": tool_name,
+                        "args": args,
+                        "id": f"call_research_{digest}_{action['kind']}",
+                    }
+                ],
+            )
+        ],
+        structured_response=response.structured_response,
+    )
+
+
+def _passthrough_accepted_bounded_stage(
+    request: ModelRequest,
+    response: ModelResponse,
+) -> ModelResponse:
+    route = request.state.get("research_route")
+    if not isinstance(route, Mapping) or route.get("mode") != "verified_analysis":
+        return response
+    stage = _BOUNDED_STAGE_BY_SPECIALIST_INTENT.get(
+        (str(route.get("required_specialist")), str(route.get("task_intent")))
+    )
+    if stage is None or stage == "hypothesis":
+        return response
+    config = _request_config(request)
+    try:
+        store = store_from_config(config)
+        if store.bounded_stage_action(stage).get("kind") != "released":
+            return response
+        artifact = store.latest_artifact(stage)
+    except Exception:
+        return response
+    text = artifact["payload"].get("producer_result") if artifact else None
+    if not isinstance(text, str) or not text.strip():
+        return response
+    return ModelResponse(
+        result=[AIMessage(content=text)],
         structured_response=response.structured_response,
     )
 
@@ -1307,7 +1849,6 @@ class ResearchRouterMiddleware(AgentMiddleware[ResearchRoutingState, Any, Any]):
         state: ResearchRoutingState,
         runtime: Any,
     ) -> dict[str, Any] | None:
-        del runtime
         messages = state.get("messages", [])
         latest = _latest_human(messages)
         if latest is None:
@@ -1315,8 +1856,10 @@ class ResearchRouterMiddleware(AgentMiddleware[ResearchRoutingState, Any, Any]):
         key = _turn_key(latest[1])
         if state.get("research_route_turn") == key and state.get("research_route"):
             return None
+        text = _message_text(latest[1])
+        continued = _continuation_route(state, text)
         return {
-            "research_route": self._route_sync(_message_text(latest[1])),
+            "research_route": continued or self._route_sync(text),
             "research_route_turn": key,
         }
 
@@ -1325,7 +1868,6 @@ class ResearchRouterMiddleware(AgentMiddleware[ResearchRoutingState, Any, Any]):
         state: ResearchRoutingState,
         runtime: Any,
     ) -> dict[str, Any] | None:
-        del runtime
         messages = state.get("messages", [])
         latest = _latest_human(messages)
         if latest is None:
@@ -1333,8 +1875,10 @@ class ResearchRouterMiddleware(AgentMiddleware[ResearchRoutingState, Any, Any]):
         key = _turn_key(latest[1])
         if state.get("research_route_turn") == key and state.get("research_route"):
             return None
+        text = _message_text(latest[1])
+        continued = _continuation_route(state, text)
         return {
-            "research_route": await self._route_async(_message_text(latest[1])),
+            "research_route": continued or await self._route_async(text),
             "research_route_turn": key,
         }
 
@@ -1438,11 +1982,6 @@ class ResearchRouterMiddleware(AgentMiddleware[ResearchRoutingState, Any, Any]):
                         suppress_tools = True
 
             if required_specialist == "solar-hypothesis" and not f107_data_pending:
-                completed = _successful_specialists(
-                    calls,
-                    successful_names,
-                    messages,
-                )
                 attempts = _attempt_count(
                     calls,
                     "task",
@@ -1456,45 +1995,130 @@ class ResearchRouterMiddleware(AgentMiddleware[ResearchRoutingState, Any, Any]):
                     ),
                 )
                 task_available = _available_tool(request.tools, ("task",)) is not None
-                if "solar-hypothesis" in completed:
-                    suppress_tools = True
+                try:
+                    action = _bounded_review_action(request)
+                except Exception as exc:
                     directive.append(
-                        "The required solar-hypothesis delegation completed. Its full "
-                        "scientific contract remains persisted internally, and its "
-                        "tool "
-                        "result has already been converted to the deterministic "
-                        "researcher-facing view. Pass that view through unchanged. Do "
-                        "not expose scores, rankings, hashes, schema fields, rubric "
-                        "traces, workflow terminology, or append the "
-                        "full-research planner/experiment chain. Do not invoke a "
-                        "compensating specialist."
+                        "HYPOTHESIS REVIEW BLOCKER: task-scoped state unavailable: "
+                        f"{type(exc).__name__}: {exc}"
                     )
-                elif attempts >= 2:
+                    suppress_tools = True
+                else:
+                    directive.append(
+                        "Bounded stage next_action="
+                        + json.dumps(action, ensure_ascii=False, default=str)
+                    )
+                    if action["kind"] == "released":
+                        suppress_tools = True
+                        directive.append(
+                            "The exact hypothesis artifact passed independent review. "
+                            "Return the accepted producer result verbatim."
+                        )
+                    elif action["kind"] == "terminal":
+                        suppress_tools = True
+                        directive.append(
+                            f"The hypothesis review is {action['status']}; report its "
+                            "unresolved issues without claiming acceptance."
+                        )
+                    elif action["kind"] == "independent_review":
+                        independent_available = (
+                            _available_tool(
+                                request.tools, ("research_independent_review",)
+                            )
+                            is not None
+                        )
+                        if independent_available:
+                            forced_tool = "research_independent_review"
+                            directive.append(
+                                "Call research_independent_review for "
+                                "review_mode='hypothesis'. If no genuinely "
+                                "heterogeneous reviewer is configured, preserve "
+                                "human_review."
+                            )
+                        else:
+                            directive.append(
+                                "ROUTING BLOCKER: hypothesis mechanism claims need "
+                                "a hash-matching heterogeneous review, but the "
+                                "independent review tool is unavailable."
+                            )
+                            suppress_tools = True
+                    elif task_available:
+                        forced_tool = "task"
+                        if action["kind"] == "review":
+                            directive.append(
+                                "Call task now with subagent_type='solar-evidence' for "
+                                "the independent hypothesis review."
+                            )
+                        else:
+                            directive.append(
+                                "Call task now with subagent_type='solar-hypothesis'. "
+                                "For a revision, address only the structured issues and "
+                                "preserve the existing valid draft."
+                            )
+                    else:
+                        directive.append(
+                            "ROUTING BLOCKER: the task tool required by the bounded "
+                            "producer/reviewer loop is unavailable."
+                        )
+                        suppress_tools = True
+                if (
+                    not suppress_tools
+                    and action.get("kind") == "producer"
+                    and action.get("phase") == "hypothesis"
+                    and attempts >= 2
+                ):
                     directive.append(
                         "solar-hypothesis failed twice. Do not loop or silently "
                         "substitute another specialist; report this exact delegation "
                         "failure as the blocker."
                     )
                     suppress_tools = True
-                elif task_available:
-                    forced_tool = "task"
+            elif (
+                bounded_stage := _BOUNDED_STAGE_BY_SPECIALIST_INTENT.get(
+                    (str(required_specialist), str(task_intent))
+                )
+            ) is not None:
+                try:
+                    action = _bounded_stage_action(request, bounded_stage)
+                except Exception as exc:
                     directive.append(
-                        "This bounded hypothesis request must be delegated directly. "
-                        "Call task now with subagent_type='solar-hypothesis'. Pass only "
-                        "the latest user request and immutable input paths explicitly "
-                        "provided by the user. Do not pre-read Wiki, memory, or evidence "
-                        "files; the specialist owns discovery and binding. Do not call "
-                        "solar-planner first and do not expand this into full_research."
-                    )
-                else:
-                    directive.append(
-                        "ROUTING BLOCKER: required specialist solar-hypothesis cannot "
-                        "be delegated because the actual tool list does not contain "
-                        "'task'. Do not silently continue, answer from memory, or "
-                        "substitute another tool/specialist. Report this exact missing-"
-                        "tool blocker to the user."
+                        "BOUNDED REVIEW BLOCKER: task-scoped state unavailable: "
+                        f"{type(exc).__name__}: {exc}"
                     )
                     suppress_tools = True
+                else:
+                    directive.append(
+                        "Bounded stage next_action="
+                        + json.dumps(action, ensure_ascii=False, default=str)
+                    )
+                    if action["kind"] == "released":
+                        suppress_tools = True
+                        directive.append(
+                            "Return the exact independently accepted producer artifact."
+                        )
+                    elif action["kind"] == "terminal":
+                        suppress_tools = True
+                        directive.append(
+                            f"The bounded stage is {action['status']}; report its "
+                            "unresolved issues without claiming acceptance."
+                        )
+                    elif _available_tool(request.tools, ("task",)) is not None:
+                        forced_tool = "task"
+                        expected = (
+                            "solar-evidence"
+                            if action["kind"] == "review"
+                            else action["producer"]
+                        )
+                        directive.append(
+                            f"Call task now with subagent_type={expected!r}; "
+                            f"stage={bounded_stage}."
+                        )
+                    else:
+                        directive.append(
+                            "ROUTING BLOCKER: the bounded producer/reviewer loop "
+                            "requires task, but that tool is unavailable."
+                        )
+                        suppress_tools = True
             elif required_specialist != "solar-hypothesis":
                 local_required = source_mode in {"local", "mixed"}
                 external_required = source_mode in {"external", "mixed"}
@@ -1538,53 +2162,75 @@ class ResearchRouterMiddleware(AgentMiddleware[ResearchRoutingState, Any, Any]):
                     forced_tool = None
         elif mode == "full_research":
             directive.append(
-                "Use the explicit full-research graph: solar-planner creates the "
-                "research brief/plan, solar-hypothesis produces falsifiable competing "
-                "hypotheses, solar-experiment validates with staged evidence, then the "
-                "main agent writes the final report from verified receipts. Do not "
-                "replace these graph nodes with generic prose or generic execute calls."
+                "Use the explicit ResearchRunStateV2 graph. Every producer result is "
+                "checkpointed as an immutable artifact, reviewed by solar-evidence, "
+                "and revised only by its owner. Never skip a review node, reuse a stale "
+                "approval, or synthesize an unreviewed final claim."
             )
             if required_analysis_protocol == F107_DISCONTINUITY_PROTOCOL:
+                directive.append(f107_discontinuity_directive())
+            config = _request_config(request)
+            try:
+                action = store_from_config(config).next_action()
+            except Exception as exc:
                 directive.append(
-                    "This route has a mandatory F10.7 data stage. solar-data must call "
-                    "bind_f107_dataset_semantics and return the hash-bound canonical "
-                    "artifact before hypotheses or experiments use numerical values. "
-                    + f107_discontinuity_directive()
+                    "RESEARCH STATE BLOCKER: the task-scoped v2 state could not be "
+                    f"loaded: {type(exc).__name__}: {exc}"
                 )
-                stages = (
-                    "solar-planner",
-                    "solar-data",
-                    "solar-hypothesis",
-                    "solar-experiment",
-                )
+                suppress_tools = True
             else:
-                stages = _FULL_RESEARCH_STAGES
-            completed = _successful_specialists(
-                calls,
-                successful_names,
-                messages,
-                workspace_verified_specialists=_workspace_verified_specialists(
-                    request,
-                    required_analysis_protocol,
-                ),
-            )
-            next_stage = next(
-                (stage for stage in stages if stage not in completed),
-                None,
-            )
-            if next_stage is not None:
-                attempts = _attempt_count(calls, "task", specialist=next_stage)
-                if attempts < 2 and _available_tool(request.tools, ("task",)):
+                directive.append(
+                    "Deterministic next_action="
+                    + json.dumps(action, ensure_ascii=False, default=str)
+                )
+                if action["kind"] == "producer":
                     forced_tool = "task"
                     directive.append(
-                        f"The mandatory next graph node is {next_stage}. Call task now "
-                        f"with subagent_type={next_stage!r}; give it the user request, "
-                        "current verified artifacts, and the exact required handoff."
+                        f"Call task now with subagent_type={action['producer']!r}. "
+                        f"This is phase={action['phase']} and stage={action['stage']}."
                     )
-                elif attempts >= 2:
+                    if (
+                        required_analysis_protocol == F107_DISCONTINUITY_PROTOCOL
+                        and action["stage"] == "data"
+                    ):
+                        directive.append(
+                            "The solar-data producer must call "
+                            "bind_f107_dataset_semantics and persist the hash-bound "
+                            "receipts/datasets/f107_semantics.json before returning."
+                        )
+                elif action["kind"] == "review":
+                    forced_tool = "task"
                     directive.append(
-                        f"{next_stage} failed twice. Do not loop; return a partial "
-                        "research report that names this graph node as the blocker."
+                        "Call task now with subagent_type='solar-evidence' for "
+                        f"review_mode={action['review_mode']}."
+                    )
+                elif action["kind"] == "independent_review":
+                    forced_tool = "research_independent_review"
+                    directive.append(
+                        "Call research_independent_review for the exact "
+                        f"review_mode={action['review_mode']}. If no genuinely "
+                        "heterogeneous reviewer is configured, preserve human_review."
+                    )
+                elif action["kind"] == "prepare_release":
+                    forced_tool = "research_release_prepare"
+                    directive.append(
+                        "Write one coherent reader-facing report using only accepted "
+                        "claims and required carried limitations. For every material "
+                        "passage, provide an exact draft_excerpt and its accepted "
+                        "claim_id in claim_citations, then call "
+                        "research_release_prepare with the complete Markdown draft."
+                    )
+                elif action["kind"] == "released":
+                    suppress_tools = True
+                    directive.append(
+                        "The final release is accepted. Return only its exact persisted "
+                        "Markdown; middleware will enforce verbatim rendering."
+                    )
+                elif action["kind"] == "terminal":
+                    suppress_tools = True
+                    directive.append(
+                        f"The research run is {action['status']}. Report the current "
+                        "best artifact and unresolved issues; never claim acceptance."
                     )
 
         directive.append("</research_route>")
@@ -1605,6 +2251,8 @@ class ResearchRouterMiddleware(AgentMiddleware[ResearchRoutingState, Any, Any]):
             ]
             if selected:
                 prepared = prepared.override(tools=selected, tool_choice=None)
+            else:
+                prepared = prepared.override(tools=[], tool_choice=None)
         elif suppress_tools:
             prepared = prepared.override(tools=[], tool_choice=None)
         return prepared
@@ -1615,10 +2263,10 @@ class ResearchRouterMiddleware(AgentMiddleware[ResearchRoutingState, Any, Any]):
         handler: Callable[[ModelRequest], ModelResponse],
     ) -> ModelResponse:
         prepared = self._prepare_request(request)
-        return _passthrough_hypothesis_result(
-            request,
-            handler(prepared),
-        )
+        response = _passthrough_hypothesis_result(request, handler(prepared))
+        response = _enforce_v2_action_response(request, response)
+        response = _passthrough_accepted_bounded_stage(request, response)
+        return _passthrough_accepted_release(request, response)
 
     async def awrap_model_call(
         self,
@@ -1626,10 +2274,17 @@ class ResearchRouterMiddleware(AgentMiddleware[ResearchRoutingState, Any, Any]):
         handler: Callable[[ModelRequest], Awaitable[ModelResponse]],
     ) -> ModelResponse:
         prepared = await asyncio.to_thread(self._prepare_request, request)
-        return _passthrough_hypothesis_result(
+        response = _passthrough_hypothesis_result(
             request,
             await handler(prepared),
         )
+        response = await asyncio.to_thread(
+            _enforce_v2_action_response, request, response
+        )
+        response = await asyncio.to_thread(
+            _passthrough_accepted_bounded_stage, request, response
+        )
+        return await asyncio.to_thread(_passthrough_accepted_release, request, response)
 
     def wrap_tool_call(
         self,
@@ -1641,7 +2296,7 @@ class ResearchRouterMiddleware(AgentMiddleware[ResearchRoutingState, Any, Any]):
             return blocked
         result = handler(rewritten)
         if rewritten is not request:
-            config = getattr(request.runtime, "config", None)
+            config = _request_config(request)
             result = _map_routed_specialist_result(result, config)
         return result
 
@@ -1655,7 +2310,7 @@ class ResearchRouterMiddleware(AgentMiddleware[ResearchRoutingState, Any, Any]):
             return blocked
         result = await handler(rewritten)
         if rewritten is not request:
-            config = getattr(request.runtime, "config", None)
+            config = _request_config(request)
             result = await asyncio.to_thread(
                 _map_routed_specialist_result,
                 result,

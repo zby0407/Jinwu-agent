@@ -639,7 +639,40 @@ class TestThirdPartyRouting:
             call_kwargs["base_url"]
             == "https://dashscope.aliyuncs.com/compatible-mode/v1"
         )
+        assert call_kwargs["stream_chunk_timeout"] == 300.0
+        assert call_kwargs["timeout"] == 300.0
+        assert call_kwargs["max_retries"] == 0
         assert call_kwargs["api_key"] == "ds-key-456"
+
+    @patch("jw.llm.models.init_chat_model")
+    def test_dashscope_stream_chunk_timeout_is_configurable_and_bounded(
+        self, mock_init, monkeypatch
+    ):
+        monkeypatch.setenv("DASHSCOPE_API_KEY", "test-key")
+        monkeypatch.setenv("JW_DASHSCOPE_STREAM_CHUNK_TIMEOUT_S", "420")
+        get_chat_model("qwen-max", provider="dashscope")
+        assert mock_init.call_args.kwargs["stream_chunk_timeout"] == 420.0
+
+        monkeypatch.setenv("JW_DASHSCOPE_STREAM_CHUNK_TIMEOUT_S", "0")
+        with pytest.raises(ValueError, match="must be between 30 and 900"):
+            get_chat_model("qwen-max", provider="dashscope")
+
+    @patch("jw.llm.models.init_chat_model")
+    def test_dashscope_request_timeout_and_retries_are_bounded(
+        self, mock_init, monkeypatch
+    ):
+        monkeypatch.setenv("DASHSCOPE_API_KEY", "test-key")
+        monkeypatch.setenv("JW_DASHSCOPE_REQUEST_TIMEOUT_S", "240")
+        monkeypatch.setenv("JW_DASHSCOPE_MAX_RETRIES", "1")
+
+        get_chat_model("qwen-max", provider="dashscope")
+
+        assert mock_init.call_args.kwargs["timeout"] == 240.0
+        assert mock_init.call_args.kwargs["max_retries"] == 1
+
+        monkeypatch.setenv("JW_DASHSCOPE_MAX_RETRIES", "3")
+        with pytest.raises(ValueError, match="must be between 0 and 2"):
+            get_chat_model("qwen-max", provider="dashscope")
 
     @patch("jw.llm.models.init_chat_model")
     def test_dashscope_code_routes_through_openai(self, mock_init, monkeypatch):
@@ -2040,6 +2073,57 @@ class TestPatchDeepseekReasoningPassback:
         payload = model._get_request_payload(messages)
 
         assert payload["messages"][1]["reasoning_content"] == ""
+
+
+# =============================================================================
+# Test _patch_qwen_reasoning_passback
+# =============================================================================
+
+
+def test_qwen_reasoning_passback_preserves_tool_turn_without_empty_placeholders():
+    from unittest.mock import MagicMock
+
+    from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
+
+    from jw.llm.patches import _patch_qwen_reasoning_passback
+
+    model = MagicMock()
+
+    class _Wrapped:
+        def __init__(self, messages):
+            self._messages = messages
+
+        def to_messages(self):
+            return self._messages
+
+    model._convert_input = lambda value: _Wrapped(value)
+    model._get_request_payload = MagicMock(
+        return_value={
+            "messages": [
+                {"role": "user", "content": "inspect"},
+                {"role": "assistant", "content": "", "tool_calls": [{}]},
+                {"role": "tool", "content": "receipt"},
+                {"role": "assistant", "content": "prior answer"},
+            ]
+        }
+    )
+    _patch_qwen_reasoning_passback(model)
+
+    payload = model._get_request_payload(
+        [
+            HumanMessage("inspect"),
+            AIMessage(
+                content="",
+                additional_kwargs={"reasoning_content": "select evidence tool"},
+                tool_calls=[{"name": "inspect", "args": {}, "id": "call-1"}],
+            ),
+            ToolMessage(content="receipt", tool_call_id="call-1"),
+            AIMessage(content="prior answer"),
+        ]
+    )
+
+    assert payload["messages"][1]["reasoning_content"] == "select evidence tool"
+    assert "reasoning_content" not in payload["messages"][3]
 
 
 # =============================================================================

@@ -17,10 +17,12 @@ build/
 .env
 .env.*
 !.env.example
+.venv
 .venv/
 venv/
 bridge/node_modules/
 bridge/package-lock.json
+projects/
 
 # IDE / Tools
 .vscode/
@@ -34,6 +36,7 @@ bridge/package-lock.json
 .playwright-cli/
 .playwright-mcp/
 .tmp_new_agents/
+.local-evals/
 
 # Project specific
 .langgraph_api/
