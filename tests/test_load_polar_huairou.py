@@ -248,6 +248,34 @@ def test_hsos_2026_schema_v2_is_strictly_recognized(tmp_path: Path):
     assert record["byte_order_normalization"] == "fits-bscale-bzero-standard"
 
 
+def test_hsos_2026_schema_v3_requires_audited_hybrid_header():
+    header = {
+        "BITPIX": 32,
+        "NAXIS": 3,
+        "NAXIS1": 992,
+        "NAXIS2": 992,
+        "NAXIS3": 2,
+        "BSCALE": 1,
+        "BZERO": 32767,
+        "CONTENT": "L",
+        "HSOS_NO": "26npl",
+        "T_START": "2026-07-07 02:50:10",
+        "CALIBRAT": 10000,
+        "SIZE_PIX": "0.242*2.242 ARC.",
+        "STOKES": 3,
+    }
+    assert loader._is_hsos_schema_v3(header, (992, 992), 2)
+    assert (
+        loader._instrument_epoch(
+            (992, 992), "unknown", 2026, header=header, n_planes=2
+        )
+        == "hsos_fit32_2026_schema_v3"
+    )
+    assert not loader._is_hsos_schema_v3(
+        {**header, "SIZE_PIX": "unknown"}, (992, 992), 2
+    )
+
+
 def test_imperx_epoch_distinguishes_new_archive_cohort():
     assert (
         loader._instrument_epoch((992, 992), "IMPERX 1M48", 2014)

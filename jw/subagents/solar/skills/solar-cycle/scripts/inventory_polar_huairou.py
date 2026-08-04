@@ -159,6 +159,9 @@ def inspect_file(path: Path, root: Path) -> dict:
         ) or (
             bitpix == 32
             and loader._is_hsos_schema_v2(header, plane_shape, n_planes)
+        ) or (
+            bitpix == 32
+            and loader._is_hsos_schema_v3(header, plane_shape, n_planes)
         )
         if not known_layout:
             raise ValueError(

@@ -50,6 +50,26 @@ def _write_schema_v2(path: Path, content: str) -> None:
     hdu.writeto(path)
 
 
+def _write_schema_v3(path: Path) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    data = np.stack(
+        [
+            np.full((992, 992), 1100, dtype=np.int32),
+            np.full((992, 992), 900, dtype=np.int32),
+        ]
+    )
+    hdu = fits.PrimaryHDU(data)
+    hdu.header["BSCALE"] = 1
+    hdu.header["BZERO"] = 32767
+    hdu.header["CONTENT"] = "L"
+    hdu.header["HSOS_NO"] = "26npl"
+    hdu.header["T_START"] = "2026-07-07 02:50:10"
+    hdu.header["CALIBRAT"] = 10000
+    hdu.header["SIZE_PIX"] = "0.242*2.242 ARC."
+    hdu.header["STOKES"] = 3
+    hdu.writeto(path)
+
+
 def test_inventory_classifies_supported_and_unknown_layouts(
     tmp_path: Path, monkeypatch
 ):
@@ -122,3 +142,16 @@ def test_inventory_routes_schema_v2_and_excludes_q_content(tmp_path: Path):
     assert supported["instrument_epoch"] == "hsos_fit32_2026_schema_v2"
     excluded = records.loc[records["status"] == "excluded_non_longitudinal"].iloc[0]
     assert "CONTENT='Q'" in excluded["error"]
+
+
+def test_inventory_routes_schema_v3(tmp_path: Path):
+    root = tmp_path / "archive"
+    _write_schema_v3(
+        root / "2026" / "20260707" / "full" / "L526npl260707025038.fit"
+    )
+
+    summary, records = inventory.run_inventory(root, 2026, 2026)
+
+    assert summary["supported_files"] == 1
+    assert summary["unsupported_files"] == 0
+    assert records.iloc[0]["instrument_epoch"] == "hsos_fit32_2026_schema_v3"

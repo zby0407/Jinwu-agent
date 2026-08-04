@@ -82,6 +82,7 @@ UNVALIDATED_GEOMETRY_EPOCHS = {
     "imperx_fit32_2014",
     "imperx_fit32_2018_2026",
     "hsos_fit32_2026_schema_v2",
+    "hsos_fit32_2026_schema_v3",
 }
 
 DAILY_COLUMNS = [
@@ -388,6 +389,36 @@ def _is_hsos_schema_v2(
     )
 
 
+def _is_hsos_schema_v3(
+    header: dict, plane_shape: tuple[int, int], n_planes: int
+) -> bool:
+    """Recognize the audited July 2026 hybrid HSOS header schema."""
+    camera = str(header.get("CAMERA", "")).strip()
+    hsos_no = str(header.get("HSOS_NO", "")).lower()
+    content = str(header.get("CONTENT", "")).strip().upper()
+    size_pix = str(header.get("SIZE_PIX", "")).strip()
+    try:
+        bscale = float(header.get("BSCALE"))
+        bzero = float(header.get("BZERO"))
+        calibrat = float(header.get("CALIBRAT"))
+        stokes = int(header.get("STOKES"))
+    except (TypeError, ValueError):
+        return False
+    return bool(
+        not camera
+        and plane_shape == (992, 992)
+        and n_planes == 2
+        and content == "L"
+        and ("npl" in hsos_no or "spl" in hsos_no)
+        and header.get("T_START")
+        and bscale == 1
+        and bzero == 32767
+        and calibrat == 10000
+        and stokes == 3
+        and size_pix == "0.242*2.242 ARC."
+    )
+
+
 def normalize_fits_data(data: np.ndarray, header: dict) -> tuple[np.ndarray, str]:
     """Validate and decode a known Huairou FITS layout.
 
@@ -423,8 +454,13 @@ def normalize_fits_data(data: np.ndarray, header: dict) -> tuple[np.ndarray, str
     elif bitpix == 32 and plane_shape == (992, 992) and "IMPERX" in camera:
         decoded = data
         normalization = "fits-standard-byte-order"
-    elif bitpix == 32 and _is_hsos_schema_v2(
-        header, plane_shape, data.shape[0] if data.ndim == 3 else 1
+    elif bitpix == 32 and (
+        _is_hsos_schema_v2(
+            header, plane_shape, data.shape[0] if data.ndim == 3 else 1
+        )
+        or _is_hsos_schema_v3(
+            header, plane_shape, data.shape[0] if data.ndim == 3 else 1
+        )
     ):
         # Astropy has already applied BSCALE/BZERO to the returned float data.
         decoded = data
@@ -662,6 +698,12 @@ def _instrument_epoch(
         and _is_hsos_schema_v2(header, shape, n_planes)
     ):
         return "hsos_fit32_2026_schema_v2"
+    if (
+        year == 2026
+        and header is not None
+        and _is_hsos_schema_v3(header, shape, n_planes)
+    ):
+        return "hsos_fit32_2026_schema_v3"
     camera_upper = camera.upper()
     if shape == (480, 640) and "PULNIX" in camera_upper:
         if 2002 <= year <= 2008:

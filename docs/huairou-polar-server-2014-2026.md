@@ -60,6 +60,9 @@ python3 -m venv .venv
 （双层 992×992、BITPIX=32、BSCALE=1、BZERO=32767、`CONTENT='L'`、
 `HSOS_NUMBER`、`TIME_OBS`、CALIBRAT=10000、WAVE=5324、STOKES=3）时，才作为
 独立的 `hsos_fit32_2026_schema_v2` 诊断年代接收；`CONTENT='Q'` 明确排除。
+2026 年 7 月的混合头只有在双层 992×992、BITPIX=32、BSCALE=1、BZERO=32767、
+`CONTENT='L'`、`HSOS_NO`、`T_START`、CALIBRAT=10000、STOKES=3 和已审计像元
+尺度全部满足时，才归入独立的 `hsos_fit32_2026_schema_v3`。
 
 ## 4. 运行诊断批处理
 
