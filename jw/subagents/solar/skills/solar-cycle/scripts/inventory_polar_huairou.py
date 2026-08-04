@@ -5,11 +5,13 @@ from __future__ import annotations
 
 import argparse
 import json
+import warnings
 from collections import Counter
 from pathlib import Path
 
 import load_polar_huairou as loader
 import pandas as pd
+from astropy.io import fits
 
 WCS_KEYS = ("CTYPE1", "CTYPE2", "CRPIX1", "CRPIX2", "CDELT1", "CDELT2")
 RECORD_COLUMNS = [
@@ -47,7 +49,7 @@ def discover_polar_fits(root: Path, start_year: int, end_year: int) -> list[Path
 
 
 def inspect_file(path: Path, root: Path) -> dict:
-    """Read and classify one FITS file without producing a science record."""
+    """Classify one FITS header without reading its image payload."""
     relative = path.relative_to(root)
     fallback_year = int(relative.parts[0])
     record = {
@@ -65,15 +67,43 @@ def inspect_file(path: Path, root: Path) -> dict:
         "error": "",
     }
     try:
-        raw, header = loader._read_fits_image(path)
-        meta = loader.parse_fits_meta(path, header, raw)
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", fits.verify.VerifyWarning)
+            warnings.simplefilter("ignore", UserWarning)
+            header = dict(fits.getheader(path, 0, ignore_missing_end=True))
+
+        naxis = loader._header_int(header, "NAXIS")
+        bitpix = loader._header_int(header, "BITPIX")
+        if naxis == 2:
+            raw_shape = (
+                loader._header_int(header, "NAXIS2"),
+                loader._header_int(header, "NAXIS1"),
+            )
+            n_planes = 1
+            plane_shape = raw_shape
+        elif naxis == 3:
+            raw_shape = (
+                loader._header_int(header, "NAXIS3"),
+                loader._header_int(header, "NAXIS2"),
+                loader._header_int(header, "NAXIS1"),
+            )
+            n_planes = raw_shape[0]
+            plane_shape = raw_shape[-2:]
+        else:
+            raise ValueError(f"Unsupported FITS NAXIS={naxis}")
+
+        hemisphere = loader._hemisphere_from_header(header, path.name)
+        if hemisphere is None:
+            raise ValueError("Could not determine hemisphere from FITS header")
+        camera = str(header.get("CAMERA", "")).strip() or "unknown"
+        acquisition_year = loader._parse_fits_date(header).year
         record.update(
             {
-                "hemisphere": meta["hemisphere"],
-                "shape": "x".join(str(value) for value in raw.shape),
-                "naxis": raw.ndim,
-                "bitpix": meta["bitpix"],
-                "camera": meta["camera"],
+                "hemisphere": hemisphere,
+                "shape": "x".join(str(value) for value in raw_shape),
+                "naxis": naxis,
+                "bitpix": bitpix,
+                "camera": camera,
                 "calibrat": str(header.get("CALIBRAT", "")),
                 "wcs_complete": all(key in header for key in WCS_KEYS),
             }
@@ -81,9 +111,37 @@ def inspect_file(path: Path, root: Path) -> dict:
         skip_reason = loader._should_skip_fits(header, path.name, False)
         if skip_reason:
             raise ValueError(skip_reason)
-        loader.normalize_fits_data(raw, header)
+
+        camera_upper = camera.upper()
+        known_layout = (
+            bitpix == 8
+            and (
+                (plane_shape == (480, 640) and n_planes == 1)
+                or (plane_shape in {(1000, 992), (992, 992)} and n_planes == 2)
+            )
+        ) or (
+            bitpix == 16
+            and plane_shape == (480, 640)
+            and n_planes == 1
+            and "PULNIX" in camera_upper
+        ) or (
+            bitpix == 32
+            and plane_shape == (1000, 992)
+            and n_planes == 2
+            and "PULNIX" in camera_upper
+        ) or (
+            bitpix == 32
+            and plane_shape == (992, 992)
+            and n_planes == 2
+            and "IMPERX" in camera_upper
+        )
+        if not known_layout:
+            raise ValueError(
+                "Unsupported FITS layout: "
+                f"BITPIX={bitpix}, shape={raw_shape}, CAMERA={camera}"
+            )
         record["instrument_epoch"] = loader._instrument_epoch(
-            meta["shape"], meta["camera"], meta["year"]
+            plane_shape, camera, acquisition_year
         )
         record["status"] = "supported"
     except ValueError as exc:

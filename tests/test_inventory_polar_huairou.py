@@ -29,12 +29,21 @@ def _write_imperx(path: Path, camera: str = "IMPERX 1M48") -> None:
     hdu.writeto(path)
 
 
-def test_inventory_classifies_supported_and_unknown_layouts(tmp_path: Path):
+def test_inventory_classifies_supported_and_unknown_layouts(
+    tmp_path: Path, monkeypatch
+):
     root = tmp_path / "archive"
     _write_imperx(root / "2026" / "20260108" / "L526npl260108050054.fit")
     _write_imperx(
         root / "2025" / "20250108" / "L525npl250108050054.fit",
         camera="UNKNOWN",
+    )
+    monkeypatch.setattr(
+        inventory.loader,
+        "_read_fits_image",
+        lambda path: (_ for _ in ()).throw(
+            AssertionError(f"inventory read pixel payload: {path}")
+        ),
     )
 
     summary, records = inventory.run_inventory(root, 2024, 2026)
