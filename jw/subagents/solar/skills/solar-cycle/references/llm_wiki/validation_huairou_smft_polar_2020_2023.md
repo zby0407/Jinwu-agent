@@ -11,7 +11,7 @@
 
 | 门槛 | 证据 | 状态 |
 |---|---|---|
-| P0/P1 配准 | 平面相关系数最小 0.998249；高通相位相关峰均在零位移 | 通过 |
+| P0/P1 配准 | 平面相关系数最小 0.998249；平移模长 P95 为 0.001314 像素 | 通过 |
 | P0/P1 符号 | 头中无平面含义/偏振手性；本地无有符号外部参考 | 未通过 |
 | `CALIBRAT` 含义 | 数值恒为 10000；头中无单位、误差、方法或适用范围 | 未通过 |
 | 标准太阳 WCS | 60/60 缺 `CTYPE1/2, CRPIX1/2, CDELT1/2` | 未通过 |
@@ -50,6 +50,15 @@ SMFT 原始量是左右圆偏振强度，定义为
 
 在这些证据齐备前，加载器默认拒绝 `imperx_fit32_2020_2023`。只有显式传入
 `--allow-unvalidated-geometry` 才能生成诊断输出。
+
+本地审计可复现为：
+
+```powershell
+python jw\subagents\solar\skills\solar-cycle\scripts\validate_polar_huairou.py `
+  --polar-dir "D:\极区前兆" --sample-per-group 12 `
+  --output artifacts\polar_validation\audit.json `
+  --records-output artifacts\polar_validation\audit_records.csv
+```
 
 ## 主要资料
 
