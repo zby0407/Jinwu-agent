@@ -67,3 +67,18 @@ def test_inventory_recognizes_new_unvalidated_pulnix_cohort():
         == "pulnix_fit16_2011_2014"
     )
     assert "pulnix_fit16_2011_2014" in loader.UNVALIDATED_GEOMETRY_EPOCHS
+
+
+def test_inventory_excludes_equal_sized_numbered_copy(tmp_path: Path):
+    root = tmp_path / "archive"
+    original = root / "2026" / "20260108" / "L526npl260108050054.fit"
+    copy = root / "2026" / "20260108" / "L526npl260108050054(1).fit"
+    _write_imperx(original)
+    copy.write_bytes(original.read_bytes())
+
+    summary, records = inventory.run_inventory(root, 2026, 2026)
+
+    assert summary["supported_files"] == 1
+    assert summary["duplicate_files"] == 1
+    relative_copy = str(Path("2026/20260108/L526npl260108050054(1).fit"))
+    assert records.set_index("file").loc[relative_copy, "status"] == "duplicate_copy"

@@ -51,6 +51,11 @@ python3 -m venv .venv
 处理；应把 JSON/CSV 下载回本地，根据真实 FITS 样本补充并测试格式支持。空年份
 会列在 `empty_years`，属于覆盖缺口但不会被伪造数据填补。
 
+`duplicate_files` 记录存在同尺寸无后缀原件的 `(1)/(2)` 下载副本；这些副本不
+参与统计。`excluded_files` 仅记录经过审计的已知坏文件或非 SMFT 派生布局，具体
+原因保留在 inventory CSV 中。任何未被这些明确规则覆盖的未知布局仍会使批处理
+停止。
+
 ## 4. 运行诊断批处理
 
 ```bash

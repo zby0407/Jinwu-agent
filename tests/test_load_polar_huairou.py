@@ -191,7 +191,20 @@ def test_parse_fits_metadata():
     assert meta["n_planes"] == 2
 
 
+def test_parse_fits_date_uses_audited_path_fallback():
+    path = Path("2024/12/20241216/L524npl241216024748.fit")
+    assert loader._parse_fits_date({}, path) == pd.Timestamp("2024-12-16 02:47:48")
+    with pytest.raises(ValueError, match="dates disagree"):
+        loader._parse_fits_date(
+            {}, Path("2024/12/20241217/L524npl241216024748.fit")
+        )
+
+
 def test_imperx_epoch_distinguishes_new_archive_cohort():
+    assert (
+        loader._instrument_epoch((992, 992), "IMPERX 1M48", 2014)
+        == "imperx_fit32_2014"
+    )
     assert (
         loader._instrument_epoch((992, 992), "IMPERX 1M48", 2015)
         == "imperx_fit32_2015_2017"
@@ -205,7 +218,7 @@ def test_imperx_epoch_distinguishes_new_archive_cohort():
         == "imperx_fit32_2018_2026"
     )
     with pytest.raises(ValueError, match="acquisition year"):
-        loader._instrument_epoch((992, 992), "IMPERX 1M48", 2014)
+        loader._instrument_epoch((992, 992), "IMPERX 1M48", 2013)
 
 
 def test_legacy_dat_regression_and_metadata(tmp_path: Path):

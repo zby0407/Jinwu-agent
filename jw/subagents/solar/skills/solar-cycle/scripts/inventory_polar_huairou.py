@@ -16,6 +16,7 @@ from astropy.io import fits
 WCS_KEYS = ("CTYPE1", "CTYPE2", "CRPIX1", "CRPIX2", "CDELT1", "CDELT2")
 RECORD_COLUMNS = [
     "file",
+    "file_size",
     "year",
     "hemisphere",
     "shape",
@@ -54,6 +55,7 @@ def inspect_file(path: Path, root: Path) -> dict:
     fallback_year = int(relative.parts[0])
     record = {
         "file": str(relative),
+        "file_size": path.stat().st_size,
         "year": fallback_year,
         "hemisphere": "N" if "npl" in path.stem.lower() else "S",
         "shape": "",
@@ -96,7 +98,7 @@ def inspect_file(path: Path, root: Path) -> dict:
         if hemisphere is None:
             raise ValueError("Could not determine hemisphere from FITS header")
         camera = str(header.get("CAMERA", "")).strip() or "unknown"
-        acquisition_year = loader._parse_fits_date(header).year
+        acquisition_year = loader._parse_fits_date(header, path).year
         record.update(
             {
                 "hemisphere": hemisphere,
@@ -113,6 +115,22 @@ def inspect_file(path: Path, root: Path) -> dict:
             raise ValueError(skip_reason)
 
         camera_upper = camera.upper()
+        derived_folder = any(
+            part.lower() in {"full", "ful"} for part in relative.parts[:-1]
+        )
+        if (
+            bitpix == -64
+            and plane_shape == (992, 992)
+            and n_planes == 2
+            and camera == "unknown"
+            and derived_folder
+        ):
+            record["status"] = "excluded_non_smft_derived"
+            record["error"] = (
+                "explicitly excluded audited full/ful derivative: "
+                "BITPIX=-64 and CAMERA missing"
+            )
+            return record
         known_layout = (
             bitpix == 8
             and (
@@ -148,9 +166,43 @@ def inspect_file(path: Path, root: Path) -> dict:
         record["status"] = "unsupported"
         record["error"] = str(exc)
     except Exception as exc:  # pragma: no cover - real archive defense
-        record["status"] = "read_error"
-        record["error"] = repr(exc)
+        known_corrupt_day = fallback_year == 2015 and "20150815" in relative.parts
+        if known_corrupt_day and "No SIMPLE card found" in repr(exc):
+            record["status"] = "excluded_known_corrupt"
+            record["error"] = "known 2015-08-15 file without SIMPLE card"
+        else:
+            record["status"] = "read_error"
+            record["error"] = repr(exc)
     return record
+
+
+def mark_duplicate_copies(frame: pd.DataFrame) -> pd.DataFrame:
+    """Exclude numbered download copies when an equal-sized original exists."""
+    frame = frame.copy()
+    canonical = frame["file"].str.replace(
+        r"\(\d+\)(?=\.fits?$)", "", regex=True
+    ).str.lower()
+    is_copy = frame["file"].str.contains(
+        r"\(\d+\)\.fits?$", case=False, regex=True
+    )
+    for canonical_path in canonical[is_copy].unique():
+        group = frame.loc[canonical == canonical_path]
+        originals = group.loc[~is_copy.loc[group.index]]
+        if originals.empty:
+            continue
+        original_size = int(originals.iloc[0]["file_size"])
+        for index, row in group.loc[is_copy.loc[group.index]].iterrows():
+            if int(row["file_size"]) == original_size:
+                frame.at[index, "status"] = "duplicate_copy"
+                frame.at[index, "error"] = (
+                    "numbered copy skipped; equal-sized original exists"
+                )
+            else:
+                frame.at[index, "status"] = "unsupported"
+                frame.at[index, "error"] = (
+                    "numbered copy conflicts with original file size"
+                )
+    return frame
 
 
 def run_inventory(
@@ -160,6 +212,8 @@ def run_inventory(
     paths = discover_polar_fits(root, start_year, end_year)
     records = [inspect_file(path, root) for path in paths]
     frame = pd.DataFrame(records, columns=RECORD_COLUMNS)
+    frame = mark_duplicate_copies(frame)
+    records = frame.to_dict(orient="records")
 
     status_counts = Counter(record["status"] for record in records)
     year_counts = Counter(record["year"] for record in records)
@@ -188,6 +242,12 @@ def run_inventory(
         "supported_files": status_counts["supported"],
         "unsupported_files": status_counts["unsupported"],
         "read_error_files": status_counts["read_error"],
+        "duplicate_files": status_counts["duplicate_copy"],
+        "excluded_files": sum(
+            count
+            for status, count in status_counts.items()
+            if status.startswith("excluded_")
+        ),
         "empty_years": [year for year in years if year_counts[year] == 0],
         "years": [
             {

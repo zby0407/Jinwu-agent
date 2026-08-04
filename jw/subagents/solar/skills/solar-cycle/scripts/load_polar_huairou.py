@@ -30,6 +30,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import struct
 import warnings
 from concurrent.futures import ProcessPoolExecutor, as_completed
@@ -78,6 +79,7 @@ FITS_SIGNAL_CHOICES = (
 FITS_APERTURE_CHOICES = ("auto", "polar-strip", "center-circle", "center-box")
 UNVALIDATED_GEOMETRY_EPOCHS = {
     "pulnix_fit16_2011_2014",
+    "imperx_fit32_2014",
     "imperx_fit32_2018_2026",
 }
 
@@ -473,16 +475,37 @@ def select_fits_signal(
     )
 
 
-def _parse_fits_date(header: dict) -> pd.Timestamp:
+def _parse_fits_date(header: dict, path: Path | None = None) -> pd.Timestamp:
     """Extract observation date from FITS header.
 
     Prefer ``T_START``; fall back to ``TIME_POS``. Both are commonly written as
-    ``YYYY-M-D H:M:S``.
+    ``YYYY-M-D H:M:S``. For audited files whose time cards are absent, accept
+    the filename timestamp only when its date agrees with an eight-digit date
+    directory in the path.
     """
     raw = header.get("T_START") or header.get("TIME_POS")
-    if raw is None:
+    if raw is not None:
+        return pd.to_datetime(str(raw))
+    if path is None:
         raise ValueError("FITS header lacks T_START and TIME_POS")
-    return pd.to_datetime(str(raw))
+
+    folder_tokens = [part for part in path.parts if re.fullmatch(r"20\d{6}", part)]
+    filename_match = re.search(
+        r"(?:npl|spl)(\d{6})(\d{6})(?:\(\d+\))?$", path.stem.lower()
+    )
+    if not folder_tokens or filename_match is None:
+        raise ValueError(
+            "FITS header lacks T_START/TIME_POS and path has no auditable timestamp"
+        )
+    folder_date = pd.to_datetime(folder_tokens[-1], format="%Y%m%d")
+    filename_time = pd.to_datetime(
+        "".join(filename_match.groups()), format="%y%m%d%H%M%S"
+    )
+    if folder_date.date() != filename_time.date():
+        raise ValueError(
+            "FITS header lacks T_START/TIME_POS and filename/path dates disagree"
+        )
+    return filename_time
 
 
 def _hemisphere_from_header(header: dict, filename: str) -> str | None:
@@ -548,7 +571,7 @@ def parse_fits_meta(path: Path, header: dict, data: np.ndarray) -> dict:
     if hemisphere is None:
         raise ValueError("Could not determine hemisphere from FITS header")
 
-    date = _parse_fits_date(header)
+    date = _parse_fits_date(header, path)
     view_type = _view_type_from_header(header, path.name)
 
     if data.ndim not in (2, 3):
@@ -597,6 +620,8 @@ def _instrument_epoch(shape: tuple[int, int], camera: str, year: int) -> str:
             f"{year} for shape={shape}, camera={camera}"
         )
     if shape == (992, 992) and "IMPERX" in camera_upper:
+        if year == 2014:
+            return "imperx_fit32_2014"
         if 2015 <= year <= 2017:
             return "imperx_fit32_2015_2017"
         if 2018 <= year <= 2026:
