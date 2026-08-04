@@ -29,6 +29,27 @@ def _write_imperx(path: Path, camera: str = "IMPERX 1M48") -> None:
     hdu.writeto(path)
 
 
+def _write_schema_v2(path: Path, content: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    data = np.stack(
+        [
+            np.full((992, 992), 1100, dtype=np.int32),
+            np.full((992, 992), 900, dtype=np.int32),
+        ]
+    )
+    hdu = fits.PrimaryHDU(data)
+    hdu.header["BSCALE"] = 1
+    hdu.header["BZERO"] = 32767
+    hdu.header["CONTENT"] = content
+    hdu.header["HSOS_NUMBER"] = "26npl"
+    hdu.header["TIME_OBS"] = "2026-05-28 06:53:07"
+    hdu.header["CALIBRAT"] = 10000
+    hdu.header["SIZE_PIX"] = "0.242*2.242 ARC."
+    hdu.header["WAVE"] = 5324
+    hdu.header["STOKES"] = 3
+    hdu.writeto(path)
+
+
 def test_inventory_classifies_supported_and_unknown_layouts(
     tmp_path: Path, monkeypatch
 ):
@@ -82,3 +103,22 @@ def test_inventory_excludes_equal_sized_numbered_copy(tmp_path: Path):
     assert summary["duplicate_files"] == 1
     relative_copy = str(Path("2026/20260108/L526npl260108050054(1).fit"))
     assert records.set_index("file").loc[relative_copy, "status"] == "duplicate_copy"
+
+
+def test_inventory_routes_schema_v2_and_excludes_q_content(tmp_path: Path):
+    root = tmp_path / "archive"
+    _write_schema_v2(
+        root / "2026" / "20260528" / "fits" / "L526npl260528065402.fit", "L"
+    )
+    _write_schema_v2(
+        root / "2026" / "20260528" / "fits" / "L526npl260528065253.fit", "Q"
+    )
+
+    summary, records = inventory.run_inventory(root, 2026, 2026)
+
+    assert summary["supported_files"] == 1
+    assert summary["excluded_files"] == 1
+    supported = records.loc[records["status"] == "supported"].iloc[0]
+    assert supported["instrument_epoch"] == "hsos_fit32_2026_schema_v2"
+    excluded = records.loc[records["status"] == "excluded_non_longitudinal"].iloc[0]
+    assert "CONTENT='Q'" in excluded["error"]

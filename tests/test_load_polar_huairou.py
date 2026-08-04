@@ -200,6 +200,54 @@ def test_parse_fits_date_uses_audited_path_fallback():
         )
 
 
+def test_hsos_2026_schema_v2_is_strictly_recognized(tmp_path: Path):
+    path = tmp_path / "2026" / "20260528" / "fits" / "L526npl260528065402.fit"
+    path.parent.mkdir(parents=True)
+    plane0 = np.full((992, 992), 1000, dtype=np.int32)
+    plane1 = np.full((992, 992), 900, dtype=np.int32)
+    plane0[400:600, 400:600] = 1200
+    hdu = fits.PrimaryHDU(np.stack([plane0, plane1]))
+    hdu.header["BSCALE"] = 1
+    hdu.header["BZERO"] = 32767
+    hdu.header["CONTENT"] = "L"
+    hdu.header["HSOS_NUMBER"] = "26npl"
+    hdu.header["TIME_OBS"] = "2026-05-28 06:53:07"
+    hdu.header["CALIBRAT"] = 10000
+    hdu.header["SIZE_PIX"] = "0.242*2.242 ARC."
+    hdu.header["WAVE"] = 5324
+    hdu.header["STOKES"] = 3
+    hdu.writeto(path)
+
+    raw, header = loader._read_fits_image(path)
+    assert header["BITPIX"] == 32
+    assert raw.dtype == np.float64
+    decoded, normalization = loader.normalize_fits_data(raw, header)
+    assert normalization == "fits-bscale-bzero-standard"
+    assert decoded[0, 0, 0] == 33767
+    meta = loader.parse_fits_meta(path, header, raw)
+    assert meta["date"] == "2026-05-28"
+    assert meta["hemisphere"] == "N"
+    assert (
+        loader._instrument_epoch(
+            meta["shape"],
+            meta["camera"],
+            meta["year"],
+            header=header,
+            n_planes=meta["n_planes"],
+        )
+        == "hsos_fit32_2026_schema_v2"
+    )
+    record = loader.process_file_fits(
+        path,
+        tmp_path,
+        fit_signal="calibrated_vi",
+        fit_aperture_mode="center-circle",
+        allow_unvalidated_geometry=True,
+    )
+    assert record["instrument_epoch"] == "hsos_fit32_2026_schema_v2"
+    assert record["byte_order_normalization"] == "fits-bscale-bzero-standard"
+
+
 def test_imperx_epoch_distinguishes_new_archive_cohort():
     assert (
         loader._instrument_epoch((992, 992), "IMPERX 1M48", 2014)

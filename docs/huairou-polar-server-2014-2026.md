@@ -56,6 +56,11 @@ python3 -m venv .venv
 原因保留在 inventory CSV 中。任何未被这些明确规则覆盖的未知布局仍会使批处理
 停止。
 
+2026 年部分文件使用缺少 `CAMERA` 的 HSOS 新头结构。只有同时满足审计签名
+（双层 992×992、BITPIX=32、BSCALE=1、BZERO=32767、`CONTENT='L'`、
+`HSOS_NUMBER`、`TIME_OBS`、CALIBRAT=10000、WAVE=5324、STOKES=3）时，才作为
+独立的 `hsos_fit32_2026_schema_v2` 诊断年代接收；`CONTENT='Q'` 明确排除。
+
 ## 4. 运行诊断批处理
 
 ```bash

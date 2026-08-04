@@ -81,6 +81,7 @@ UNVALIDATED_GEOMETRY_EPOCHS = {
     "pulnix_fit16_2011_2014",
     "imperx_fit32_2014",
     "imperx_fit32_2018_2026",
+    "hsos_fit32_2026_schema_v2",
 }
 
 DAILY_COLUMNS = [
@@ -326,8 +327,10 @@ def _read_fits_image(path: Path) -> tuple[np.ndarray, dict]:
         warnings.simplefilter("ignore", UserWarning)
         with fits.open(path, memmap=False, ignore_missing_end=True) as hdul:
             hdu = hdul[0]
-            data = hdu.data
             header = dict(hdu.header)
+            # Copy the on-disk header before accessing ``data``. Astropy may
+            # apply BSCALE/BZERO and mutate the live HDU header to BITPIX=-64.
+            data = hdu.data
 
     if data is None:
         raise ValueError("FITS HDU contains no data")
@@ -353,6 +356,36 @@ def _parse_calibration(header: dict) -> float | None:
     except (TypeError, ValueError):
         return None
     return value if np.isfinite(value) else None
+
+
+def _is_hsos_schema_v2(
+    header: dict, plane_shape: tuple[int, int], n_planes: int
+) -> bool:
+    """Recognize the strictly audited 2026 HSOS header schema without CAMERA."""
+    camera = str(header.get("CAMERA", "")).strip()
+    hsos_number = str(header.get("HSOS_NUMBER", "")).lower()
+    content = str(header.get("CONTENT", "")).strip().upper()
+    try:
+        bscale = float(header.get("BSCALE"))
+        bzero = float(header.get("BZERO"))
+        calibrat = float(header.get("CALIBRAT"))
+        stokes = int(header.get("STOKES"))
+        wave = int(header.get("WAVE"))
+    except (TypeError, ValueError):
+        return False
+    return bool(
+        not camera
+        and plane_shape == (992, 992)
+        and n_planes == 2
+        and content == "L"
+        and ("npl" in hsos_number or "spl" in hsos_number)
+        and header.get("TIME_OBS")
+        and bscale == 1
+        and bzero == 32767
+        and calibrat == 10000
+        and stokes == 3
+        and wave == 5324
+    )
 
 
 def normalize_fits_data(data: np.ndarray, header: dict) -> tuple[np.ndarray, str]:
@@ -390,6 +423,12 @@ def normalize_fits_data(data: np.ndarray, header: dict) -> tuple[np.ndarray, str
     elif bitpix == 32 and plane_shape == (992, 992) and "IMPERX" in camera:
         decoded = data
         normalization = "fits-standard-byte-order"
+    elif bitpix == 32 and _is_hsos_schema_v2(
+        header, plane_shape, data.shape[0] if data.ndim == 3 else 1
+    ):
+        # Astropy has already applied BSCALE/BZERO to the returned float data.
+        decoded = data
+        normalization = "fits-bscale-bzero-standard"
     else:
         raise ValueError(
             "Unsupported FITS layout: "
@@ -483,7 +522,12 @@ def _parse_fits_date(header: dict, path: Path | None = None) -> pd.Timestamp:
     the filename timestamp only when its date agrees with an eight-digit date
     directory in the path.
     """
-    raw = header.get("T_START") or header.get("TIME_POS")
+    raw = (
+        header.get("T_START")
+        or header.get("TIME_POS")
+        or header.get("TIME_OBS")
+        or header.get("TIME_OBE")
+    )
     if raw is not None:
         return pd.to_datetime(str(raw))
     if path is None:
@@ -510,7 +554,9 @@ def _parse_fits_date(header: dict, path: Path | None = None) -> pd.Timestamp:
 
 def _hemisphere_from_header(header: dict, filename: str) -> str | None:
     """Return 'N' or 'S' from HSOS_NO or filename, or None if ambiguous."""
-    hsos_no = str(header.get("HSOS_NO", "")).lower()
+    hsos_no = str(
+        header.get("HSOS_NO") or header.get("HSOS_NUMBER") or ""
+    ).lower()
     name = Path(filename).stem.lower()
     token = f"{hsos_no} {name}"
     if "npl" in token:
@@ -540,7 +586,9 @@ def _should_skip_fits(
     include_small_view: bool = False,
 ) -> str | None:
     """Return a skip reason, or None if the file should be processed."""
-    hsos_no = str(header.get("HSOS_NO", "")).lower()
+    hsos_no = str(
+        header.get("HSOS_NO") or header.get("HSOS_NUMBER") or ""
+    ).lower()
     name = Path(filename).stem.lower()
     token = f"{hsos_no} {name}"
 
@@ -600,8 +648,20 @@ def parse_fits_meta(path: Path, header: dict, data: np.ndarray) -> dict:
     }
 
 
-def _instrument_epoch(shape: tuple[int, int], camera: str, year: int) -> str:
+def _instrument_epoch(
+    shape: tuple[int, int],
+    camera: str,
+    year: int,
+    header: dict | None = None,
+    n_planes: int = 1,
+) -> str:
     """Identify a verified acquisition cohort without merging archive gaps."""
+    if (
+        year == 2026
+        and header is not None
+        and _is_hsos_schema_v2(header, shape, n_planes)
+    ):
+        return "hsos_fit32_2026_schema_v2"
     camera_upper = camera.upper()
     if shape == (480, 640) and "PULNIX" in camera_upper:
         if 2002 <= year <= 2008:
@@ -944,7 +1004,11 @@ def process_file_fits(
 
     meta = parse_fits_meta(path, header, raw_data)
     instrument_epoch = _instrument_epoch(
-        meta["shape"], meta["camera"], meta["year"]
+        meta["shape"],
+        meta["camera"],
+        meta["year"],
+        header=header,
+        n_planes=meta["n_planes"],
     )
     _require_validated_geometry(instrument_epoch, allow_unvalidated_geometry)
     data, normalization = normalize_fits_data(raw_data, header)

@@ -112,6 +112,10 @@ def inspect_file(path: Path, root: Path) -> dict:
         )
         skip_reason = loader._should_skip_fits(header, path.name, False)
         if skip_reason:
+            if skip_reason.startswith("non-longitudinal CONTENT="):
+                record["status"] = "excluded_non_longitudinal"
+                record["error"] = skip_reason
+                return record
             raise ValueError(skip_reason)
 
         camera_upper = camera.upper()
@@ -152,6 +156,9 @@ def inspect_file(path: Path, root: Path) -> dict:
             and plane_shape == (992, 992)
             and n_planes == 2
             and "IMPERX" in camera_upper
+        ) or (
+            bitpix == 32
+            and loader._is_hsos_schema_v2(header, plane_shape, n_planes)
         )
         if not known_layout:
             raise ValueError(
@@ -159,7 +166,11 @@ def inspect_file(path: Path, root: Path) -> dict:
                 f"BITPIX={bitpix}, shape={raw_shape}, CAMERA={camera}"
             )
         record["instrument_epoch"] = loader._instrument_epoch(
-            plane_shape, camera, acquisition_year
+            plane_shape,
+            camera,
+            acquisition_year,
+            header=header,
+            n_planes=n_planes,
         )
         record["status"] = "supported"
     except ValueError as exc:
