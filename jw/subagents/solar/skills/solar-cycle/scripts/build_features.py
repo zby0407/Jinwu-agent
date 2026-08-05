@@ -126,8 +126,10 @@ def load_polar_monthly(path: Path) -> pd.DataFrame:
     )
     # If a 'date' column is not present, build one from year/month.
     if "date" not in df.columns:
-        df["date"] = pd.to_datetime(df[["year", "month", "day"]]) if "day" in df.columns else pd.to_datetime(
-            df[["year", "month"]].assign(day=1)
+        df["date"] = (
+            pd.to_datetime(df[["year", "month", "day"]])
+            if "day" in df.columns
+            else pd.to_datetime(df[["year", "month"]].assign(day=1))
         )
     return df
 
@@ -226,9 +228,7 @@ def _polar_proxy_in_window(
         result[f"polar_n_months_{label}"] = n_months
         if n_months >= min_months:
             # Primary proxy: unsigned pixel-level absolute field strength.
-            result[f"polar_proxy_abs_{label}"] = float(
-                sub["field_mean_abs"].mean()
-            )
+            result[f"polar_proxy_abs_{label}"] = float(sub["field_mean_abs"].mean())
             # Diagnostic signed proxy (use with caution).
             result[f"polar_proxy_signed_{label}"] = float(
                 sub["field_mean_corrected"].mean()

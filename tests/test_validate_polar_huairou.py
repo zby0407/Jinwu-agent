@@ -9,8 +9,7 @@ from scipy import ndimage
 
 ROOT = Path(__file__).parents[1]
 SCRIPT = (
-    ROOT
-    / "jw/subagents/solar/skills/solar-cycle/scripts/validate_polar_huairou.py"
+    ROOT / "jw/subagents/solar/skills/solar-cycle/scripts/validate_polar_huairou.py"
 )
 SPEC = importlib.util.spec_from_file_location("validate_polar_huairou", SCRIPT)
 assert SPEC is not None
@@ -30,7 +29,9 @@ def test_phase_correlation_detects_integer_translation():
 def test_centered_circle_fraction_detects_half_disc():
     mask = np.zeros((100, 100), dtype=bool)
     mask[:50] = True
-    assert validator.centered_circle_fraction(mask, 30) == pytest.approx(0.489, abs=0.002)
+    assert validator.centered_circle_fraction(mask, 30) == pytest.approx(
+        0.489, abs=0.002
+    )
 
 
 def test_stratified_sample_preserves_year_and_hemisphere(tmp_path: Path):

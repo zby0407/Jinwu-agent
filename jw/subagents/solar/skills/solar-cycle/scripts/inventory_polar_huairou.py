@@ -145,32 +145,39 @@ def inspect_file(path: Path, root: Path) -> dict:
             )
             return record
         known_layout = (
-            bitpix == 8
-            and (
-                (plane_shape == (480, 640) and n_planes == 1)
-                or (plane_shape in {(1000, 992), (992, 992)} and n_planes == 2)
+            (
+                bitpix == 8
+                and (
+                    (plane_shape == (480, 640) and n_planes == 1)
+                    or (plane_shape in {(1000, 992), (992, 992)} and n_planes == 2)
+                )
             )
-        ) or (
-            bitpix == 16
-            and plane_shape == (480, 640)
-            and n_planes == 1
-            and "PULNIX" in camera_upper
-        ) or (
-            bitpix == 32
-            and plane_shape == (1000, 992)
-            and n_planes == 2
-            and "PULNIX" in camera_upper
-        ) or (
-            bitpix == 32
-            and plane_shape == (992, 992)
-            and n_planes == 2
-            and "IMPERX" in camera_upper
-        ) or (
-            bitpix == 32
-            and loader._is_hsos_schema_v2(header, plane_shape, n_planes)
-        ) or (
-            bitpix == 32
-            and loader._is_hsos_schema_v3(header, plane_shape, n_planes)
+            or (
+                bitpix == 16
+                and plane_shape == (480, 640)
+                and n_planes == 1
+                and "PULNIX" in camera_upper
+            )
+            or (
+                bitpix == 32
+                and plane_shape == (1000, 992)
+                and n_planes == 2
+                and "PULNIX" in camera_upper
+            )
+            or (
+                bitpix == 32
+                and plane_shape == (992, 992)
+                and n_planes == 2
+                and "IMPERX" in camera_upper
+            )
+            or (
+                bitpix == 32
+                and loader._is_hsos_schema_v2(header, plane_shape, n_planes)
+            )
+            or (
+                bitpix == 32
+                and loader._is_hsos_schema_v3(header, plane_shape, n_planes)
+            )
         )
         if not known_layout:
             raise ValueError(
@@ -202,12 +209,10 @@ def inspect_file(path: Path, root: Path) -> dict:
 def mark_duplicate_copies(frame: pd.DataFrame) -> pd.DataFrame:
     """Exclude numbered download copies when an equal-sized original exists."""
     frame = frame.copy()
-    canonical = frame["file"].str.replace(
-        r"\(\d+\)(?=\.fits?$)", "", regex=True
-    ).str.lower()
-    is_copy = frame["file"].str.contains(
-        r"\(\d+\)\.fits?$", case=False, regex=True
+    canonical = (
+        frame["file"].str.replace(r"\(\d+\)(?=\.fits?$)", "", regex=True).str.lower()
     )
+    is_copy = frame["file"].str.contains(r"\(\d+\)\.fits?$", case=False, regex=True)
     for canonical_path in canonical[is_copy].unique():
         group = frame.loc[canonical == canonical_path]
         originals = group.loc[~is_copy.loc[group.index]]
@@ -334,9 +339,7 @@ def main() -> None:
     if args.start_year > args.end_year:
         parser.error("--start-year must not exceed --end-year")
 
-    summary, records = run_inventory(
-        args.polar_dir, args.start_year, args.end_year
-    )
+    summary, records = run_inventory(args.polar_dir, args.start_year, args.end_year)
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(
         json.dumps(summary, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"

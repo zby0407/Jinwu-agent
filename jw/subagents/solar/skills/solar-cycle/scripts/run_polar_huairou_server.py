@@ -118,9 +118,7 @@ def run_batch(args: argparse.Namespace) -> dict:
             f"{inventory_json} and {inventory_csv} before processing"
         )
 
-    supported = inventory_records.loc[
-        inventory_records["status"] == "supported"
-    ].copy()
+    supported = inventory_records.loc[inventory_records["status"] == "supported"].copy()
     daily_frames: list[pd.DataFrame] = []
     monthly_frames: list[pd.DataFrame] = []
     year_summaries: list[dict] = []
@@ -221,12 +219,12 @@ def run_batch(args: argparse.Namespace) -> dict:
         pd.to_numeric(historical_monthly["year"]) < args.start_year
     ].copy()
 
-    combined_daily = pd.concat(
-        [historical_daily, new_daily], ignore_index=True
-    )[loader.DAILY_COLUMNS]
-    combined_monthly = pd.concat(
-        [historical_monthly, new_monthly], ignore_index=True
-    )[loader.MONTHLY_COLUMNS]
+    combined_daily = pd.concat([historical_daily, new_daily], ignore_index=True)[
+        loader.DAILY_COLUMNS
+    ]
+    combined_monthly = pd.concat([historical_monthly, new_monthly], ignore_index=True)[
+        loader.MONTHLY_COLUMNS
+    ]
     _assert_unique(combined_daily, ["date", "hemisphere"], "combined daily")
     _assert_unique(
         combined_monthly, ["year", "month", "hemisphere"], "combined monthly"
@@ -244,9 +242,16 @@ def run_batch(args: argparse.Namespace) -> dict:
     combined_monthly.to_csv(combined_monthly_path, index=False)
 
     output_paths = sorted(
-        [*data_dir.glob("*.csv"), *artifact_dir.glob("*.jsonl"), inventory_json, inventory_csv]
+        [
+            *data_dir.glob("*.csv"),
+            *artifact_dir.glob("*.jsonl"),
+            inventory_json,
+            inventory_csv,
+        ]
     )
-    checksums = {str(path.relative_to(output_root)): _sha256(path) for path in output_paths}
+    checksums = {
+        str(path.relative_to(output_root)): _sha256(path) for path in output_paths
+    }
     summary = {
         "product_status": "diagnostic_unvalidated",
         "created_at_utc": datetime.now(UTC).isoformat(),

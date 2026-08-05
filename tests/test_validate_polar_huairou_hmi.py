@@ -10,8 +10,7 @@ from astropy.io import fits
 
 ROOT = Path(__file__).parents[1]
 SCRIPT = (
-    ROOT
-    / "jw/subagents/solar/skills/solar-cycle/scripts/validate_polar_huairou_hmi.py"
+    ROOT / "jw/subagents/solar/skills/solar-cycle/scripts/validate_polar_huairou_hmi.py"
 )
 SPEC = importlib.util.spec_from_file_location("validate_polar_huairou_hmi", SCRIPT)
 assert SPEC is not None
@@ -23,9 +22,7 @@ SPEC.loader.exec_module(validator)
 def test_smft_date_and_affine_convention():
     path = Path("L523npl230101123456.fit")
     assert validator.smft_observation_date(path) == "2023-01-01"
-    x, y = validator.affine_coordinates(
-        (2, 2), np.asarray([[2, 0, 10], [0, 3, 20]])
-    )
+    x, y = validator.affine_coordinates((2, 2), np.asarray([[2, 0, 10], [0, 3, 20]]))
     np.testing.assert_allclose(x, [[10, 12], [10, 12]])
     np.testing.assert_allclose(y, [[20, 20], [23, 23]])
 

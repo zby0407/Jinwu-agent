@@ -146,9 +146,7 @@ def test_inventory_routes_schema_v2_and_excludes_q_content(tmp_path: Path):
 
 def test_inventory_routes_schema_v3(tmp_path: Path):
     root = tmp_path / "archive"
-    _write_schema_v3(
-        root / "2026" / "20260707" / "full" / "L526npl260707025038.fit"
-    )
+    _write_schema_v3(root / "2026" / "20260707" / "full" / "L526npl260707025038.fit")
 
     summary, records = inventory.run_inventory(root, 2026, 2026)
 

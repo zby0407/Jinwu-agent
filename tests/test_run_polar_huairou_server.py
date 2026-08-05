@@ -135,7 +135,10 @@ def test_server_batch_routes_imperx_and_replaces_overlap(tmp_path: Path):
     assert set(combined.loc[combined["date"] == "2026-01-08", "instrument_epoch"]) == {
         "imperx_fit32_2018_2026"
     }
-    assert json.loads((output / "run_summary.json").read_text(encoding="utf-8"))[
-        "product_status"
-    ] == "diagnostic_unvalidated"
+    assert (
+        json.loads((output / "run_summary.json").read_text(encoding="utf-8"))[
+            "product_status"
+        ]
+        == "diagnostic_unvalidated"
+    )
     assert (output / "checksums.sha256").is_file()

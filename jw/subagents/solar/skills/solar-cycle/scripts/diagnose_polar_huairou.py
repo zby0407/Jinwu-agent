@@ -41,8 +41,7 @@ def _cohorts(root: Path) -> dict[str, list[Path]]:
         "2002_apr17": [
             p
             for p in files_2002
-            if "apr" in {part.lower() for part in p.parts}
-            and "17" in p.parts
+            if "apr" in {part.lower() for part in p.parts} and "17" in p.parts
         ],
         "2002_all_large": files_2002,
         "2009_all": _large_polar(_fits_files(root / "2009")),
@@ -58,7 +57,11 @@ def _apertures(single_plane: bool) -> list[dict]:
         ]
     return [
         *[
-            {"name": f"center-circle-{radius}", "mode": "center-circle", "radius": radius}
+            {
+                "name": f"center-circle-{radius}",
+                "mode": "center-circle",
+                "radius": radius,
+            }
             for radius in (100, 150, 200)
         ],
         {"name": "center-box-200x200", "mode": "center-box", "box": (200, 200)},
@@ -121,7 +124,9 @@ def _plot_sample(
             "CALIBRAT x V/I": signals["calibrated_vi"],
         }
 
-    fig, axes = plt.subplots(1, len(images), figsize=(5 * len(images), 4), squeeze=False)
+    fig, axes = plt.subplots(
+        1, len(images), figsize=(5 * len(images), 4), squeeze=False
+    )
     for axis, (label, image) in zip(axes[0], images.items(), strict=True):
         finite = image[np.isfinite(image)]
         lo, hi = np.percentile(finite, [1, 99])
@@ -203,7 +208,9 @@ def run(root: Path, output_dir: Path) -> None:
                 else:
                     images = loader.compute_cube_signals(data, header)
                     valid = np.isfinite(data[0]) & np.isfinite(data[1])
-                    correlation = float(np.corrcoef(data[0][valid], data[1][valid])[0, 1])
+                    correlation = float(
+                        np.corrcoef(data[0][valid], data[1][valid])[0, 1]
+                    )
 
                 for signal, image in images.items():
                     for aperture in _apertures(data.ndim == 2):
@@ -273,9 +280,7 @@ def run(root: Path, output_dir: Path) -> None:
         .median()
         .to_dict()
     )
-    normalizations = (
-        frame.groupby("cohort")["normalization"].first().to_dict()
-    )
+    normalizations = frame.groupby("cohort")["normalization"].first().to_dict()
     report = [
         "# Huairou SMFT FITS diagnostic report",
         "",

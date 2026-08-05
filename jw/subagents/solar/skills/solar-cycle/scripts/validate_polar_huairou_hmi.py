@@ -50,7 +50,9 @@ DEFAULT_THRESHOLDS = {
 }
 
 
-def _first_image_hdu(path: Path, required_ndim: int = 2) -> tuple[np.ndarray, fits.Header]:
+def _first_image_hdu(
+    path: Path, required_ndim: int = 2
+) -> tuple[np.ndarray, fits.Header]:
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         with fits.open(path, memmap=False, ignore_missing_end=True) as hdul:
@@ -92,7 +94,9 @@ def fits_observation_time(header: fits.Header) -> datetime:
                 str(value),
             )
             if match:
-                parts = [int(part) if part is not None else 0 for part in match.groups()]
+                parts = [
+                    int(part) if part is not None else 0 for part in match.groups()
+                ]
                 return datetime(*parts)
     raise ValueError("HMI header has no parseable observation time")
 
@@ -115,11 +119,17 @@ def validate_matching_hmi_grids(
     for key in ("CRPIX1", "CRPIX2", "CRVAL1", "CRVAL2", "CDELT1", "CDELT2"):
         first = float(magnetogram_header.get(key, np.nan))
         second = float(continuum_header.get(key, np.nan))
-        if not np.isfinite(first) or not np.isfinite(second) or not np.isclose(first, second):
+        if (
+            not np.isfinite(first)
+            or not np.isfinite(second)
+            or not np.isclose(first, second)
+        ):
             raise ValueError(f"HMI magnetogram/continuum {key} differs")
 
 
-def affine_coordinates(shape: tuple[int, int], matrix: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+def affine_coordinates(
+    shape: tuple[int, int], matrix: np.ndarray
+) -> tuple[np.ndarray, np.ndarray]:
     matrix = np.asarray(matrix, dtype=float)
     if matrix.shape != (2, 3) or not np.isfinite(matrix).all():
         raise ValueError("smft_to_hmi_affine must be a finite 2x3 matrix")
@@ -143,7 +153,9 @@ def affine_from_control_points(
         or not np.isfinite(smft_points).all()
         or not np.isfinite(hmi_points).all()
     ):
-        raise ValueError("control points must be matching finite Nx2 arrays with N >= 3")
+        raise ValueError(
+            "control points must be matching finite Nx2 arrays with N >= 3"
+        )
     design = np.column_stack([smft_points, np.ones(len(smft_points))])
     coefficients, _, rank, _ = np.linalg.lstsq(design, hmi_points, rcond=None)
     if rank < 3:
@@ -251,7 +263,9 @@ def _gradient_magnitude(image: np.ndarray) -> np.ndarray:
     return np.hypot(ndimage.sobel(smooth, axis=0), ndimage.sobel(smooth, axis=1))
 
 
-def _linear_calibration(x: np.ndarray, y: np.ndarray, valid: np.ndarray) -> tuple[float, float]:
+def _linear_calibration(
+    x: np.ndarray, y: np.ndarray, valid: np.ndarray
+) -> tuple[float, float]:
     valid = valid & np.isfinite(x) & np.isfinite(y)
     if np.count_nonzero(valid) < 3 or np.std(x[valid]) == 0:
         return float("nan"), float("nan")
@@ -312,9 +326,9 @@ def inspect_pair(pair: dict, base: Path, thresholds: dict) -> tuple[dict, dict]:
     intensity = smft[0] + smft[1]
     denominator_valid = np.isfinite(intensity) & (np.abs(intensity) > 0)
     raw_v_over_i = np.full(intensity.shape, np.nan)
-    raw_v_over_i[denominator_valid] = (
-        (smft[0] - smft[1])[denominator_valid] / intensity[denominator_valid]
-    )
+    raw_v_over_i[denominator_valid] = (smft[0] - smft[1])[
+        denominator_valid
+    ] / intensity[denominator_valid]
     valid = (
         mask
         & denominator_valid
@@ -324,7 +338,9 @@ def inspect_pair(pair: dict, base: Path, thresholds: dict) -> tuple[dict, dict]:
     registration_valid = mask & np.isfinite(intensity) & np.isfinite(sampled_cont)
     registration_corr = _correlation(
         _gradient_magnitude(intensity),
-        _gradient_magnitude(np.nan_to_num(sampled_cont, nan=np.nanmedian(sampled_cont))),
+        _gradient_magnitude(
+            np.nan_to_num(sampled_cont, nan=np.nanmedian(sampled_cont))
+        ),
         registration_valid,
     )
     raw_field_corr = _correlation(raw_v_over_i, sampled_mag, valid)
@@ -366,7 +382,9 @@ def summarize(records: list[dict], thresholds: dict) -> dict:
         [record["raw_field_correlation"] for record in records], dtype=float
     )
     finite_corr = finite_corr[np.isfinite(finite_corr)]
-    median_raw_corr = float(np.median(finite_corr)) if finite_corr.size else float("nan")
+    median_raw_corr = (
+        float(np.median(finite_corr)) if finite_corr.size else float("nan")
+    )
     p0_minus_p1_sign = 1 if median_raw_corr >= 0 else -1
     signed_correlations = p0_minus_p1_sign * finite_corr
 
@@ -408,16 +426,16 @@ def summarize(records: list[dict], thresholds: dict) -> dict:
     )
     geometry_pass = enough_pairs and registration_pass
     median_signed_corr = (
-        float(np.median(signed_correlations)) if signed_correlations.size else float("nan")
+        float(np.median(signed_correlations))
+        if signed_correlations.size
+        else float("nan")
     )
     all_sign_checks = sign_checks["N"] + sign_checks["S"]
     enough_unambiguous_signs = all(
         len(sign_checks[hemisphere]) >= thresholds["min_pairs_per_hemisphere"]
         for hemisphere in ("N", "S")
     )
-    sign_fraction = (
-        float(np.mean(all_sign_checks)) if all_sign_checks else float("nan")
-    )
+    sign_fraction = float(np.mean(all_sign_checks)) if all_sign_checks else float("nan")
     sign_pass = bool(
         enough_pairs
         and enough_unambiguous_signs
@@ -432,7 +450,9 @@ def summarize(records: list[dict], thresholds: dict) -> dict:
     )
     calibrat_relative_error = (
         abs(median_slope - median_calibrat) / abs(median_calibrat)
-        if np.isfinite(median_slope) and np.isfinite(median_calibrat) and median_calibrat
+        if np.isfinite(median_slope)
+        and np.isfinite(median_calibrat)
+        and median_calibrat
         else float("nan")
     )
     calibrat_pass = bool(
@@ -487,7 +507,14 @@ def run_manifest(path: Path) -> dict:
         except Exception as exc:
             errors.append({"pair_index": index, "error": repr(exc)})
     result = summarize(records, thresholds)
-    result.update({"manifest": str(path), "thresholds": thresholds, "records": records, "errors": errors})
+    result.update(
+        {
+            "manifest": str(path),
+            "thresholds": thresholds,
+            "records": records,
+            "errors": errors,
+        }
+    )
     if errors:
         for gate in result["gates"]:
             result["gates"][gate] = "fail"

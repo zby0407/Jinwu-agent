@@ -77,9 +77,7 @@ def phase_correlation_shift(first: np.ndarray, second: np.ndarray) -> np.ndarray
     second_fft = np.fft.rfftn(second_hp, axes=(0, 1))
     cross_power = first_fft * np.conj(second_fft)
     cross_power /= np.maximum(np.abs(cross_power), 1e-20)
-    correlation = np.fft.irfftn(
-        cross_power, s=first.shape, axes=(0, 1)
-    )
+    correlation = np.fft.irfftn(cross_power, s=first.shape, axes=(0, 1))
     peak = np.unravel_index(np.argmax(correlation), correlation.shape)
     shift = np.asarray(peak, dtype=float)
     shape = np.asarray(first.shape)
@@ -110,9 +108,7 @@ def two_class_disk_mask(image: np.ndarray) -> np.ndarray:
     centers = np.percentile(values, [20, 80])
     for _ in range(20):
         labels = np.abs(values[:, None] - centers).argmin(axis=1)
-        updated = np.asarray(
-            [np.median(values[labels == index]) for index in range(2)]
-        )
+        updated = np.asarray([np.median(values[labels == index]) for index in range(2)])
         if np.allclose(updated, centers):
             break
         centers = updated

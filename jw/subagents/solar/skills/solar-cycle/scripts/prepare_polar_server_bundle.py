@@ -54,9 +54,7 @@ def main() -> None:
     parser.add_argument("--historical-daily", required=True, type=Path)
     parser.add_argument("--historical-monthly", required=True, type=Path)
     args = parser.parse_args()
-    copied = prepare_bundle(
-        args.output, args.historical_daily, args.historical_monthly
-    )
+    copied = prepare_bundle(args.output, args.historical_daily, args.historical_monthly)
     for path in copied:
         print(path)
 

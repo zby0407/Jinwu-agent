@@ -65,7 +65,7 @@ SMALL_CENTER_BOX = (128, 256)
 # FITS-era defaults (640x480 single-plane and 992x... two-plane).
 DEFAULT_FITS_CAP_ROWS = 100
 DEFAULT_FITS_CENTER_BOX = (240, 320)  # height x width in pixels; corresponds to
-                                      # the intuitive "320,240" width x height.
+# the intuitive "320,240" width x height.
 DEFAULT_FITS_CENTER_RADIUS = 150
 DEFAULT_FITS_APERTURE_BOX = (200, 200)
 
@@ -455,9 +455,7 @@ def normalize_fits_data(data: np.ndarray, header: dict) -> tuple[np.ndarray, str
         decoded = data
         normalization = "fits-standard-byte-order"
     elif bitpix == 32 and (
-        _is_hsos_schema_v2(
-            header, plane_shape, data.shape[0] if data.ndim == 3 else 1
-        )
+        _is_hsos_schema_v2(header, plane_shape, data.shape[0] if data.ndim == 3 else 1)
         or _is_hsos_schema_v3(
             header, plane_shape, data.shape[0] if data.ndim == 3 else 1
         )
@@ -517,7 +515,9 @@ def select_fits_signal(
     """Select one image and return image, definition, unit, calibration state."""
     if data.ndim == 2:
         if signal not in (None, "plane0"):
-            raise ValueError(f"Signal {signal!r} is invalid for a single-plane FITS image")
+            raise ValueError(
+                f"Signal {signal!r} is invalid for a single-plane FITS image"
+            )
         return data, "stored-longitudinal-image", "detector_count_proxy", "uncalibrated"
 
     if data.ndim != 3 or data.shape[0] != 2:
@@ -539,7 +539,12 @@ def select_fits_signal(
     if signal in ("plane0", "plane1", "difference"):
         return signals[signal], signal, "detector_count_proxy", "uncalibrated"
     if signal == "vi":
-        return signals[signal], "(plane0-plane1)/(plane0+plane1)", "dimensionless", "derived"
+        return (
+            signals[signal],
+            "(plane0-plane1)/(plane0+plane1)",
+            "dimensionless",
+            "derived",
+        )
     if _parse_calibration(header) is None:
         raise ValueError("calibrated_vi requested but CALIBRAT is absent or invalid")
     return (
@@ -590,9 +595,7 @@ def _parse_fits_date(header: dict, path: Path | None = None) -> pd.Timestamp:
 
 def _hemisphere_from_header(header: dict, filename: str) -> str | None:
     """Return 'N' or 'S' from HSOS_NO or filename, or None if ambiguous."""
-    hsos_no = str(
-        header.get("HSOS_NO") or header.get("HSOS_NUMBER") or ""
-    ).lower()
+    hsos_no = str(header.get("HSOS_NO") or header.get("HSOS_NUMBER") or "").lower()
     name = Path(filename).stem.lower()
     token = f"{hsos_no} {name}"
     if "npl" in token:
@@ -622,9 +625,7 @@ def _should_skip_fits(
     include_small_view: bool = False,
 ) -> str | None:
     """Return a skip reason, or None if the file should be processed."""
-    hsos_no = str(
-        header.get("HSOS_NO") or header.get("HSOS_NUMBER") or ""
-    ).lower()
+    hsos_no = str(header.get("HSOS_NO") or header.get("HSOS_NUMBER") or "").lower()
     name = Path(filename).stem.lower()
     token = f"{hsos_no} {name}"
 
@@ -1038,9 +1039,7 @@ def process_file_fits(
     """Process a single FITS file."""
     raw_data, header = _read_fits_image(path)
 
-    skip_reason = _should_skip_fits(
-        header, path.name, not skip_wpl, include_small_view
-    )
+    skip_reason = _should_skip_fits(header, path.name, not skip_wpl, include_small_view)
     if skip_reason:
         raise ValueError(skip_reason)
 
@@ -1154,9 +1153,7 @@ def aggregate_monthly(df_daily: pd.DataFrame) -> pd.DataFrame:
         "byte_order_normalization",
     ]
     grouped = (
-        df_daily.groupby(
-            ["year", "month", "hemisphere", *metadata_cols], dropna=False
-        )
+        df_daily.groupby(["year", "month", "hemisphere", *metadata_cols], dropna=False)
         .agg(
             field_mean_raw=("field_mean_raw", "mean"),
             field_mean_center=("field_mean_center", "mean"),
@@ -1333,9 +1330,7 @@ def main() -> None:
 
     with ProcessPoolExecutor(max_workers=args.workers) as executor:
         futures = {
-            executor.submit(
-                process_file, p, polar_dir, **process_kwargs
-            ): p
+            executor.submit(process_file, p, polar_dir, **process_kwargs): p
             for p in candidates
         }
         for completed_idx, future in enumerate(as_completed(futures), start=1):

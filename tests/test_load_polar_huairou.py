@@ -170,9 +170,12 @@ def test_filters_wpl_and_small_view():
     assert loader._should_skip_fits(
         {"HSOS_NO": "15npl", "CONTENT": "S"}, "S515npl.fit", False
     )
-    assert loader._should_skip_fits(
-        {"HSOS_NO": "15npl", "CONTENT": "L"}, "L515npl.fit", False
-    ) is None
+    assert (
+        loader._should_skip_fits(
+            {"HSOS_NO": "15npl", "CONTENT": "L"}, "L515npl.fit", False
+        )
+        is None
+    )
 
 
 def test_filename_hemisphere_fallback_when_hsos_number_is_unhelpful():
@@ -195,9 +198,7 @@ def test_parse_fits_date_uses_audited_path_fallback():
     path = Path("2024/12/20241216/L524npl241216024748.fit")
     assert loader._parse_fits_date({}, path) == pd.Timestamp("2024-12-16 02:47:48")
     with pytest.raises(ValueError, match="dates disagree"):
-        loader._parse_fits_date(
-            {}, Path("2024/12/20241217/L524npl241216024748.fit")
-        )
+        loader._parse_fits_date({}, Path("2024/12/20241217/L524npl241216024748.fit"))
 
 
 def test_hsos_2026_schema_v2_is_strictly_recognized(tmp_path: Path):
@@ -266,9 +267,7 @@ def test_hsos_2026_schema_v3_requires_audited_hybrid_header():
     }
     assert loader._is_hsos_schema_v3(header, (992, 992), 2)
     assert (
-        loader._instrument_epoch(
-            (992, 992), "unknown", 2026, header=header, n_planes=2
-        )
+        loader._instrument_epoch((992, 992), "unknown", 2026, header=header, n_planes=2)
         == "hsos_fit32_2026_schema_v3"
     )
     assert not loader._is_hsos_schema_v3(
@@ -278,8 +277,7 @@ def test_hsos_2026_schema_v3_requires_audited_hybrid_header():
 
 def test_imperx_epoch_distinguishes_new_archive_cohort():
     assert (
-        loader._instrument_epoch((992, 992), "IMPERX 1M48", 2014)
-        == "imperx_fit32_2014"
+        loader._instrument_epoch((992, 992), "IMPERX 1M48", 2014) == "imperx_fit32_2014"
     )
     assert (
         loader._instrument_epoch((992, 992), "IMPERX 1M48", 2015)
