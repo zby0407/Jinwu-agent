@@ -119,6 +119,8 @@ silently.
 - `scripts/fetch_data.py` — download SILSO sunspot number and F10.7 data
 - `scripts/reproduce_silso_cycles.py` — exact official-table versus smoothed-series cycle-extrema reproduction
 - `scripts/build_features.py` — cycle-level and precursor feature engineering
+- `scripts/analyze_polar_huairou_features.py` — Huairou product audit, coverage,
+  within-epoch features, hemisphere pairs, and outlier diagnostics
 - `scripts/run_experiments.py` — backtest, ablation, drift, precursor experiments
 - `scripts/plot_cycle.py` — sunspot cycle and diagnostic visualizations
 - `references/llm_wiki/` — canonical solar-cycle knowledge entries

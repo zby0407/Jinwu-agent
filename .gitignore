@@ -77,3 +77,15 @@ coverage/
 
 # Mutable datasets, project tasks, contract runs, and knowledge exports
 # are all contained by workspace/.
+
+# Local runtime state (never commit generated knowledge/project runs)
+/knowledge_base/
+/projects/
+
+# Generated solar-cycle pipeline outputs (raw data stays outside the repo)
+/data/
+/features/
+/artifacts/
+/.tmp/
+/polar-server-bundle/
+/server-results/

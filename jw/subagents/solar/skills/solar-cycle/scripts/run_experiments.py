@@ -105,15 +105,77 @@ def experiment_ablation(features: pd.DataFrame) -> dict:
 
 
 def experiment_polar_precursor(features: pd.DataFrame) -> dict:
-    """Placeholder: correlate prior-cycle minimum proxy with next peak."""
-    # Real implementation needs polar-field data column.
-    if "polar_proxy" not in features.columns:
+    """Correlate the prior-cycle polar-field strength proxy with the next cycle peak."""
+    proxy_col = "polar_proxy_abs_combined"
+    if proxy_col not in features.columns:
+        # Fallback for legacy feature tables.
+        proxy_col = "polar_proxy_combined"
+    if proxy_col not in features.columns:
         return {
             "experiment": "polar_precursor",
-            "error": "No polar_proxy column in features",
-            "note": "Supply polar-field proxy data to run this experiment",
+            "error": "No polar proxy column in features",
+            "note": "Run build_features.py with --polar-monthly to produce this column",
         }
-    return {"experiment": "polar_precursor", "note": "Not yet implemented"}
+
+    # The proxy is measured at the minimum of cycle i; it should predict the
+    # peak of cycle i+1. Build paired samples from consecutive cycles where the
+    # proxy is available.
+    df = features.sort_values("cycle").reset_index(drop=True)
+    df[proxy_col] = pd.to_numeric(df[proxy_col], errors="coerce")
+    pairs = []
+    for i in range(1, len(df)):
+        prev = df.iloc[i - 1]
+        curr = df.iloc[i]
+        if pd.notna(prev[proxy_col]) and pd.notna(curr["peak_sn"]):
+            pairs.append(
+                {
+                    "cycle": int(curr["cycle"]),
+                    "proxy": float(prev[proxy_col]),
+                    "peak_sn": float(curr["peak_sn"]),
+                }
+            )
+
+    if len(pairs) < 2:
+        return {
+            "experiment": "polar_precursor",
+            "description": "Polar-field precursor vs next-cycle peak sunspot number",
+            "n_pairs": len(pairs),
+            "pairs": pairs,
+            "error": "Need at least 2 cycles with polar precursor data",
+            "warnings": ["Very small sample; cannot estimate stable relationship"],
+        }
+
+    proxy = np.array([p["proxy"] for p in pairs])
+    peak = np.array([p["peak_sn"] for p in pairs])
+    corr = float(np.corrcoef(proxy, peak)[0, 1])
+
+    # Leave-one-out regression with an intercept.
+    y_true, y_pred = [], []
+    for i in range(len(pairs)):
+        x_train = np.vstack([np.delete(proxy, i), np.ones(len(proxy) - 1)]).T
+        y_train = np.delete(peak, i)
+        x_test = np.array([proxy[i], 1.0])
+        coef = np.linalg.lstsq(x_train, y_train, rcond=None)[0]
+        y_true.append(float(peak[i]))
+        y_pred.append(float(x_test @ coef))
+
+    mae = float(mean_absolute_error(y_true, y_pred))
+    rmse = float(np.sqrt(mean_squared_error(y_true, y_pred)))
+
+    return {
+        "experiment": "polar_precursor",
+        "description": "Polar-field precursor vs next-cycle peak sunspot number",
+        "n_pairs": len(pairs),
+        "pairs": pairs,
+        "correlation": corr,
+        "mae": mae,
+        "rmse": rmse,
+        "warnings": [
+            "Very small sample; confidence low"
+            if len(pairs) < 10
+            else "Moderate sample"
+        ],
+    }
 
 
 def experiment_drift(features: pd.DataFrame) -> dict:
