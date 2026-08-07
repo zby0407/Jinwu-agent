@@ -24,6 +24,10 @@ _SRC = _PROJECT_ROOT / "src"
 if str(_SRC) not in sys.path:
     sys.path.insert(0, str(_SRC))
 
+from jw.research_protocols import (  # noqa: E402
+    SILSO_CYCLE_EXTREMA_DATA_PRODUCT,
+    SOLAR_POLAR_PRECURSOR_DATA_PRODUCT,
+)
 from jw.workspaces import (  # noqa: E402
     workspace_context_key,
     workspace_root_from_config,
@@ -387,6 +391,8 @@ class ResearchReviewStore:
         stage: str,
         producer: Producer,
         fingerprints: Sequence[str],
+        failure_summaries: Sequence[str] = (),
+        recovery: str = "new_task_after_fix",
     ) -> dict[str, Any]:
         """Persist a terminal infrastructure failure and close the task state."""
 
@@ -395,6 +401,11 @@ class ResearchReviewStore:
         stable_fingerprints = sorted(
             {value for value in fingerprints if re.fullmatch(r"[0-9a-f]{64}", value)}
         )
+        summaries = []
+        for value in failure_summaries:
+            sanitized = " ".join(str(value).split()).strip()
+            if sanitized and sanitized not in summaries:
+                summaries.append(sanitized[:500])
         with self._transaction():
             failure_dir = self.root / "failures" / stage
             index = len(list(failure_dir.glob("*.json"))) + 1
@@ -406,6 +417,8 @@ class ResearchReviewStore:
                 "reason_code": "REQUIRED_SPECIALIST_FAILED_TWICE",
                 "failure_count": 2,
                 "fingerprints": stable_fingerprints,
+                "failure_summaries": summaries[:2],
+                "recovery": recovery,
                 "created_at": _now(),
             }
             receipt["receipt_sha256"] = canonical_json_sha256(receipt)
@@ -788,6 +801,43 @@ class ResearchReviewStore:
     @staticmethod
     def _canonical_stage_ready(stage: str, sources: list[Path]) -> bool:
         names = {path.name for path in sources}
+        if stage == "data":
+            contexts: list[dict[str, Any]] = []
+            produced_sources: list[Path] = []
+            for path in sources:
+                if path.name.startswith("data-context-") and path.suffix == ".json":
+                    payload = _read_json(path)
+                    if (
+                        isinstance(payload, dict)
+                        and payload.get("schema_version") == "solar-data-context-v1"
+                    ):
+                        contexts.append(payload)
+                        continue
+                produced_sources.append(path)
+            if not contexts:
+                # Bounded/legacy Data analyses do not have an accepted Planning
+                # artifact from which solar_data_open_context can be opened.
+                # Preserve their existing producer-owned artifact contract;
+                # full-research dispatch always creates a context receipt first.
+                return bool(produced_sources)
+            if any(
+                context.get("status") == "input_missing"
+                and (
+                    not context.get("eligible_inputs")
+                    or bool(context.get("missing_required_dataset_ids"))
+                    or context.get("must_stop") is True
+                )
+                for context in contexts
+            ):
+                # A hash-bound, honest input blocker is a complete Data-stage
+                # result. It may proceed to Evidence review without fabricated
+                # derived output.
+                return True
+            # When immutable inputs exist, the context receipt is provenance,
+            # not the data result. Require at least one additional task-local
+            # producer artifact; checkpoint_producer_result binds it and the
+            # context receipt together in one hash-bound source manifest.
+            return bool(produced_sources)
         required = {
             "planning": {"research_plan.json"},
             "hypothesis": {"scientific_hypothesis_state.json"},
@@ -869,7 +919,7 @@ class ResearchReviewStore:
 
         for ref in artifact.get("upstream_refs") or []:
             artifact_id, _, version_and_sha = ref.partition("@")
-            version_str, _, sha = version_and_sha.partition(":")
+            _version_str, _, _sha = version_and_sha.partition(":")
             stage = artifact_id.replace("-artifact", "")
             accepted = self._accepted_stage(stage)
             if accepted is None or self._long_ref(accepted) != ref:
@@ -1449,6 +1499,236 @@ class ResearchReviewStore:
                 )
         return issues
 
+    def _manifest_json_source(
+        self,
+        manifest_by_ref: Mapping[str, Mapping[str, Any]],
+        source_ref: str,
+    ) -> dict[str, Any] | None:
+        """Read one hash-matching task-local JSON source from an artifact manifest."""
+
+        source = manifest_by_ref.get(source_ref)
+        expected_sha256 = source.get("sha256") if isinstance(source, Mapping) else None
+        if not isinstance(expected_sha256, str):
+            return None
+        path = (self.workspace_root / source_ref).resolve()
+        if (
+            not path.is_relative_to(self.workspace_root)
+            or not path.is_file()
+            or _file_sha256(path) != expected_sha256
+        ):
+            return None
+        payload = _read_json(path)
+        return payload if isinstance(payload, dict) else None
+
+    def _silso_cycle_reproduction_defect(
+        self,
+        context: Mapping[str, Any],
+        manifest_by_ref: Mapping[str, Mapping[str, Any]],
+    ) -> str | None:
+        """Return the first canonical SILSO reproduction defect, if any."""
+
+        if "receipts/datasets/solar_precursor_cycle_table.json" in manifest_by_ref:
+            return (
+                "the artifact includes a polar-precursor product outside this protocol"
+            )
+
+        receipt_ref = "receipts/datasets/silso_cycle_extrema_reproduction.json"
+        receipt = self._manifest_json_source(manifest_by_ref, receipt_ref)
+        if receipt is None:
+            return "the SILSO reproduction receipt is absent or stale"
+        if not (
+            receipt.get("schema_version") == "research-dataset-receipt-v1"
+            and receipt.get("receipt_type") == "silso_cycle_extrema_reproduction"
+            and receipt.get("analysis_protocol") == "silso_cycle_reproduction_v1"
+            and receipt.get("status") == "verified"
+            and receipt.get("cycle_numbers") == [21, 22, 23, 24]
+            and receipt.get("row_count") == 4
+        ):
+            return "the SILSO reproduction receipt has invalid protocol metadata"
+
+        expected_inputs = {
+            str(item.get("dataset_id")): str(item.get("sha256"))
+            for item in context.get("eligible_inputs", [])
+            if isinstance(item, Mapping)
+        }
+        observed_inputs = {
+            str(item.get("dataset_id")): str(item.get("sha256"))
+            for item in receipt.get("inputs", [])
+            if isinstance(item, Mapping)
+        }
+        required_inputs = (
+            "silso-monthly-total-v2",
+            "silso-monthly-smoothed-v2",
+            "silso-cycle-extrema-v2",
+        )
+        if not all(
+            observed_inputs.get(dataset_id) == expected_inputs.get(dataset_id)
+            for dataset_id in required_inputs
+        ):
+            return "the SILSO reproduction receipt is not bound to all context hashes"
+
+        outputs = receipt.get("outputs")
+        if not isinstance(outputs, list):
+            return "the SILSO reproduction receipt has no output manifest"
+        output_by_ref = {
+            str(item.get("path")): item for item in outputs if isinstance(item, Mapping)
+        }
+        required_outputs = {
+            "work/solar_data/silso_cycle_extrema_comparison.csv",
+            "work/solar_data/silso_cycle_extrema_comparison.json",
+        }
+        if set(output_by_ref) != required_outputs:
+            return "the SILSO reproduction receipt lacks its canonical CSV or JSON"
+        for output_ref, output in output_by_ref.items():
+            output_path = (self.workspace_root / output_ref).resolve()
+            output_sha256 = output.get("sha256")
+            if not (
+                output_path.is_relative_to(self.workspace_root)
+                and output_path.is_file()
+                and isinstance(output_sha256, str)
+                and _file_sha256(output_path) == output_sha256
+            ):
+                return f"the SILSO output hash is stale: {output_ref}"
+
+        json_path = self.workspace_root / (
+            "work/solar_data/silso_cycle_extrema_comparison.json"
+        )
+        payload = _read_json(json_path)
+        if not (
+            isinstance(payload, dict)
+            and payload.get("schema_version") == "silso-cycle-reproduction-v1"
+            and payload.get("analysis_protocol") == "silso_cycle_reproduction_v1"
+            and payload.get("cycles") == [21, 22, 23, 24]
+            and isinstance(payload.get("method"), str)
+            and payload.get("source") == "WDC-SILSO Sunspot Number Version 2.0"
+        ):
+            return "the SILSO comparison JSON has invalid source or protocol metadata"
+        rows = payload.get("comparison")
+        if not isinstance(rows, list) or len(rows) != 4:
+            return "the SILSO comparison JSON does not contain exactly four cycles"
+        try:
+            if [int(row["cycle"]) for row in rows] != [21, 22, 23, 24]:
+                return "the SILSO comparison cycles are not exactly 21 through 24"
+            for row in rows:
+                official_minimum = row["official_minimum"]
+                official_maximum = row["official_maximum"]
+                recomputed_minimum = row["recomputed_minimum"]
+                recomputed_maximum = row["recomputed_maximum"]
+                if not all(
+                    isinstance(value, Mapping)
+                    for value in (
+                        official_minimum,
+                        official_maximum,
+                        recomputed_minimum,
+                        recomputed_maximum,
+                    )
+                ):
+                    raise TypeError
+                expected_rise = (
+                    (int(official_maximum["year"]) - int(official_minimum["year"])) * 12
+                    + int(official_maximum["month"])
+                    - int(official_minimum["month"])
+                )
+                if int(row["official_rise_months"]) != expected_rise:
+                    return "an official SILSO rise time is inconsistent with its dates"
+                for extremum in (official_minimum, official_maximum):
+                    number = float(extremum["sunspot_number"])
+                    if round(number, 1) != number:
+                        return (
+                            "an official SILSO value is not preserved at 0.1 precision"
+                        )
+                if not isinstance(
+                    row["minimum_matches_official"], bool
+                ) or not isinstance(row["maximum_matches_official"], bool):
+                    return "the SILSO comparison lacks extrema consistency flags"
+                if not str(row["difference_explanation"]).strip():
+                    return "the SILSO comparison lacks a difference explanation"
+        except (KeyError, TypeError, ValueError):
+            return "the SILSO comparison rows do not satisfy the canonical schema"
+
+        csv_path = self.workspace_root / (
+            "work/solar_data/silso_cycle_extrema_comparison.csv"
+        )
+        try:
+            with csv_path.open(encoding="utf-8", newline="") as handle:
+                csv_rows = list(csv.DictReader(handle))
+            if [int(row["cycle"]) for row in csv_rows] != [21, 22, 23, 24]:
+                return "the SILSO comparison CSV cycles are not exactly 21 through 24"
+            required_columns = {
+                "official_minimum",
+                "official_minimum_sn",
+                "official_maximum",
+                "official_maximum_sn",
+                "official_rise_months",
+                "recomputed_minimum",
+                "recomputed_maximum",
+                "recomputed_rise_months",
+                "minimum_matches_official",
+                "maximum_matches_official",
+                "difference_explanation",
+            }
+            if not csv_rows or not required_columns <= set(csv_rows[0]):
+                return "the SILSO comparison CSV lacks canonical columns"
+        except (KeyError, TypeError, ValueError):
+            return "the SILSO comparison CSV is not parseable"
+        return None
+
+    def accepted_bounded_markdown(
+        self,
+        stage: str,
+        *,
+        analysis_protocol: str = "none",
+    ) -> str | None:
+        """Return the accepted bounded answer, deterministically when required."""
+
+        artifact = self._accepted_stage(stage)
+        if artifact is None:
+            return None
+        producer_result = artifact.get("payload", {}).get("producer_result")
+        if analysis_protocol != "silso_cycle_reproduction_v1":
+            return producer_result if isinstance(producer_result, str) else None
+
+        manifest = artifact.get("payload", {}).get("source_manifest", [])
+        if not isinstance(manifest, list):
+            return None
+        manifest_by_ref = {
+            str(item.get("source_ref")): item
+            for item in manifest
+            if isinstance(item, Mapping) and isinstance(item.get("source_ref"), str)
+        }
+        context: dict[str, Any] | None = None
+        for source_ref in manifest_by_ref:
+            if not (
+                source_ref.startswith("receipts/datasets/data-context-")
+                and source_ref.endswith(".json")
+            ):
+                continue
+            candidate = self._manifest_json_source(manifest_by_ref, source_ref)
+            if candidate and (
+                candidate.get("required_data_product")
+                == SILSO_CYCLE_EXTREMA_DATA_PRODUCT
+            ):
+                context = candidate
+                break
+        if (
+            context is None
+            or self._silso_cycle_reproduction_defect(context, manifest_by_ref)
+            is not None
+        ):
+            return None
+
+        from jw.research_protocols import render_silso_cycle_reproduction_markdown
+
+        payload = _read_json(
+            self.workspace_root / "work/solar_data/silso_cycle_extrema_comparison.json"
+        )
+        if not isinstance(payload, Mapping):
+            return None
+        try:
+            return render_silso_cycle_reproduction_markdown(payload)
+        except (KeyError, TypeError, ValueError):
+            return None
+
     def _data_input_boundary_issues(
         self, targets: list[dict[str, Any]]
     ) -> list[dict[str, Any]]:
@@ -1473,7 +1753,7 @@ class ResearchReviewStore:
                 for item in manifest
                 if isinstance(item, Mapping) and isinstance(item.get("source_ref"), str)
             }
-            curated_context: tuple[str, dict[str, Any]] | None = None
+            specialized_context: tuple[str, dict[str, Any]] | None = None
             for source in manifest:
                 if not isinstance(source, Mapping):
                     continue
@@ -1501,10 +1781,7 @@ class ResearchReviewStore:
                     and context.get("task_id") == self.task_id
                 ):
                     continue
-                if (
-                    context.get("status") == "input_missing"
-                    and context.get("eligible_inputs") == []
-                ):
+                if context.get("status") == "input_missing":
                     rule_id = "REQUIRED_DATA_INPUT_UNAVAILABLE"
                     claim_ref = f"{source_ref}#status"
                     owner = "main"
@@ -1534,22 +1811,52 @@ class ResearchReviewStore:
                             "fingerprint": issue_fingerprint(rule_id, claim_ref, owner),
                         }
                     ]
-                eligible = context.get("eligible_inputs")
-                dataset_ids = {
-                    str(item.get("dataset_id"))
-                    for item in eligible
-                    if isinstance(eligible, list) and isinstance(item, Mapping)
-                }
-                if {
-                    "silso-monthly-total-v2",
-                    "mwo-wso-polar-field-v2",
-                } <= dataset_ids:
-                    curated_context = (source_ref, context)
+                if context.get("required_data_product") in {
+                    SILSO_CYCLE_EXTREMA_DATA_PRODUCT,
+                    SOLAR_POLAR_PRECURSOR_DATA_PRODUCT,
+                }:
+                    specialized_context = (source_ref, context)
 
-            if curated_context is None:
+            if specialized_context is None:
                 continue
 
-            context_ref, context = curated_context
+            context_ref, context = specialized_context
+            required_product = context.get("required_data_product")
+            if required_product == SILSO_CYCLE_EXTREMA_DATA_PRODUCT:
+                defect = self._silso_cycle_reproduction_defect(context, manifest_by_ref)
+                if defect is None:
+                    continue
+                rule_id = "DATA_SEMANTICS_BOUND"
+                claim_ref = (
+                    "receipts/datasets/silso_cycle_extrema_reproduction.json"
+                    "#verified-cycle-extrema"
+                )
+                owner = "solar-data"
+                return [
+                    {
+                        "issue_id": "deterministic-silso-cycle-reproduction",
+                        "rule_id": rule_id,
+                        "severity": "critical",
+                        "claim_ref": claim_ref,
+                        "evidence_refs": [context_ref],
+                        "owner": owner,
+                        "message": f"The bounded SILSO reproduction is incomplete: {defect}.",
+                        "required_action": (
+                            "Run reproduce_silso_cycle_extrema for cycles 21-24 on "
+                            "the exact context-bound monthly-total, monthly-smoothed, "
+                            "and official extrema inputs. Persist its canonical CSV, "
+                            "JSON, and receipt without adding polar-field products."
+                        ),
+                        "acceptance_test": (
+                            "The replacement Data artifact binds all three SILSO "
+                            "input hashes and a live four-cycle comparison containing "
+                            "official and recomputed extrema, rise times, consistency "
+                            "flags, and difference explanations."
+                        ),
+                        "fingerprint": issue_fingerprint(rule_id, claim_ref, owner),
+                    }
+                ]
+
             receipt_ref = "receipts/datasets/solar_precursor_cycle_table.json"
             receipt_source = manifest_by_ref.get(receipt_ref)
             defect = "the specialized cycle-table receipt is absent"
@@ -1677,12 +1984,14 @@ class ResearchReviewStore:
     def persist_deterministic_preflight_verdict(
         self, mode: str
     ) -> dict[str, Any] | None:
-        """Persist a revise verdict for high-precision policy defects.
+        """Persist a deterministic verdict for narrow high-precision contracts.
 
         This runs at the Evidence tool boundary before a remote reviewer call.
-        It never accepts an artifact: absence of deterministic defects still
-        requires the isolated model reviewer, while presence of one avoids a
-        costly model vote over a rule that cannot be waived.
+        Most artifacts still require the isolated model reviewer. The bounded
+        SILSO reproduction is an exception because its complete claim surface
+        is covered by hash, schema, range, precision, and consistency checks;
+        accepting it here prevents a model reviewer from expanding the protocol
+        or rewriting the verified values.
         """
 
         targets = self.review_targets(mode)
@@ -1691,6 +2000,50 @@ class ResearchReviewStore:
             return None
         issues = self._deterministic_semantic_issues(mode, targets)
         if not issues:
+            if mode == "data":
+                for artifact in targets:
+                    manifest = artifact.get("payload", {}).get("source_manifest", [])
+                    if not isinstance(manifest, list):
+                        continue
+                    manifest_by_ref = {
+                        str(item.get("source_ref")): item
+                        for item in manifest
+                        if isinstance(item, Mapping)
+                        and isinstance(item.get("source_ref"), str)
+                    }
+                    silso_context = any(
+                        (
+                            context := self._manifest_json_source(
+                                manifest_by_ref, source_ref
+                            )
+                        )
+                        and context.get("required_data_product")
+                        == SILSO_CYCLE_EXTREMA_DATA_PRODUCT
+                        for source_ref in manifest_by_ref
+                        if source_ref.startswith("receipts/datasets/data-context-")
+                    )
+                    if silso_context:
+                        accepted_claims = sorted(
+                            claim["claim_id"]
+                            for item in targets
+                            for claim in item.get("claims", [])
+                            if isinstance(claim, Mapping)
+                            and isinstance(claim.get("claim_id"), str)
+                        )
+                        return self.submit_verdict(
+                            mode=mode,
+                            decision="accept",
+                            issues=[],
+                            accepted_claims=accepted_claims,
+                            independent_review={
+                                "status": "not_required",
+                                "reviewer": None,
+                                "notes": (
+                                    "deterministic SILSO protocol validation covers "
+                                    "the complete bounded artifact"
+                                ),
+                            },
+                        )
             return None
         claim_ids = {
             claim["claim_id"]

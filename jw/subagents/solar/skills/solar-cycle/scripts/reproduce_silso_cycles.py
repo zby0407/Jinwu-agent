@@ -165,6 +165,31 @@ def build_comparison(
         )
         official_rise = month_delta(cycle.minimum, cycle.maximum)
         computed_rise = month_delta(computed_min, computed_max)
+        minimum_matches = computed_min == cycle.minimum
+        maximum_matches = computed_max == cycle.maximum
+        differences: list[str] = []
+        if not minimum_matches:
+            if computed_min.sunspot_number == cycle.minimum.sunspot_number:
+                differences.append(
+                    "The recomputation selected a different month with the same "
+                    "minimum smoothed value; both dates are retained."
+                )
+            else:
+                differences.append(
+                    "The recomputed minimum date or value differs from the official "
+                    "table; both records are retained without inferring a cause."
+                )
+        if not maximum_matches:
+            if computed_max.sunspot_number == cycle.maximum.sunspot_number:
+                differences.append(
+                    "The recomputation selected a different month with the same "
+                    "maximum smoothed value; both dates are retained."
+                )
+            else:
+                differences.append(
+                    "The recomputed maximum date or value differs from the official "
+                    "table; both records are retained without inferring a cause."
+                )
         rows.append(
             {
                 "cycle": cycle_number,
@@ -178,8 +203,13 @@ def build_comparison(
                 "recomputed_maximum": asdict(computed_max)
                 | {"year_month": computed_max.year_month},
                 "recomputed_rise_months": computed_rise,
-                "minimum_matches_official": computed_min == cycle.minimum,
-                "maximum_matches_official": computed_max == cycle.maximum,
+                "minimum_matches_official": minimum_matches,
+                "maximum_matches_official": maximum_matches,
+                "difference_explanation": (
+                    "Official and recomputed extrema agree."
+                    if not differences
+                    else " ".join(differences)
+                ),
             }
         )
     return rows
@@ -223,6 +253,7 @@ def write_csv(path: Path, rows: list[dict[str, object]]) -> None:
         "recomputed_rise_months",
         "minimum_matches_official",
         "maximum_matches_official",
+        "difference_explanation",
     ]
     with path.open("w", encoding="utf-8", newline="") as handle:
         writer = csv.DictWriter(handle, fieldnames=columns)
@@ -251,6 +282,7 @@ def write_csv(path: Path, rows: list[dict[str, object]]) -> None:
                     "recomputed_rise_months": row["recomputed_rise_months"],
                     "minimum_matches_official": row["minimum_matches_official"],
                     "maximum_matches_official": row["maximum_matches_official"],
+                    "difference_explanation": row["difference_explanation"],
                 }
             )
 

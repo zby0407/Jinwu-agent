@@ -9,6 +9,7 @@ import {
   UserRoundCheck,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { describeResearchTerminal } from "@/lib/researchReviewTerminal";
 
 type StageIssue = {
   issueId: string;
@@ -37,6 +38,18 @@ type ReviewStatus = {
   reviewInvocations?: number;
   maxReviewInvocations?: number;
   stages?: ReviewStage[];
+  terminal?: {
+    status: "blocked" | "human_review";
+    reasonCode: string;
+    stage: string;
+    producer?: string;
+    failureCount?: number;
+    summary?: string;
+    recovery:
+      | "new_task_after_fix"
+      | "configure_auxiliary_reviewer"
+      | "human_review";
+  };
 };
 
 const LABELS: Record<string, string> = {
@@ -118,6 +131,9 @@ export function ResearchReviewPanel({
     : ready
     ? ShieldCheck
     : CircleDashed;
+  const terminalCopy = data.terminal
+    ? describeResearchTerminal(data.terminal)
+    : null;
 
   return (
     <section
@@ -184,6 +200,27 @@ export function ResearchReviewPanel({
           </span>
         ))}
       </div>
+
+      {terminalCopy && (
+        <div
+          className={cn(
+            "mt-3 rounded-md border px-3 py-2",
+            terminalCopy.tone === "human_review"
+              ? "border-amber-500/35 bg-amber-500/10"
+              : "border-destructive/35 bg-destructive/10"
+          )}
+        >
+          <p className="text-xs font-semibold text-foreground">
+            {terminalCopy.title}
+          </p>
+          <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+            {terminalCopy.description}
+          </p>
+          <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+            {terminalCopy.action}
+          </p>
+        </div>
+      )}
 
       {majorIssues.length > 0 && (
         <div className="mt-3 border-t border-border pt-2">

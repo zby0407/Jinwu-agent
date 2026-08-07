@@ -444,10 +444,10 @@ def _is_transient_task_failure(content: str) -> bool:
     return any(marker in content for marker in _TRANSIENT_TOOL_ERROR_MARKERS)
 
 
-def _prior_task_failure_fingerprints(
+def _prior_task_failures(
     state: object, subagent_type: str
-) -> tuple[str, ...]:
-    """Return failure fingerprints for one specialist since the latest user turn."""
+) -> tuple[tuple[str, str], ...]:
+    """Return sanitized failure fingerprint/summary pairs for one specialist."""
 
     if not isinstance(state, Mapping):
         return ()
@@ -464,7 +464,7 @@ def _prior_task_failure_fingerprints(
         if message_type in {"human", "user"}:
             latest_human = index
     matching_call_ids: set[str] = set()
-    fingerprints: list[str] = []
+    failures: list[tuple[str, str]] = []
     for message in messages[latest_human + 1 :]:
         if isinstance(message, Mapping):
             calls = message.get("tool_calls", ())
@@ -497,15 +497,97 @@ def _prior_task_failure_fingerprints(
                     # counted as a scientific specialist failure.
                     continue
                 matched = re.search(r"(?m)^fingerprint=([0-9a-f]{64})$", content)
-                fingerprints.append(matched.group(1) if matched else "")
+                summary_match = re.search(r"(?m)^error=(.+)$", content)
+                summary = (
+                    summary_match.group(1).strip()
+                    if summary_match
+                    else stripped.splitlines()[0]
+                )
+                failures.append((matched.group(1) if matched else "", summary[:500]))
             elif stripped.startswith(
                 "[RESEARCH REVIEW BLOCKED] producer local preflight failed before "
                 "Evidence review:"
             ):
-                fingerprints.append(
-                    hashlib.sha256(stripped.encode("utf-8")).hexdigest()
+                failures.append(
+                    (
+                        hashlib.sha256(stripped.encode("utf-8")).hexdigest(),
+                        " ".join(stripped.split())[:500],
+                    )
                 )
-    return tuple(fingerprints)
+    return tuple(failures)
+
+
+def _prior_task_failure_fingerprints(
+    state: object, subagent_type: str
+) -> tuple[str, ...]:
+    """Return failure fingerprints for one specialist since the latest user turn."""
+
+    return tuple(item[0] for item in _prior_task_failures(state, subagent_type))
+
+
+def _open_data_context_preflight(
+    config: object,
+    *,
+    route_kind: str,
+    analysis_protocol: str = "none",
+) -> dict[str, Any]:
+    """Refresh task-bound project inputs and open the canonical Data context.
+
+    The tool is idempotent by content hash. Running it at the orchestration
+    boundary prevents a provider from returning prose before performing the
+    mandatory first data action.
+    """
+
+    from ..tools.solar_feature import (
+        open_bounded_solar_data_context,
+        solar_data_open_context,
+    )
+    from ..workspaces import binding_from_config, ensure_thread_workspace
+
+    binding = binding_from_config(config)  # type: ignore[arg-type]
+    if binding is not None and not binding.legacy:
+        ensure_thread_workspace(
+            binding.thread_id,
+            binding.base_workspace,
+            project_id=binding.project_id,
+        )
+    if route_kind == "full":
+        raw = solar_data_open_context.func(
+            analysis_protocol=analysis_protocol, config=config
+        )
+        payload = json.loads(raw)
+    else:
+        payload = open_bounded_solar_data_context(
+            config, analysis_protocol=analysis_protocol
+        )
+    if not isinstance(payload, dict):
+        raise RuntimeError("solar_data_open_context returned a non-object payload")
+    if payload.get("status") == "error":
+        raise RuntimeError(
+            str(payload.get("error_message") or "solar data context preflight failed")
+        )
+    if payload.get("schema_version") != "solar-data-context-v1":
+        raise RuntimeError("solar data context preflight returned an invalid schema")
+    return payload
+
+
+def _data_context_projection(payload: Mapping[str, Any]) -> dict[str, Any]:
+    """Return the bounded context fields safe to place in a task description."""
+
+    eligible = payload.get("eligible_inputs")
+    return {
+        "status": payload.get("status"),
+        "context_mode": payload.get("context_mode"),
+        "analysis_protocol": payload.get("analysis_protocol"),
+        "required_data_product": payload.get("required_data_product"),
+        "must_stop": bool(payload.get("must_stop")),
+        "receipt_ref": payload.get("receipt_ref"),
+        "context_sha256": payload.get("context_sha256"),
+        "required_dataset_ids": payload.get("required_dataset_ids", []),
+        "missing_required_dataset_ids": payload.get("missing_required_dataset_ids", []),
+        "eligible_inputs": eligible if isinstance(eligible, list) else [],
+        "instruction": payload.get("instruction"),
+    }
 
 
 def _prior_transient_task_failure_count(state: object, subagent_type: str) -> int:
@@ -746,12 +828,14 @@ class ResearchReviewOrchestrationMiddleware(AgentMiddleware[Any, Any, Any]):
                     request, f"expected {expected}, received {actual or '<missing>'}"
                 ),
             )
-        failure_fingerprints = _prior_task_failure_fingerprints(request.state, expected)
+        prior_failures = _prior_task_failures(request.state, expected)
+        failure_fingerprints = tuple(item[0] for item in prior_failures)
         if len(failure_fingerprints) >= 2:
             receipt = store.block_for_tool_failures(
                 stage=action["stage"],
                 producer=expected,
                 fingerprints=failure_fingerprints,
+                failure_summaries=tuple(item[1] for item in prior_failures),
             )
             message = ToolMessage(
                 content=(
@@ -785,6 +869,10 @@ class ResearchReviewOrchestrationMiddleware(AgentMiddleware[Any, Any, Any]):
                     hashlib.sha256(
                         f"transient-outage:{expected}:{transient_failures}".encode()
                     ).hexdigest(),
+                ),
+                failure_summaries=(
+                    f"{expected} reached the transient provider failure limit "
+                    f"({transient_failures})",
                 ),
             )
             message = ToolMessage(
@@ -830,9 +918,16 @@ class ResearchReviewOrchestrationMiddleware(AgentMiddleware[Any, Any, Any]):
                     action,
                     ToolMessage(
                         content=(
-                            "[DETERMINISTIC REVIEW VERDICT] A non-waivable policy "
-                            "defect was persisted before remote Evidence review.\n\n"
-                            "[REVIEW_VERDICT_V2]\n"
+                            "[DETERMINISTIC REVIEW VERDICT] "
+                            + (
+                                "The complete bounded protocol passed deterministic "
+                                "validation and was accepted without remote Evidence "
+                                "review.\n\n"
+                                if deterministic["decision"] == "accept"
+                                else "A non-waivable policy defect was persisted "
+                                "before remote Evidence review.\n\n"
+                            )
+                            + "[REVIEW_VERDICT_V2]\n"
                             + json.dumps(receipt, ensure_ascii=False)
                         ),
                         tool_call_id=str(
@@ -852,6 +947,34 @@ class ResearchReviewOrchestrationMiddleware(AgentMiddleware[Any, Any, Any]):
         else:
             revision_capsule = None
             planner_revision_checkpoint = None
+            data_context: dict[str, Any] | None = None
+            if action["stage"] == "data":
+                try:
+                    route = (
+                        request.state.get("research_route", {})
+                        if isinstance(request.state, Mapping)
+                        else {}
+                    )
+                    analysis_protocol = (
+                        str(route.get("required_analysis_protocol") or "none")
+                        if isinstance(route, Mapping)
+                        else "none"
+                    )
+                    data_context = _open_data_context_preflight(
+                        config,
+                        route_kind=route_kind,
+                        analysis_protocol=analysis_protocol,
+                    )
+                except Exception as exc:
+                    return (
+                        request,
+                        action,
+                        self._blocked(
+                            request,
+                            "producer local preflight failed before Evidence "
+                            f"review: {type(exc).__name__}: {exc}",
+                        ),
+                    )
             revision_review_id = action.get("revision_review_id")
             if isinstance(revision_review_id, str):
                 revision_capsule = store.revision_capsule(
@@ -895,6 +1018,19 @@ class ResearchReviewOrchestrationMiddleware(AgentMiddleware[Any, Any, Any]):
                     "inputs/... paths; they are the only readable task-local copies "
                     "of the accepted data artifact's produced files."
                 )
+            data_context_directive = ""
+            if data_context is not None:
+                data_context_directive = (
+                    "\ndeterministic_data_context="
+                    + json.dumps(
+                        _data_context_projection(data_context), ensure_ascii=False
+                    )
+                    + "\nThe Supervisor already opened this hash-bound context. "
+                    "Do not rediscover or guess inputs. If must_stop=true, return "
+                    "the blocker immediately. Otherwise inspect the exact eligible "
+                    "input and persist at least one additional task-local data "
+                    "artifact before returning."
+                )
             description += (
                 "\n\n[RESEARCH_PRODUCER_V2]\n"
                 f"phase={action['phase']}\n"
@@ -909,6 +1045,7 @@ class ResearchReviewOrchestrationMiddleware(AgentMiddleware[Any, Any, Any]):
                 f"policy_preflight={json.dumps(policy_registry(stage=action['stage']), ensure_ascii=False)}\n"
                 f"accepted_upstream={_upstream_context(store, action['stage'])}"
                 f"{staged_directive}"
+                f"{data_context_directive}"
                 "\ncanonical_checkpoint="
                 f"{_CANONICAL_CHECKPOINT_DIRECTIVE[action['stage']]}"
             )
@@ -1004,10 +1141,18 @@ class ResearchReviewOrchestrationMiddleware(AgentMiddleware[Any, Any, Any]):
                             f"freeze failed: {type(freeze_exc).__name__}: {freeze_exc}",
                         )
                 else:
+                    detail = f"{type(exc).__name__}: {exc}"
+                    if action["stage"] == "data":
+                        detail += (
+                            "; missing an additional producer artifact under "
+                            "work/solar_data, a non-context receipts/datasets "
+                            "receipt, or outputs. Inspect the latest dedicated-tool "
+                            "error and call the required adapter once on the retry"
+                        )
                     return self._blocked(
                         request,
                         "producer local preflight failed before Evidence review: "
-                        f"{type(exc).__name__}: {exc}",
+                        + detail,
                     )
             receipt = {
                 "schema_version": "research-artifact-receipt-v2",

@@ -16,6 +16,8 @@ from .workspaces import register_project_data_file
 
 _USER_AGENT = "Jinwu-research-data/2.0"
 _SILSO_AUTHORITY_URL = "https://www.sidc.be/SILSO/DATA/SN_m_tot_V2.0.txt"
+_SILSO_SMOOTHED_URL = "https://www.sidc.be/SILSO/DATA/SN_ms_tot_V2.0.csv"
+_SILSO_EXTREMA_URL = "https://www.sidc.be/SILSO/DATA/Cycles/TableCyclesMiMa.txt"
 _SILSO_MIRROR_URL = (
     "http://www.wdcb.ru/stp/data/solar.act/sunspot/SILSO/ver2/SN_m/SN_m_tot_V2.0.txt"
 )
@@ -60,6 +62,82 @@ def _validate_silso_monthly(payload: bytes) -> dict[str, Any]:
         "coverage_start": f"{rows[0][0]:04d}-{rows[0][1]:02d}",
         "coverage_end": f"{rows[-1][0]:04d}-{rows[-1][1]:02d}",
         "format": "SILSO monthly total sunspot number V2.0 whitespace ASCII",
+    }
+
+
+def _validate_silso_smoothed(payload: bytes) -> dict[str, Any]:
+    """Validate the official semicolon-delimited 13-month smoothed series."""
+
+    try:
+        text = payload.decode("ascii")
+    except UnicodeDecodeError as exc:
+        raise ValueError("SILSO smoothed data is not ASCII") from exc
+    rows: list[tuple[int, int]] = []
+    for line_number, fields in enumerate(
+        csv.reader(text.splitlines(), delimiter=";"), 1
+    ):
+        if not fields:
+            continue
+        if len(fields) < 4:
+            raise ValueError(f"invalid SILSO smoothed row {line_number}")
+        try:
+            year, month, value = int(fields[0]), int(fields[1]), float(fields[3])
+        except ValueError as exc:
+            raise ValueError(f"invalid SILSO smoothed row {line_number}") from exc
+        if not 1 <= month <= 12 or value < -1:
+            raise ValueError(f"invalid SILSO smoothed semantics at row {line_number}")
+        if value >= 0:
+            rows.append((year, month))
+    if len(rows) < 3_100 or rows[0][0] != 1749 or rows[-1][0] < 2024:
+        raise ValueError("SILSO smoothed coverage is too short")
+    if rows != sorted(rows) or len(rows) != len(set(rows)):
+        raise ValueError("SILSO smoothed monthly keys are not unique and monotonic")
+    return {
+        "row_count": len(rows),
+        "coverage_start": f"{rows[0][0]:04d}-{rows[0][1]:02d}",
+        "coverage_end": f"{rows[-1][0]:04d}-{rows[-1][1]:02d}",
+        "format": "SILSO official 13-month smoothed monthly total V2.0",
+    }
+
+
+def _validate_silso_extrema(payload: bytes) -> dict[str, Any]:
+    """Validate the official SILSO cycle minima/maxima table."""
+
+    try:
+        text = payload.decode("ascii")
+    except UnicodeDecodeError as exc:
+        raise ValueError("SILSO extrema table is not ASCII") from exc
+    cycles: list[int] = []
+    completed: list[int] = []
+    for line_number, raw in enumerate(text.splitlines(), 1):
+        fields = raw.split()
+        if not fields or not fields[0].isdigit():
+            continue
+        if len(fields) < 4:
+            raise ValueError(f"invalid SILSO extrema row {line_number}")
+        try:
+            cycle = int(fields[0])
+            minimum_month = int(fields[2])
+            float(fields[3])
+            if len(fields) >= 7:
+                maximum_month = int(fields[5])
+                float(fields[6])
+                if not 1 <= maximum_month <= 12:
+                    raise ValueError
+                completed.append(cycle)
+        except ValueError as exc:
+            raise ValueError(f"invalid SILSO extrema row {line_number}") from exc
+        if not 1 <= minimum_month <= 12:
+            raise ValueError(f"invalid SILSO extrema semantics at row {line_number}")
+        cycles.append(cycle)
+    if len(cycles) < 24 or cycles != sorted(set(cycles)) or 24 not in completed:
+        raise ValueError("SILSO extrema table lacks completed historical cycles")
+    return {
+        "cycle_count": len(cycles),
+        "cycle_start": min(cycles),
+        "cycle_end": max(cycles),
+        "latest_completed_cycle": max(completed),
+        "format": "SILSO official cycle minima/maxima table V2.0",
     }
 
 
@@ -123,6 +201,37 @@ def _acquire_silso() -> tuple[bytes, dict[str, Any]]:
     raise RuntimeError(f"all curated SILSO sources failed: {attempts}")
 
 
+def _acquire_silso_reference(
+    url: str, validator: Any, *, product: str
+) -> tuple[bytes, dict[str, Any]]:
+    payload, resolved = _fetch(url)
+    return payload, {
+        "authority_url": url,
+        "retrieval_url": resolved,
+        "retrieval_source_kind": "authority",
+        "dataset_doi": _SILSO_DOI,
+        "license": "CC BY-NC 4.0",
+        "product": product,
+        "validation": validator(payload),
+    }
+
+
+def _acquire_silso_smoothed() -> tuple[bytes, dict[str, Any]]:
+    return _acquire_silso_reference(
+        _SILSO_SMOOTHED_URL,
+        _validate_silso_smoothed,
+        product="official 13-month smoothed monthly total",
+    )
+
+
+def _acquire_silso_extrema() -> tuple[bytes, dict[str, Any]]:
+    return _acquire_silso_reference(
+        _SILSO_EXTREMA_URL,
+        _validate_silso_extrema,
+        product="official cycle minima and maxima",
+    )
+
+
 def _acquire_polar_field() -> tuple[bytes, dict[str, Any]]:
     encoded = urllib.parse.quote(_POLAR_PERSISTENT_ID, safe="")
     metadata_url = (
@@ -170,7 +279,7 @@ def _acquire_polar_field() -> tuple[bytes, dict[str, Any]]:
 def acquire_authoritative_solar_data(
     base_workspace: str | Path, *, project_id: str = "default"
 ) -> list[dict[str, Any]]:
-    """Acquire, validate, and register the curated two-dataset research input."""
+    """Acquire, validate, and register curated solar-cycle research inputs."""
 
     retrieved_at = datetime.now(UTC).isoformat()
     records = []
@@ -181,6 +290,16 @@ def acquire_authoritative_solar_data(
                 "silso-monthly-total-v2",
                 "solar_cycle/silso/monthly_total_v2/SN_m_tot_V2.0.txt",
                 _acquire_silso,
+            ),
+            (
+                "silso-monthly-smoothed-v2",
+                "solar_cycle/silso/monthly_smoothed_v2/SN_ms_tot_V2.0.csv",
+                _acquire_silso_smoothed,
+            ),
+            (
+                "silso-cycle-extrema-v2",
+                "solar_cycle/silso/cycle_extrema_v2/TableCyclesMiMa.txt",
+                _acquire_silso_extrema,
             ),
             (
                 "mwo-wso-polar-field-v2",

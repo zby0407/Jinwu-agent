@@ -36,9 +36,22 @@ type Artifact = {
 
 type ReviewIssue = {
   issue_id?: unknown;
+  rule_id?: unknown;
   severity?: unknown;
   owner?: unknown;
   message?: unknown;
+};
+
+type ToolFailureReceipt = {
+  schema_version?: unknown;
+  task_id?: unknown;
+  stage?: unknown;
+  producer?: unknown;
+  reason_code?: unknown;
+  failure_count?: unknown;
+  failure_summaries?: unknown;
+  recovery?: unknown;
+  created_at?: unknown;
 };
 
 type Verdict = {
@@ -70,6 +83,41 @@ function safeString(value: unknown, fallback = ""): string {
 
 function safeNumber(value: unknown): number {
   return typeof value === "number" && Number.isFinite(value) ? value : 0;
+}
+
+async function latestToolFailure(
+  workspace: string,
+  taskId: string,
+  stage: string
+): Promise<ToolFailureReceipt | null> {
+  if (!stage) return null;
+  const directory = resolveInside(
+    workspace,
+    `research_review/failures/${stage}`
+  );
+  let names: string[];
+  try {
+    names = await fs.readdir(directory);
+  } catch {
+    return null;
+  }
+  const receipts: ToolFailureReceipt[] = [];
+  for (const name of names.filter((value) => value.endsWith(".json"))) {
+    const payload = (await readJson(
+      resolveInside(directory, name)
+    )) as ToolFailureReceipt | null;
+    if (
+      payload &&
+      safeString(payload.task_id) === taskId &&
+      safeString(payload.stage) === stage
+    ) {
+      receipts.push(payload);
+    }
+  }
+  receipts.sort((left, right) =>
+    safeString(left.created_at).localeCompare(safeString(right.created_at))
+  );
+  return receipts.at(-1) ?? null;
 }
 
 export async function GET(request: NextRequest) {
@@ -198,11 +246,73 @@ export async function GET(request: NextRequest) {
       };
     });
 
+    const runStatus = safeString(state.status, "active");
+    const currentStage = safeString(state.current_stage);
+    let terminal:
+      | {
+          status: "blocked" | "human_review";
+          reasonCode: string;
+          stage: string;
+          producer?: string;
+          failureCount?: number;
+          summary?: string;
+          recovery:
+            | "new_task_after_fix"
+            | "configure_auxiliary_reviewer"
+            | "human_review";
+        }
+      | undefined;
+    if (runStatus === "blocked") {
+      const failure = await latestToolFailure(workspace, taskId, currentStage);
+      const summaries = Array.isArray(failure?.failure_summaries)
+        ? failure.failure_summaries.filter(
+            (value): value is string => typeof value === "string"
+          )
+        : [];
+      terminal = {
+        status: "blocked",
+        reasonCode: safeString(failure?.reason_code, "UNRESOLVED_REVIEW_GATE"),
+        stage: currentStage,
+        producer: safeString(failure?.producer) || undefined,
+        failureCount:
+          safeNumber(failure?.failure_count) > 0
+            ? safeNumber(failure?.failure_count)
+            : undefined,
+        summary: summaries[0]?.slice(0, 500),
+        recovery: "new_task_after_fix",
+      };
+    } else if (runStatus === "human_review") {
+      const review = Array.from(latestByMode.values())
+        .filter((value) => value.decision === "human_review")
+        .sort((left, right) =>
+          safeString(left.created_at).localeCompare(
+            safeString(right.created_at)
+          )
+        )
+        .at(-1);
+      const issues = Array.isArray(review?.issues) ? review.issues : [];
+      const independent = issues.find(
+        (value) =>
+          Boolean(value && typeof value === "object") &&
+          safeString((value as ReviewIssue).rule_id) ===
+            "INDEPENDENT_REVIEW_REQUIRED"
+      ) as ReviewIssue | undefined;
+      terminal = {
+        status: "human_review",
+        reasonCode: independent
+          ? "INDEPENDENT_REVIEW_REQUIRED"
+          : "HUMAN_REVIEW_REQUIRED",
+        stage: currentStage,
+        summary: safeString(independent?.message).slice(0, 500) || undefined,
+        recovery: independent ? "configure_auxiliary_reviewer" : "human_review",
+      };
+    }
+
     return NextResponse.json(
       {
         active: true,
-        status: safeString(state.status, "active"),
-        currentStage: safeString(state.current_stage),
+        status: runStatus,
+        currentStage,
         revisionPolicy: safeString(state.revision_policy),
         actionInvocations: safeNumber(state.action_invocations),
         maxActionInvocations: safeNumber(state.max_action_invocations),
@@ -210,6 +320,7 @@ export async function GET(request: NextRequest) {
         maxReviewInvocations: safeNumber(state.max_review_invocations),
         updatedAt: safeString(state.updated_at),
         stages,
+        terminal,
       },
       { headers: { "Cache-Control": "no-store" } }
     );

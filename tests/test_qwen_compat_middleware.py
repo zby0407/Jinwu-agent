@@ -601,6 +601,7 @@ def test_data_stage_routes_curated_precursor_inputs_to_specialized_adapter():
             {
                 "status": "inputs_available",
                 "must_stop": False,
+                "required_data_product": "solar_polar_precursor_table_v1",
                 "eligible_inputs": [
                     {
                         "dataset_id": "silso-monthly-total-v2",
@@ -637,6 +638,139 @@ def test_data_stage_routes_curated_precursor_inputs_to_specialized_adapter():
         "function": {"name": "prepare_solar_precursor_cycle_table"},
     }
     assert prepared.model.extra_body["enable_thinking"] is False
+
+
+def test_data_stage_uses_preopened_silso_context_and_forces_reproduction():
+    tools = [
+        {"name": "solar_data_open_context"},
+        {"name": "reproduce_silso_cycle_extrema"},
+    ]
+    context = {
+        "status": "inputs_available",
+        "must_stop": False,
+        "analysis_protocol": "silso_cycle_reproduction_v1",
+        "required_data_product": "silso_cycle_extrema_v1",
+        "eligible_inputs": [
+            {"dataset_id": "silso-monthly-total-v2", "path": "/inputs/raw.csv"},
+            {
+                "dataset_id": "silso-monthly-smoothed-v2",
+                "path": "/inputs/smoothed.csv",
+            },
+            {
+                "dataset_id": "silso-cycle-extrema-v2",
+                "path": "/inputs/extrema.txt",
+            },
+        ],
+    }
+    request = _request(*tools, messages=[HumanMessage(content="reproduce cycles")])
+    request.system_message = SystemMessage(
+        content=(
+            "[RESEARCH_PRODUCER_V2]\nstage=data\n"
+            f"deterministic_data_context={json.dumps(context)}\n"
+            "The Supervisor already opened this context."
+        )
+    )
+    handler = MagicMock(return_value="ok")
+
+    with patch(
+        "jw.middleware.qwen_compat._read_model_override",
+        return_value=(None, None),
+    ):
+        assert (
+            QwenToolCompatibilityMiddleware(
+                default_model="qwen3.7-plus"
+            ).wrap_model_call(request, handler)
+            == "ok"
+        )
+
+    prepared = handler.call_args.args[0]
+    assert prepared.tool_choice == {
+        "type": "function",
+        "function": {"name": "reproduce_silso_cycle_extrema"},
+    }
+    assert prepared.model.extra_body["enable_thinking"] is False
+
+
+def test_silso_product_never_selects_precursor_tool_from_extra_input():
+    tools = [
+        {"name": "reproduce_silso_cycle_extrema"},
+        {"name": "prepare_solar_precursor_cycle_table"},
+    ]
+    context = {
+        "status": "inputs_available",
+        "must_stop": False,
+        "analysis_protocol": "silso_cycle_reproduction_v1",
+        "required_data_product": "silso_cycle_extrema_v1",
+        "eligible_inputs": [
+            {"dataset_id": "silso-monthly-total-v2", "path": "/inputs/raw.csv"},
+            {
+                "dataset_id": "silso-monthly-smoothed-v2",
+                "path": "/inputs/smoothed.csv",
+            },
+            {
+                "dataset_id": "silso-cycle-extrema-v2",
+                "path": "/inputs/extrema.txt",
+            },
+            {
+                "dataset_id": "mwo-wso-polar-field-v2",
+                "path": "/inputs/polar.csv",
+            },
+        ],
+    }
+    request = _request(*tools, messages=[HumanMessage(content="reproduce cycles")])
+    request.system_message = SystemMessage(
+        content=(
+            "[RESEARCH_PRODUCER_V2]\nstage=data\n"
+            f"deterministic_data_context={json.dumps(context)}"
+        )
+    )
+    handler = MagicMock(return_value="ok")
+
+    with patch(
+        "jw.middleware.qwen_compat._read_model_override",
+        return_value=(None, None),
+    ):
+        QwenToolCompatibilityMiddleware(default_model="qwen3.7-plus").wrap_model_call(
+            request, handler
+        )
+
+    assert handler.call_args.args[0].tool_choice == {
+        "type": "function",
+        "function": {"name": "reproduce_silso_cycle_extrema"},
+    }
+
+
+def test_data_stage_preopened_missing_context_does_not_force_any_tool():
+    tools = [
+        {"name": "solar_data_open_context"},
+        {"name": "reproduce_silso_cycle_extrema"},
+    ]
+    context = {
+        "status": "input_missing",
+        "must_stop": True,
+        "analysis_protocol": "silso_cycle_reproduction_v1",
+        "required_data_product": "silso_cycle_extrema_v1",
+        "eligible_inputs": [],
+    }
+    request = _request(*tools, messages=[HumanMessage(content="reproduce cycles")])
+    request.system_message = SystemMessage(
+        content=(
+            "[RESEARCH_PRODUCER_V2]\nstage=data\n"
+            f"deterministic_data_context={json.dumps(context)}"
+        )
+    )
+    handler = MagicMock(return_value="ok")
+
+    with patch(
+        "jw.middleware.qwen_compat._read_model_override",
+        return_value=(None, None),
+    ):
+        QwenToolCompatibilityMiddleware(default_model="qwen3.7-plus").wrap_model_call(
+            request, handler
+        )
+
+    prepared = handler.call_args.args[0]
+    assert prepared.tool_choice is None
 
 
 def test_data_stage_does_not_force_prepare_when_context_is_missing_inputs():

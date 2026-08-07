@@ -116,6 +116,16 @@ _PLANNER_DETERMINISTIC_ACTION_TO_TOOL = {
 _SOLAR_PRECURSOR_DATASET_IDS = frozenset(
     {"silso-monthly-total-v2", "mwo-wso-polar-field-v2"}
 )
+_SILSO_REPRODUCTION_PROTOCOL = "silso_cycle_reproduction_v1"
+_SILSO_EXTREMA_DATA_PRODUCT = "silso_cycle_extrema_v1"
+_SOLAR_PRECURSOR_DATA_PRODUCT = "solar_polar_precursor_table_v1"
+_SILSO_REPRODUCTION_DATASET_IDS = frozenset(
+    {
+        "silso-monthly-total-v2",
+        "silso-monthly-smoothed-v2",
+        "silso-cycle-extrema-v2",
+    }
+)
 
 _logger = logging.getLogger(__name__)
 
@@ -300,6 +310,9 @@ class QwenToolCompatibilityMiddleware(AgentMiddleware):
                 projected_messages,
                 request_tools,
                 enabled=data_stage_context,
+                preopened_context=self._preopened_data_context(
+                    str(system_message.content)
+                ),
             )
         tool_choice = request.tool_choice
         if deterministic_tool is not None:
@@ -356,6 +369,7 @@ class QwenToolCompatibilityMiddleware(AgentMiddleware):
         tools: list[BaseTool | dict[str, Any]],
         *,
         enabled: bool,
+        preopened_context: Mapping[str, Any] | None = None,
     ) -> str | None:
         """Force the bounded Data-stage discovery and curated adapter route."""
 
@@ -364,8 +378,7 @@ class QwenToolCompatibilityMiddleware(AgentMiddleware):
         available = set(validate_qwen_tool_schema(tools))
         open_tool = "solar_data_open_context"
         prepare_tool = "prepare_solar_precursor_cycle_table"
-        if open_tool not in available:
-            return None
+        reproduce_tool = "reproduce_silso_cycle_extrema"
 
         latest_human_index = -1
         for index, message in enumerate(messages):
@@ -376,20 +389,24 @@ class QwenToolCompatibilityMiddleware(AgentMiddleware):
             message
             for message in messages[latest_human_index + 1 :]
             if isinstance(message, ToolMessage)
-            and message.name in {open_tool, prepare_tool}
+            and message.name in {open_tool, prepare_tool, reproduce_tool}
         ]
-        if not relevant:
-            return open_tool
-
-        latest = relevant[-1]
-        if latest.name != open_tool or prepare_tool not in available:
+        if relevant and relevant[-1].name in {prepare_tool, reproduce_tool}:
             return None
-        try:
-            payload = json.loads(cls._message_text(latest))
-        except (TypeError, ValueError):
-            return None
-        if not isinstance(payload, Mapping):
-            return None
+        if preopened_context is None:
+            if not relevant:
+                return open_tool if open_tool in available else None
+            latest = relevant[-1]
+            if latest.name != open_tool:
+                return None
+            try:
+                payload = json.loads(cls._message_text(latest))
+            except (TypeError, ValueError):
+                return None
+            if not isinstance(payload, Mapping):
+                return None
+        else:
+            payload = preopened_context
         if (
             payload.get("must_stop") is True
             or payload.get("status") != "inputs_available"
@@ -403,9 +420,35 @@ class QwenToolCompatibilityMiddleware(AgentMiddleware):
             for item in eligible
             if isinstance(item, Mapping)
         }
-        if _SOLAR_PRECURSOR_DATASET_IDS <= dataset_ids:
+        if (
+            payload.get("analysis_protocol") == _SILSO_REPRODUCTION_PROTOCOL
+            and payload.get("required_data_product") == _SILSO_EXTREMA_DATA_PRODUCT
+            and _SILSO_REPRODUCTION_DATASET_IDS <= dataset_ids
+            and reproduce_tool in available
+        ):
+            return reproduce_tool
+        if (
+            payload.get("required_data_product") == _SOLAR_PRECURSOR_DATA_PRODUCT
+            and _SOLAR_PRECURSOR_DATASET_IDS <= dataset_ids
+            and prepare_tool in available
+        ):
             return prepare_tool
         return None
+
+    @staticmethod
+    def _preopened_data_context(content: str) -> Mapping[str, Any] | None:
+        """Extract the Supervisor-injected context without parsing later prose."""
+
+        marker = "deterministic_data_context="
+        start = content.rfind(marker)
+        if start < 0:
+            return None
+        candidate = content[start + len(marker) :].lstrip()
+        try:
+            payload, _end = json.JSONDecoder().raw_decode(candidate)
+        except (TypeError, ValueError):
+            return None
+        return payload if isinstance(payload, Mapping) else None
 
     @classmethod
     def _deterministic_planner_tool(

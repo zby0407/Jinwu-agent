@@ -40,6 +40,8 @@ from langgraph.types import Command
 from jw.research_protocols import (
     F107_DISCONTINUITY_PROTOCOL,
     F107_DISCONTINUITY_REQUIRED_MEASUREMENTS,
+    SILSO_CYCLE_REPRODUCTION_PROTOCOL,
+    SOLAR_POLAR_PRECURSOR_PROTOCOL,
     detect_analysis_protocol,
     f107_discontinuity_directive,
 )
@@ -581,6 +583,28 @@ def _with_analysis_protocol(
     if protocol == "none":
         return normalized
     normalized["required_analysis_protocol"] = protocol
+    if (
+        protocol in {SILSO_CYCLE_REPRODUCTION_PROTOCOL, SOLAR_POLAR_PRECURSOR_PROTOCOL}
+        and normalized.get("mode") != "full_research"
+    ):
+        normalized.update(
+            {
+                "mode": "verified_analysis",
+                "source_mode": (
+                    "mixed"
+                    if normalized.get("source_mode") in {None, "none"}
+                    else normalized["source_mode"]
+                ),
+                "needs_computation": True,
+                "task_intent": "data_preparation",
+                "required_specialist": "solar-data",
+                "reason": (
+                    "The selected solar Data protocol requires registered "
+                    "authoritative inputs and deterministic computation"
+                ),
+            }
+        )
+        return normalized
     if normalized.get("mode") == "fast_answer":
         normalized["mode"] = "verified_analysis"
         normalized["source_mode"] = (
@@ -1794,10 +1818,12 @@ def _passthrough_accepted_bounded_stage(
         store = store_from_config(config)
         if store.bounded_stage_action(stage).get("kind") != "released":
             return response
-        artifact = store.latest_artifact(stage)
+        text = store.accepted_bounded_markdown(
+            stage,
+            analysis_protocol=str(route.get("required_analysis_protocol") or "none"),
+        )
     except Exception:
         return response
-    text = artifact["payload"].get("producer_result") if artifact else None
     if not isinstance(text, str) or not text.strip():
         return response
     return ModelResponse(
@@ -1926,6 +1952,18 @@ class ResearchRouterMiddleware(AgentMiddleware[ResearchRoutingState, Any, Any]):
                     "The bounded analysis must use a hash-bound F10.7 semantic "
                     "manifest when local data is present. "
                     + f107_discontinuity_directive()
+                )
+            if required_analysis_protocol == SILSO_CYCLE_REPRODUCTION_PROTOCOL:
+                directive.append(
+                    "The bounded data producer must use the Supervisor-bound SILSO "
+                    "monthly-total, monthly-smoothed, and official cycle-extrema "
+                    "inputs, then call reproduce_silso_cycle_extrema."
+                )
+            if required_analysis_protocol == SOLAR_POLAR_PRECURSOR_PROTOCOL:
+                directive.append(
+                    "The bounded data producer must use the Supervisor-bound SILSO "
+                    "monthly-total and MWO/WSO inputs, then call "
+                    "prepare_solar_precursor_cycle_table."
                 )
             f107_data_pending = False
             if (

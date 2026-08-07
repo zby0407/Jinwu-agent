@@ -4,7 +4,12 @@ import math
 
 import pytest
 
-from jw.solar_data_catalog import _validate_polar_field, _validate_silso_monthly
+from jw.solar_data_catalog import (
+    _validate_polar_field,
+    _validate_silso_extrema,
+    _validate_silso_monthly,
+    _validate_silso_smoothed,
+)
 from jw.tools.solar_feature import _build_solar_precursor_cycle_rows
 
 
@@ -27,6 +32,32 @@ def test_silso_validator_requires_long_monotonic_monthly_record() -> None:
 def test_silso_validator_rejects_short_or_duplicate_record() -> None:
     with pytest.raises(ValueError, match="coverage is too short"):
         _validate_silso_monthly(b"1749 01 1749.042 1.0 0.1 1\n")
+
+
+def test_silso_smoothed_validator_binds_official_series_semantics() -> None:
+    rows = []
+    year, month = 1749, 1
+    for _ in range(3_312):
+        rows.append(f"{year};{month:02d};0;1.0;0;0")
+        month += 1
+        if month == 13:
+            year += 1
+            month = 1
+
+    result = _validate_silso_smoothed(("\n".join(rows) + "\n").encode())
+
+    assert result["row_count"] == 3_312
+    assert result["coverage_start"] == "1749-01"
+    assert result["coverage_end"] == "2024-12"
+
+
+def test_silso_extrema_validator_requires_completed_cycle_24() -> None:
+    rows = [f"{cycle} 1900 01 1.0 1904 01 100.0" for cycle in range(1, 25)]
+
+    result = _validate_silso_extrema(("\n".join(rows) + "\n").encode())
+
+    assert result["cycle_count"] == 24
+    assert result["latest_completed_cycle"] == 24
 
 
 def test_polar_validator_binds_columns_and_century_coverage() -> None:
