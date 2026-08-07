@@ -41,8 +41,10 @@ def test_parent_accepts_partial_results_and_bounds_repair():
 def test_solar_data_requires_hash_bound_inputs_before_discovery():
     text = _read("jw/subagents/solar/solar_data.yaml")
     assert "tool_bundles: [solar-features]" in text
-    assert "first and only discovery action is `solar_data_open_context`" in text
-    assert "Only paths in its `eligible_inputs`" in text
+    assert "deterministic_data_context" in text
+    assert "do not call `solar_data_open_context` again" in text
+    assert "Only paths in `eligible_inputs`" in text
+    assert "reproduce_silso_cycle_extrema" in text
     assert "never guess `/project/data`" in text
     assert "must_stop=true" in text
 

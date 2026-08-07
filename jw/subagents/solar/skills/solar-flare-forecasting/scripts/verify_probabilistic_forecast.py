@@ -63,18 +63,19 @@ def verify(
     n = len(parsed)
     event_count = sum(outcome for _, outcome, _ in parsed)
     brier = sum((probability - outcome) ** 2 for probability, outcome, _ in parsed) / n
-    baseline_brier = sum(
-        (baseline - outcome) ** 2 for _, outcome, baseline in parsed
-    ) / n
+    baseline_brier = (
+        sum((baseline - outcome) ** 2 for _, outcome, baseline in parsed) / n
+    )
     brier_skill = 1 - brier / baseline_brier if baseline_brier else None
     epsilon = 1e-15
-    log_loss = -sum(
-        outcome * math.log(min(max(probability, epsilon), 1 - epsilon))
-        + (1 - outcome) * math.log(
-            min(max(1 - probability, epsilon), 1 - epsilon)
+    log_loss = (
+        -sum(
+            outcome * math.log(min(max(probability, epsilon), 1 - epsilon))
+            + (1 - outcome) * math.log(min(max(1 - probability, epsilon), 1 - epsilon))
+            for probability, outcome, _ in parsed
         )
-        for probability, outcome, _ in parsed
-    ) / n
+        / n
+    )
 
     tp = tn = fp = fn = 0
     for probability, outcome, _ in parsed:
@@ -92,7 +93,11 @@ def verify(
     far = _ratio(fp, tp + fp)
     csi = _ratio(tp, tp + fp + fn)
     false_positive_rate = _ratio(fp, fp + tn)
-    tss = pod - false_positive_rate if pod is not None and false_positive_rate is not None else None
+    tss = (
+        pod - false_positive_rate
+        if pod is not None and false_positive_rate is not None
+        else None
+    )
     hss_denominator = (tp + fn) * (fn + tn) + (tp + fp) * (fp + tn)
     hss = _ratio(2 * (tp * tn - fp * fn), hss_denominator)
     precision = _ratio(tp, tp + fp)

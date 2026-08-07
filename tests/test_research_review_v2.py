@@ -352,6 +352,7 @@ def _write_curated_data_context(tmp_path: Path, task_id: str) -> Path:
                 "schema_version": "solar-data-context-v1",
                 "task_id": task_id,
                 "status": "inputs_available",
+                "required_data_product": "solar_polar_precursor_table_v1",
                 "eligible_inputs": [
                     {
                         "dataset_id": "silso-monthly-total-v2",
@@ -369,6 +370,235 @@ def _write_curated_data_context(tmp_path: Path, task_id: str) -> Path:
         encoding="utf-8",
     )
     return receipt
+
+
+def _write_silso_reproduction_artifacts(
+    tmp_path: Path, task_id: str, *, include_precursor_receipt: bool = False
+) -> list[str]:
+    hashes = {
+        "silso-monthly-total-v2": "a" * 64,
+        "silso-monthly-smoothed-v2": "b" * 64,
+        "silso-cycle-extrema-v2": "c" * 64,
+        "mwo-wso-polar-field-v2": "d" * 64,
+    }
+    context_ref = "receipts/datasets/data-context-silso.json"
+    context = tmp_path / context_ref
+    context.parent.mkdir(parents=True, exist_ok=True)
+    context.write_text(
+        json.dumps(
+            {
+                "schema_version": "solar-data-context-v1",
+                "task_id": task_id,
+                "status": "inputs_available",
+                "analysis_protocol": "silso_cycle_reproduction_v1",
+                "required_data_product": "silso_cycle_extrema_v1",
+                "eligible_inputs": [
+                    {
+                        "dataset_id": dataset_id,
+                        "path": f"/project/{dataset_id}",
+                        "sha256": sha256,
+                    }
+                    for dataset_id, sha256 in hashes.items()
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    official = {
+        21: (1976, 3, 17.8, 1979, 12, 232.9, 45),
+        22: (1986, 9, 13.5, 1989, 11, 212.5, 38),
+        23: (1996, 8, 11.2, 2001, 11, 180.3, 63),
+        24: (2008, 12, 2.2, 2014, 4, 116.4, 64),
+    }
+    rows = []
+    csv_lines = [
+        "cycle,official_minimum,official_minimum_sn,official_maximum,"
+        "official_maximum_sn,official_rise_months,recomputed_minimum,"
+        "recomputed_minimum_sn,recomputed_maximum,recomputed_maximum_sn,"
+        "recomputed_rise_months,minimum_matches_official,"
+        "maximum_matches_official,difference_explanation"
+    ]
+    for cycle, values in official.items():
+        min_year, min_month, min_sn, max_year, max_month, max_sn, rise = values
+        recomputed_month = 5 if cycle == 23 else min_month
+        recomputed_rise = 66 if cycle == 23 else rise
+        matches = cycle != 23
+        explanation = (
+            "Same smoothed minimum at a different month; both dates retained."
+            if cycle == 23
+            else "Official and recomputed extrema agree."
+        )
+        minimum = f"{min_year:04d}-{min_month:02d}"
+        recomputed_minimum = f"{min_year:04d}-{recomputed_month:02d}"
+        maximum = f"{max_year:04d}-{max_month:02d}"
+        rows.append(
+            {
+                "cycle": cycle,
+                "official_minimum": {
+                    "year": min_year,
+                    "month": min_month,
+                    "year_month": minimum,
+                    "sunspot_number": min_sn,
+                },
+                "official_maximum": {
+                    "year": max_year,
+                    "month": max_month,
+                    "year_month": maximum,
+                    "sunspot_number": max_sn,
+                },
+                "recomputed_minimum": {
+                    "year": min_year,
+                    "month": recomputed_month,
+                    "year_month": recomputed_minimum,
+                    "sunspot_number": min_sn,
+                },
+                "recomputed_maximum": {
+                    "year": max_year,
+                    "month": max_month,
+                    "year_month": maximum,
+                    "sunspot_number": max_sn,
+                },
+                "official_rise_months": rise,
+                "recomputed_rise_months": recomputed_rise,
+                "minimum_matches_official": matches,
+                "maximum_matches_official": True,
+                "difference_explanation": explanation,
+            }
+        )
+        csv_lines.append(
+            f"{cycle},{minimum},{min_sn:.1f},{maximum},{max_sn:.1f},{rise},"
+            f"{recomputed_minimum},{min_sn:.1f},{maximum},{max_sn:.1f},"
+            f"{recomputed_rise},{matches},True,{explanation}"
+        )
+    csv_ref = "work/solar_data/silso_cycle_extrema_comparison.csv"
+    json_ref = "work/solar_data/silso_cycle_extrema_comparison.json"
+    csv_path = tmp_path / csv_ref
+    csv_path.parent.mkdir(parents=True, exist_ok=True)
+    csv_path.write_text("\n".join(csv_lines) + "\n", encoding="utf-8")
+    json_path = tmp_path / json_ref
+    json_path.write_text(
+        json.dumps(
+            {
+                "schema_version": "silso-cycle-reproduction-v1",
+                "analysis_protocol": "silso_cycle_reproduction_v1",
+                "source": "WDC-SILSO Sunspot Number Version 2.0",
+                "method": "Official extrema plus source-preserving recomputation.",
+                "cycles": [21, 22, 23, 24],
+                "comparison": rows,
+            }
+        ),
+        encoding="utf-8",
+    )
+    receipt_ref = "receipts/datasets/silso_cycle_extrema_reproduction.json"
+    receipt = tmp_path / receipt_ref
+    receipt.write_text(
+        json.dumps(
+            {
+                "schema_version": "research-dataset-receipt-v1",
+                "receipt_type": "silso_cycle_extrema_reproduction",
+                "analysis_protocol": "silso_cycle_reproduction_v1",
+                "status": "verified",
+                "cycle_numbers": [21, 22, 23, 24],
+                "row_count": 4,
+                "inputs": [
+                    {"dataset_id": dataset_id, "sha256": hashes[dataset_id]}
+                    for dataset_id in (
+                        "silso-monthly-total-v2",
+                        "silso-monthly-smoothed-v2",
+                        "silso-cycle-extrema-v2",
+                    )
+                ],
+                "outputs": [
+                    {
+                        "path": csv_ref,
+                        "sha256": hashlib.sha256(csv_path.read_bytes()).hexdigest(),
+                    },
+                    {
+                        "path": json_ref,
+                        "sha256": hashlib.sha256(json_path.read_bytes()).hexdigest(),
+                    },
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    refs = [context_ref, receipt_ref, csv_ref, json_ref]
+    if include_precursor_receipt:
+        precursor_ref = "receipts/datasets/solar_precursor_cycle_table.json"
+        precursor = tmp_path / precursor_ref
+        precursor.write_text(
+            json.dumps({"schema_version": "solar-precursor-cycle-table-v1"}),
+            encoding="utf-8",
+        )
+        refs.append(precursor_ref)
+    return refs
+
+
+def test_data_canonical_readiness_requires_output_when_inputs_exist(
+    tmp_path: Path,
+) -> None:
+    context = _write_curated_data_context(tmp_path, "canonical-data-ready")
+    store = ResearchReviewStore(tmp_path, "canonical-data-ready")
+
+    assert store._canonical_stage_ready("data", [context]) is False
+
+    output = tmp_path / "outputs" / "cycle_summary.csv"
+    output.parent.mkdir(parents=True)
+    output.write_text("cycle,maximum\n21,232.9\n", encoding="utf-8")
+    assert store._canonical_stage_ready("data", [context, output]) is True
+
+
+def test_data_input_missing_context_is_a_complete_honest_artifact(
+    tmp_path: Path,
+) -> None:
+    context = tmp_path / "receipts" / "datasets" / "data-context-missing.json"
+    context.parent.mkdir(parents=True)
+    context.write_text(
+        json.dumps(
+            {
+                "schema_version": "solar-data-context-v1",
+                "task_id": "canonical-input-missing",
+                "status": "input_missing",
+                "eligible_inputs": [],
+            }
+        ),
+        encoding="utf-8",
+    )
+    store = ResearchReviewStore(tmp_path, "canonical-input-missing")
+
+    assert store._canonical_stage_ready("data", [context]) is True
+
+
+def test_data_partial_inputs_with_named_missing_products_is_honest_blocker(
+    tmp_path: Path,
+) -> None:
+    context = tmp_path / "receipts" / "datasets" / "data-context-missing-two.json"
+    context.parent.mkdir(parents=True)
+    context.write_text(
+        json.dumps(
+            {
+                "schema_version": "solar-data-context-v1",
+                "context_mode": "bounded_data",
+                "task_id": "canonical-partial-input-missing",
+                "status": "input_missing",
+                "eligible_inputs": [
+                    {
+                        "dataset_id": "silso-monthly-total-v2",
+                        "path": "/inputs/SN_m_tot.csv",
+                        "sha256": "a" * 64,
+                    }
+                ],
+                "missing_required_dataset_ids": [
+                    "silso-monthly-smoothed-v2",
+                    "silso-cycle-extrema-v2",
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    store = ResearchReviewStore(tmp_path, "canonical-partial-input-missing")
+
+    assert store._canonical_stage_ready("data", [context]) is True
 
 
 def test_curated_data_context_without_cycle_table_requires_revision(
@@ -441,6 +671,54 @@ def test_curated_data_cycle_table_passes_deterministic_boundary(tmp_path: Path) 
     )
 
     assert store.persist_deterministic_preflight_verdict("data") is None
+
+
+def test_silso_protocol_ignores_unrequested_polar_inputs(tmp_path: Path) -> None:
+    task_id = "silso-with-extra-polar-input"
+    refs = _write_silso_reproduction_artifacts(tmp_path, task_id)
+    store = ResearchReviewStore(tmp_path, task_id)
+    store.checkpoint_producer_result(
+        stage="data",
+        producer="solar-data",
+        content=" ".join(refs),
+        phase="bounded_data",
+    )
+
+    verdict = store.persist_deterministic_preflight_verdict("data")
+    assert verdict is not None
+    assert verdict["decision"] == "accept"
+    rendered = store.accepted_bounded_markdown(
+        "data", analysis_protocol="silso_cycle_reproduction_v1"
+    )
+
+    assert rendered is not None
+    assert "周期 21 > 周期 22 > 周期 23 > 周期 24" in rendered
+    assert "周期 22 上升最快（38 个月）" in rendered
+    assert "周期 24 上升最慢（64 个月）" in rendered
+    assert "极区磁场" not in rendered
+
+
+def test_silso_protocol_rejects_incompatible_precursor_revision(tmp_path: Path) -> None:
+    task_id = "silso-incompatible-revision"
+    refs = _write_silso_reproduction_artifacts(
+        tmp_path, task_id, include_precursor_receipt=True
+    )
+    store = ResearchReviewStore(tmp_path, task_id)
+    store.checkpoint_producer_result(
+        stage="data",
+        producer="solar-data",
+        content=" ".join(refs),
+        phase="bounded_data_revision",
+    )
+
+    verdict = store.persist_deterministic_preflight_verdict("data")
+
+    assert verdict is not None
+    assert verdict["decision"] == "revise"
+    assert verdict["issues"][0]["issue_id"] == (
+        "deterministic-silso-cycle-reproduction"
+    )
+    assert "outside this protocol" in verdict["issues"][0]["message"]
 
 
 def test_evidence_issue_identities_must_be_field_level_unique() -> None:
@@ -581,6 +859,24 @@ def test_blocked_stage_recovers_from_later_canonical_source_without_budget_reset
     assert recovered_state["stage_status"]["planning"] == "produced"
     assert recovered_state["action_invocations"] == 7
     assert store.latest_artifact("planning") is not None
+
+
+def test_tool_failure_receipt_persists_sanitized_diagnostics(tmp_path: Path) -> None:
+    store = ResearchReviewStore(tmp_path, "diagnostic-failure-task")
+    receipt = store.block_for_tool_failures(
+        stage="data",
+        producer="solar-data",
+        fingerprints=["a" * 64],
+        failure_summaries=[
+            "RuntimeError:   data returned without\nits canonical artifact"
+        ],
+    )
+
+    assert receipt["schema_version"] == "research-tool-failure-v1"
+    assert receipt["failure_summaries"] == [
+        "RuntimeError: data returned without its canonical artifact"
+    ]
+    assert receipt["recovery"] == "new_task_after_fix"
 
 
 def test_blocked_stage_reopens_after_versioned_harness_change_without_budget_reset(
@@ -1691,6 +1987,64 @@ def test_orchestration_deterministically_freezes_validated_planner_draft(
     assert "RESEARCH_ARTIFACT_V2" in str(result.content)
     store = ResearchReviewStore(workspace, thread_id)
     assert store.load_state()["stage_status"]["planning"] == "produced"
+
+
+def test_data_dispatch_opens_and_injects_deterministic_context_once(
+    tmp_path: Path, monkeypatch
+) -> None:
+    from jw.middleware import research_review_orchestration as orchestration
+
+    config = _config(tmp_path, monkeypatch, "data-preflight-dispatch")
+    calls: list[object] = []
+    monkeypatch.setattr(
+        ResearchReviewStore,
+        "next_action",
+        lambda _self: {
+            "kind": "producer",
+            "stage": "data",
+            "producer": "solar-data",
+            "phase": "data",
+        },
+    )
+
+    def open_context(received_config, **kwargs):
+        calls.append(received_config)
+        assert kwargs == {"route_kind": "full", "analysis_protocol": "none"}
+        return {
+            "schema_version": "solar-data-context-v1",
+            "status": "inputs_available",
+            "must_stop": False,
+            "receipt_ref": "receipts/datasets/data-context-a.json",
+            "context_sha256": "a" * 64,
+            "eligible_inputs": [
+                {"path": "/project/data/SN_m_tot.csv", "sha256": "b" * 64}
+            ],
+            "instruction": "use the exact input",
+        }
+
+    monkeypatch.setattr(orchestration, "_open_data_context_preflight", open_context)
+    request = _Request(
+        {
+            "name": "task",
+            "id": "call-data",
+            "args": {"subagent_type": "solar-data", "description": "prepare"},
+        },
+        {"research_route": {"mode": "full_research"}, "messages": []},
+        _Runtime(config),
+    )
+
+    rewritten, action, terminal = ResearchReviewOrchestrationMiddleware()._prepare(
+        request
+    )
+
+    assert action is not None
+    assert action["stage"] == "data"
+    assert terminal is None
+    assert calls == [config]
+    description = rewritten.tool_call["args"]["description"]
+    assert "deterministic_data_context=" in description
+    assert "/project/data/SN_m_tot.csv" in description
+    assert "persist at least one additional task-local data artifact" in description
 
 
 def test_planner_auto_freeze_validates_complete_draft_before_freezing(

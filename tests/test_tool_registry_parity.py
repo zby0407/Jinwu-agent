@@ -51,11 +51,15 @@ def test_f107_semantic_binding_is_registered_for_main_and_solar_data() -> None:
 
     assert "bind_f107_dataset_semantics" in solar_feature_names
     assert "solar_data_open_context" in solar_feature_names
+    assert "reproduce_silso_cycle_extrema" in solar_feature_names
     assert "bind_f107_dataset_semantics" in main_tool_names
     assert "bind_f107_dataset_semantics" in {
         _tool_name(tool) for tool in solar_data["tools"]
     }
     assert "solar_data_open_context" in {
+        _tool_name(tool) for tool in solar_data["tools"]
+    }
+    assert "reproduce_silso_cycle_extrema" in {
         _tool_name(tool) for tool in solar_data["tools"]
     }
 

@@ -18,6 +18,7 @@ import itertools
 import json
 import math
 import os
+import runpy
 import sys
 import tempfile
 import warnings
@@ -195,6 +196,34 @@ def _resolve_eligible_data_path(value: str, config: RunnableConfig | None) -> Pa
     )
 
 
+def _resolve_eligible_dataset_path(
+    value: str,
+    dataset_id: str,
+    config: RunnableConfig | None,
+) -> tuple[Path, dict[str, object]]:
+    """Resolve one immutable input only when its registered dataset ID matches."""
+
+    requested = value.strip()
+    record = next(
+        (
+            item
+            for item in _eligible_input_records(config)
+            if item["path"] == requested and item.get("dataset_id") == dataset_id
+        ),
+        None,
+    )
+    if record is None:
+        raise PermissionError(
+            f"{dataset_id} path is not a hash-matching eligible input for this task"
+        )
+    resolved = resolve_scoped_path(
+        requested,
+        config,
+        allow_project=record["source_group"] == "project_inputs",
+    )
+    return resolved, record
+
+
 def _parse_number(value: str) -> float | None:
     try:
         number = float(value)
@@ -339,8 +368,119 @@ def _build_solar_precursor_cycle_rows(
 # ---------------------------------------------------------------------------
 
 
+def open_bounded_solar_data_context(
+    config: RunnableConfig | None,
+    *,
+    analysis_protocol: str = "none",
+) -> dict[str, object]:
+    """Open a plan-free, hash-bound context for one bounded Data request."""
+
+    from jw.research_protocols import (
+        SILSO_CYCLE_REPRODUCTION_DATASET_IDS,
+        SILSO_CYCLE_REPRODUCTION_PROTOCOL,
+        SOLAR_POLAR_PRECURSOR_PROTOCOL,
+        required_data_product_for_protocol,
+    )
+    from jw.research_review import store_from_config
+
+    root = workspace_root_from_config(config)
+    store = store_from_config(config)
+    task_path = root / "task.json"
+    manifest_path = root / "input_manifest.json"
+    task = json.loads(task_path.read_text(encoding="utf-8"))
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    if not isinstance(task, dict) or not isinstance(manifest, dict):
+        raise RuntimeError("bounded data task metadata is not an object")
+    if task.get("thread_id") != store.task_id:
+        raise RuntimeError("bounded data task metadata is not bound to this task")
+
+    eligible_inputs = _eligible_input_records(config)
+    if analysis_protocol == SILSO_CYCLE_REPRODUCTION_PROTOCOL:
+        required_ids = list(SILSO_CYCLE_REPRODUCTION_DATASET_IDS)
+    elif analysis_protocol == SOLAR_POLAR_PRECURSOR_PROTOCOL:
+        required_ids = ["silso-monthly-total-v2", "mwo-wso-polar-field-v2"]
+    else:
+        required_ids = []
+    available_ids = {
+        str(item.get("dataset_id"))
+        for item in eligible_inputs
+        if isinstance(item.get("dataset_id"), str)
+    }
+    missing_ids = [value for value in required_ids if value not in available_ids]
+    status = (
+        "input_missing"
+        if missing_ids or (not eligible_inputs and not required_ids)
+        else "inputs_available"
+    )
+    body: dict[str, object] = {
+        "schema_version": "solar-data-context-v1",
+        "context_mode": "bounded_data",
+        "task_id": store.task_id,
+        "analysis_protocol": analysis_protocol,
+        "required_data_product": required_data_product_for_protocol(analysis_protocol),
+        "task_sha256": _file_sha256(task_path),
+        "research_question_sha256": hashlib.sha256(
+            str(task.get("research_question") or "").encode("utf-8")
+        ).hexdigest(),
+        "planning_artifact_ref": None,
+        "planning_verdict_ref": None,
+        "plan_source_ref": None,
+        "plan_sha256": None,
+        "input_manifest_sha256": _file_sha256(manifest_path),
+        "required_dataset_ids": required_ids,
+        "missing_required_dataset_ids": missing_ids,
+        "required_datasets": [],
+        "data_steps": [],
+        "planned_outputs": [],
+        "eligible_inputs": eligible_inputs,
+        "status": status,
+    }
+    digest = _canonical_sha256(body)
+    receipt: dict[str, object] = {
+        **body,
+        "context_sha256": digest,
+        "created_at": datetime.now(UTC).isoformat(),
+        "path_policy": (
+            "Only eligible_inputs may be passed to audit or feature tools; "
+            "never guess /project/data, /inputs, /skills, or prior-run paths."
+        ),
+    }
+    relative_path = Path("receipts") / "datasets" / f"data-context-{digest[:16]}.json"
+    receipt_path = root / relative_path
+    if not receipt_path.exists():
+        _atomic_write_json(receipt_path, receipt)
+    else:
+        loaded = json.loads(receipt_path.read_text(encoding="utf-8"))
+        if isinstance(loaded, dict):
+            receipt = loaded
+    must_stop = status == "input_missing"
+    receipt.update(
+        {
+            "receipt_ref": relative_path.as_posix(),
+            "must_stop": must_stop,
+            "instruction": (
+                "Required registered datasets are missing: "
+                + ", ".join(missing_ids)
+                + ". Return input_missing now; do not fabricate or download "
+                "unregistered evidence."
+                if missing_ids
+                else (
+                    "No eligible immutable data is bound. Return input_missing now; "
+                    "do not search guessed paths or fabricate an output."
+                    if must_stop
+                    else "Use only eligible_inputs and persist at least one "
+                    "additional task-local data artifact before returning."
+                )
+            ),
+        }
+    )
+    return receipt
+
+
 @tool(parse_docstring=True)
-def solar_data_open_context(config: RunnableConfig = None) -> str:
+def solar_data_open_context(
+    analysis_protocol: str = "none", config: RunnableConfig = None
+) -> str:
     """Open the accepted plan and task-bound data manifest before data work.
 
     This is the mandatory first action for a closed-loop Data stage. It returns
@@ -349,6 +489,7 @@ def solar_data_open_context(config: RunnableConfig = None) -> str:
     into the current research run implicitly.
 
     Args:
+        analysis_protocol: Supervisor-selected stable analysis protocol.
         config: Runtime-injected task workspace configuration.
 
     Returns:
@@ -357,6 +498,7 @@ def solar_data_open_context(config: RunnableConfig = None) -> str:
     """
 
     try:
+        from jw.research_protocols import required_data_product_for_protocol
         from jw.research_review import store_from_config
 
         root = workspace_root_from_config(config)
@@ -418,7 +560,12 @@ def solar_data_open_context(config: RunnableConfig = None) -> str:
         ]
         body = {
             "schema_version": "solar-data-context-v1",
+            "context_mode": "full_research",
             "task_id": store.task_id,
+            "analysis_protocol": analysis_protocol,
+            "required_data_product": required_data_product_for_protocol(
+                analysis_protocol
+            ),
             "planning_artifact_ref": store.artifact_ref(planning),
             "planning_verdict_ref": {
                 "review_id": verdict["review_id"],
@@ -758,6 +905,169 @@ def prepare_solar_precursor_cycle_table(
 
 
 @tool(parse_docstring=True)
+def reproduce_silso_cycle_extrema(
+    monthly_total_path: str,
+    smoothed_path: str,
+    official_extrema_path: str,
+    cycles: str = "21-24",
+    config: RunnableConfig = None,
+) -> str:
+    """Reproduce SILSO cycle extrema from registered official inputs.
+
+    The tool is deliberately narrow: it can read only the three hash-matching
+    SILSO dataset IDs returned by the task's data context, and it always writes
+    a task-local CSV, JSON, and provenance receipt. It never downloads data or
+    exposes a general-purpose execution surface.
+
+    Args:
+        monthly_total_path: Eligible official monthly-total Version 2.0 path.
+        smoothed_path: Eligible official 13-month-smoothed Version 2.0 path.
+        official_extrema_path: Eligible official cycle minima/maxima table path.
+        cycles: Cycle selector restricted to cycles 21 through 24.
+        config: Runtime-injected task workspace configuration.
+
+    Returns:
+        Structured outcome with canonical artifact and receipt references.
+    """
+
+    try:
+        from jw.research_protocols import SILSO_CYCLE_REPRODUCTION_PROTOCOL
+
+        raw_path, raw_record = _resolve_eligible_dataset_path(
+            monthly_total_path, "silso-monthly-total-v2", config
+        )
+        smoothed_file, smoothed_record = _resolve_eligible_dataset_path(
+            smoothed_path, "silso-monthly-smoothed-v2", config
+        )
+        extrema_file, extrema_record = _resolve_eligible_dataset_path(
+            official_extrema_path, "silso-cycle-extrema-v2", config
+        )
+
+        script_path = (
+            Path(__file__).resolve().parent.parent
+            / "subagents"
+            / "solar"
+            / "skills"
+            / "solar-cycle"
+            / "scripts"
+            / "reproduce_silso_cycles.py"
+        )
+        implementation = runpy.run_path(str(script_path))
+        selected = implementation["parse_cycle_selector"](cycles)
+        if not selected or any(cycle < 21 or cycle > 24 for cycle in selected):
+            raise ValueError("cycles must select only SILSO cycles 21 through 24")
+        rows = implementation["build_comparison"](
+            selected,
+            implementation["parse_official_cycles"](
+                extrema_file.read_text(encoding="utf-8")
+            ),
+            implementation["parse_smoothed_series"](
+                smoothed_file.read_text(encoding="utf-8")
+            ),
+        )
+
+        root = workspace_root_from_config(config)
+        output_dir = root / "work" / "solar_data"
+        csv_path = output_dir / "silso_cycle_extrema_comparison.csv"
+        json_path = output_dir / "silso_cycle_extrema_comparison.json"
+        receipt_path = (
+            root / "receipts" / "datasets" / "silso_cycle_extrema_reproduction.json"
+        )
+        output_dir.mkdir(parents=True, exist_ok=True)
+        descriptor, temporary_name = tempfile.mkstemp(
+            dir=output_dir, prefix=f".{csv_path.name}.", suffix=".tmp"
+        )
+        os.close(descriptor)
+        temporary_csv = Path(temporary_name)
+        try:
+            implementation["write_csv"](temporary_csv, rows)
+            os.replace(temporary_csv, csv_path)
+        finally:
+            temporary_csv.unlink(missing_ok=True)
+
+        inputs = []
+        for record, path in (
+            (raw_record, raw_path),
+            (smoothed_record, smoothed_file),
+            (extrema_record, extrema_file),
+        ):
+            inputs.append(
+                {
+                    "dataset_id": record["dataset_id"],
+                    "path": record["path"],
+                    "sha256": record["sha256"],
+                    "verified_sha256": _file_sha256(path),
+                }
+            )
+        artifact_payload = {
+            "schema_version": "silso-cycle-reproduction-v1",
+            "analysis_protocol": SILSO_CYCLE_REPRODUCTION_PROTOCOL,
+            "source": "WDC-SILSO Sunspot Number Version 2.0",
+            "cycles": selected,
+            "method": (
+                "Compare the published cycle extrema table with extrema "
+                "recomputed from the published 13-month smoothed monthly series "
+                "inside neighboring-extrema windows. Preserve both values."
+            ),
+            "inputs": inputs,
+            "comparison": rows,
+        }
+        _atomic_write_json(json_path, artifact_payload)
+        outputs = [
+            {
+                "path": "work/solar_data/silso_cycle_extrema_comparison.csv",
+                "sha256": _file_sha256(csv_path),
+            },
+            {
+                "path": "work/solar_data/silso_cycle_extrema_comparison.json",
+                "sha256": _file_sha256(json_path),
+            },
+        ]
+        receipt = {
+            "schema_version": "research-dataset-receipt-v1",
+            "receipt_type": "silso_cycle_extrema_reproduction",
+            "status": "verified",
+            "analysis_protocol": SILSO_CYCLE_REPRODUCTION_PROTOCOL,
+            "producer": "solar-data",
+            "inputs": inputs,
+            "outputs": outputs,
+            "cycle_numbers": selected,
+            "row_count": len(rows),
+            "created_at": datetime.now(UTC).isoformat(),
+        }
+        if receipt_path.is_file():
+            existing = json.loads(receipt_path.read_text(encoding="utf-8"))
+            if (
+                isinstance(existing, dict)
+                and existing.get("inputs") == inputs
+                and existing.get("outputs") == outputs
+                and existing.get("cycle_numbers") == selected
+            ):
+                receipt = existing
+            else:
+                _atomic_write_json(receipt_path, receipt)
+        else:
+            _atomic_write_json(receipt_path, receipt)
+        return _to_json(
+            {
+                "status": "verified",
+                "schema_version": "silso-cycle-reproduction-v1",
+                "artifact_refs": [item["path"] for item in outputs],
+                "receipt_refs": [
+                    "receipts/datasets/silso_cycle_extrema_reproduction.json"
+                ],
+                "cycle_numbers": selected,
+                "row_count": len(rows),
+                "input_sha256": {
+                    str(item["dataset_id"]): item["sha256"] for item in inputs
+                },
+            }
+        )
+    except Exception as exc:
+        return _error_json("reproduce_silso_cycle_extrema", exc)
+
+
+@tool(parse_docstring=True)
 def bind_f107_dataset_semantics(
     csv_path: str,
     silso_total_path: str = "",
@@ -837,6 +1147,7 @@ SOLAR_FEATURE_TOOLS = [
     prepare_solar_experiment,
     dataset_statistics,
     prepare_solar_precursor_cycle_table,
+    reproduce_silso_cycle_extrema,
     bind_f107_dataset_semantics,
 ]
 

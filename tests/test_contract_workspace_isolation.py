@@ -203,6 +203,171 @@ def test_solar_data_context_blocks_guessed_paths_and_is_idempotent(
     )
 
 
+def _bind_silso_inputs(workspace: Path) -> dict[str, str]:
+    inputs = workspace / "inputs"
+    inputs.mkdir(exist_ok=True)
+    monthly = inputs / "SN_m_tot.csv"
+    smoothed = inputs / "SN_ms_tot_V2.0.csv"
+    extrema = inputs / "TableCyclesMiMa.txt"
+    monthly.write_text("1976;01;1976.042;1.0;0.1;1\n", encoding="ascii")
+
+    extrema_rows = [
+        "20 1964 10 1.0 1968 11 100.0",
+        "21 1976 01 1.0 1979 01 100.0",
+        "22 1986 01 1.0 1989 01 100.0",
+        "23 1996 01 1.0 1999 01 100.0",
+        "24 2006 01 1.0 2009 01 100.0",
+        "25 2016 01 1.0 2019 01 100.0",
+    ]
+    extrema.write_text("\n".join(extrema_rows) + "\n", encoding="ascii")
+    extrema_values = {
+        (1976, 1): 1.0,
+        (1979, 1): 100.0,
+        (1986, 1): 1.0,
+        (1989, 1): 100.0,
+        (1996, 1): 1.0,
+        (1999, 1): 100.0,
+        (2006, 1): 1.0,
+        (2009, 1): 100.0,
+        (2016, 1): 1.0,
+    }
+    rows = []
+    for year in range(1968, 2020):
+        for month in range(1, 13):
+            value = extrema_values.get((year, month), 50.0)
+            rows.append(f"{year};{month:02d};0;{value:.1f};0;0")
+    smoothed.write_text("\n".join(rows) + "\n", encoding="ascii")
+
+    dataset_by_name = {
+        monthly.name: "silso-monthly-total-v2",
+        smoothed.name: "silso-monthly-smoothed-v2",
+        extrema.name: "silso-cycle-extrema-v2",
+    }
+    manifest_path = workspace / "input_manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["inputs"] = [
+        {
+            "path": f"/inputs/{path.name}",
+            "role": "user_input",
+            "dataset_id": dataset_by_name[path.name],
+            "bytes": path.stat().st_size,
+            "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+        }
+        for path in (monthly, smoothed, extrema)
+    ]
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+    return {
+        dataset_by_name[path.name]: f"/inputs/{path.name}"
+        for path in (monthly, smoothed, extrema)
+    }
+
+
+def test_bounded_silso_context_needs_no_planning_and_is_idempotent(
+    tmp_path: Path, monkeypatch
+) -> None:
+    binding, config = _task_config(tmp_path, monkeypatch, "bounded-silso-context")
+    workspace = Path(binding.workspace)
+    paths = _bind_silso_inputs(workspace)
+
+    context = data_tools.open_bounded_solar_data_context(
+        config, analysis_protocol="silso_cycle_reproduction_v1"
+    )
+    repeated = data_tools.open_bounded_solar_data_context(
+        config, analysis_protocol="silso_cycle_reproduction_v1"
+    )
+
+    assert context["context_mode"] == "bounded_data"
+    assert context["status"] == "inputs_available"
+    assert context["must_stop"] is False
+    assert {item["dataset_id"] for item in context["eligible_inputs"]} == set(paths)
+    assert repeated["receipt_ref"] == context["receipt_ref"]
+    assert repeated["context_sha256"] == context["context_sha256"]
+    assert len(list((workspace / "receipts/datasets").glob("data-context-*.json"))) == 1
+
+
+def test_bounded_silso_context_reports_missing_registered_products(
+    tmp_path: Path, monkeypatch
+) -> None:
+    binding, config = _task_config(tmp_path, monkeypatch, "bounded-silso-missing")
+    workspace = Path(binding.workspace)
+    source = workspace / "inputs" / "SN_m_tot.csv"
+    source.write_text("1976;01;1976.042;1.0;0.1;1\n", encoding="ascii")
+    manifest_path = workspace / "input_manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["inputs"] = [
+        {
+            "path": "/inputs/SN_m_tot.csv",
+            "role": "user_input",
+            "dataset_id": "silso-monthly-total-v2",
+            "bytes": source.stat().st_size,
+            "sha256": hashlib.sha256(source.read_bytes()).hexdigest(),
+        }
+    ]
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+    context = data_tools.open_bounded_solar_data_context(
+        config, analysis_protocol="silso_cycle_reproduction_v1"
+    )
+
+    assert context["status"] == "input_missing"
+    assert context["must_stop"] is True
+    assert context["missing_required_dataset_ids"] == [
+        "silso-monthly-smoothed-v2",
+        "silso-cycle-extrema-v2",
+    ]
+
+
+def test_reproduce_silso_cycle_extrema_writes_hash_bound_artifacts(
+    tmp_path: Path, monkeypatch
+) -> None:
+    binding, config = _task_config(tmp_path, monkeypatch, "bounded-silso-tool")
+    workspace = Path(binding.workspace)
+    paths = _bind_silso_inputs(workspace)
+
+    result = json.loads(
+        data_tools.reproduce_silso_cycle_extrema.invoke(
+            {
+                "monthly_total_path": paths["silso-monthly-total-v2"],
+                "smoothed_path": paths["silso-monthly-smoothed-v2"],
+                "official_extrema_path": paths["silso-cycle-extrema-v2"],
+                "cycles": "21-24",
+            },
+            config=config,
+        )
+    )
+
+    assert result["status"] == "verified", result
+    assert result["cycle_numbers"] == [21, 22, 23, 24]
+    assert result["row_count"] == 4
+    for ref in [*result["artifact_refs"], *result["receipt_refs"]]:
+        assert (workspace / ref).is_file()
+    payload = json.loads(
+        (workspace / "work/solar_data/silso_cycle_extrema_comparison.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert all(row["official_rise_months"] == 36 for row in payload["comparison"])
+    assert all(row["minimum_matches_official"] for row in payload["comparison"])
+    assert all(row["maximum_matches_official"] for row in payload["comparison"])
+    assert all(
+        row["difference_explanation"] == "Official and recomputed extrema agree."
+        for row in payload["comparison"]
+    )
+
+    denied = json.loads(
+        data_tools.reproduce_silso_cycle_extrema.invoke(
+            {
+                "monthly_total_path": paths["silso-monthly-smoothed-v2"],
+                "smoothed_path": paths["silso-monthly-smoothed-v2"],
+                "official_extrema_path": paths["silso-cycle-extrema-v2"],
+            },
+            config=config,
+        )
+    )
+    assert denied["status"] == "error"
+    assert denied["error_type"] == "PermissionError"
+
+
 def test_data_tools_only_resolve_hash_matching_manifest_inputs(
     tmp_path: Path, monkeypatch
 ) -> None:

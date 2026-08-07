@@ -97,6 +97,22 @@ def test_f107_discontinuity_overrides_fast_answer_route() -> None:
     assert route["required_analysis_protocol"] == "f107_discontinuity_v1"
 
 
+def test_silso_cycle_reproduction_routes_to_bounded_data_specialist() -> None:
+    route = _with_analysis_protocol(
+        _route("fast_answer"),
+        text=(
+            "Use WDC-SILSO Version 2.0 to reproduce the official minima, maxima, "
+            "and rise time for solar cycles 21-24."
+        ),
+    )
+
+    assert route["mode"] == "verified_analysis"
+    assert route["task_intent"] == "data_preparation"
+    assert route["required_specialist"] == "solar-data"
+    assert route["needs_computation"] is True
+    assert route["required_analysis_protocol"] == "silso_cycle_reproduction_v1"
+
+
 def test_fallback_preserves_explicit_bounded_planning_route() -> None:
     result = _fallback_route("请制定一份极区磁场研究计划")
 
@@ -1244,6 +1260,38 @@ def test_bounded_data_model_prose_cannot_bypass_evidence_review(monkeypatch) -> 
     call = response.result[0].tool_calls[0]
     assert call["name"] == "task"
     assert call["args"]["subagent_type"] == "solar-evidence"
+
+
+def test_released_silso_data_uses_deterministic_final_markdown(monkeypatch) -> None:
+    middleware = _middleware(monkeypatch)
+    route = {
+        **_route(
+            "verified_analysis",
+            source_mode="local",
+            task_intent="data_preparation",
+            required_specialist="solar-data",
+        ),
+        "required_analysis_protocol": "silso_cycle_reproduction_v1",
+    }
+    fake_store = MagicMock()
+    fake_store.bounded_stage_action.return_value = {
+        "kind": "released",
+        "stage": "data",
+    }
+    fake_store.accepted_bounded_markdown.return_value = "# 确定性 SILSO 结果"
+    monkeypatch.setattr(
+        "jw.middleware.research_router.store_from_config", lambda _config: fake_store
+    )
+
+    response = middleware.wrap_model_call(
+        _request(route=route, tools=[]),
+        lambda _inner: ModelResponse(result=[AIMessage("内部 revision 报告")]),
+    )
+
+    assert response.result[0].content == "# 确定性 SILSO 结果"
+    fake_store.accepted_bounded_markdown.assert_called_with(
+        "data", analysis_protocol="silso_cycle_reproduction_v1"
+    )
 
 
 def test_bounded_hypothesis_rewrites_stale_producer_call_to_evidence(

@@ -10,6 +10,7 @@ import React, {
 import { SubAgentIndicator } from "@/app/components/SubAgentIndicator";
 import { ToolCallBox } from "@/app/components/ToolCallBox";
 import { MarkdownContent } from "@/app/components/MarkdownContent";
+import { ResearchTerminalNotice } from "@/app/components/ResearchTerminalNotice";
 import { SubAgentSteps } from "@/app/components/SubAgentSteps";
 import type {
   SubAgent,
@@ -39,6 +40,7 @@ import {
 import { cn } from "@/lib/utils";
 import { copyText } from "@/lib/clipboard";
 import { toast } from "sonner";
+import { parseResearchTerminalMessage } from "@/lib/researchReviewTerminal";
 
 interface MessageVersions {
   current: number;
@@ -124,6 +126,13 @@ export const ChatMessage = React.memo<ChatMessageProps>(
     const isUser = message.type === "human";
     const messageContent = extractStringFromMessageContent(message);
     const hasContent = messageContent && messageContent.trim() !== "";
+    const researchTerminal = useMemo(
+      () =>
+        isUser || !hasContent
+          ? null
+          : parseResearchTerminalMessage(messageContent),
+      [hasContent, isUser, messageContent]
+    );
     const [isEditing, setIsEditing] = useState(false);
     const [editValue, setEditValue] = useState(messageContent);
     const editTextareaRef = useRef<HTMLTextAreaElement | null>(null);
@@ -142,7 +151,10 @@ export const ChatMessage = React.memo<ChatMessageProps>(
         const textarea = editTextareaRef.current;
         if (!textarea) return;
         textarea.focus();
-        textarea.setSelectionRange(textarea.value.length, textarea.value.length);
+        textarea.setSelectionRange(
+          textarea.value.length,
+          textarea.value.length
+        );
       });
     }, [canEditMessage, messageContent, onEditMessage]);
 
@@ -316,7 +328,7 @@ export const ChatMessage = React.memo<ChatMessageProps>(
         if (copyResetTimer.current) clearTimeout(copyResetTimer.current);
         copyResetTimer.current = setTimeout(() => setCopied(false), 2000);
       } else {
-        toast.error("无法复制到剪贴板。" );
+        toast.error("无法复制到剪贴板。");
       }
     }, [messageContent]);
     const [expandedSubAgents, setExpandedSubAgents] = useState<
@@ -421,7 +433,7 @@ export const ChatMessage = React.memo<ChatMessageProps>(
                 event.preventDefault();
                 submitEdit();
               }}
-              className="mt-4 overflow-hidden rounded-xl rounded-br-none border border-[var(--brand)]/65 bg-[rgba(7,8,11,0.96)] shadow-[0_0_24px_rgba(210,145,31,0.12)]"
+              className="border-[var(--brand)]/65 mt-4 overflow-hidden rounded-xl rounded-br-none border bg-[rgba(7,8,11,0.96)] shadow-[0_0_24px_rgba(210,145,31,0.12)]"
             >
               <textarea
                 ref={editTextareaRef}
@@ -442,7 +454,7 @@ export const ChatMessage = React.memo<ChatMessageProps>(
                 }}
                 aria-label="编辑消息"
                 rows={4}
-                className="min-h-28 max-h-[45vh] w-full resize-y overflow-y-auto border-0 bg-transparent px-4 py-3 text-sm leading-relaxed text-foreground outline-none placeholder:text-tertiary"
+                className="max-h-[45vh] min-h-28 w-full resize-y overflow-y-auto border-0 bg-transparent px-4 py-3 text-sm leading-relaxed text-foreground outline-none placeholder:text-tertiary"
               />
               <div className="flex items-center justify-end gap-2 border-t border-border/70 px-3 py-2">
                 <button
@@ -455,7 +467,7 @@ export const ChatMessage = React.memo<ChatMessageProps>(
                 <button
                   type="submit"
                   disabled={!editValue.trim()}
-                  className="rounded-md border border-[var(--brand)]/60 bg-[var(--brand-solid)] px-3 py-1.5 text-xs font-semibold text-[var(--brand-foreground)] shadow-[inset_0_1px_0_rgba(255,238,174,0.18)] transition-opacity hover:opacity-90 focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-40"
+                  className="border-[var(--brand)]/60 rounded-md border bg-[var(--brand-solid)] px-3 py-1.5 text-xs font-semibold text-[var(--brand-foreground)] shadow-[inset_0_1px_0_rgba(255,238,174,0.18)] transition-opacity hover:opacity-90 focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-40"
                 >
                   发送
                 </button>
@@ -480,6 +492,8 @@ export const ChatMessage = React.memo<ChatMessageProps>(
                   <p className="m-0 whitespace-pre-wrap break-words text-sm leading-relaxed">
                     {messageContent}
                   </p>
+                ) : researchTerminal ? (
+                  <ResearchTerminalNotice content={messageContent} />
                 ) : hasContent ? (
                   <MarkdownContent
                     content={messageContent}
@@ -597,7 +611,10 @@ export const ChatMessage = React.memo<ChatMessageProps>(
                     title="上一个提问版本"
                     className="inline-flex items-center rounded p-1.5 transition-colors hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-35"
                   >
-                    <ChevronLeft className="h-4 w-4" aria-hidden="true" />
+                    <ChevronLeft
+                      className="h-4 w-4"
+                      aria-hidden="true"
+                    />
                   </button>
                   <span className="min-w-9 text-center tabular-nums">
                     {messageVersions.current}/{messageVersions.total}
@@ -610,7 +627,10 @@ export const ChatMessage = React.memo<ChatMessageProps>(
                     title="下一个提问版本"
                     className="inline-flex items-center rounded p-1.5 transition-colors hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-35"
                   >
-                    <ChevronRight className="h-4 w-4" aria-hidden="true" />
+                    <ChevronRight
+                      className="h-4 w-4"
+                      aria-hidden="true"
+                    />
                   </button>
                 </div>
               )}

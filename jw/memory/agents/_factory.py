@@ -110,8 +110,7 @@ def build_memory_agent_graph(
 
     middleware_stack = list(middleware)
     if not any(
-        isinstance(item, QwenToolCompatibilityMiddleware)
-        for item in middleware_stack
+        isinstance(item, QwenToolCompatibilityMiddleware) for item in middleware_stack
     ):
         model_name = str(
             getattr(model, "model_name", None) or getattr(model, "model", None) or ""

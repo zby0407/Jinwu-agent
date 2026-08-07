@@ -64,8 +64,13 @@ def validate_contract(payload: Any) -> dict[str, Any]:
     thresholds = payload.get("target_thresholds")
     if not isinstance(thresholds, list) or not thresholds:
         issues.append("target_thresholds must be a non-empty array")
-    elif any(not isinstance(item, str) or not THRESHOLD.fullmatch(item) for item in thresholds):
-        issues.append("each target threshold must match forms such as C1.0+, M1.0+, or X1.0+")
+    elif any(
+        not isinstance(item, str) or not THRESHOLD.fullmatch(item)
+        for item in thresholds
+    ):
+        issues.append(
+            "each target threshold must match forms such as C1.0+, M1.0+, or X1.0+"
+        )
     elif len(thresholds) != len(set(thresholds)):
         issues.append("target_thresholds must not contain duplicates")
     if payload.get("output_type") != "probability":
@@ -103,7 +108,9 @@ def validate_contract(payload: Any) -> dict[str, Any]:
         and prediction_end is not None
         and observation_start >= prediction_end
     ):
-        issues.append("observation and prediction windows are not chronologically ordered")
+        issues.append(
+            "observation and prediction windows are not chronologically ordered"
+        )
 
     return {
         "schema_version": SCHEMA_VERSION,
