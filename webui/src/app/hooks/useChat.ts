@@ -59,13 +59,31 @@ const EMPTY_TODOS: TodoItem[] = [];
 const EMPTY_FILES: Record<string, string> = {};
 const EMPTY_ASYNC_TASKS: Record<string, unknown> = {};
 const BRANCH_HISTORY_LIMIT = 10;
-const OLDER_BRANCH_HISTORY_LIMIT = 5;
+const OLDER_BRANCH_HISTORY_LIMIT = 2;
+const OLDER_BRANCH_HISTORY_TIMEOUT_MS = 20_000;
 
 type ProgressiveThreadHistory = UseStreamThread<StateType> & {
   loadOlderBranchHistory: () => Promise<void>;
   isOlderBranchHistoryLoading: boolean;
   hasMoreBranchHistory: boolean;
+  isBranchHistoryExhausted: boolean;
 };
+
+async function withBranchHistoryTimeout<T>(request: Promise<T>): Promise<T> {
+  let timeoutId: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      request,
+      new Promise<never>((_, reject) => {
+        timeoutId = setTimeout(() => {
+          reject(new Error("加载更早路线超时，请稍后重试。"));
+        }, OLDER_BRANCH_HISTORY_TIMEOUT_MS);
+      }),
+    ]);
+  } finally {
+    if (timeoutId !== undefined) clearTimeout(timeoutId);
+  }
+}
 
 /**
  * Keep only state channels the WebUI reads.
@@ -159,6 +177,8 @@ function useProgressiveThreadHistory(
   const [isOlderBranchHistoryLoading, setIsOlderBranchHistoryLoading] =
     useState(false);
   const [hasMoreBranchHistory, setHasMoreBranchHistory] = useState(false);
+  const [isBranchHistoryExhausted, setIsBranchHistoryExhausted] =
+    useState(false);
   const requestIdRef = useRef(0);
   const olderRequestInFlightRef = useRef<string | null>(null);
   const dataThreadIdRef = useRef<string | null>(null);
@@ -184,6 +204,7 @@ function useProgressiveThreadHistory(
         setIsLoading(false);
         setIsOlderBranchHistoryLoading(false);
         setHasMoreBranchHistory(false);
+        setIsBranchHistoryExhausted(false);
         olderRequestInFlightRef.current = null;
         return [];
       }
@@ -192,6 +213,7 @@ function useProgressiveThreadHistory(
         dataThreadIdRef.current = targetThreadId;
         publishData(undefined);
         setHasMoreBranchHistory(false);
+        setIsBranchHistoryExhausted(false);
         setIsOlderBranchHistoryLoading(false);
         olderRequestInFlightRef.current = null;
       }
@@ -225,7 +247,9 @@ function useProgressiveThreadHistory(
           ).map(projectThreadState);
           if (requestIdRef.current === requestId) {
             publishData(history);
-            setHasMoreBranchHistory(history.length === BRANCH_HISTORY_LIMIT);
+            const hasMore = history.length === BRANCH_HISTORY_LIMIT;
+            setHasMoreBranchHistory(hasMore);
+            setIsBranchHistoryExhausted(!hasMore);
             setIsLoading(false);
           }
           return history;
@@ -270,6 +294,7 @@ function useProgressiveThreadHistory(
     const checkpoint = oldest?.checkpoint;
     if (!checkpoint?.checkpoint_id) {
       setHasMoreBranchHistory(false);
+      setIsBranchHistoryExhausted(true);
       return;
     }
 
@@ -279,19 +304,21 @@ function useProgressiveThreadHistory(
     setIsOlderBranchHistoryLoading(true);
     try {
       const page = (
-        await client.threads.getHistory<StateType>(targetThreadId, {
-          limit: OLDER_BRANCH_HISTORY_LIMIT,
-          before: {
-            configurable: {
-              thread_id: targetThreadId,
-              checkpoint_ns: checkpoint.checkpoint_ns,
-              checkpoint_id: checkpoint.checkpoint_id,
-              ...(checkpoint.checkpoint_map
-                ? { checkpoint_map: checkpoint.checkpoint_map }
-                : {}),
+        await withBranchHistoryTimeout(
+          client.threads.getHistory<StateType>(targetThreadId, {
+            limit: OLDER_BRANCH_HISTORY_LIMIT,
+            before: {
+              configurable: {
+                thread_id: targetThreadId,
+                checkpoint_ns: checkpoint.checkpoint_ns,
+                checkpoint_id: checkpoint.checkpoint_id,
+                ...(checkpoint.checkpoint_map
+                  ? { checkpoint_map: checkpoint.checkpoint_map }
+                  : {}),
+              },
             },
-          },
-        })
+          })
+        )
       ).map(projectThreadState);
       if (
         requestIdRef.current !== requestId ||
@@ -307,9 +334,10 @@ function useProgressiveThreadHistory(
         (state) => state.checkpoint?.checkpoint_id
       );
       publishData(merged);
-      setHasMoreBranchHistory(
-        page.length === OLDER_BRANCH_HISTORY_LIMIT && added > 0
-      );
+      const hasMore =
+        page.length === OLDER_BRANCH_HISTORY_LIMIT && added > 0;
+      setHasMoreBranchHistory(hasMore);
+      setIsBranchHistoryExhausted(!hasMore);
     } finally {
       if (
         requestIdRef.current === requestId &&
@@ -341,6 +369,7 @@ function useProgressiveThreadHistory(
     loadOlderBranchHistory,
     isOlderBranchHistoryLoading,
     hasMoreBranchHistory,
+    isBranchHistoryExhausted,
   };
 }
 
@@ -1567,6 +1596,7 @@ export function useChat({
     loadOlderBranchHistory: progressiveThread.loadOlderBranchHistory,
     isOlderBranchHistoryLoading: progressiveThread.isOlderBranchHistoryLoading,
     hasMoreBranchHistory: progressiveThread.hasMoreBranchHistory,
+    isBranchHistoryExhausted: progressiveThread.isBranchHistoryExhausted,
     modelOverride,
     setModelOverride,
   };

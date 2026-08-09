@@ -118,6 +118,7 @@ export function ResearchLineagePanel() {
     loadOlderBranchHistory,
     isOlderBranchHistoryLoading,
     hasMoreBranchHistory,
+    isBranchHistoryExhausted,
   } = useChatContext();
 
   const turns = useMemo(
@@ -457,40 +458,50 @@ export function ResearchLineagePanel() {
 
         {(hasMoreBranchHistory ||
           isOlderBranchHistoryLoading ||
-          historyError) && (
+          historyError ||
+          isBranchHistoryExhausted) && (
           <div className="mt-3 px-2 pb-2 text-center">
             {historyError && (
               <p className="mb-2 text-[10px] text-[var(--color-error)]">
                 {historyError}
               </p>
             )}
-            <button
-              type="button"
-              disabled={isOlderBranchHistoryLoading}
-              onClick={async () => {
-                setHistoryError(null);
-                try {
-                  await loadOlderBranchHistory();
-                } catch (error) {
-                  const message =
-                    error instanceof Error
-                      ? error.message
-                      : "无法加载更早的研究路线。";
-                  setHistoryError(message);
-                  toast.error(message);
-                }
-              }}
-              className="hover:border-[var(--brand)]/50 inline-flex items-center gap-1.5 rounded-md border border-border bg-background px-3 py-1.5 text-xs text-muted-foreground transition-colors hover:text-foreground disabled:cursor-wait disabled:opacity-60"
-            >
-              {isOlderBranchHistoryLoading ? (
-                <Loader2 className="size-3.5 animate-spin" />
-              ) : (
-                <GitBranch className="size-3.5" />
-              )}
-              {isOlderBranchHistoryLoading
-                ? "正在加载更早路线…"
-                : "加载更早分支"}
-            </button>
+            {isBranchHistoryExhausted && !historyError ? (
+              <div className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs text-muted-foreground">
+                <Check className="size-3.5" />
+                {routes.length > 1 ? "已加载全部分支" : "无更早分支"}
+              </div>
+            ) : (
+              <button
+                type="button"
+                disabled={isOlderBranchHistoryLoading}
+                onClick={async () => {
+                  setHistoryError(null);
+                  try {
+                    await loadOlderBranchHistory();
+                  } catch (error) {
+                    const message =
+                      error instanceof Error
+                        ? error.message
+                        : "无法加载更早的研究路线。";
+                    setHistoryError(message);
+                    toast.error(message);
+                  }
+                }}
+                className="hover:border-[var(--brand)]/50 inline-flex items-center gap-1.5 rounded-md border border-border bg-background px-3 py-1.5 text-xs text-muted-foreground transition-colors hover:text-foreground disabled:cursor-wait disabled:opacity-60"
+              >
+                {isOlderBranchHistoryLoading ? (
+                  <Loader2 className="size-3.5 animate-spin" />
+                ) : (
+                  <GitBranch className="size-3.5" />
+                )}
+                {isOlderBranchHistoryLoading
+                  ? "正在加载更早路线…"
+                  : historyError
+                    ? "重试加载更早分支"
+                    : "加载更早分支"}
+              </button>
+            )}
           </div>
         )}
       </div>
