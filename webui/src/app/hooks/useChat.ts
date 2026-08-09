@@ -54,6 +54,110 @@ export type StateType = {
 const EMPTY_TODOS: TodoItem[] = [];
 const EMPTY_FILES: Record<string, string> = {};
 const EMPTY_ASYNC_TASKS: Record<string, unknown> = {};
+const BRANCH_HISTORY_LIMIT = 10;
+
+/**
+ * Hydrate an existing thread in two stages.
+ *
+ * LangGraph checkpoint history repeats the conversation state at every step.
+ * Asking for a large checkpoint window before rendering therefore makes threads
+ * download and parse the same long conversation many times while the UI remains
+ * stuck behind `isThreadLoading`. Fetch the latest checkpoint first so messages
+ * can render immediately, then replace it with the recent branch history in the
+ * background. Ten checkpoints matches the SDK default, preserves nearby
+ * input/answer versions, and avoids an unbounded 100-state payload for long runs.
+ */
+function useProgressiveThreadHistory(
+  client: ReturnType<typeof useClient>,
+  threadId: string | null,
+  enabled: boolean
+): UseStreamThread<StateType> {
+  const [data, setData] = useState<UseStreamThread<StateType>["data"]>();
+  const [error, setError] = useState<unknown>();
+  const [isLoading, setIsLoading] = useState(false);
+  const requestIdRef = useRef(0);
+  const dataThreadIdRef = useRef<string | null>(null);
+
+  const mutate = useCallback(
+    async (mutateId?: string) => {
+      const targetThreadId = mutateId ?? threadId;
+      const requestId = ++requestIdRef.current;
+
+      if (!enabled || !targetThreadId) {
+        dataThreadIdRef.current = null;
+        setData(undefined);
+        setError(undefined);
+        setIsLoading(false);
+        return [];
+      }
+
+      if (dataThreadIdRef.current !== targetThreadId) {
+        dataThreadIdRef.current = targetThreadId;
+        setData(undefined);
+      }
+      setError(undefined);
+      setIsLoading(true);
+
+      try {
+        const latest = await client.threads.getState<StateType>(targetThreadId);
+        const latestHistory = latest.checkpoint == null ? [] : [latest];
+        if (requestIdRef.current !== requestId) return latestHistory;
+
+        // A non-null history makes useStream.isThreadLoading false even while
+        // the branch history continues loading, so the current conversation is
+        // usable as soon as this single checkpoint arrives.
+        setData(latestHistory);
+
+        try {
+          const history = await client.threads.getHistory<StateType>(
+            targetThreadId,
+            { limit: BRANCH_HISTORY_LIMIT }
+          );
+          if (requestIdRef.current === requestId) {
+            setData(history);
+            setIsLoading(false);
+          }
+          return history;
+        } catch (historyError) {
+          // The latest checkpoint is already enough for normal chat use. A
+          // branch-history failure must not put the whole conversation back
+          // behind the loading screen.
+          if (requestIdRef.current === requestId) {
+            setIsLoading(false);
+            console.warn(
+              "Couldn't load the full checkpoint history; showing the latest state.",
+              historyError
+            );
+          }
+          return latestHistory;
+        }
+      } catch (latestError) {
+        if (requestIdRef.current === requestId) {
+          setError(latestError);
+          setIsLoading(false);
+        }
+        throw latestError;
+      }
+    },
+    [client, enabled, threadId]
+  );
+
+  useEffect(() => {
+    void mutate().catch(() => undefined);
+    return () => {
+      requestIdRef.current += 1;
+    };
+  }, [mutate]);
+
+  return {
+    data,
+    error,
+    isLoading:
+      isLoading ||
+      Boolean(enabled && threadId && dataThreadIdRef.current !== threadId),
+    mutate,
+  };
+}
 
 /**
  * Sanitize a raw interrupt pulled from `client.threads.getState` before it is
@@ -303,6 +407,25 @@ export function useChat({
     threadId: string;
     checkpoint: Omit<Checkpoint, "thread_id">;
   } | null>(null);
+  const progressiveThread = useProgressiveThreadHistory(
+    client,
+    streamThreadId,
+    thread == null
+  );
+  const hydratedThread = thread ?? progressiveThread;
+  useEffect(() => {
+    if (thread != null || !progressiveThread.error || !streamThreadId) return;
+    if (hasHttpStatus(progressiveThread.error, 404)) {
+      recoverMissingThread(streamThreadId);
+      return;
+    }
+    toast.error(formatStreamError(progressiveThread.error));
+  }, [
+    progressiveThread.error,
+    recoverMissingThread,
+    streamThreadId,
+    thread,
+  ]);
 
   const stream = useStream<StateType>({
     assistantId: activeAssistant?.assistant_id || "",
@@ -311,10 +434,10 @@ export function useChat({
     threadId: streamThreadId,
     onThreadId: handleStreamThreadId,
     defaultHeaders: { "x-auth-scheme": "langsmith" },
-    // Regenerated answers are real LangGraph branches. Keep enough checkpoint
-    // history for the SDK to resolve the active branch and expose sibling
-    // answers through getMessagesMetadata / setBranch.
-    fetchStateHistory: { limit: 100 },
+    // Regenerated answers are real LangGraph branches. The external progressive
+    // loader supplies one checkpoint immediately and fills this history in the
+    // background, avoiding a loading screen that waits on many large states.
+    fetchStateHistory: { limit: BRANCH_HISTORY_LIMIT },
     // Revalidate thread list when stream finishes, errors, or creates new
     // thread. Errors additionally surface a toast with the SDK's payload -
     // without this the user only sees React's generic "An internal error
@@ -367,7 +490,7 @@ export function useChat({
         }));
       });
     },
-    experimental_thread: thread,
+    experimental_thread: hydratedThread,
   });
 
   // --- Resilient pending-state fallback ------------------------------------
