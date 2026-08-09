@@ -559,7 +559,13 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
       // a query (draft text) — their message has priority, so we hold the queue
       // until the composer is clear. Pending completions stay unreported (= the
       // queue) and drain one per idle window.
-      if (isLoading || autoFireInFlightRef.current || input.trim()) return;
+      if (
+        isLoading ||
+        isThreadLoading ||
+        autoFireInFlightRef.current ||
+        input.trim()
+      )
+        return;
       // User-queued messages take the idle slot first — hold auto-reports until
       // the user's own queue has drained.
       if (queuedMessages.length > 0) return;
@@ -593,6 +599,7 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
       liveAgentTasks,
       autoNotify,
       isLoading,
+      isThreadLoading,
       input,
       messages,
       sendMessage,
@@ -615,17 +622,24 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
     const notifyStateRef = useRef({
       sendMessage,
       isLoading,
+      isThreadLoading,
       messages,
       threadId,
     });
-    notifyStateRef.current = { sendMessage, isLoading, messages, threadId };
+    notifyStateRef.current = {
+      sendMessage,
+      isLoading,
+      isThreadLoading,
+      messages,
+      threadId,
+    };
     const onNotifyReadyRef = useRef(onNotifyReady);
     onNotifyReadyRef.current = onNotifyReady;
     useEffect(() => {
       const notify: MainChatReporter = (task, expectedThreadId) => {
         const current = notifyStateRef.current;
         if (current.threadId !== expectedThreadId) return "wrong-thread";
-        if (current.isLoading) return "busy";
+        if (current.isLoading || current.isThreadLoading) return "busy";
         if (
           current.messages.some(
             (message) =>
@@ -764,7 +778,8 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
       interruptValue?.type === "ask_user" ||
       (Array.isArray(interruptValue?.action_requests) &&
         interruptValue.action_requests.length > 0);
-    const submitDisabled = isLoading || !assistant || hasPendingInterrupt;
+    const submitDisabled =
+      isLoading || isThreadLoading || !assistant || hasPendingInterrupt;
 
     // Drain the user-message queue: when the thread goes idle (and no interrupt is
     // pending), send the head as the next turn. One per idle window — the
@@ -772,7 +787,12 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
     // isLoading flips true so two messages can't race onto the thread. After Stop,
     // isLoading drops and the queue still drains (queued = intent to send).
     useEffect(() => {
-      if (isLoading || hasPendingInterrupt || autoFireInFlightRef.current)
+      if (
+        isLoading ||
+        isThreadLoading ||
+        hasPendingInterrupt ||
+        autoFireInFlightRef.current
+      )
         return;
       if (queuedMessages.length === 0) return;
       const [head, ...rest] = queuedMessages;
@@ -782,7 +802,14 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
       autoFireInFlightRef.current = true;
       setQueuedMessages(rest);
       sendMessage(formatMessageWithFiles(head.text, head.files));
-    }, [isLoading, hasPendingInterrupt, queuedMessages, sendMessage, threadId]);
+    }, [
+      isLoading,
+      isThreadLoading,
+      hasPendingInterrupt,
+      queuedMessages,
+      sendMessage,
+      threadId,
+    ]);
 
     // Clear the queue when switching to a *different* conversation, but NOT on the
     // null→real-id transition that happens when the first message of a brand-new
@@ -977,7 +1004,13 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
         }
         // Can't compose with no assistant, a pending interrupt, or files still
         // uploading. (Unlike before, isLoading is NOT a blocker — see below.)
-        if (!assistant || hasPendingInterrupt || isUploadingFiles) return;
+        if (
+          !assistant ||
+          hasPendingInterrupt ||
+          isUploadingFiles ||
+          isThreadLoading
+        )
+          return;
         // Agent busy → queue it. The queue drains and sends
         // automatically once this turn finishes (or is stopped); the message is
         // appended as the next turn — it never replaces what's already running.
@@ -1008,6 +1041,7 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
         hasPendingInterrupt,
         autoApprove,
         isLoading,
+        isThreadLoading,
         isUploadingFiles,
         pendingFiles,
         sendMessage,
@@ -2523,6 +2557,8 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
                 placeholder={
                   hasPendingInterrupt
                     ? "请先响应上方请求以继续…"
+                    : isThreadLoading
+                    ? "正在准备会话，完成后即可发送…"
                     : isLoading
                     ? "输入后续消息，将在当前轮次完成后发送…"
                     : "向金乌提问……"

@@ -94,22 +94,28 @@ async function withBranchHistoryTimeout<T>(request: Promise<T>): Promise<T> {
  * branch-metadata render unnecessarily expensive. The backend keeps the full
  * checkpoint; this projection only trims the browser-side copy.
  */
-function projectWebUiState(values: StateType): StateType {
+function projectWebUiState(values: StateType | null | undefined): StateType {
+  // A thread created by the upload flow exists before its first checkpoint, so
+  // LangGraph legitimately returns `values: null` despite the SDK's generic
+  // type. Treat that shell as an empty chat state. Throwing here leaves the
+  // progressive loader's `isLoading` flag stuck and the transcript hidden even
+  // after a run has started.
+  const source = values ?? ({} as Partial<StateType>);
   return {
-    messages: Array.isArray(values.messages) ? values.messages : [],
-    todos: Array.isArray(values.todos) ? values.todos : [],
-    files: values.files && typeof values.files === "object" ? values.files : {},
-    ...(values.email !== undefined ? { email: values.email } : {}),
-    ...(values.async_tasks !== undefined
-      ? { async_tasks: values.async_tasks }
+    messages: Array.isArray(source.messages) ? source.messages : [],
+    todos: Array.isArray(source.todos) ? source.todos : [],
+    files: source.files && typeof source.files === "object" ? source.files : {},
+    ...(source.email !== undefined ? { email: source.email } : {}),
+    ...(source.async_tasks !== undefined
+      ? { async_tasks: source.async_tasks }
       : {}),
-    ...(values._summarization_event !== undefined
-      ? { _summarization_event: values._summarization_event }
+    ...(source._summarization_event !== undefined
+      ? { _summarization_event: source._summarization_event }
       : {}),
-    ...(values.__interrupt__ !== undefined
-      ? { __interrupt__: values.__interrupt__ }
+    ...(source.__interrupt__ !== undefined
+      ? { __interrupt__: source.__interrupt__ }
       : {}),
-    ...(values.ui !== undefined ? { ui: values.ui } : {}),
+    ...(source.ui !== undefined ? { ui: source.ui } : {}),
   };
 }
 
@@ -220,14 +226,15 @@ function useProgressiveThreadHistory(
       setError(undefined);
       setIsLoading(true);
 
-      if (initialRecord?.thread_id === targetThreadId) {
-        // The existence preflight has already downloaded the latest values.
-        // Publishing them here avoids a second, slower checkpoint read before
-        // the transcript becomes visible.
-        publishData([threadRecordSnapshot(initialRecord)]);
-      }
-
       try {
+        if (initialRecord?.thread_id === targetThreadId) {
+          // The existence preflight has already downloaded the latest values.
+          // Publishing them here avoids a second, slower checkpoint read before
+          // the transcript becomes visible. Keep this inside the guarded block
+          // so even a malformed shell can never strand the loading flag.
+          publishData([threadRecordSnapshot(initialRecord)]);
+        }
+
         const latest = projectThreadState(
           await client.threads.getState<StateType>(targetThreadId)
         );
@@ -334,8 +341,7 @@ function useProgressiveThreadHistory(
         (state) => state.checkpoint?.checkpoint_id
       );
       publishData(merged);
-      const hasMore =
-        page.length === OLDER_BRANCH_HISTORY_LIMIT && added > 0;
+      const hasMore = page.length === OLDER_BRANCH_HISTORY_LIMIT && added > 0;
       setHasMoreBranchHistory(hasMore);
       setIsBranchHistoryExhausted(!hasMore);
     } finally {
