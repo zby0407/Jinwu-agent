@@ -4,6 +4,20 @@ export type ResearchNodeStatus =
   | "failed"
   | "cancelled";
 
+export type ResearchArtifactCategory =
+  | "docs"
+  | "figures"
+  | "data"
+  | "code"
+  | "other";
+
+export interface ResearchArtifact {
+  path: string;
+  category: ResearchArtifactCategory;
+  importance: "core" | "detail";
+  sourceNodeIds: string[];
+}
+
 export interface ResearchNode {
   id: string;
   kind: "answer" | "agent" | "tool";
@@ -26,6 +40,9 @@ export interface ResearchTurn {
   status: ResearchNodeStatus;
   nodes: ResearchNode[];
   files: string[];
+  finalAnswer: ResearchNode | null;
+  keyNodes: ResearchNode[];
+  artifacts: ResearchArtifact[];
 }
 
 export interface ResearchRoute {
@@ -40,6 +57,13 @@ export function extractLineageFiles(value: unknown): string[];
 export function normalizeLineageToolCalls(
   message: Record<string, unknown>
 ): Array<{ id: string; name: string; args: Record<string, unknown> }>;
+export function classifyResearchArtifact(
+  path: string,
+  evidence?: {
+    referencedByFinalAnswer?: boolean;
+    sourceNodeIds?: string[];
+  }
+): ResearchArtifact;
 export function buildResearchTurns(
   messages: unknown[],
   stateFiles?: Record<string, string>

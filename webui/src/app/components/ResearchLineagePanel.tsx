@@ -20,6 +20,8 @@ import { cn } from "@/lib/utils";
 import {
   buildResearchTurns,
   collectResearchRoutes,
+  type ResearchArtifact,
+  type ResearchArtifactCategory,
   type ResearchNode,
   type ResearchRoute,
   type ResearchTurn,
@@ -30,6 +32,27 @@ import { dispatchResearchMessageNavigation } from "@/lib/researchNavigation";
 interface RouteView extends ResearchRoute {
   turns: ResearchTurn[];
   label: string;
+}
+
+const ARTIFACT_GROUPS: Array<{
+  category: ResearchArtifactCategory;
+  label: string;
+}> = [
+  { category: "docs", label: "论文与文档" },
+  { category: "figures", label: "图表" },
+  { category: "data", label: "数据" },
+  { category: "code", label: "代码" },
+  { category: "other", label: "其他" },
+];
+
+function groupCoreArtifacts(artifacts: ResearchArtifact[]) {
+  return ARTIFACT_GROUPS.map((group) => ({
+    ...group,
+    artifacts: artifacts.filter(
+      (artifact) =>
+        artifact.importance === "core" && artifact.category === group.category
+    ),
+  })).filter((group) => group.artifacts.length > 0);
 }
 
 function turnSignature(turn: ResearchTurn | undefined): string {
@@ -45,7 +68,10 @@ function turnSignature(turn: ResearchTurn | undefined): string {
 
 function boundedDetail(value: string, limit: number): string {
   if (value.length <= limit) return value;
-  return `${value.slice(0, limit)}\n\n…内容过长，已截断。可点击节点标题定位到聊天原文。`;
+  return `${value.slice(
+    0,
+    limit
+  )}\n\n…内容过长，已截断。可点击节点标题定位到聊天原文。`;
 }
 
 function firstDifferentTurn(
@@ -106,6 +132,9 @@ function openLineageFile(path: string) {
 export function ResearchLineagePanel() {
   const [threadId] = useQueryState("threadId");
   const [historyError, setHistoryError] = useState<string | null>(null);
+  const [turnOpenState, setTurnOpenState] = useState<Record<string, boolean>>(
+    {}
+  );
   const {
     messages,
     files,
@@ -153,18 +182,15 @@ export function ResearchLineagePanel() {
   const routeOptionsByTurn = useMemo(() => {
     const grouped = new Map<number, RouteView[]>();
     if (routes.length < 2) return grouped;
-    const selectedRoute = routes.find(
-      (route) => route.path === selectedBranch
-    );
-    const currentRoute: RouteView =
-      selectedRoute ?? {
-        path: selectedBranch,
-        checkpointId: null,
-        createdAt: null,
-        messages,
-        turns,
-        label: "当前路线",
-      };
+    const selectedRoute = routes.find((route) => route.path === selectedBranch);
+    const currentRoute: RouteView = selectedRoute ?? {
+      path: selectedBranch,
+      checkpointId: null,
+      createdAt: null,
+      messages,
+      turns,
+      label: "当前路线",
+    };
     for (const route of routes) {
       if (route.path === currentRoute.path) continue;
       const index = firstDifferentTurn(currentRoute.turns, route.turns);
@@ -188,7 +214,7 @@ export function ResearchLineagePanel() {
         <Route className="text-[var(--brand)]/70 mb-3 size-9" />
         <p className="text-sm font-medium text-foreground">暂无科研脉络</p>
         <p className="mt-1 text-xs leading-5 text-muted-foreground">
-          打开一条研究会话后，这里会按每轮提问展示 Agent、工具、产物与回答路线。
+          打开一条研究会话后，这里会按每轮提问展示研究目标、主要结论与核心产物。
         </p>
       </div>
     );
@@ -225,6 +251,16 @@ export function ResearchLineagePanel() {
         <ol className="border-[var(--brand)]/30 relative ml-2 border-l pl-4">
           {turns.map((turn, turnIndex) => {
             const routeOptions = routeOptionsByTurn.get(turnIndex) ?? [];
+            const coreArtifactGroups = groupCoreArtifacts(turn.artifacts);
+            const coreArtifactCount = coreArtifactGroups.reduce(
+              (total, group) => total + group.artifacts.length,
+              0
+            );
+            const detailArtifacts = turn.artifacts.filter(
+              (artifact) => artifact.importance === "detail"
+            );
+            const isTurnOpen =
+              turnOpenState[turn.id] ?? turnIndex === turns.length - 1;
             return (
               <li
                 key={turn.id}
@@ -240,7 +276,18 @@ export function ResearchLineagePanel() {
                 >
                   <span className="size-1 rounded-full bg-[var(--brand)]" />
                 </span>
-                <details className="group rounded-lg border border-border bg-background/80 shadow-sm">
+                <details
+                  open={isTurnOpen}
+                  onToggle={(event) => {
+                    const isOpen = event.currentTarget.open;
+                    setTurnOpenState((current) =>
+                      current[turn.id] === isOpen
+                        ? current
+                        : { ...current, [turn.id]: isOpen }
+                    );
+                  }}
+                  className="group rounded-lg border border-border bg-background/80 shadow-sm"
+                >
                   <summary className="cursor-pointer list-none px-3 py-2.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring">
                     <div className="flex items-start gap-2">
                       <button
@@ -279,10 +326,8 @@ export function ResearchLineagePanel() {
                         )}
                         {statusCopy(turn.status)}
                       </span>
-                      <span>{turn.nodes.length} 个步骤</span>
-                      {turn.files.length > 0 && (
-                        <span>{turn.files.length} 个文件</span>
-                      )}
+                      <span>{coreArtifactCount} 个核心产物</span>
+                      <span>{turn.nodes.length} 个执行步骤</span>
                     </div>
                   </summary>
 
@@ -337,35 +382,73 @@ export function ResearchLineagePanel() {
                       </div>
                     )}
 
-                    <div className="space-y-2">
-                      {turn.nodes.map((node) => {
-                        const liveSteps = node.toolCallId
-                          ? subAgentActivity[node.toolCallId] ??
-                            Object.entries(subAgentActivity).find(([key]) =>
-                              key.includes(node.toolCallId!)
-                            )?.[1]
-                          : undefined;
-                        return (
-                          <details
-                            key={node.id}
-                            className="group/node rounded-md border border-border/80 bg-sidebar/60"
+                    <div className="space-y-3">
+                      <section>
+                        <p className="mb-1 text-[10px] font-medium text-muted-foreground">
+                          研究目标
+                        </p>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            dispatchResearchMessageNavigation({
+                              messageId: turn.messageId,
+                            })
+                          }
+                          className="hover:border-[var(--brand)]/50 w-full rounded-md border border-border bg-sidebar/60 px-2.5 py-2 text-left text-xs leading-5 text-foreground transition-colors"
+                          title="定位到这条用户消息"
+                        >
+                          {boundedDetail(turn.prompt, 480)}
+                        </button>
+                      </section>
+
+                      <section>
+                        <p className="mb-1 text-[10px] font-medium text-muted-foreground">
+                          主要结论
+                        </p>
+                        {turn.finalAnswer ? (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              dispatchResearchMessageNavigation({
+                                messageId: turn.finalAnswer!.messageId,
+                              })
+                            }
+                            className="border-[var(--brand)]/25 bg-[var(--brand)]/5 hover:border-[var(--brand)]/60 w-full rounded-md border px-2.5 py-2 text-left text-[11px] leading-5 text-foreground transition-colors"
+                            title="定位到完整回答"
                           >
-                            <summary className="cursor-pointer list-none px-2.5 py-2">
-                              <div className="flex items-start gap-2">
+                            <span className="whitespace-pre-wrap">
+                              {boundedDetail(turn.finalAnswer.detail, 520)}
+                            </span>
+                          </button>
+                        ) : (
+                          <p className="rounded-md border border-dashed border-border px-2.5 py-2 text-[10px] text-muted-foreground">
+                            本轮尚未形成最终回答
+                          </p>
+                        )}
+                      </section>
+
+                      {turn.keyNodes.length > 0 && (
+                        <section>
+                          <p className="mb-1 text-[10px] font-medium text-muted-foreground">
+                            关键过程
+                          </p>
+                          <div className="space-y-1.5">
+                            {turn.keyNodes.map((node) => (
+                              <button
+                                key={node.id}
+                                type="button"
+                                onClick={() =>
+                                  dispatchResearchMessageNavigation({
+                                    messageId: node.messageId,
+                                  })
+                                }
+                                className="hover:border-[var(--brand)]/50 flex w-full items-start gap-2 rounded-md border border-border bg-sidebar/60 px-2.5 py-2 text-left transition-colors"
+                                title="定位到对应消息"
+                              >
                                 <span className="mt-0.5 text-[var(--brand)]">
                                   <NodeIcon node={node} />
                                 </span>
-                                <button
-                                  type="button"
-                                  onClick={(event) => {
-                                    event.preventDefault();
-                                    dispatchResearchMessageNavigation({
-                                      messageId: node.messageId,
-                                    });
-                                  }}
-                                  className="min-w-0 flex-1 text-left"
-                                  title="定位到对应消息"
-                                >
+                                <span className="min-w-0 flex-1">
                                   <span className="block truncate text-xs font-medium text-foreground">
                                     {node.title}
                                   </span>
@@ -374,81 +457,199 @@ export function ResearchLineagePanel() {
                                       {node.summary}
                                     </span>
                                   )}
-                                </button>
-                                <ChevronDown className="size-3.5 shrink-0 text-muted-foreground transition-transform group-open/node:rotate-180" />
-                              </div>
-                            </summary>
-                            <div className="space-y-2 border-t border-border/70 px-2.5 py-2 text-[10px] leading-4">
-                              {node.args &&
-                                Object.keys(node.args).length > 0 && (
-                                  <div>
-                                    <p className="mb-1 font-medium text-muted-foreground">
-                                      参数
-                                    </p>
-                                  <pre className="max-h-40 overflow-auto whitespace-pre-wrap break-all rounded bg-background p-2 text-foreground">
-                                    {boundedDetail(
-                                      JSON.stringify(node.args, null, 2),
-                                      8000
-                                    )}
-                                    </pre>
-                                  </div>
-                                )}
-                              {node.detail && (
-                                <div>
-                                  <p className="mb-1 font-medium text-muted-foreground">
-                                    输出
-                                  </p>
-                                  <pre className="max-h-56 overflow-auto whitespace-pre-wrap break-words rounded bg-background p-2 font-sans text-foreground">
-                                    {boundedDetail(node.detail, 12000)}
-                                  </pre>
-                                </div>
-                              )}
-                              {liveSteps && liveSteps.length > 0 && (
-                                <p className="text-[var(--brand)]">
-                                  当前已捕获 {liveSteps.length} 个实时子步骤
+                                </span>
+                                <span
+                                  className={cn(
+                                    "shrink-0 text-[9px]",
+                                    statusClass(node.status)
+                                  )}
+                                >
+                                  {statusCopy(node.status)}
+                                </span>
+                              </button>
+                            ))}
+                          </div>
+                        </section>
+                      )}
+
+                      <section>
+                        <p className="mb-1 text-[10px] font-medium text-muted-foreground">
+                          核心产物
+                        </p>
+                        {coreArtifactGroups.length > 0 ? (
+                          <div className="space-y-2 rounded-md border border-border bg-sidebar/40 p-2">
+                            {coreArtifactGroups.map((group) => (
+                              <div key={group.category}>
+                                <p className="mb-1 text-[9px] text-muted-foreground">
+                                  {group.label}
                                 </p>
-                              )}
-                              {node.files.length > 0 && (
                                 <div className="flex flex-wrap gap-1">
-                                  {node.files.map((path) => (
+                                  {group.artifacts.map((artifact) => (
                                     <button
-                                      key={path}
+                                      key={artifact.path}
                                       type="button"
-                                      onClick={() => openLineageFile(path)}
-                                      className="hover:border-[var(--brand)]/50 flex max-w-full items-center gap-1 rounded border border-border bg-background px-1.5 py-1 text-left text-[var(--brand)]"
+                                      onClick={() =>
+                                        openLineageFile(artifact.path)
+                                      }
+                                      className="hover:border-[var(--brand)]/50 flex max-w-full items-center gap-1 rounded-md border border-border bg-background px-2 py-1 text-left text-[10px] text-[var(--brand)]"
                                     >
                                       <FileText className="size-3 shrink-0" />
-                                      <span className="truncate">{path}</span>
+                                      <span className="truncate">
+                                        {artifact.path}
+                                      </span>
                                     </button>
                                   ))}
                                 </div>
-                              )}
-                            </div>
-                          </details>
-                        );
-                      })}
-                    </div>
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
+                          <p className="rounded-md border border-dashed border-border px-2.5 py-2 text-[10px] text-muted-foreground">
+                            暂无可识别的核心产物
+                          </p>
+                        )}
+                      </section>
 
-                    {turn.files.length > 0 && (
-                      <div className="mt-3 border-t border-border/70 pt-2">
-                        <p className="mb-1.5 text-[10px] font-medium text-muted-foreground">
-                          关联文件
-                        </p>
-                        <div className="flex flex-wrap gap-1">
-                          {turn.files.map((path) => (
-                            <button
-                              key={path}
-                              type="button"
-                              onClick={() => openLineageFile(path)}
-                              className="hover:border-[var(--brand)]/50 flex max-w-full items-center gap-1 rounded-md border border-border bg-sidebar px-2 py-1 text-[10px] text-[var(--brand)]"
-                            >
-                              <FileText className="size-3 shrink-0" />
-                              <span className="truncate">{path}</span>
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-                    )}
+                      {(turn.nodes.length > 0 ||
+                        detailArtifacts.length > 0) && (
+                        <details className="group/detail rounded-md border border-border/80 bg-sidebar/30">
+                          <summary className="flex cursor-pointer list-none items-center justify-between gap-2 px-2.5 py-2 text-[10px] font-medium text-muted-foreground">
+                            <span>
+                              执行细节 · {turn.nodes.length} 个步骤
+                              {detailArtifacts.length > 0
+                                ? ` · ${detailArtifacts.length} 个其他文件`
+                                : ""}
+                            </span>
+                            <ChevronDown className="size-3.5 shrink-0 transition-transform group-open/detail:rotate-180" />
+                          </summary>
+                          <div className="space-y-2 border-t border-border/70 p-2">
+                            {turn.nodes.map((node) => {
+                              const liveSteps = node.toolCallId
+                                ? subAgentActivity[node.toolCallId] ??
+                                  Object.entries(subAgentActivity).find(
+                                    ([key]) => key.includes(node.toolCallId!)
+                                  )?.[1]
+                                : undefined;
+                              return (
+                                <details
+                                  key={node.id}
+                                  className="group/node rounded-md border border-border/80 bg-background/80"
+                                >
+                                  <summary className="cursor-pointer list-none px-2.5 py-2">
+                                    <div className="flex items-start gap-2">
+                                      <span className="mt-0.5 text-[var(--brand)]">
+                                        <NodeIcon node={node} />
+                                      </span>
+                                      <button
+                                        type="button"
+                                        onClick={(event) => {
+                                          event.preventDefault();
+                                          dispatchResearchMessageNavigation({
+                                            messageId: node.messageId,
+                                          });
+                                        }}
+                                        className="min-w-0 flex-1 text-left"
+                                        title="定位到对应消息"
+                                      >
+                                        <span className="block truncate text-xs font-medium text-foreground">
+                                          {node.title}
+                                        </span>
+                                        {node.summary && (
+                                          <span className="mt-0.5 line-clamp-2 block text-[10px] leading-4 text-muted-foreground">
+                                            {node.summary}
+                                          </span>
+                                        )}
+                                      </button>
+                                      <ChevronDown className="size-3.5 shrink-0 text-muted-foreground transition-transform group-open/node:rotate-180" />
+                                    </div>
+                                  </summary>
+                                  <div className="space-y-2 border-t border-border/70 px-2.5 py-2 text-[10px] leading-4">
+                                    {node.args &&
+                                      Object.keys(node.args).length > 0 && (
+                                        <div>
+                                          <p className="mb-1 font-medium text-muted-foreground">
+                                            参数
+                                          </p>
+                                          <pre className="max-h-40 overflow-auto whitespace-pre-wrap break-all rounded bg-background p-2 text-foreground">
+                                            {boundedDetail(
+                                              JSON.stringify(
+                                                node.args,
+                                                null,
+                                                2
+                                              ),
+                                              8000
+                                            )}
+                                          </pre>
+                                        </div>
+                                      )}
+                                    {node.detail && (
+                                      <div>
+                                        <p className="mb-1 font-medium text-muted-foreground">
+                                          输出
+                                        </p>
+                                        <pre className="max-h-56 overflow-auto whitespace-pre-wrap break-words rounded bg-background p-2 font-sans text-foreground">
+                                          {boundedDetail(node.detail, 12000)}
+                                        </pre>
+                                      </div>
+                                    )}
+                                    {liveSteps && liveSteps.length > 0 && (
+                                      <p className="text-[var(--brand)]">
+                                        当前已捕获 {liveSteps.length}{" "}
+                                        个实时子步骤
+                                      </p>
+                                    )}
+                                    {node.files.length > 0 && (
+                                      <div className="flex flex-wrap gap-1">
+                                        {node.files.map((path) => (
+                                          <button
+                                            key={path}
+                                            type="button"
+                                            onClick={() =>
+                                              openLineageFile(path)
+                                            }
+                                            className="hover:border-[var(--brand)]/50 flex max-w-full items-center gap-1 rounded border border-border bg-background px-1.5 py-1 text-left text-[var(--brand)]"
+                                          >
+                                            <FileText className="size-3 shrink-0" />
+                                            <span className="truncate">
+                                              {path}
+                                            </span>
+                                          </button>
+                                        ))}
+                                      </div>
+                                    )}
+                                  </div>
+                                </details>
+                              );
+                            })}
+
+                            {detailArtifacts.length > 0 && (
+                              <div className="border-t border-border/70 pt-2">
+                                <p className="mb-1.5 text-[10px] font-medium text-muted-foreground">
+                                  其他关联文件
+                                </p>
+                                <div className="flex flex-wrap gap-1">
+                                  {detailArtifacts.map((artifact) => (
+                                    <button
+                                      key={artifact.path}
+                                      type="button"
+                                      onClick={() =>
+                                        openLineageFile(artifact.path)
+                                      }
+                                      className="hover:border-[var(--brand)]/50 flex max-w-full items-center gap-1 rounded border border-border bg-background px-1.5 py-1 text-left text-[var(--brand)]"
+                                    >
+                                      <FileText className="size-3 shrink-0" />
+                                      <span className="truncate">
+                                        {artifact.path}
+                                      </span>
+                                    </button>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        </details>
+                      )}
+                    </div>
                   </div>
                 </details>
               </li>
@@ -498,8 +699,8 @@ export function ResearchLineagePanel() {
                 {isOlderBranchHistoryLoading
                   ? "正在加载更早路线…"
                   : historyError
-                    ? "重试加载更早分支"
-                    : "加载更早分支"}
+                  ? "重试加载更早分支"
+                  : "加载更早分支"}
               </button>
             )}
           </div>

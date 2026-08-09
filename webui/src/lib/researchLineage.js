@@ -1,7 +1,96 @@
 const FILE_PATH_PATTERN =
-  /(?:\/(?:[\w\-.]+\/)*|(?:[\w\-.]+\/)+)[\w\-.]+\.(?:md|txt|json|jsonl|ya?ml|csv|tsv|log|py|tsx?|jsx?|html|css|sh|pdf|png|jpe?g|gif|svg|webp|mp3|wav|mp4|mov)\b/gi;
+  /(?:\/(?:[\w\-.]+\/)*|(?:[\w\-.]+\/)+)[\w\-.]+\.(?:md|markdown|txt|pdf|tex|bib|docx?|rtf|odt|json|jsonl|ya?ml|csv|tsv|xlsx?|parquet|pkl|npy|npz|hdf?5|sqlite|xml|log|py|ipynb|tsx?|jsx?|html|css|sh|bash|r|jl|cpp|cc|c|h|hpp|java|go|rs|rb|png|jpe?g|gif|svg|webp|bmp|tiff?|eps|mp3|wav|mp4|mov)\b/gi;
 const FILE_NAME_PATTERN =
-  /^[\w\-.]+\.(?:md|txt|json|jsonl|ya?ml|csv|tsv|log|py|tsx?|jsx?|html|css|sh|pdf|png|jpe?g|gif|svg|webp|mp3|wav|mp4|mov)$/i;
+  /^[\w\-.]+\.(?:md|markdown|txt|pdf|tex|bib|docx?|rtf|odt|json|jsonl|ya?ml|csv|tsv|xlsx?|parquet|pkl|npy|npz|hdf?5|sqlite|xml|log|py|ipynb|tsx?|jsx?|html|css|sh|bash|r|jl|cpp|cc|c|h|hpp|java|go|rs|rb|png|jpe?g|gif|svg|webp|bmp|tiff?|eps|mp3|wav|mp4|mov)$/i;
+
+const ARTIFACT_EXTENSIONS = {
+  docs: new Set([
+    "pdf",
+    "tex",
+    "bib",
+    "md",
+    "markdown",
+    "txt",
+    "doc",
+    "docx",
+    "rtf",
+    "odt",
+  ]),
+  figures: new Set([
+    "png",
+    "jpg",
+    "jpeg",
+    "gif",
+    "svg",
+    "webp",
+    "bmp",
+    "tif",
+    "tiff",
+    "eps",
+  ]),
+  data: new Set([
+    "json",
+    "jsonl",
+    "csv",
+    "tsv",
+    "xls",
+    "xlsx",
+    "parquet",
+    "pkl",
+    "npy",
+    "npz",
+    "h5",
+    "hdf5",
+    "db",
+    "sqlite",
+    "yaml",
+    "yml",
+    "xml",
+  ]),
+  code: new Set([
+    "py",
+    "ipynb",
+    "js",
+    "ts",
+    "tsx",
+    "jsx",
+    "sh",
+    "bash",
+    "r",
+    "jl",
+    "cpp",
+    "cc",
+    "c",
+    "h",
+    "hpp",
+    "java",
+    "go",
+    "rs",
+    "rb",
+  ]),
+};
+const CORE_ARTIFACT_DIRECTORIES = new Set([
+  "output",
+  "outputs",
+  "artifact",
+  "artifacts",
+  "report",
+  "reports",
+  "result",
+  "results",
+  "work",
+]);
+const DETAIL_ONLY_DIRECTORIES = new Set([
+  "skills",
+  "tmp",
+  "temp",
+  "cache",
+  ".cache",
+  "node_modules",
+  "__pycache__",
+  "large_tool_results",
+  "conversation_history",
+]);
 
 /** @param {unknown} content */
 export function extractLineageText(content) {
@@ -108,6 +197,80 @@ function resultStatus(message, output) {
   return "complete";
 }
 
+function normalizeArtifactPath(path) {
+  return String(path ?? "")
+    .trim()
+    .replace(/^['"]|['"]$/g, "")
+    .replace(/\\/g, "/")
+    .replace(/\/{2,}/g, "/")
+    .replace(/^\.\//, "");
+}
+
+function artifactCategory(path) {
+  const filename = normalizeArtifactPath(path).split("/").at(-1) ?? "";
+  const extension = filename.includes(".")
+    ? filename.split(".").at(-1).toLowerCase()
+    : "";
+  for (const [category, extensions] of Object.entries(ARTIFACT_EXTENSIONS)) {
+    if (extensions.has(extension)) return category;
+  }
+  return "other";
+}
+
+function artifactPathSegments(path) {
+  return normalizeArtifactPath(path).toLowerCase().split("/").filter(Boolean);
+}
+
+/**
+ * Classify one persisted file reference without inventing artifact metadata.
+ * Explicit references in the final answer are strongest; otherwise only files
+ * in known result directories are promoted. Internal/runtime paths always stay
+ * in execution details.
+ * @param {string} path
+ * @param {{referencedByFinalAnswer?: boolean, sourceNodeIds?: string[]}} [evidence]
+ */
+export function classifyResearchArtifact(path, evidence = {}) {
+  const normalizedPath = normalizeArtifactPath(path);
+  const category = artifactCategory(normalizedPath);
+  const segments = artifactPathSegments(normalizedPath);
+  const isDetailOnly = segments.some((segment) =>
+    DETAIL_ONLY_DIRECTORIES.has(segment)
+  );
+  const isResultPath = segments.some((segment) =>
+    CORE_ARTIFACT_DIRECTORIES.has(segment)
+  );
+  const isCore =
+    !isDetailOnly &&
+    (evidence.referencedByFinalAnswer === true ||
+      (isResultPath && category !== "other"));
+  return {
+    path: normalizedPath,
+    category,
+    importance: isCore ? "core" : "detail",
+    sourceNodeIds: [...new Set(evidence.sourceNodeIds ?? [])],
+  };
+}
+
+function buildTurnArtifacts(turn) {
+  const finalAnswerFiles = new Set(
+    (turn.finalAnswer?.files ?? []).map(normalizeArtifactPath)
+  );
+  return turn.files.map((path) => {
+    const normalizedPath = normalizeArtifactPath(path);
+    const sourceNodeIds = turn.nodes
+      .filter((node) =>
+        (node.files ?? []).some(
+          (nodePath) => normalizeArtifactPath(nodePath) === normalizedPath
+        )
+      )
+      .map((node) => node.id);
+    return classifyResearchArtifact(normalizedPath, {
+      referencedByFinalAnswer: finalAnswerFiles.has(normalizedPath),
+      sourceNodeIds,
+    });
+  });
+}
+
 /**
  * Convert persisted visible messages into per-user-turn research details.
  * Hidden model reasoning is intentionally not inferred or synthesized.
@@ -135,6 +298,9 @@ export function buildResearchTurns(rawMessages, stateFiles = {}) {
         status: "complete",
         nodes: [],
         files: [],
+        finalAnswer: null,
+        keyNodes: [],
+        artifacts: [],
       };
       turns.push(current);
       continue;
@@ -224,10 +390,11 @@ export function buildResearchTurns(rawMessages, stateFiles = {}) {
 
   for (const turn of turns) {
     turn.files = [
-      ...new Set([
-        ...turn.files,
-        ...turn.nodes.flatMap((node) => node.files ?? []),
-      ]),
+      ...new Set(
+        [...turn.files, ...turn.nodes.flatMap((node) => node.files ?? [])]
+          .map(normalizeArtifactPath)
+          .filter(Boolean)
+      ),
     ];
     const statuses = turn.nodes.map((node) => node.status);
     turn.status = statuses.includes("running")
@@ -237,6 +404,27 @@ export function buildResearchTurns(rawMessages, stateFiles = {}) {
       : statuses.includes("cancelled")
       ? "cancelled"
       : "complete";
+    turn.finalAnswer =
+      [...turn.nodes]
+        .reverse()
+        .find((node) => node.kind === "answer" && node.detail.trim()) ?? null;
+    turn.artifacts = buildTurnArtifacts(turn);
+    const coreArtifactPaths = new Set(
+      turn.artifacts
+        .filter((artifact) => artifact.importance === "core")
+        .map((artifact) => artifact.path)
+    );
+    turn.keyNodes = turn.nodes.filter((node) => {
+      if (node.kind === "answer") return false;
+      return (
+        node.kind === "agent" ||
+        node.status === "failed" ||
+        node.status === "cancelled" ||
+        (node.files ?? []).some((path) =>
+          coreArtifactPaths.has(normalizeArtifactPath(path))
+        )
+      );
+    });
   }
   return turns;
 }

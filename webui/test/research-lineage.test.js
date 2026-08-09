@@ -3,6 +3,7 @@ import test from "node:test";
 
 import {
   buildResearchTurns,
+  classifyResearchArtifact,
   collectResearchRoutes,
   extractLineageFiles,
   mergeCheckpointHistory,
@@ -49,6 +50,19 @@ test("groups persisted research events by human turn and pairs tool results", ()
   assert.equal(turns[0].nodes[1].kind, "agent");
   assert.equal(turns[0].nodes[1].title, "solar-knowledge");
   assert.deepEqual(turns[0].files, ["outputs/report.md"]);
+  assert.equal(turns[0].finalAnswer.detail, "研究结论");
+  assert.deepEqual(
+    turns[0].artifacts.map(({ path, category, importance }) => ({
+      path,
+      category,
+      importance,
+    })),
+    [{ path: "outputs/report.md", category: "docs", importance: "core" }]
+  );
+  assert.deepEqual(
+    turns[0].keyNodes.map((node) => node.id),
+    ["c2"]
+  );
   assert.equal(turns[0].status, "complete");
   assert.equal(turns[1].title, "继续分析磁场");
 });
@@ -76,6 +90,34 @@ test("marks cancelled and malformed tool results without throwing", () => {
   assert.equal(turns[0].nodes[0].status, "cancelled");
   assert.deepEqual(turns[0].nodes[0].args, { input: "not-json" });
   assert.equal(turns[0].status, "cancelled");
+  assert.deepEqual(
+    turns[0].keyNodes.map((node) => node.id),
+    ["c"]
+  );
+});
+
+test("keeps failed tools visible as key process nodes without artifacts", () => {
+  const [turn] = buildResearchTurns([
+    { type: "human", id: "h", content: "运行分析" },
+    {
+      type: "ai",
+      id: "a",
+      tool_calls: [{ id: "c", name: "execute", args: { command: "run" } }],
+    },
+    {
+      type: "tool",
+      id: "t",
+      tool_call_id: "c",
+      status: "error",
+      content: "execution failed",
+    },
+  ]);
+
+  assert.equal(turn.status, "failed");
+  assert.deepEqual(
+    turn.keyNodes.map((node) => node.id),
+    ["c"]
+  );
 });
 
 test("extracts only path-shaped supported files", () => {
@@ -89,6 +131,99 @@ test("extracts only path-shaped supported files", () => {
     extractLineageFiles({ path: "report.pdf", query: "foo.md" }),
     ["report.pdf"]
   );
+});
+
+test("uses the last non-empty assistant text as the persisted final answer", () => {
+  const [turn] = buildResearchTurns([
+    { type: "human", id: "h", content: "完成研究" },
+    { type: "ai", id: "a1", content: "我先检查数据。" },
+    {
+      type: "ai",
+      id: "a2",
+      content: "最终结论见 outputs/final_report.pdf。",
+    },
+    { type: "ai", id: "a3", content: "" },
+  ]);
+
+  assert.equal(turn.finalAnswer.id, "a2");
+  assert.deepEqual(turn.artifacts, [
+    {
+      path: "outputs/final_report.pdf",
+      category: "docs",
+      importance: "core",
+      sourceNodeIds: ["a2"],
+    },
+  ]);
+});
+
+test("classifies result artifacts conservatively and keeps runtime files in details", () => {
+  assert.equal(
+    classifyResearchArtifact("artifacts/chart.png").importance,
+    "core"
+  );
+  assert.equal(
+    classifyResearchArtifact("work/reproduce.py").importance,
+    "core"
+  );
+  assert.equal(
+    classifyResearchArtifact("scripts/reproduce.py").importance,
+    "detail"
+  );
+  assert.equal(
+    classifyResearchArtifact("scripts/reproduce.py", {
+      referencedByFinalAnswer: true,
+    }).importance,
+    "core"
+  );
+  assert.equal(
+    classifyResearchArtifact("/skills/solar/scripts/run.py", {
+      referencedByFinalAnswer: true,
+    }).importance,
+    "detail"
+  );
+  assert.equal(
+    classifyResearchArtifact("/tmp/result.json", {
+      referencedByFinalAnswer: true,
+    }).importance,
+    "detail"
+  );
+  assert.equal(
+    classifyResearchArtifact("outputs/runtime.log").importance,
+    "detail"
+  );
+});
+
+test("normalizes exact paths without merging different directories", () => {
+  const [turn] = buildResearchTurns(
+    [
+      { type: "human", id: "h", content: "生成结果" },
+      {
+        type: "ai",
+        id: "a",
+        content: "查看 ./outputs/result.csv 和 reports/result.csv。",
+      },
+    ],
+    {
+      "outputs/result.csv": "one",
+      "reports/result.csv": "two",
+    }
+  );
+
+  assert.deepEqual(
+    turn.artifacts.map((artifact) => artifact.path),
+    ["outputs/result.csv", "reports/result.csv"]
+  );
+});
+
+test("keeps a completed turn without files as an explicit no-artifact state", () => {
+  const [turn] = buildResearchTurns([
+    { type: "human", id: "h", content: "解释现象" },
+    { type: "ai", id: "a", content: "这是最终回答。" },
+  ]);
+
+  assert.equal(turn.finalAnswer.id, "a");
+  assert.deepEqual(turn.artifacts, []);
+  assert.deepEqual(turn.keyNodes, []);
 });
 
 test("collects the latest checkpoint snapshot for each SDK branch path", () => {
