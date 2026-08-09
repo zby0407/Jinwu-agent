@@ -95,6 +95,10 @@ import { WorkspaceFileDialog } from "@/app/components/WorkspaceFileDialog";
 import { MemoryFileDialog } from "@/app/components/MemoryFileDialog";
 import { FILE_LINK_EVENT, type FileLinkEventDetail } from "@/lib/fileLink";
 import {
+  RESEARCH_MESSAGE_NAVIGATE_EVENT,
+  type ResearchMessageNavigateDetail,
+} from "@/lib/researchNavigation";
+import {
   COMMON_MODELS,
   parseModelCommand,
   type ModelOverride,
@@ -443,6 +447,54 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
       modelOverride,
       setModelOverride,
     } = useChatContext();
+    const [pendingResearchFocus, setPendingResearchFocus] = useState<
+      string | null
+    >(null);
+    const [focusedResearchMessage, setFocusedResearchMessage] = useState<
+      string | null
+    >(null);
+
+    useEffect(() => {
+      const onNavigate = (event: Event) => {
+        const detail = (event as CustomEvent<ResearchMessageNavigateDetail>)
+          .detail;
+        if (!detail?.messageId) return;
+        if (detail.branch !== undefined) selectBranch(detail.branch);
+        setPendingResearchFocus(detail.messageId);
+      };
+      window.addEventListener(RESEARCH_MESSAGE_NAVIGATE_EVENT, onNavigate);
+      return () =>
+        window.removeEventListener(RESEARCH_MESSAGE_NAVIGATE_EVENT, onNavigate);
+    }, [selectBranch]);
+
+    useEffect(() => {
+      if (!pendingResearchFocus) return;
+      let cancelled = false;
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      let attempts = 0;
+      const locate = () => {
+        if (cancelled) return;
+        const escaped = CSS.escape(pendingResearchFocus);
+        const target = document.querySelector<HTMLElement>(
+          `[data-chat-message-id="${escaped}"]`
+        );
+        if (target) {
+          target.scrollIntoView({ behavior: "smooth", block: "center" });
+          setFocusedResearchMessage(pendingResearchFocus);
+          setPendingResearchFocus(null);
+          timer = setTimeout(() => setFocusedResearchMessage(null), 2200);
+          return;
+        }
+        attempts += 1;
+        if (attempts < 20) timer = setTimeout(locate, 100);
+        else setPendingResearchFocus(null);
+      };
+      timer = setTimeout(locate, 0);
+      return () => {
+        cancelled = true;
+        if (timer) clearTimeout(timer);
+      };
+    }, [messages, pendingResearchFocus]);
 
     const confirmRegenerate = useCallback(() => {
       if (!regenerateMessageId) return;
@@ -822,9 +874,7 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
             error?: string;
           } | null;
           if (!bindResponse.ok) {
-            throw new Error(
-              bindData?.error || "无法绑定任务工作区。"
-            );
+            throw new Error(bindData?.error || "无法绑定任务工作区。");
           }
           if (bindData?.binding?.workspace) {
             setWorkspaceDir(bindData.binding.workspace);
@@ -992,9 +1042,7 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
         if (!target || messages[0]?.id === id) return messages;
         return [target, ...messages.filter((message) => message.id !== id)];
       });
-      toast.info(
-        "此消息将在当前轮次结束后优先发送。"
-      );
+      toast.info("此消息将在当前轮次结束后优先发送。");
     }, []);
 
     const moveQueuedMessage = useCallback((id: number, direction: -1 | 1) => {
@@ -1847,28 +1895,52 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
                     const isLastGroup = index === renderedItems.length - 1;
                     const groupIsStreaming =
                       isLoading && isLastGroup && groupLastId === lastMessageId;
+                    const groupMessageIds = item.items
+                      .map((entry) => entry.message.id)
+                      .filter((id): id is string => Boolean(id));
+                    const groupFocused = groupMessageIds.some(
+                      (id) => id === focusedResearchMessage
+                    );
                     return (
-                      <ActionGroup
+                      <div
                         key={`action-group-${item.items[0].message.id}`}
-                        items={item.items}
-                        isStreaming={groupIsStreaming}
-                        defaultCollapsed={collapseAgentActions}
-                        isAtBottom={isAtBottom}
-                        lastMessageId={lastMessageId}
-                        isLoading={isLoading}
-                        actionRequests={actionRequests}
-                        submittedActionRequestKeys={submittedActionRequestKeys}
-                        onActionRequestSubmitted={markActionRequestSubmitted}
-                        reviewConfigsMap={reviewConfigsMap}
-                        stream={stream}
-                        onResumeInterrupt={resumeInterrupt}
-                        graphId={assistant?.graph_id}
-                        autoApprove={autoApprove}
-                        subAgentSteps={subAgentSteps}
-                        ui={ui}
-                        compactionAnchorId={compactionAnchorId}
-                        summarizationEvent={summarizationEvent ?? null}
-                      />
+                        data-chat-message-id={groupMessageIds[0]}
+                        className={cn(
+                          "relative rounded-lg transition-[background-color,box-shadow] duration-300",
+                          groupFocused &&
+                            "bg-[var(--brand)]/10 ring-[var(--brand)]/60 ring-1"
+                        )}
+                      >
+                        {groupMessageIds.slice(1).map((id) => (
+                          <span
+                            key={id}
+                            data-chat-message-id={id}
+                            className="sr-only"
+                          />
+                        ))}
+                        <ActionGroup
+                          items={item.items}
+                          isStreaming={groupIsStreaming}
+                          defaultCollapsed={collapseAgentActions}
+                          isAtBottom={isAtBottom}
+                          lastMessageId={lastMessageId}
+                          isLoading={isLoading}
+                          actionRequests={actionRequests}
+                          submittedActionRequestKeys={
+                            submittedActionRequestKeys
+                          }
+                          onActionRequestSubmitted={markActionRequestSubmitted}
+                          reviewConfigsMap={reviewConfigsMap}
+                          stream={stream}
+                          onResumeInterrupt={resumeInterrupt}
+                          graphId={assistant?.graph_id}
+                          autoApprove={autoApprove}
+                          subAgentSteps={subAgentSteps}
+                          ui={ui}
+                          compactionAnchorId={compactionAnchorId}
+                          summarizationEvent={summarizationEvent ?? null}
+                        />
+                      </div>
                     );
                   }
                   const data = item.data;
@@ -1880,7 +1952,15 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
                   const showCompactionBefore =
                     compactionAnchorId === data.message.id;
                   return (
-                    <React.Fragment key={data.message.id}>
+                    <div
+                      key={data.message.id}
+                      data-chat-message-id={data.message.id}
+                      className={cn(
+                        "rounded-lg transition-[background-color,box-shadow] duration-300",
+                        focusedResearchMessage === data.message.id &&
+                          "bg-[var(--brand)]/10 ring-[var(--brand)]/60 ring-1"
+                      )}
+                    >
                       {showCompactionBefore && summarizationEvent && (
                         <CompactionSummary
                           content={summarizationEvent.content}
@@ -1937,7 +2017,7 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
                         autoApprove={autoApprove}
                         subAgentSteps={subAgentSteps}
                       />
-                    </React.Fragment>
+                    </div>
                   );
                 })}
                 {summarizationEvent && !compactionAnchorId && (
@@ -2181,8 +2261,8 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
                                     className="ml-[1px] min-w-0 truncate text-sm"
                                   >
                                     任务{" "}
-                                    {totalTasks - groupedTodos.pending.length}{" "}
-                                    / {totalTasks}
+                                    {totalTasks - groupedTodos.pending.length} /{" "}
+                                    {totalTasks}
                                   </span>,
                                   <span
                                     key="content"

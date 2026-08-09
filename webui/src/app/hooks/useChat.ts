@@ -29,6 +29,7 @@ import {
   type ModelOverride,
 } from "@/lib/modelCommand";
 import { setThreadModelOverride } from "@/app/hooks/useThreads";
+import { mergeCheckpointHistory } from "@/lib/researchLineage";
 
 export type StateType = {
   messages: Message[];
@@ -58,6 +59,13 @@ const EMPTY_TODOS: TodoItem[] = [];
 const EMPTY_FILES: Record<string, string> = {};
 const EMPTY_ASYNC_TASKS: Record<string, unknown> = {};
 const BRANCH_HISTORY_LIMIT = 10;
+const OLDER_BRANCH_HISTORY_LIMIT = 5;
+
+type ProgressiveThreadHistory = UseStreamThread<StateType> & {
+  loadOlderBranchHistory: () => Promise<void>;
+  isOlderBranchHistoryLoading: boolean;
+  hasMoreBranchHistory: boolean;
+};
 
 /**
  * Keep only state channels the WebUI reads.
@@ -72,8 +80,7 @@ function projectWebUiState(values: StateType): StateType {
   return {
     messages: Array.isArray(values.messages) ? values.messages : [],
     todos: Array.isArray(values.todos) ? values.todos : [],
-    files:
-      values.files && typeof values.files === "object" ? values.files : {},
+    files: values.files && typeof values.files === "object" ? values.files : {},
     ...(values.email !== undefined ? { email: values.email } : {}),
     ...(values.async_tasks !== undefined
       ? { async_tasks: values.async_tasks }
@@ -145,12 +152,25 @@ function useProgressiveThreadHistory(
   threadId: string | null,
   enabled: boolean,
   initialRecord: Thread<StateType> | null
-): UseStreamThread<StateType> {
+): ProgressiveThreadHistory {
   const [data, setData] = useState<UseStreamThread<StateType>["data"]>();
   const [error, setError] = useState<unknown>();
   const [isLoading, setIsLoading] = useState(false);
+  const [isOlderBranchHistoryLoading, setIsOlderBranchHistoryLoading] =
+    useState(false);
+  const [hasMoreBranchHistory, setHasMoreBranchHistory] = useState(false);
   const requestIdRef = useRef(0);
+  const olderRequestInFlightRef = useRef<string | null>(null);
   const dataThreadIdRef = useRef<string | null>(null);
+  const dataRef = useRef<UseStreamThread<StateType>["data"]>(undefined);
+
+  const publishData = useCallback(
+    (next: UseStreamThread<StateType>["data"]) => {
+      dataRef.current = next;
+      setData(next);
+    },
+    []
+  );
 
   const mutate = useCallback(
     async (mutateId?: string) => {
@@ -159,15 +179,21 @@ function useProgressiveThreadHistory(
 
       if (!enabled || !targetThreadId) {
         dataThreadIdRef.current = null;
-        setData(undefined);
+        publishData(undefined);
         setError(undefined);
         setIsLoading(false);
+        setIsOlderBranchHistoryLoading(false);
+        setHasMoreBranchHistory(false);
+        olderRequestInFlightRef.current = null;
         return [];
       }
 
       if (dataThreadIdRef.current !== targetThreadId) {
         dataThreadIdRef.current = targetThreadId;
-        setData(undefined);
+        publishData(undefined);
+        setHasMoreBranchHistory(false);
+        setIsOlderBranchHistoryLoading(false);
+        olderRequestInFlightRef.current = null;
       }
       setError(undefined);
       setIsLoading(true);
@@ -176,7 +202,7 @@ function useProgressiveThreadHistory(
         // The existence preflight has already downloaded the latest values.
         // Publishing them here avoids a second, slower checkpoint read before
         // the transcript becomes visible.
-        setData([threadRecordSnapshot(initialRecord)]);
+        publishData([threadRecordSnapshot(initialRecord)]);
       }
 
       try {
@@ -189,7 +215,7 @@ function useProgressiveThreadHistory(
         // A non-null history makes useStream.isThreadLoading false even while
         // the branch history continues loading, so the current conversation is
         // usable as soon as this single checkpoint arrives.
-        setData(latestHistory);
+        publishData(latestHistory);
 
         try {
           const history = (
@@ -198,7 +224,8 @@ function useProgressiveThreadHistory(
             })
           ).map(projectThreadState);
           if (requestIdRef.current === requestId) {
-            setData(history);
+            publishData(history);
+            setHasMoreBranchHistory(history.length === BRANCH_HISTORY_LIMIT);
             setIsLoading(false);
           }
           return history;
@@ -208,6 +235,7 @@ function useProgressiveThreadHistory(
           // behind the loading screen.
           if (requestIdRef.current === requestId) {
             setIsLoading(false);
+            setHasMoreBranchHistory(false);
             console.warn(
               "Couldn't load the full checkpoint history; showing the latest state.",
               historyError
@@ -223,13 +251,83 @@ function useProgressiveThreadHistory(
         throw latestError;
       }
     },
-    [client, enabled, initialRecord, threadId]
+    [client, enabled, initialRecord, publishData, threadId]
   );
+
+  const loadOlderBranchHistory = useCallback(async () => {
+    const targetThreadId = threadId;
+    if (
+      !enabled ||
+      !targetThreadId ||
+      !hasMoreBranchHistory ||
+      olderRequestInFlightRef.current !== null ||
+      dataThreadIdRef.current !== targetThreadId
+    ) {
+      return;
+    }
+    const current = dataRef.current ?? [];
+    const oldest = current.at(-1);
+    const checkpoint = oldest?.checkpoint;
+    if (!checkpoint?.checkpoint_id) {
+      setHasMoreBranchHistory(false);
+      return;
+    }
+
+    const requestId = requestIdRef.current;
+    const olderRequestKey = `${targetThreadId}:${requestId}`;
+    olderRequestInFlightRef.current = olderRequestKey;
+    setIsOlderBranchHistoryLoading(true);
+    try {
+      const page = (
+        await client.threads.getHistory<StateType>(targetThreadId, {
+          limit: OLDER_BRANCH_HISTORY_LIMIT,
+          before: {
+            configurable: {
+              thread_id: targetThreadId,
+              checkpoint_ns: checkpoint.checkpoint_ns,
+              checkpoint_id: checkpoint.checkpoint_id,
+              ...(checkpoint.checkpoint_map
+                ? { checkpoint_map: checkpoint.checkpoint_map }
+                : {}),
+            },
+          },
+        })
+      ).map(projectThreadState);
+      if (
+        requestIdRef.current !== requestId ||
+        dataThreadIdRef.current !== targetThreadId
+      ) {
+        return;
+      }
+
+      const existing = dataRef.current ?? [];
+      const { merged, added } = mergeCheckpointHistory(
+        existing,
+        page,
+        (state) => state.checkpoint?.checkpoint_id
+      );
+      publishData(merged);
+      setHasMoreBranchHistory(
+        page.length === OLDER_BRANCH_HISTORY_LIMIT && added > 0
+      );
+    } finally {
+      if (
+        requestIdRef.current === requestId &&
+        dataThreadIdRef.current === targetThreadId
+      ) {
+        setIsOlderBranchHistoryLoading(false);
+      }
+      if (olderRequestInFlightRef.current === olderRequestKey) {
+        olderRequestInFlightRef.current = null;
+      }
+    }
+  }, [client, enabled, hasMoreBranchHistory, publishData, threadId]);
 
   useEffect(() => {
     void mutate().catch(() => undefined);
     return () => {
       requestIdRef.current += 1;
+      olderRequestInFlightRef.current = null;
     };
   }, [mutate]);
 
@@ -240,6 +338,9 @@ function useProgressiveThreadHistory(
       isLoading ||
       Boolean(enabled && threadId && dataThreadIdRef.current !== threadId),
     mutate,
+    loadOlderBranchHistory,
+    isOlderBranchHistoryLoading,
+    hasMoreBranchHistory,
   };
 }
 
@@ -380,7 +481,10 @@ function hasHttpStatus(error: unknown, status: number): boolean {
     error?: unknown;
   };
   if (value.status === status) return true;
-  if (typeof value.message === "string" && hasHttpStatus(value.message, status)) {
+  if (
+    typeof value.message === "string" &&
+    hasHttpStatus(value.message, status)
+  ) {
     return true;
   }
   return value.error !== error && hasHttpStatus(value.error, status);
@@ -521,12 +625,7 @@ export function useChat({
       return;
     }
     toast.error(formatStreamError(progressiveThread.error));
-  }, [
-    progressiveThread.error,
-    recoverMissingThread,
-    streamThreadId,
-    thread,
-  ]);
+  }, [progressiveThread.error, recoverMissingThread, streamThreadId, thread]);
 
   const stream = useStream<StateType>({
     assistantId: activeAssistant?.assistant_id || "",
@@ -636,9 +735,9 @@ export function useChat({
   // the persisted checkpoint still has work in `next`. Mirror that server fact
   // so a refresh cannot unlock the composer while the original run is active.
   const [serverPending, setServerPending] = useState(false);
-  const [stopState, setStopState] = useState<
-    "idle" | "stopping" | "stopped"
-  >("idle");
+  const [stopState, setStopState] = useState<"idle" | "stopping" | "stopped">(
+    "idle"
+  );
   const stopRequestedRef = useRef(false);
   const recoveryRunRef = useRef(0);
   // Recovery polling is only for a live run whose SSE tail may have been
@@ -700,9 +799,7 @@ export function useChat({
       setModelOverrideState({
         model: r.model,
         model_provider:
-          typeof r.model_provider === "string"
-            ? r.model_provider
-            : undefined,
+          typeof r.model_provider === "string" ? r.model_provider : undefined,
       });
     } else {
       setModelOverrideState(null);
@@ -1095,7 +1192,7 @@ export function useChat({
           (message) => message.id === messageId
         );
         if (targetIndex < 0) {
-      throw new Error("此回答已不在当前活动分支中。" );
+          throw new Error("此回答已不在当前活动分支中。");
         }
         let turnHumanIndex = -1;
         for (let index = targetIndex - 1; index >= 0; index -= 1) {
@@ -1115,7 +1212,7 @@ export function useChat({
             ? messages[turnFirstAssistantIndex].id
             : messageId;
         if (!turnAnchorId) {
-      throw new Error("找不到此回答轮次的起点。" );
+          throw new Error("找不到此回答轮次的起点。");
         }
         const optimisticMessages =
           turnFirstAssistantIndex >= 0
@@ -1128,16 +1225,16 @@ export function useChat({
         const history = await client.threads.getHistory<StateType>(threadId, {
           limit: 100,
         });
-        const firstSeenState = [...history].reverse().find((state) =>
-          (state.values.messages ?? []).some(
-            (message) => message.id === turnAnchorId
-          )
-        );
+        const firstSeenState = [...history]
+          .reverse()
+          .find((state) =>
+            (state.values.messages ?? []).some(
+              (message) => message.id === turnAnchorId
+            )
+          );
         const checkpoint = firstSeenState?.parent_checkpoint;
         if (!checkpoint) {
-          throw new Error(
-        "此回答之前的检查点已不可用。"
-          );
+          throw new Error("此回答之前的检查点已不可用。");
         }
 
         const resetResponse = await fetch("/api/regenerate", {
@@ -1152,7 +1249,7 @@ export function useChat({
           throw new Error(
             typeof payload?.error === "string"
               ? payload.error
-          : "无法清除已生成的产物。"
+              : "无法清除已生成的产物。"
           );
         }
 
@@ -1181,7 +1278,8 @@ export function useChat({
         );
       });
       onHistoryRevalidate?.();
-    }, [
+    },
+    [
       threadId,
       stream,
       serverPending,
@@ -1195,12 +1293,7 @@ export function useChat({
   const editMessage = useCallback(
     (messageId: string, content: string) => {
       const editedContent = content.trim();
-      if (
-        !threadId ||
-        !editedContent ||
-        stream.isLoading ||
-        serverPending
-      ) {
+      if (!threadId || !editedContent || stream.isLoading || serverPending) {
         return;
       }
       setFetchedInterrupt(undefined);
@@ -1219,10 +1312,13 @@ export function useChat({
           (message) => message.id === messageId && message.type === "human"
         );
         if (targetIndex < 0) {
-      throw new Error("此消息已不在当前活动分支中。" );
+          throw new Error("此消息已不在当前活动分支中。");
         }
         const targetMessage = messages[targetIndex];
-        if (extractStringFromMessageContent(targetMessage).trim() === editedContent) {
+        if (
+          extractStringFromMessageContent(targetMessage).trim() ===
+          editedContent
+        ) {
           setServerPending(false);
           return;
         }
@@ -1230,16 +1326,16 @@ export function useChat({
         const history = await client.threads.getHistory<StateType>(threadId, {
           limit: 100,
         });
-        const firstSeenState = [...history].reverse().find((state) =>
-          (state.values.messages ?? []).some(
-            (message) => message.id === messageId
-          )
-        );
+        const firstSeenState = [...history]
+          .reverse()
+          .find((state) =>
+            (state.values.messages ?? []).some(
+              (message) => message.id === messageId
+            )
+          );
         const checkpoint = firstSeenState?.parent_checkpoint;
         if (!checkpoint) {
-          throw new Error(
-        "此消息之前的检查点已不可用。"
-          );
+          throw new Error("此消息之前的检查点已不可用。");
         }
 
         const editedMessage: Message = {
@@ -1388,7 +1484,9 @@ export function useChat({
             client.runs.list(threadId, { status: "running", limit: 10 }),
             client.runs.list(threadId, { status: "pending", limit: 10 }),
           ]);
-          runIds = [...new Set([...running, ...pending].map((run) => run.run_id))];
+          runIds = [
+            ...new Set([...running, ...pending].map((run) => run.run_id)),
+          ];
         }
         await Promise.allSettled(
           runIds.map((runId) =>
@@ -1466,6 +1564,9 @@ export function useChat({
     stopStream,
     resumeInterrupt,
     subAgentActivity,
+    loadOlderBranchHistory: progressiveThread.loadOlderBranchHistory,
+    isOlderBranchHistoryLoading: progressiveThread.isOlderBranchHistoryLoading,
+    hasMoreBranchHistory: progressiveThread.hasMoreBranchHistory,
     modelOverride,
     setModelOverride,
   };
