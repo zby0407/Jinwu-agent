@@ -6,6 +6,8 @@ import {
   type Assistant,
   type Checkpoint,
   type Message,
+  type Thread,
+  type ThreadState,
 } from "@langchain/langgraph-sdk";
 import { v4 as uuidv4 } from "uuid";
 import type { UseStreamThread } from "@langchain/langgraph-sdk/react";
@@ -44,6 +46,7 @@ export type StateType = {
   // conversation is compacted. langgraph dev exposes it over the SDK; the UI
   // surfaces it as a collapsible "Conversation compacted" block.
   _summarization_event?: unknown;
+  __interrupt__?: unknown[];
   ui?: any;
 };
 
@@ -55,6 +58,76 @@ const EMPTY_TODOS: TodoItem[] = [];
 const EMPTY_FILES: Record<string, string> = {};
 const EMPTY_ASYNC_TASKS: Record<string, unknown> = {};
 const BRANCH_HISTORY_LIMIT = 10;
+
+/**
+ * Keep only state channels the WebUI reads.
+ *
+ * Some graph middleware persists private runtime snapshots alongside the chat
+ * state. In a long research thread `_quickjs_snapshot_payload` alone can be
+ * megabytes, and retaining ten copies of it in React makes hydration and every
+ * branch-metadata render unnecessarily expensive. The backend keeps the full
+ * checkpoint; this projection only trims the browser-side copy.
+ */
+function projectWebUiState(values: StateType): StateType {
+  return {
+    messages: Array.isArray(values.messages) ? values.messages : [],
+    todos: Array.isArray(values.todos) ? values.todos : [],
+    files:
+      values.files && typeof values.files === "object" ? values.files : {},
+    ...(values.email !== undefined ? { email: values.email } : {}),
+    ...(values.async_tasks !== undefined
+      ? { async_tasks: values.async_tasks }
+      : {}),
+    ...(values._summarization_event !== undefined
+      ? { _summarization_event: values._summarization_event }
+      : {}),
+    ...(values.__interrupt__ !== undefined
+      ? { __interrupt__: values.__interrupt__ }
+      : {}),
+    ...(values.ui !== undefined ? { ui: values.ui } : {}),
+  };
+}
+
+function projectThreadState(
+  state: ThreadState<StateType>
+): ThreadState<StateType> {
+  return { ...state, values: projectWebUiState(state.values) };
+}
+
+/**
+ * A thread record already contains the latest values and is much cheaper for
+ * langgraph dev to read than materialising a checkpoint state. Use it as an
+ * immediate display snapshot; getState replaces this placeholder in the
+ * background before any checkpoint-sensitive operation needs it.
+ */
+function threadRecordSnapshot(
+  record: Thread<StateType>
+): ThreadState<StateType> {
+  const tasks = Object.entries(record.interrupts ?? {}).map(
+    ([taskId, interrupts]) => ({
+      id: taskId,
+      name: "",
+      error: null,
+      interrupts,
+      checkpoint: null,
+      state: null,
+    })
+  );
+  return {
+    values: projectWebUiState(record.values),
+    next: record.status === "interrupted" ? ["__pending__"] : [],
+    checkpoint: {
+      thread_id: record.thread_id,
+      checkpoint_ns: "",
+      checkpoint_id: null,
+      checkpoint_map: null,
+    },
+    metadata: {},
+    created_at: record.updated_at,
+    parent_checkpoint: null,
+    tasks,
+  };
+}
 
 /**
  * Hydrate an existing thread in two stages.
@@ -70,7 +143,8 @@ const BRANCH_HISTORY_LIMIT = 10;
 function useProgressiveThreadHistory(
   client: ReturnType<typeof useClient>,
   threadId: string | null,
-  enabled: boolean
+  enabled: boolean,
+  initialRecord: Thread<StateType> | null
 ): UseStreamThread<StateType> {
   const [data, setData] = useState<UseStreamThread<StateType>["data"]>();
   const [error, setError] = useState<unknown>();
@@ -98,8 +172,17 @@ function useProgressiveThreadHistory(
       setError(undefined);
       setIsLoading(true);
 
+      if (initialRecord?.thread_id === targetThreadId) {
+        // The existence preflight has already downloaded the latest values.
+        // Publishing them here avoids a second, slower checkpoint read before
+        // the transcript becomes visible.
+        setData([threadRecordSnapshot(initialRecord)]);
+      }
+
       try {
-        const latest = await client.threads.getState<StateType>(targetThreadId);
+        const latest = projectThreadState(
+          await client.threads.getState<StateType>(targetThreadId)
+        );
         const latestHistory = latest.checkpoint == null ? [] : [latest];
         if (requestIdRef.current !== requestId) return latestHistory;
 
@@ -109,10 +192,11 @@ function useProgressiveThreadHistory(
         setData(latestHistory);
 
         try {
-          const history = await client.threads.getHistory<StateType>(
-            targetThreadId,
-            { limit: BRANCH_HISTORY_LIMIT }
-          );
+          const history = (
+            await client.threads.getHistory<StateType>(targetThreadId, {
+              limit: BRANCH_HISTORY_LIMIT,
+            })
+          ).map(projectThreadState);
           if (requestIdRef.current === requestId) {
             setData(history);
             setIsLoading(false);
@@ -139,7 +223,7 @@ function useProgressiveThreadHistory(
         throw latestError;
       }
     },
-    [client, enabled, threadId]
+    [client, enabled, initialRecord, threadId]
   );
 
   useEffect(() => {
@@ -322,6 +406,8 @@ export function useChat({
     string,
     unknown
   > | null>(null);
+  const [streamThreadRecord, setStreamThreadRecord] =
+    useState<Thread<StateType> | null>(null);
   const missingThreadIdsRef = useRef<Set<string>>(new Set());
   const recoverMissingThread = useCallback(
     (missingThreadId: string) => {
@@ -337,6 +423,7 @@ export function useChat({
         current === missingThreadId ? null : current
       );
       setStreamThreadMetadata(null);
+      setStreamThreadRecord(null);
       if (!missingThreadIdsRef.current.has(missingThreadId)) {
         missingThreadIdsRef.current.add(missingThreadId);
         toast.warning("原任务已在服务重启后失效，已切换到新任务。");
@@ -349,16 +436,27 @@ export function useChat({
     if (!threadId) {
       setStreamThreadId(null);
       setStreamThreadMetadata(null);
+      setStreamThreadRecord(null);
       return;
     }
     if (streamThreadId === threadId) return;
 
     let cancelled = false;
     void client.threads
-      .search({
+      .search<StateType>({
         ids: [threadId],
         limit: 1,
-        select: ["thread_id", "metadata"],
+        // This request already verifies the URL id. Reuse its current values
+        // for instant hydration instead of discarding them and waiting for a
+        // second, slower /state request before rendering.
+        select: [
+          "thread_id",
+          "updated_at",
+          "metadata",
+          "status",
+          "values",
+          "interrupts",
+        ],
       })
       .then((matches) => {
         if (cancelled) return;
@@ -370,6 +468,7 @@ export function useChat({
         setStreamThreadMetadata(
           (match.metadata as Record<string, unknown> | undefined) ?? {}
         );
+        setStreamThreadRecord(match);
         setStreamThreadId(threadId);
       })
       .catch((error) => {
@@ -385,6 +484,7 @@ export function useChat({
     (createdThreadId: string) => {
       setStreamThreadId(createdThreadId);
       setStreamThreadMetadata({});
+      setStreamThreadRecord(null);
       void setThreadId(createdThreadId);
     },
     [setThreadId]
@@ -410,7 +510,8 @@ export function useChat({
   const progressiveThread = useProgressiveThreadHistory(
     client,
     streamThreadId,
-    thread == null
+    thread == null,
+    streamThreadRecord
   );
   const hydratedThread = thread ?? progressiveThread;
   useEffect(() => {
