@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import os
 import subprocess
 from pathlib import Path
 
@@ -57,14 +58,15 @@ def test_eval_scripts_are_syntactically_valid() -> None:
             capture_output=True,
             text=True,
         )
-    for script in ("run_eval_backend.sh", "run_eval_webui.sh"):
-        subprocess.run(
-            ["bash", "-n", str(EVALS / script)],
-            cwd=ROOT,
-            check=True,
-            capture_output=True,
-            text=True,
-        )
+    if os.name != "nt":
+        for script in ("run_eval_backend.sh", "run_eval_webui.sh"):
+            subprocess.run(
+                ["bash", "-n", str(EVALS / script)],
+                cwd=ROOT,
+                check=True,
+                capture_output=True,
+                text=True,
+            )
 
 
 def test_eval_launchers_pin_the_shared_workspace_root() -> None:
