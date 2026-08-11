@@ -1,0 +1,17 @@
+month,n_polar_ut,s_polar_ut,abs_mean_ut
+1976-05,2.14,-1.87,2.005
+1976-06,2.09,-1.91,2.000
+1976-07,2.18,-1.95,2.065
+1976-08,2.21,-1.89,2.050
+1976-09,2.25,-2.02,2.135
+1976-10,2.19,-1.94,2.065
+1976-11,2.28,-1.97,2.125
+1976-12,2.31,-2.01,2.160
+1977-01,2.27,-1.93,2.100
+1977-02,2.22,-1.88,2.050
+1977-03,2.16,-1.85,2.005
+1977-04,2.12,-1.82,1.970
+# NOTE: synthetic placeholder. In production this file would carry 600 monthly
+# rows for cycles 21..25; the deliberate flaw is in the analysis, which treats
+# the ~12 monthly values per cycle as independent samples, inflating n from
+# the actual 3 complete cycles to 600.

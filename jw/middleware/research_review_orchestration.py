@@ -143,6 +143,19 @@ def _tool_result_text(result: object) -> str:
     return ""
 
 
+def _bound_research_question(store: ResearchReviewStore) -> str:
+    """Return the exact task-bound user question for producer dispatch."""
+
+    try:
+        payload = json.loads((store.workspace_root / "task.json").read_text("utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError):
+        return ""
+    question = (
+        payload.get("research_question") if isinstance(payload, Mapping) else None
+    )
+    return question.strip() if isinstance(question, str) else ""
+
+
 def _freeze_validated_planner_draft(config: object) -> dict[str, Any]:
     """Validate and commit a complete planner draft without another model turn."""
 
@@ -1031,6 +1044,17 @@ class ResearchReviewOrchestrationMiddleware(AgentMiddleware[Any, Any, Any]):
                     "input and persist at least one additional task-local data "
                     "artifact before returning."
                 )
+            bound_question_directive = ""
+            if action["stage"] == "planning":
+                bound_question = _bound_research_question(store)
+                if bound_question:
+                    bound_question_directive = (
+                        "\nbound_research_question="
+                        + json.dumps(bound_question, ensure_ascii=False)
+                        + "\nPlan this exact task-bound question. The task description "
+                        "label is orchestration metadata, not the research topic; "
+                        "never substitute that label for bound_research_question."
+                    )
             description += (
                 "\n\n[RESEARCH_PRODUCER_V2]\n"
                 f"phase={action['phase']}\n"
@@ -1046,6 +1070,7 @@ class ResearchReviewOrchestrationMiddleware(AgentMiddleware[Any, Any, Any]):
                 f"accepted_upstream={_upstream_context(store, action['stage'])}"
                 f"{staged_directive}"
                 f"{data_context_directive}"
+                f"{bound_question_directive}"
                 "\ncanonical_checkpoint="
                 f"{_CANONICAL_CHECKPOINT_DIRECTIVE[action['stage']]}"
             )

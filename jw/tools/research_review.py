@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 from typing import Any
 
@@ -29,6 +30,42 @@ _INDEPENDENT_REVIEW_SCHEMA = {
     "required": ["decision", "notes"],
     "additionalProperties": False,
 }
+
+
+def _configured_assessment_review_mode() -> str:
+    mode = os.environ.get("JW_EVIDENCE_REVIEW_MODE", "two_pass").strip().lower()
+    return mode if mode in {"closed", "two_pass"} else "two_pass"
+
+
+def _require_current_assessment(store: Any, review_mode: str) -> dict[str, Any]:
+    """Return the one current-round assessment bound to current targets."""
+
+    round_number = len(store.verdicts(mode=review_mode)) + 1
+    rows = [
+        row
+        for row in store.assessments(mode=review_mode)
+        if row["round"] == round_number
+    ]
+    if len(rows) != 1:
+        raise ValueError(
+            "record exactly one ReviewAssessmentV1 for the current review round "
+            "before submitting the verdict"
+        )
+    assessment = rows[0]
+    configured_mode = _configured_assessment_review_mode()
+    if assessment["assessment_review_mode"] != configured_mode:
+        raise ValueError(
+            "assessment_review_mode does not match the configured Evidence mode: "
+            f"expected {configured_mode}"
+        )
+    current_refs = [
+        store.artifact_ref(item) for item in store.review_targets(review_mode)
+    ]
+    if assessment["artifact_refs"] != current_refs:
+        raise ValueError(
+            "the recorded assessment does not match the current review artifacts"
+        )
+    return assessment
 
 
 def _model_family(model: str) -> str:
@@ -262,7 +299,9 @@ def evidence_review_submit_verdict(
     """
 
     try:
-        verdict = store_from_config(config).submit_verdict(
+        store = store_from_config(config)
+        _require_current_assessment(store, review_mode)
+        verdict = store.submit_verdict(
             mode=review_mode,
             decision=decision,
             issues=_normalize_issues(issues),
@@ -290,6 +329,51 @@ def evidence_review_get_status(config: RunnableConfig = None) -> str:
     try:
         store = store_from_config(config)
         return _ok({"state": store.load_state(), "next_action": store.next_action()})
+    except Exception as exc:
+        return _error(exc)
+
+
+@tool(parse_docstring=True)
+def evidence_review_record_assessment(
+    review_mode: str,
+    assessment_review_mode: str,
+    claims: list[dict[str, Any]] | str,
+    config: RunnableConfig = None,
+) -> str:
+    """Record a per-claim ReviewAssessmentV1 sidecar before submitting the verdict.
+
+    Call this once per review round, after the closed pass (and, when in
+    two_pass mode, after the active-falsification pass), immediately before
+    evidence_review_submit_verdict.  The assessment never changes routing: it
+    only captures, per claim, the evidence-for/against picture, the
+    disposition, and the single most discriminating next test.
+
+    Args:
+        review_mode: Typed stage being reviewed.
+        assessment_review_mode: closed or two_pass.
+        claims: JSON list, one object per reviewed claim with claim_id, kind,
+            disposition (supported, limited_support, opposed, contradicted,
+            undecided), supporting_evidence, opposing_evidence, rationale,
+            key_uncertainty, confidence, and next_test.
+
+    Returns:
+        The persisted ReviewAssessmentV1, including its content hash and round.
+    """
+
+    try:
+        configured_mode = _configured_assessment_review_mode()
+        requested_mode = assessment_review_mode.strip() or configured_mode
+        if requested_mode != configured_mode:
+            raise ValueError(
+                "assessment_review_mode does not match the configured Evidence mode: "
+                f"expected {configured_mode}"
+            )
+        assessment = store_from_config(config).record_assessment(
+            mode=review_mode,
+            assessment_review_mode=requested_mode,
+            claims=_json_arg(claims, "claims", list),
+        )
+        return _ok(assessment)
     except Exception as exc:
         return _error(exc)
 
@@ -369,39 +453,57 @@ def research_independent_review(
         from jw.llm import get_chat_model
 
         cfg = get_effective_config()
-        aux_model = cfg.auxiliary_model or cfg.model
-        aux_provider = cfg.auxiliary_provider or cfg.provider
-        reviewer_id = f"{aux_provider}:{aux_model}"
+        review_model = (
+            getattr(cfg, "independent_review_model", "")
+            or cfg.auxiliary_model
+            or cfg.model
+        )
+        review_provider = (
+            getattr(cfg, "independent_review_provider", "")
+            or cfg.auxiliary_provider
+            or cfg.provider
+        )
+        reviewer_id = f"{review_provider}:{review_model}"
         reviewer_attempt_id = (
             f"{reviewer_id}@{INDEPENDENT_REVIEW_TOOL_CONTRACT_VERSION}"
         )
-        if (aux_model, aux_provider) == (cfg.model, cfg.provider) or _model_family(
-            aux_model
-        ) == _model_family(cfg.model):
+        if (review_model, review_provider) == (
+            cfg.model,
+            cfg.provider,
+        ) or _model_family(review_model) == _model_family(cfg.model):
             raise RuntimeError(
-                "no genuinely heterogeneous auxiliary model family is configured"
+                "no genuinely heterogeneous independent-review model family is configured"
             )
-        model = get_chat_model(model=aux_model, provider=aux_provider)
+        model = get_chat_model(model=review_model, provider=review_provider)
         context = _independent_review_context(store, review_mode)
         from jw.middleware.utils import disable_thinking
 
         # DashScope thinking mode only accepts tool_choice=auto/none, while
-        # LangChain structured output forces a specific schema tool.  Keep this
-        # adjudication deterministic and compatible by using a non-thinking
-        # copy for the schema-bound call.
+        # LangChain's function-calling structured output forces a schema tool.
+        # DeepSeek V4 currently exposes JSON-object mode but not JSON Schema.
+        # Keep adjudication deterministic with a provider-compatible structured
+        # method; never fall back to parsing unconstrained prose.
         model = disable_thinking(model)
-        response = model.with_structured_output(_INDEPENDENT_REVIEW_SCHEMA).invoke(
+        structured_kwargs = (
+            {"method": "json_mode"} if review_provider == "deepseek" else {}
+        )
+        response = model.with_structured_output(
+            _INDEPENDENT_REVIEW_SCHEMA, **structured_kwargs
+        ).invoke(
             [
                 {
                     "role": "system",
                     "content": (
                         "You are an independent scientific meta-reviewer using a "
-                        "a genuinely different model family from the primary reviewer. "
+                        "genuinely different model family from the primary reviewer. "
                         "Inspect the hash-bound projection and every included declared "
                         "source. Return pass only when its accepted "
                         "mechanism claims are evidence-bounded, reproducible, and do "
                         "not exceed the stated limitations. Otherwise return fail. "
-                        "Do not edit the artifact and do not output chain-of-thought."
+                        "Do not edit the artifact and do not output chain-of-thought. "
+                        "Return exactly one JSON object with only two fields: decision "
+                        "must be the string pass or fail, and notes must be one string. "
+                        "Do not return arrays, nested objects, markdown, or extra fields."
                     ),
                 },
                 {"role": "user", "content": context},
@@ -437,6 +539,7 @@ RESEARCH_REVIEW_TOOLS = [
     evidence_review_read_source,
     evidence_review_submit_verdict,
     evidence_review_get_status,
+    evidence_review_record_assessment,
 ]
 RESEARCH_RELEASE_TOOLS = [
     research_release_prepare,

@@ -412,6 +412,22 @@ return the usable partial result, unresolved issue, and safe next step. Never
 manufacture a receipt. Pass every user-specified seed, stage limit, attempt
 limit, evidence boundary, and network constraint verbatim to the specialist.
 
+## Fixed Planning Dispatch (stable request, reusable draft)
+The planner request is hashed (`request_sha256`) and the draft archive is keyed
+by that hash. A paraphrased question produces a new hash and throws away the
+persisted draft, so the specialist restarts from zero. To keep the request
+stable and the draft reusable, dispatch `solar-planner` with a FIXED template
+and never paraphrase the research question inside it. Build the task
+description as: one fixed line `Plan the following solar-cycle research
+question verbatim:` followed by the user's question text copied EXACTLY as the
+user wrote it (same characters, same order, no added constraints, no injected
+trap IDs, no re-derived coverage numbers, no `[full_research …]` scaffolding
+rewriting the question). Put run-graph phase/protocol/stop metadata AFTER the
+verbatim question, clearly separated, never inline inside the question text.
+When retrying a failed planning attempt for the same question, reuse the SAME
+verbatim question text so `request_sha256` matches and the specialist resumes
+its persisted draft instead of restarting.
+
 ## Task Granularity
 - One sub-agent task = one topic / one experiment / one artifact bundle.
 - Provide concrete file paths, commands, and success signals in each task so the sub-agent can respond precisely.

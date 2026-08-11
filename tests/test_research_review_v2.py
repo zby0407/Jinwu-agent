@@ -18,7 +18,12 @@ from jw.middleware.research_review_orchestration import (
 )
 from jw.research_review import ResearchReviewStore
 from jw.tools import research_planner as planner_tools
-from jw.tools.research_review import _normalize_issues, research_independent_review
+from jw.tools.research_review import (
+    _normalize_issues,
+    evidence_review_record_assessment,
+    evidence_review_submit_verdict,
+    research_independent_review,
+)
 from jw.tools.solar_feature import _task_chat_session
 from jw.workspaces import ensure_thread_workspace
 from research_review.adapters import adapt_v1_producer_output
@@ -1848,6 +1853,39 @@ def test_orchestration_checkpoints_producer_and_forces_reviewer(
     assert "expected solar-evidence" in str(blocked.content)
 
 
+def test_orchestration_binds_exact_user_question_into_planner_dispatch(
+    tmp_path: Path, monkeypatch
+) -> None:
+    thread_id = "planner-bound-question"
+    config = _config(tmp_path, monkeypatch, thread_id)
+    workspace = Path(ensure_thread_workspace(thread_id, tmp_path).workspace)
+    question = "比较极区场、黑子数和 aa 指数对下一太阳活动周振幅的前兆能力。"
+    (workspace / "task.json").write_text(
+        json.dumps({"research_question": question}, ensure_ascii=False),
+        encoding="utf-8",
+    )
+    request = _Request(
+        {
+            "name": "task",
+            "id": "call-planner",
+            "args": {
+                "subagent_type": "solar-planner",
+                "description": "deterministic ResearchRunStateV2 producer route",
+            },
+        },
+        {"research_route": {"mode": "full_research"}},
+        _Runtime(config),
+    )
+
+    rewritten, action, early = ResearchReviewOrchestrationMiddleware()._prepare(request)
+
+    assert early is None
+    assert action["stage"] == "planning"
+    description = rewritten.tool_call["args"]["description"]
+    assert f'bound_research_question="{question}"' in description
+    assert "Plan this exact task-bound question" in description
+
+
 def test_orchestration_registers_planner_evidence_revision_before_delegation(
     tmp_path: Path, monkeypatch
 ) -> None:
@@ -2654,10 +2692,15 @@ def test_configured_heterogeneous_tool_writes_separate_receipt(
     )
 
     class FakeModel:
-        def with_structured_output(self, _schema):
+        def with_structured_output(self, _schema, **kwargs):
+            assert kwargs == {"method": "json_mode"}
             return self
 
-        def invoke(self, _messages):
+        def invoke(self, messages):
+            prompt = messages[0]["content"]
+            assert "decision must be the string pass or fail" in prompt
+            assert "notes must be one string" in prompt
+            assert "Do not return arrays, nested objects" in prompt
             return {"decision": "pass", "notes": "independent bounded pass"}
 
     monkeypatch.setattr(
@@ -2667,6 +2710,8 @@ def test_configured_heterogeneous_tool_writes_separate_receipt(
             provider="primary-provider",
             auxiliary_model="review-model",
             auxiliary_provider="review-provider",
+            independent_review_model="deepseek-v4-pro",
+            independent_review_provider="deepseek",
         ),
     )
     monkeypatch.setattr("jw.llm.get_chat_model", lambda **_kwargs: FakeModel())
@@ -2674,7 +2719,7 @@ def test_configured_heterogeneous_tool_writes_separate_receipt(
     result = json.loads(research_independent_review.func("integration", config=config))
 
     assert result["ok"] is True
-    assert result["result"]["reviewer_id"] == "review-provider:review-model"
+    assert result["result"]["reviewer_id"] == "deepseek:deepseek-v4-pro"
     assert store.next_action()["kind"] == "review"
 
 
@@ -2715,7 +2760,10 @@ def test_same_qwen_family_cannot_satisfy_heterogeneous_release_gate(
     result = json.loads(research_independent_review.func("hypothesis", config=config))
 
     assert result["ok"] is False
-    assert "no genuinely heterogeneous auxiliary model family" in result["message"]
+    assert (
+        "no genuinely heterogeneous independent-review model family"
+        in result["message"]
+    )
     assert store.bounded_stage_action("hypothesis")["kind"] == "terminal"
     assert store.load_state()["status"] == "human_review"
 
@@ -2759,3 +2807,181 @@ def test_changed_auxiliary_reviewer_configuration_reopens_independent_action(
     reopened = store.bounded_stage_action("hypothesis")
     assert reopened["kind"] == "independent_review"
     assert reopened["artifact_refs"] == refs
+
+
+def test_record_assessment_roundtrip_and_state_isolation(tmp_path: Path) -> None:
+    store = ResearchReviewStore(tmp_path, "assessment-task")
+    artifact = store.checkpoint_producer_result(
+        stage="planning",
+        producer="solar-planner",
+        content="A plan grounded in an inspected source.",
+    )
+    artifact_claim = artifact["claims"][0]
+    claim_id = artifact_claim["claim_id"]
+
+    assessment = store.record_assessment(
+        mode="planning",
+        assessment_review_mode="two_pass",
+        claims=[
+            {
+                "claim_id": claim_id,
+                "kind": artifact_claim["kind"],
+                "disposition": "supported",
+                "supporting_evidence": ["inspected source excerpt"],
+                "opposing_evidence": [],
+                "rationale": "Grounded in the inspected source.",
+                "key_uncertainty": "Single-cycle sample.",
+                "confidence": "medium",
+                "next_test": "Holdout replication on the next cycle.",
+            }
+        ],
+    )
+
+    assert assessment["schema_version"] == "review-assessment-v1"
+    assert assessment["assessment_review_mode"] == "two_pass"
+    assert assessment["round"] == 1
+    assert len(assessment["assessment_sha256"]) == 64
+    assert assessment["artifact_refs"] == [store.artifact_ref(artifact)]
+
+    persisted = (
+        tmp_path
+        / "research_review"
+        / "assessments"
+        / (assessment["assessment_id"] + ".json")
+    )
+    assert persisted.exists()
+
+    rows = store.assessments(mode="planning")
+    assert [row["assessment_id"] for row in rows] == [assessment["assessment_id"]]
+
+    # The sidecar must not touch run_state, the verdict list, or the budget.
+    state = store.load_state()
+    assert state["verdicts"] == []
+    assert state["review_invocations"] == 0
+
+
+def test_evidence_tool_requires_exactly_one_complete_current_assessment(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.setenv("JW_EVIDENCE_REVIEW_MODE", "two_pass")
+    config = _config(tmp_path, monkeypatch, "assessment-tool-task")
+    binding = ensure_thread_workspace("assessment-tool-task", tmp_path)
+    store = ResearchReviewStore(Path(binding.workspace), "assessment-tool-task")
+    artifact = store.checkpoint_producer_result(
+        stage="planning",
+        producer="solar-planner",
+        content="A bounded plan grounded in an inspected source.",
+    )
+    claim = artifact["claims"][0]
+
+    missing = json.loads(
+        evidence_review_submit_verdict.func(
+            review_mode="planning",
+            decision="accept",
+            issues=[],
+            accepted_claims=[claim["claim_id"]],
+            config=config,
+        )
+    )
+    assert missing["ok"] is False
+    assert "exactly one ReviewAssessmentV1" in missing["message"]
+
+    claims = [
+        {
+            "claim_id": claim["claim_id"],
+            "kind": claim["kind"],
+            "disposition": "supported",
+            "supporting_evidence": ["inspected source excerpt"],
+            "opposing_evidence": [],
+            "rationale": "The source supports the bounded wording.",
+            "key_uncertainty": "Only one source was inspected.",
+            "confidence": "medium",
+            "next_test": "Replicate against an independent source.",
+        }
+    ]
+    recorded = json.loads(
+        evidence_review_record_assessment.func(
+            review_mode="planning",
+            assessment_review_mode="two_pass",
+            claims=claims,
+            config=config,
+        )
+    )
+    assert recorded["ok"] is True
+
+    duplicate = json.loads(
+        evidence_review_record_assessment.func(
+            review_mode="planning",
+            assessment_review_mode="two_pass",
+            claims=claims,
+            config=config,
+        )
+    )
+    assert duplicate["ok"] is False
+    assert "already recorded" in duplicate["message"]
+
+    accepted = json.loads(
+        evidence_review_submit_verdict.func(
+            review_mode="planning",
+            decision="accept",
+            issues=[],
+            accepted_claims=[claim["claim_id"]],
+            config=config,
+        )
+    )
+    assert accepted["ok"] is True
+    assert accepted["result"]["decision"] == "accept"
+
+
+def test_record_assessment_requires_every_reviewed_claim(tmp_path: Path) -> None:
+    store = ResearchReviewStore(tmp_path, "assessment-completeness-task")
+    store.checkpoint_producer_result(
+        stage="planning",
+        producer="solar-planner",
+        content="A bounded plan grounded in an inspected source.",
+    )
+
+    with pytest.raises(ValueError, match="omits reviewed claim ids"):
+        store.record_assessment(
+            mode="planning",
+            assessment_review_mode="closed",
+            claims=[],
+        )
+
+
+def test_record_assessment_rejects_unknown_claim(tmp_path: Path) -> None:
+    store = ResearchReviewStore(tmp_path, "assessment-unknown-claim-task")
+    store.checkpoint_producer_result(
+        stage="planning",
+        producer="solar-planner",
+        content="A plan grounded in an inspected source.",
+    )
+
+    with pytest.raises(ValueError, match="unknown claim ids"):
+        store.record_assessment(
+            mode="planning",
+            assessment_review_mode="closed",
+            claims=[
+                {
+                    "claim_id": "no-such-claim",
+                    "kind": "fact",
+                    "disposition": "supported",
+                    "supporting_evidence": [],
+                    "opposing_evidence": [],
+                    "rationale": "none",
+                    "key_uncertainty": "none",
+                    "confidence": "low",
+                    "next_test": "none",
+                }
+            ],
+        )
+
+
+def test_record_assessment_without_artifact_raises(tmp_path: Path) -> None:
+    store = ResearchReviewStore(tmp_path, "assessment-no-artifact-task")
+    with pytest.raises(RuntimeError, match="no planning artifact"):
+        store.record_assessment(
+            mode="planning",
+            assessment_review_mode="closed",
+            claims=[],
+        )

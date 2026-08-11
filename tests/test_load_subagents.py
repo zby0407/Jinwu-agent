@@ -225,3 +225,63 @@ def test_unknown_tool_bundle_fails_loud(tmp_path):
 
     with pytest.raises(ValueError, match=r"unknown tool bundle 'missing-capability'"):
         load_subagents(config_path, tool_registry={}, tool_bundles={})
+
+
+def _evidence_yaml(tmp_path):
+    return _write_yaml(
+        tmp_path,
+        "solar_evidence.yaml",
+        """
+        solar-evidence:
+          description: "reviewer"
+          tool_bundles: [reasoning]
+          system_prompt: |
+            Base closed-pass contract.
+        """,
+    )
+
+
+def test_solar_evidence_two_pass_adds_falsification_and_web_search(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setenv("JW_EVIDENCE_REVIEW_MODE", "two_pass")
+    reasoning = type("T", (), {"name": "think_tool"})()
+    web = type("T", (), {"name": "tavily_search"})()
+    subs = load_subagents(
+        _evidence_yaml(tmp_path),
+        tool_registry={},
+        tool_bundles={"reasoning": [reasoning], "web-search": [web]},
+    )
+    ev = subs[0]
+    assert "active-falsification" in ev["system_prompt"]
+    assert "assessment_review_mode=two_pass" in ev["system_prompt"]
+    assert "tavily_search" in {t.name for t in ev["tools"]}
+
+
+def test_solar_evidence_closed_omits_falsification_and_web_search(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setenv("JW_EVIDENCE_REVIEW_MODE", "closed")
+    reasoning = type("T", (), {"name": "think_tool"})()
+    web = type("T", (), {"name": "tavily_search"})()
+    subs = load_subagents(
+        _evidence_yaml(tmp_path),
+        tool_registry={},
+        tool_bundles={"reasoning": [reasoning], "web-search": [web]},
+    )
+    ev = subs[0]
+    assert "active-falsification" not in ev["system_prompt"]
+    assert "assessment_review_mode=closed" in ev["system_prompt"]
+    assert "tavily_search" not in {t.name for t in ev["tools"]}
+
+
+def test_solar_evidence_defaults_to_two_pass(tmp_path, monkeypatch):
+    monkeypatch.delenv("JW_EVIDENCE_REVIEW_MODE", raising=False)
+    reasoning = type("T", (), {"name": "think_tool"})()
+    web = type("T", (), {"name": "tavily_search"})()
+    subs = load_subagents(
+        _evidence_yaml(tmp_path),
+        tool_registry={},
+        tool_bundles={"reasoning": [reasoning], "web-search": [web]},
+    )
+    assert "active-falsification" in subs[0]["system_prompt"]

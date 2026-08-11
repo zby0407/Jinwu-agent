@@ -182,7 +182,7 @@ export async function GET(request: NextRequest) {
       if (
         !verdict ||
         safeString(verdict.task_id) !== taskId ||
-        verdict.policy_version !== "evidence-policy-v2.5"
+        !safeString(verdict.policy_version).startsWith("evidence-policy-v")
       )
         continue;
       const mode = safeString(verdict.review_mode);

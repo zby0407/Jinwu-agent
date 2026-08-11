@@ -113,6 +113,13 @@ _PLANNER_DETERMINISTIC_ACTION_TO_TOOL = {
     "validate_draft": "research_planner_validate_draft",
     "freeze_plan": "research_planner_freeze_plan",
 }
+# ``commit_revision_candidate`` carries no scientific arguments either, but the
+# Supervisor orchestration middleware cannot intercept planner sub-agent tool
+# calls, so the no-deliberation in-process path is unavailable. Forcing it via
+# an object ``tool_choice`` is rejected by DashScope even with thinking
+# disabled, so this middleware synthesizes the tool call locally instead of
+# spending a remote call that always 400s.
+_PLANNER_LOCAL_COMMIT_TOOL = "research_planner_commit_revision_candidate"
 _SOLAR_PRECURSOR_DATASET_IDS = frozenset(
     {"silso-monthly-total-v2", "mwo-wso-polar-field-v2"}
 )
@@ -1061,12 +1068,64 @@ class QwenToolCompatibilityMiddleware(AgentMiddleware):
             structured_response=response.structured_response,
         )
 
+    def _synthesize_planner_commit_response(
+        self,
+        request: ModelRequest,
+        prepared: ModelRequest,
+    ) -> ModelResponse | None:
+        """Short-circuit the forced ``commit_revision_candidate`` remote call.
+
+        Returns ``None`` unless the deterministic planner resolution pinned the
+        commit tool. Otherwise emits a synthetic :class:`ModelResponse` whose
+        AIMessage carries the commit tool_call; the graph's tool node executes
+        ``research_planner_commit_revision_candidate`` in-process with config,
+        mirroring the no-remote-call guarantee of the validate/freeze path.
+        """
+
+        if not self._active_model_is_qwen():
+            return None
+        system = str(getattr(prepared.system_message, "content", ""))
+        if "[RESEARCH_PRODUCER_V2]" not in system or "stage=planning" not in system:
+            return None
+        forced = getattr(prepared, "tool_choice", None)
+        if not isinstance(forced, Mapping):
+            return None
+        function = forced.get("function")
+        if not isinstance(function, Mapping):
+            return None
+        if function.get("name") != _PLANNER_LOCAL_COMMIT_TOOL:
+            return None
+        if not any(
+            _tool_name(tool) == _PLANNER_LOCAL_COMMIT_TOOL
+            for tool in list(prepared.tools)
+        ):
+            return None
+        _logger.info(
+            "[jw.middleware.qwen_compat] synthesizing local planner commit "
+            "tool_call (no remote call); deterministic no-deliberation edge"
+        )
+        tool_call = {
+            "name": _PLANNER_LOCAL_COMMIT_TOOL,
+            "args": {"request_sha256": ""},
+            "id": "local_commit_revision_candidate",
+            "type": "tool_call",
+        }
+        message = AIMessage(
+            content="",
+            tool_calls=[tool_call],
+            response_metadata={"finish_reason": "tool_calls"},
+        )
+        return ModelResponse(result=[message])
+
     def wrap_model_call(
         self,
         request: ModelRequest,
         handler: Callable[[ModelRequest], ModelResponse],
     ) -> ModelResponse:
         prepared = self._prepare_request(request)
+        local_commit = self._synthesize_planner_commit_response(request, prepared)
+        if local_commit is not None:
+            return local_commit
         response = handler(prepared)
         if not self._active_model_is_qwen():
             return response
@@ -1102,6 +1161,21 @@ class QwenToolCompatibilityMiddleware(AgentMiddleware):
         handler: Callable[[ModelRequest], Awaitable[ModelResponse]],
     ) -> ModelResponse:
         prepared = self._prepare_request(request)
+        _logger.info(
+            "[jw.middleware.qwen_compat] model call: model=%s stage_planning=%s "
+            "producer_v2=%s active_qwen=%s",
+            str(
+                getattr(request.model, "model_name", None)
+                or getattr(request.model, "model", "")
+            ),
+            "stage=planning" in str(getattr(prepared.system_message, "content", "")),
+            "[RESEARCH_PRODUCER_V2]"
+            in str(getattr(prepared.system_message, "content", "")),
+            self._active_model_is_qwen(),
+        )
+        local_commit = self._synthesize_planner_commit_response(request, prepared)
+        if local_commit is not None:
+            return local_commit
         response = await handler(prepared)
         if not self._active_model_is_qwen():
             return response

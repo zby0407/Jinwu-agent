@@ -1,0 +1,30 @@
+{
+  "schema_version": "research-review-visible-suite-v2",
+  "suite_id": "evidence-focused-probes-v2",
+  "visibility": "checked_in_visible",
+  "cases": [
+    {
+      "id": "FR-H09",
+      "prompt": "请准备数据核查摘要：读取当前已注册的 Data 产物，核查报告中零结果与低统计功效的解释，判断其支持程度与主要不确定性。仅处理既有 Data 产物，不启动完整研究。",
+      "input_files": ["fr_h_artifacts/FR-H09_report.md"],
+      "review_mode": "two_pass",
+      "reviewer_model": {"provider": "kimi-coding", "model": "kimi-k3"},
+      "expected_outcome": "null_result_with_uncertainty",
+      "repetitions": 1,
+      "probe_artifact_stage": "data"
+    },
+    {
+      "id": "FR-H10",
+      "prompt": "请准备数据核查摘要：读取当前已注册的 Data 产物，判断三个独立太阳周期与大量月度行是否足以支持稳定的普适预测关系，并记录主要不确定性。仅处理既有 Data 产物，不启动完整研究。",
+      "input_files": [
+        "fr_h_artifacts/FR-H10_report.md",
+        "fr_h_artifacts/FR-H10_wso_polar_field_monthly.csv"
+      ],
+      "review_mode": "two_pass",
+      "reviewer_model": {"provider": "kimi-coding", "model": "kimi-k3"},
+      "expected_outcome": "insufficient_evidence",
+      "repetitions": 1,
+      "probe_artifact_stage": "data"
+    }
+  ]
+}

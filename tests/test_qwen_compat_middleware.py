@@ -417,9 +417,14 @@ def test_planner_turn_disables_parallel_tools_and_serializes_provider_violation(
         ),
     ],
 )
-def test_planner_deterministic_checkpoint_disables_thinking_and_forces_tool(
+def test_planner_deterministic_checkpoint_synthesizes_local_commit(
     receipt_tool, next_action, expected_tool
 ):
+    """commit carries no scientific arguments and the forced object
+    ``tool_choice`` is always rejected by DashScope. The middleware synthesizes
+    the tool call locally instead of spending a remote call that 400s, so the
+    handler is never invoked and the returned AIMessage carries the commit
+    tool_call for the graph's tool node to execute in-process."""
     tools = [
         {"name": "research_planner_get_brief"},
         {"name": "research_planner_commit_revision_candidate"},
@@ -446,19 +451,14 @@ def test_planner_deterministic_checkpoint_disables_thinking_and_forces_tool(
         "jw.middleware.qwen_compat._read_model_override",
         return_value=(None, None),
     ):
-        assert (
-            QwenToolCompatibilityMiddleware(
-                default_model="qwen3.7-plus"
-            ).wrap_model_call(request, handler)
-            == "ok"
-        )
+        response = QwenToolCompatibilityMiddleware(
+            default_model="qwen3.7-plus"
+        ).wrap_model_call(request, handler)
 
-    prepared = handler.call_args.args[0]
-    assert prepared.tool_choice == {
-        "type": "function",
-        "function": {"name": expected_tool},
-    }
-    assert prepared.model.extra_body["enable_thinking"] is False
+    handler.assert_not_called()
+    [message] = response.result
+    assert [call["name"] for call in message.tool_calls] == [expected_tool]
+    assert message.tool_calls[0]["args"] == {"request_sha256": ""}
 
 
 @pytest.mark.parametrize(
@@ -514,9 +514,10 @@ def test_planner_no_deliberation_transition_is_not_forced_remotely(
 def test_forced_tool_choice_strips_all_reasoning_content_from_history():
     """A forced ``tool_choice`` transition must not replay ANY reasoning
     channel, including the newest tool-call round that
-    ``_bound_reasoning_history`` would otherwise keep."""
+    ``_bound_reasoning_history`` would otherwise keep. Uses a tool outside the
+    planner deterministic map so the request still reaches the remote model."""
     middleware = QwenToolCompatibilityMiddleware(default_model="qwen3.7-plus")
-    tools = [{"name": "research_planner_commit_revision_candidate"}]
+    tools = [{"name": "research_planner_get_brief"}]
     request = _request(
         *tools,
         messages=[
@@ -534,16 +535,14 @@ def test_forced_tool_choice_strips_all_reasoning_content_from_history():
                 additional_kwargs={"reasoning_content": "old draft plan"},
             ),
             ToolMessage(
-                content=json.dumps(
-                    {"draft_checkpoint": {"next_action": "commit_revision_candidate"}}
-                ),
+                content=json.dumps({"draft_checkpoint": {"next_action": "draft"}}),
                 tool_call_id="call-1",
                 name="research_planner_get_brief",
             ),
         ],
         tool_choice={
             "type": "function",
-            "function": {"name": "research_planner_commit_revision_candidate"},
+            "function": {"name": "research_planner_get_brief"},
         },
     )
     request.system_message = SystemMessage(

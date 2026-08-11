@@ -33,10 +33,15 @@ from jw.workspaces import (  # noqa: E402
     workspace_root_from_config,
 )
 from research_review.adapters import adapt_v1_producer_output  # noqa: E402
+from research_review.assessment import (  # noqa: E402
+    build_review_assessment,
+    validate_review_assessment,
+)
 from research_review.contracts import (  # noqa: E402
     CLAIM_VERSION,
     POLICY_VERSION,
     RUN_STATE_VERSION,
+    ContractError,
     build_research_artifact,
     build_review_verdict,
     build_revision_capsule,
@@ -2338,9 +2343,19 @@ class ResearchReviewStore:
             from jw.config import get_effective_config
 
             cfg = get_effective_config()
+            review_provider = (
+                getattr(cfg, "independent_review_provider", "")
+                or cfg.auxiliary_provider
+                or cfg.provider
+            )
+            review_model = (
+                getattr(cfg, "independent_review_model", "")
+                or cfg.auxiliary_model
+                or cfg.model
+            )
             current = (
-                f"{cfg.auxiliary_provider or cfg.provider}:"
-                f"{cfg.auxiliary_model or cfg.model}@"
+                f"{review_provider}:"
+                f"{review_model}@"
                 f"{INDEPENDENT_REVIEW_TOOL_CONTRACT_VERSION}"
             )
         except Exception:
@@ -2762,6 +2777,93 @@ class ResearchReviewStore:
         if verdict is None:
             raise ValueError("review_id does not identify a persisted verdict")
         return build_revision_capsule(prior_verdict=verdict, owner=owner)
+
+    def assessments(self, *, mode: str | None = None) -> list[dict[str, Any]]:
+        """Read every persisted ReviewAssessmentV1 sidecar, newest round last."""
+
+        directory = self.root / "assessments"
+        rows: list[dict[str, Any]] = []
+        for path in sorted(directory.glob("*.json")):
+            payload = _read_json(path)
+            if payload is None:
+                continue
+            try:
+                row = validate_review_assessment(payload)
+            except ContractError:
+                continue
+            if mode is None or row["review_mode"] == mode:
+                rows.append(row)
+        rows.sort(key=lambda row: (row["round"], row["assessment_id"]))
+        return rows
+
+    def record_assessment(
+        self,
+        *,
+        mode: str,
+        assessment_review_mode: str,
+        claims: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        """Persist one ReviewAssessmentV1 sidecar for the current review round.
+
+        The assessment is additive: it binds the exact artifact refs the verdict
+        for this round reviews, but it never enters run_state, never feeds the
+        verdict validator, and never drives no-progress or severity machinery.
+        """
+
+        with self._transaction():
+            targets = self.review_targets(mode)
+            refs = [self.artifact_ref(item) for item in targets]
+            target_claims = {
+                claim["claim_id"] for item in targets for claim in item["claims"]
+            }
+            target_claim_kinds = {
+                claim["claim_id"]: claim["kind"]
+                for item in targets
+                for claim in item["claims"]
+            }
+            referenced = {claim["claim_id"] for claim in claims}
+            unknown = referenced - target_claims
+            if unknown:
+                raise ValueError(
+                    "assessment references unknown claim ids: "
+                    + ", ".join(sorted(unknown))
+                )
+            missing = target_claims - referenced
+            if missing:
+                raise ValueError(
+                    "assessment omits reviewed claim ids: " + ", ".join(sorted(missing))
+                )
+            mismatched_kinds = sorted(
+                claim["claim_id"]
+                for claim in claims
+                if target_claim_kinds.get(claim["claim_id"]) != claim.get("kind")
+            )
+            if mismatched_kinds:
+                raise ValueError(
+                    "assessment claim kind does not match the reviewed artifact: "
+                    + ", ".join(mismatched_kinds)
+                )
+            existing = self.verdicts(mode=mode)
+            round_number = len(existing) + 1
+            assessment_id = f"{mode}-assessment-{round_number:04d}"
+            assessment_path = self.root / "assessments" / f"{assessment_id}.json"
+            if assessment_path.exists():
+                raise ValueError(
+                    f"assessment already recorded for {mode} round {round_number}"
+                )
+            assessment = build_review_assessment(
+                assessment_id=assessment_id,
+                task_id=self.task_id,
+                review_mode=mode,
+                assessment_review_mode=assessment_review_mode,
+                artifact_refs=refs,
+                policy_version=POLICY_VERSION,
+                round=round_number,
+                claims=claims,
+                created_at=_now(),
+            )
+            _atomic_write_json(assessment_path, assessment)
+            return assessment
 
     def prepare_release(
         self,
