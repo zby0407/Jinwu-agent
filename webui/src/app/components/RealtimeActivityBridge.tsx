@@ -10,6 +10,7 @@ import type {
   RealtimeActivityState,
 } from "@/providers/RealtimeActivityProvider";
 import type { TodoItem } from "@/app/types/types";
+import { setResearchRunActive } from "@/lib/researchRunStatus";
 
 function getLatestToolCalls(
   messages: Message[],
@@ -122,6 +123,11 @@ export function RealtimeActivityBridge() {
   const hasInterrupt = !!interrupt;
   const interruptType = (interrupt?.value as { type?: string } | undefined)
     ?.type;
+
+  useEffect(() => {
+    setResearchRunActive(isLoading);
+    return () => setResearchRunActive(false);
+  }, [isLoading]);
 
   useEffect(() => {
     const next: RealtimeActivityState = {
