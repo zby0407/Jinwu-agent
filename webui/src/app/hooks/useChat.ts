@@ -29,7 +29,6 @@ import {
   type ModelOverride,
 } from "@/lib/modelCommand";
 import { setThreadModelOverride } from "@/app/hooks/useThreads";
-import { mergeCheckpointHistory } from "@/lib/researchLineage";
 
 export type StateType = {
   messages: Message[];
@@ -59,31 +58,6 @@ const EMPTY_TODOS: TodoItem[] = [];
 const EMPTY_FILES: Record<string, string> = {};
 const EMPTY_ASYNC_TASKS: Record<string, unknown> = {};
 const BRANCH_HISTORY_LIMIT = 10;
-const OLDER_BRANCH_HISTORY_LIMIT = 2;
-const OLDER_BRANCH_HISTORY_TIMEOUT_MS = 20_000;
-
-type ProgressiveThreadHistory = UseStreamThread<StateType> & {
-  loadOlderBranchHistory: () => Promise<void>;
-  isOlderBranchHistoryLoading: boolean;
-  hasMoreBranchHistory: boolean;
-  isBranchHistoryExhausted: boolean;
-};
-
-async function withBranchHistoryTimeout<T>(request: Promise<T>): Promise<T> {
-  let timeoutId: ReturnType<typeof setTimeout> | undefined;
-  try {
-    return await Promise.race([
-      request,
-      new Promise<never>((_, reject) => {
-        timeoutId = setTimeout(() => {
-          reject(new Error("加载更早路线超时，请稍后重试。"));
-        }, OLDER_BRANCH_HISTORY_TIMEOUT_MS);
-      }),
-    ]);
-  } finally {
-    if (timeoutId !== undefined) clearTimeout(timeoutId);
-  }
-}
 
 /**
  * Keep only state channels the WebUI reads.
@@ -176,27 +150,12 @@ function useProgressiveThreadHistory(
   threadId: string | null,
   enabled: boolean,
   initialRecord: Thread<StateType> | null
-): ProgressiveThreadHistory {
+): UseStreamThread<StateType> {
   const [data, setData] = useState<UseStreamThread<StateType>["data"]>();
   const [error, setError] = useState<unknown>();
   const [isLoading, setIsLoading] = useState(false);
-  const [isOlderBranchHistoryLoading, setIsOlderBranchHistoryLoading] =
-    useState(false);
-  const [hasMoreBranchHistory, setHasMoreBranchHistory] = useState(false);
-  const [isBranchHistoryExhausted, setIsBranchHistoryExhausted] =
-    useState(false);
   const requestIdRef = useRef(0);
-  const olderRequestInFlightRef = useRef<string | null>(null);
   const dataThreadIdRef = useRef<string | null>(null);
-  const dataRef = useRef<UseStreamThread<StateType>["data"]>(undefined);
-
-  const publishData = useCallback(
-    (next: UseStreamThread<StateType>["data"]) => {
-      dataRef.current = next;
-      setData(next);
-    },
-    []
-  );
 
   const mutate = useCallback(
     async (mutateId?: string) => {
@@ -205,23 +164,15 @@ function useProgressiveThreadHistory(
 
       if (!enabled || !targetThreadId) {
         dataThreadIdRef.current = null;
-        publishData(undefined);
+        setData(undefined);
         setError(undefined);
         setIsLoading(false);
-        setIsOlderBranchHistoryLoading(false);
-        setHasMoreBranchHistory(false);
-        setIsBranchHistoryExhausted(false);
-        olderRequestInFlightRef.current = null;
         return [];
       }
 
       if (dataThreadIdRef.current !== targetThreadId) {
         dataThreadIdRef.current = targetThreadId;
-        publishData(undefined);
-        setHasMoreBranchHistory(false);
-        setIsBranchHistoryExhausted(false);
-        setIsOlderBranchHistoryLoading(false);
-        olderRequestInFlightRef.current = null;
+        setData(undefined);
       }
       setError(undefined);
       setIsLoading(true);
@@ -232,7 +183,7 @@ function useProgressiveThreadHistory(
           // Publishing them here avoids a second, slower checkpoint read before
           // the transcript becomes visible. Keep this inside the guarded block
           // so even a malformed shell can never strand the loading flag.
-          publishData([threadRecordSnapshot(initialRecord)]);
+          setData([threadRecordSnapshot(initialRecord)]);
         }
 
         const latest = projectThreadState(
@@ -244,7 +195,7 @@ function useProgressiveThreadHistory(
         // A non-null history makes useStream.isThreadLoading false even while
         // the branch history continues loading, so the current conversation is
         // usable as soon as this single checkpoint arrives.
-        publishData(latestHistory);
+        setData(latestHistory);
 
         try {
           const history = (
@@ -253,10 +204,7 @@ function useProgressiveThreadHistory(
             })
           ).map(projectThreadState);
           if (requestIdRef.current === requestId) {
-            publishData(history);
-            const hasMore = history.length === BRANCH_HISTORY_LIMIT;
-            setHasMoreBranchHistory(hasMore);
-            setIsBranchHistoryExhausted(!hasMore);
+            setData(history);
             setIsLoading(false);
           }
           return history;
@@ -266,7 +214,6 @@ function useProgressiveThreadHistory(
           // behind the loading screen.
           if (requestIdRef.current === requestId) {
             setIsLoading(false);
-            setHasMoreBranchHistory(false);
             console.warn(
               "Couldn't load the full checkpoint history; showing the latest state.",
               historyError
@@ -282,86 +229,13 @@ function useProgressiveThreadHistory(
         throw latestError;
       }
     },
-    [client, enabled, initialRecord, publishData, threadId]
+    [client, enabled, initialRecord, threadId]
   );
-
-  const loadOlderBranchHistory = useCallback(async () => {
-    const targetThreadId = threadId;
-    if (
-      !enabled ||
-      !targetThreadId ||
-      !hasMoreBranchHistory ||
-      olderRequestInFlightRef.current !== null ||
-      dataThreadIdRef.current !== targetThreadId
-    ) {
-      return;
-    }
-    const current = dataRef.current ?? [];
-    const oldest = current.at(-1);
-    const checkpoint = oldest?.checkpoint;
-    if (!checkpoint?.checkpoint_id) {
-      setHasMoreBranchHistory(false);
-      setIsBranchHistoryExhausted(true);
-      return;
-    }
-
-    const requestId = requestIdRef.current;
-    const olderRequestKey = `${targetThreadId}:${requestId}`;
-    olderRequestInFlightRef.current = olderRequestKey;
-    setIsOlderBranchHistoryLoading(true);
-    try {
-      const page = (
-        await withBranchHistoryTimeout(
-          client.threads.getHistory<StateType>(targetThreadId, {
-            limit: OLDER_BRANCH_HISTORY_LIMIT,
-            before: {
-              configurable: {
-                thread_id: targetThreadId,
-                checkpoint_ns: checkpoint.checkpoint_ns,
-                checkpoint_id: checkpoint.checkpoint_id,
-                ...(checkpoint.checkpoint_map
-                  ? { checkpoint_map: checkpoint.checkpoint_map }
-                  : {}),
-              },
-            },
-          })
-        )
-      ).map(projectThreadState);
-      if (
-        requestIdRef.current !== requestId ||
-        dataThreadIdRef.current !== targetThreadId
-      ) {
-        return;
-      }
-
-      const existing = dataRef.current ?? [];
-      const { merged, added } = mergeCheckpointHistory(
-        existing,
-        page,
-        (state) => state.checkpoint?.checkpoint_id
-      );
-      publishData(merged);
-      const hasMore = page.length === OLDER_BRANCH_HISTORY_LIMIT && added > 0;
-      setHasMoreBranchHistory(hasMore);
-      setIsBranchHistoryExhausted(!hasMore);
-    } finally {
-      if (
-        requestIdRef.current === requestId &&
-        dataThreadIdRef.current === targetThreadId
-      ) {
-        setIsOlderBranchHistoryLoading(false);
-      }
-      if (olderRequestInFlightRef.current === olderRequestKey) {
-        olderRequestInFlightRef.current = null;
-      }
-    }
-  }, [client, enabled, hasMoreBranchHistory, publishData, threadId]);
 
   useEffect(() => {
     void mutate().catch(() => undefined);
     return () => {
       requestIdRef.current += 1;
-      olderRequestInFlightRef.current = null;
     };
   }, [mutate]);
 
@@ -372,10 +246,6 @@ function useProgressiveThreadHistory(
       isLoading ||
       Boolean(enabled && threadId && dataThreadIdRef.current !== threadId),
     mutate,
-    loadOlderBranchHistory,
-    isOlderBranchHistoryLoading,
-    hasMoreBranchHistory,
-    isBranchHistoryExhausted,
   };
 }
 
@@ -1599,10 +1469,6 @@ export function useChat({
     stopStream,
     resumeInterrupt,
     subAgentActivity,
-    loadOlderBranchHistory: progressiveThread.loadOlderBranchHistory,
-    isOlderBranchHistoryLoading: progressiveThread.isOlderBranchHistoryLoading,
-    hasMoreBranchHistory: progressiveThread.hasMoreBranchHistory,
-    isBranchHistoryExhausted: progressiveThread.isBranchHistoryExhausted,
     modelOverride,
     setModelOverride,
   };

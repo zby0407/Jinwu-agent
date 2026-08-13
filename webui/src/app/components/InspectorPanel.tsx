@@ -1,12 +1,11 @@
 "use client";
 
-import { FolderOpen, Bot, GitFork, Zap } from "lucide-react";
+import { FolderOpen, Bot, Zap } from "lucide-react";
 import { useQueryState } from "nuqs";
 import { cn } from "@/lib/utils";
 import { WorkspacePanel } from "@/app/components/WorkspacePanel";
 import { AgentsPanel } from "@/app/components/AgentsPanel";
 import { RealtimeActivityPanel } from "@/app/components/RealtimeActivityPanel";
-import { ResearchLineagePanel } from "@/app/components/ResearchLineagePanel";
 import type { MainChatReporter } from "@/lib/asyncAgents";
 
 interface InspectorPanelProps {
@@ -15,7 +14,7 @@ interface InspectorPanelProps {
   onReportToMainChat?: MainChatReporter | null;
 }
 
-type InspectorTab = "workspace" | "agents" | "activity" | "lineage";
+type InspectorTab = "workspace" | "agents" | "activity";
 
 /**
  * Dockable right-hand inspector with tabs:
@@ -26,15 +25,15 @@ type InspectorTab = "workspace" | "agents" | "activity" | "lineage";
  * The active tab is mirrored to the `inspectorTab` URL param so the composer's
  * "agents running" indicator can deep-link straight to the Agents tab.
  */
-export function InspectorPanel({ onReportToMainChat }: InspectorPanelProps) {
+export function InspectorPanel({
+  onReportToMainChat,
+}: InspectorPanelProps) {
   const [tabParam, setTab] = useQueryState("inspectorTab");
   const tab: InspectorTab =
     tabParam === "workspace"
       ? "workspace"
       : tabParam === "agents"
       ? "agents"
-      : tabParam === "lineage"
-      ? "lineage"
       : "activity";
 
   return (
@@ -43,7 +42,7 @@ export function InspectorPanel({ onReportToMainChat }: InspectorPanelProps) {
         <div
           role="tablist"
           aria-label="研究工作区"
-          className="flex min-w-0 items-center gap-1 overflow-x-auto"
+          className="flex items-center gap-1"
         >
           <button
             type="button"
@@ -62,24 +61,6 @@ export function InspectorPanel({ onReportToMainChat }: InspectorPanelProps) {
               aria-hidden="true"
             />
             活动
-          </button>
-          <button
-            type="button"
-            role="tab"
-            aria-selected={tab === "lineage"}
-            onClick={() => setTab("lineage")}
-            className={cn(
-              "flex items-center gap-1.5 rounded-md px-2 py-1 text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-              tab === "lineage"
-                ? "bg-accent text-foreground"
-                : "text-muted-foreground hover:text-foreground"
-            )}
-          >
-            <GitFork
-              className="size-4 text-[var(--brand)]"
-              aria-hidden="true"
-            />
-            科研脉络
           </button>
           <button
             type="button"
@@ -122,10 +103,6 @@ export function InspectorPanel({ onReportToMainChat }: InspectorPanelProps) {
       {tab === "agents" ? (
         <div className="min-h-0 flex-1 overflow-hidden p-3">
           <AgentsPanel onReportToMainChat={onReportToMainChat} />
-        </div>
-      ) : tab === "lineage" ? (
-        <div className="min-h-0 flex-1 overflow-hidden">
-          <ResearchLineagePanel />
         </div>
       ) : tab === "workspace" ? (
         <div className="min-h-0 flex-1 overflow-y-auto p-3">

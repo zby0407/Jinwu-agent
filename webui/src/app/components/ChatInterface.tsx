@@ -95,10 +95,6 @@ import { WorkspaceFileDialog } from "@/app/components/WorkspaceFileDialog";
 import { MemoryFileDialog } from "@/app/components/MemoryFileDialog";
 import { FILE_LINK_EVENT, type FileLinkEventDetail } from "@/lib/fileLink";
 import {
-  RESEARCH_MESSAGE_NAVIGATE_EVENT,
-  type ResearchMessageNavigateDetail,
-} from "@/lib/researchNavigation";
-import {
   COMMON_MODELS,
   parseModelCommand,
   type ModelOverride,
@@ -447,55 +443,6 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
       modelOverride,
       setModelOverride,
     } = useChatContext();
-    const [pendingResearchFocus, setPendingResearchFocus] = useState<
-      string | null
-    >(null);
-    const [focusedResearchMessage, setFocusedResearchMessage] = useState<
-      string | null
-    >(null);
-
-    useEffect(() => {
-      const onNavigate = (event: Event) => {
-        const detail = (event as CustomEvent<ResearchMessageNavigateDetail>)
-          .detail;
-        if (!detail?.messageId) return;
-        if (detail.branch !== undefined) selectBranch(detail.branch);
-        setPendingResearchFocus(detail.messageId);
-      };
-      window.addEventListener(RESEARCH_MESSAGE_NAVIGATE_EVENT, onNavigate);
-      return () =>
-        window.removeEventListener(RESEARCH_MESSAGE_NAVIGATE_EVENT, onNavigate);
-    }, [selectBranch]);
-
-    useEffect(() => {
-      if (!pendingResearchFocus) return;
-      let cancelled = false;
-      let timer: ReturnType<typeof setTimeout> | undefined;
-      let attempts = 0;
-      const locate = () => {
-        if (cancelled) return;
-        const escaped = CSS.escape(pendingResearchFocus);
-        const target = document.querySelector<HTMLElement>(
-          `[data-chat-message-id="${escaped}"]`
-        );
-        if (target) {
-          target.scrollIntoView({ behavior: "smooth", block: "center" });
-          setFocusedResearchMessage(pendingResearchFocus);
-          setPendingResearchFocus(null);
-          timer = setTimeout(() => setFocusedResearchMessage(null), 2200);
-          return;
-        }
-        attempts += 1;
-        if (attempts < 20) timer = setTimeout(locate, 100);
-        else setPendingResearchFocus(null);
-      };
-      timer = setTimeout(locate, 0);
-      return () => {
-        cancelled = true;
-        if (timer) clearTimeout(timer);
-      };
-    }, [messages, pendingResearchFocus]);
-
     const confirmRegenerate = useCallback(() => {
       if (!regenerateMessageId) return;
       const messageId = regenerateMessageId;
@@ -1929,29 +1876,11 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
                     const isLastGroup = index === renderedItems.length - 1;
                     const groupIsStreaming =
                       isLoading && isLastGroup && groupLastId === lastMessageId;
-                    const groupMessageIds = item.items
-                      .map((entry) => entry.message.id)
-                      .filter((id): id is string => Boolean(id));
-                    const groupFocused = groupMessageIds.some(
-                      (id) => id === focusedResearchMessage
-                    );
                     return (
                       <div
                         key={`action-group-${item.items[0].message.id}`}
-                        data-chat-message-id={groupMessageIds[0]}
-                        className={cn(
-                          "relative rounded-lg transition-[background-color,box-shadow] duration-300",
-                          groupFocused &&
-                            "bg-[var(--brand)]/10 ring-[var(--brand)]/60 ring-1"
-                        )}
+                        className="relative"
                       >
-                        {groupMessageIds.slice(1).map((id) => (
-                          <span
-                            key={id}
-                            data-chat-message-id={id}
-                            className="sr-only"
-                          />
-                        ))}
                         <ActionGroup
                           items={item.items}
                           isStreaming={groupIsStreaming}
@@ -1988,12 +1917,6 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
                   return (
                     <div
                       key={data.message.id}
-                      data-chat-message-id={data.message.id}
-                      className={cn(
-                        "rounded-lg transition-[background-color,box-shadow] duration-300",
-                        focusedResearchMessage === data.message.id &&
-                          "bg-[var(--brand)]/10 ring-[var(--brand)]/60 ring-1"
-                      )}
                     >
                       {showCompactionBefore && summarizationEvent && (
                         <CompactionSummary

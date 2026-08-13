@@ -8,7 +8,12 @@ import { ConfigDialog } from "@/app/components/ConfigDialog";
 import { Button } from "@/components/ui/button";
 import { Assistant } from "@langchain/langgraph-sdk";
 import { ClientProvider, useClient } from "@/providers/ClientProvider";
-import { Blocks, BrainCircuit, Orbit, Settings } from "lucide-react";
+import {
+  Blocks,
+  BrainCircuit,
+  Orbit,
+  Settings,
+} from "lucide-react";
 import {
   ResizableHandle,
   ResizablePanel,
@@ -88,7 +93,7 @@ function HomePageInner({
       const found =
         assistants.find((a) => a.metadata?.["created_by"] === "system") ??
         assistants[0];
-      if (!found) throw new Error("未找到此图对应的助手。");
+      if (!found) throw new Error("未找到此图对应的助手。" );
       return found;
     };
 
@@ -272,7 +277,7 @@ function HomePageInner({
               alt="金乌"
               width={30}
               height={30}
-              className="ring-[var(--brand)]/70 size-7 shrink-0 rounded-full object-cover ring-1 sm:size-[30px]"
+              className="size-7 shrink-0 rounded-full object-cover ring-1 ring-[var(--brand)]/70 sm:size-[30px]"
               priority
             />
             <h1 className="hidden sm:block">
@@ -289,10 +294,7 @@ function HomePageInner({
             </h1>
           </div>
 
-          <nav
-            className="jw-primary-nav"
-            aria-label="一级导航"
-          >
+          <nav className="jw-primary-nav" aria-label="一级导航">
             <button
               type="button"
               onClick={showResearch}
@@ -302,10 +304,7 @@ function HomePageInner({
               title="科学研究"
               className="jw-primary-nav-button"
             >
-              <Orbit
-                className="size-4"
-                aria-hidden="true"
-              />
+              <Orbit className="size-4" aria-hidden="true" />
               <span className="hidden sm:inline">科学研究</span>
             </button>
             <button
@@ -317,10 +316,7 @@ function HomePageInner({
               title="Skills 列表"
               className="jw-primary-nav-button"
             >
-              <Blocks
-                className="size-4"
-                aria-hidden="true"
-              />
+              <Blocks className="size-4" aria-hidden="true" />
               <span className="hidden sm:inline">Skills 列表</span>
             </button>
             <button
@@ -332,10 +328,7 @@ function HomePageInner({
               title="金乌记忆"
               className="jw-primary-nav-button relative"
             >
-              <BrainCircuit
-                className="size-4"
-                aria-hidden="true"
-              />
+              <BrainCircuit className="size-4" aria-hidden="true" />
               <span className="hidden sm:inline">金乌记忆</span>
               {view !== "memory" && memoryUnseen > 0 && (
                 <span
@@ -385,147 +378,149 @@ function HomePageInner({
               className="skills-workspace-background pointer-events-none absolute inset-0 z-0"
             />
           )}
-          <ChatProvider
-            key={chatSessionRevision}
-            activeAssistant={assistant}
-            onHistoryRevalidate={() => mutateThreads?.()}
-          >
-            {isResearchSection && !sidebar && (
-              <PanelEdgeToggle
-                side="left"
-                open={false}
-                onClick={toggleSidebar}
-                label="展开研究导航"
-                badge={interruptCount}
-                className="absolute left-0 top-1/2 z-30 -translate-y-1/2"
+          {isResearchSection && !sidebar && (
+            <PanelEdgeToggle
+              side="left"
+              open={false}
+              onClick={toggleSidebar}
+              label="展开研究导航"
+              badge={interruptCount}
+              className="absolute left-0 top-1/2 z-30 -translate-y-1/2"
+            />
+          )}
+          {isResearchSection && !inspector && (
+            <PanelEdgeToggle
+              side="right"
+              open={false}
+              onClick={toggleInspector}
+              label="展开研究工作区"
+              className="absolute right-0 top-1/2 z-30 -translate-y-1/2"
+            />
+          )}
+          {isResearchSection && sidebar && isDesktopLayout === false && (
+            <div className="absolute inset-0 z-40 flex md:hidden">
+              <button
+                type="button"
+                aria-label="关闭研究导航"
+                className="absolute inset-0 bg-black/40"
+                onClick={closeSidebar}
               />
-            )}
-            {isResearchSection && !inspector && (
-              <PanelEdgeToggle
-                side="right"
-                open={false}
-                onClick={toggleInspector}
-                label="展开研究工作区"
-                className="absolute right-0 top-1/2 z-30 -translate-y-1/2"
-              />
-            )}
-            {isResearchSection && sidebar && isDesktopLayout === false && (
-              <div className="absolute inset-0 z-40 flex md:hidden">
-                <button
-                  type="button"
-                  aria-label="关闭研究导航"
-                  className="absolute inset-0 bg-black/40"
-                  onClick={closeSidebar}
+              <aside
+                aria-label="研究导航"
+                className="relative z-10 h-full w-[min(19rem,calc(100vw-2.25rem))] bg-background shadow-xl"
+              >
+                <ThreadList
+                  onClose={closeSidebar}
+                  onNewChat={startNewChat}
+                  onThreadSelect={async (id) => {
+                    await selectThread(id);
+                    closeSidebar();
+                  }}
+                  onMutateReady={(fn) => setMutateThreads(() => fn)}
+                  onInterruptCountChange={setInterruptCount}
                 />
-                <aside
-                  aria-label="研究导航"
-                  className="relative z-10 h-full w-[min(19rem,calc(100vw-2.25rem))] bg-background shadow-xl"
-                >
-                  <ThreadList
-                    onClose={closeSidebar}
-                    onNewChat={startNewChat}
-                    onThreadSelect={async (id) => {
-                      await selectThread(id);
-                      closeSidebar();
-                    }}
-                    onMutateReady={(fn) => setMutateThreads(() => fn)}
-                    onInterruptCountChange={setInterruptCount}
-                  />
+                <PanelEdgeToggle
+                  side="left"
+                  open
+                  onClick={toggleSidebar}
+                  label="收起研究导航"
+                  badge={interruptCount}
+                  className="absolute right-0 top-1/2 z-20 translate-x-full -translate-y-1/2"
+                />
+              </aside>
+            </div>
+          )}
+          {isResearchSection && inspector && isDesktopLayout === false && (
+            <div className="absolute inset-0 z-40 flex justify-end md:hidden">
+              <button
+                type="button"
+                aria-label="关闭研究工作区"
+                className="absolute inset-0 bg-black/40"
+                onClick={closeInspector}
+              />
+              <aside
+                aria-label="研究工作区"
+                className="relative z-10 h-full w-[min(22rem,calc(100vw-2.25rem))] bg-background shadow-xl"
+              >
+                <InspectorPanel
+                  onReportToMainChat={notifyMainChat}
+                />
+                <PanelEdgeToggle
+                  side="right"
+                  open
+                  onClick={toggleInspector}
+                  label="收起研究工作区"
+                  className="absolute left-0 top-1/2 z-20 -translate-x-full -translate-y-1/2"
+                />
+              </aside>
+            </div>
+          )}
+          <RealtimeActivityProvider>
+            <ResizablePanelGroup
+              direction="horizontal"
+              autoSaveId="jw-chat"
+              className="relative z-10"
+            >
+              {isResearchSection && sidebar && isDesktopLayout && (
+                <>
+                  <ResizablePanel
+                    id="thread-history"
+                    order={1}
+                    defaultSize={23}
+                    minSize={18}
+                    className="relative min-w-[260px] bg-background"
+                  >
+                    <ThreadList
+                      onNewChat={startNewChat}
+                      onThreadSelect={selectThread}
+                      onMutateReady={(fn) => setMutateThreads(() => fn)}
+                      onInterruptCountChange={setInterruptCount}
+                    />
+                  </ResizablePanel>
+                  <ResizableHandle />
+                </>
+              )}
+
+              <ResizablePanel
+                id="chat"
+                className="relative flex flex-col"
+                order={2}
+              >
+                {isResearchSection && isDesktopLayout && sidebar && (
                   <PanelEdgeToggle
                     side="left"
                     open
                     onClick={toggleSidebar}
                     label="收起研究导航"
                     badge={interruptCount}
-                    className="absolute right-0 top-1/2 z-20 -translate-y-1/2 translate-x-full"
+                    className="absolute left-0 top-1/2 z-30 -translate-y-1/2"
                   />
-                </aside>
-              </div>
-            )}
-            {isResearchSection && inspector && isDesktopLayout === false && (
-              <div className="absolute inset-0 z-40 flex justify-end md:hidden">
-                <button
-                  type="button"
-                  aria-label="关闭研究工作区"
-                  className="absolute inset-0 bg-black/40"
-                  onClick={closeInspector}
-                />
-                <aside
-                  aria-label="研究工作区"
-                  className="relative z-10 h-full w-[min(22rem,calc(100vw-2.25rem))] bg-background shadow-xl"
-                >
-                  <InspectorPanel onReportToMainChat={notifyMainChat} />
+                )}
+                {isResearchSection && isDesktopLayout && inspector && (
                   <PanelEdgeToggle
                     side="right"
                     open
                     onClick={toggleInspector}
                     label="收起研究工作区"
-                    className="absolute left-0 top-1/2 z-20 -translate-x-full -translate-y-1/2"
+                    className="absolute right-0 top-1/2 z-30 -translate-y-1/2"
                   />
-                </aside>
-              </div>
-            )}
-            <RealtimeActivityProvider>
-              <ResizablePanelGroup
-                direction="horizontal"
-                autoSaveId="jw-chat"
-                className="relative z-10"
-              >
-                {isResearchSection && sidebar && isDesktopLayout && (
-                  <>
-                    <ResizablePanel
-                      id="thread-history"
-                      order={1}
-                      defaultSize={23}
-                      minSize={18}
-                      className="relative min-w-[260px] bg-background"
-                    >
-                      <ThreadList
-                        onNewChat={startNewChat}
-                        onThreadSelect={selectThread}
-                        onMutateReady={(fn) => setMutateThreads(() => fn)}
-                        onInterruptCountChange={setInterruptCount}
-                      />
-                    </ResizablePanel>
-                    <ResizableHandle />
-                  </>
                 )}
-
-                <ResizablePanel
-                  id="chat"
-                  className="relative flex flex-col"
-                  order={2}
-                >
-                  {isResearchSection && isDesktopLayout && sidebar && (
-                    <PanelEdgeToggle
-                      side="left"
-                      open
-                      onClick={toggleSidebar}
-                      label="收起研究导航"
-                      badge={interruptCount}
-                      className="absolute left-0 top-1/2 z-30 -translate-y-1/2"
-                    />
-                  )}
-                  {isResearchSection && isDesktopLayout && inspector && (
-                    <PanelEdgeToggle
-                      side="right"
-                      open
-                      onClick={toggleInspector}
-                      label="收起研究工作区"
-                      className="absolute right-0 top-1/2 z-30 -translate-y-1/2"
-                    />
-                  )}
-                  {/* Chat stays mounted across view switches. We hide it via
+                {/* Chat stays mounted across view switches. We hide it via
                   `display:none` (rather than unmounting) so flipping to
                   Skills/Memory and back is instant — no thread re-fetch, no
                   message-list rebuild, and any in-flight run keeps streaming
                   in the background. Cost is bounded: only the *current*
                   thread's state is held; no accumulation per switch. */}
-                  <div
-                    className={cn(
-                      "flex h-full min-h-0 flex-1 flex-col",
-                      view !== null && "hidden"
-                    )}
+                <div
+                  className={cn(
+                    "flex h-full min-h-0 flex-1 flex-col",
+                    view !== null && "hidden"
+                  )}
+                >
+                  <ChatProvider
+                    key={chatSessionRevision}
+                    activeAssistant={assistant}
+                    onHistoryRevalidate={() => mutateThreads?.()}
                   >
                     <ChatInterface
                       assistant={assistant}
@@ -534,47 +529,49 @@ function HomePageInner({
                       onNavigate={handleDashboardNav}
                       onOpenThread={selectThread}
                       workspaceOpen={Boolean(
-                        inspector && inspectorTab === "workspace"
+                        inspector && inspectorTab !== "agents"
                       )}
                     />
                     <RealtimeActivityBridge />
-                  </div>
-                  {view === "skills" && <SkillsMarketplace />}
-                  {view === "memory" && (
-                    <MemoryPanel
-                      initialTab={
-                        memoryTab as
-                          | "identity"
-                          | "knowledge"
-                          | "history"
-                          | null
-                          | undefined
-                      }
-                      initialObsId={memoryObs}
-                      initialExecId={memoryExec}
-                    />
-                  )}
-                  {view === "wiki" && <KnowledgePanel />}
-                  {view === "schedule" && <ScheduledTasksPanel />}
-                </ResizablePanel>
-
-                {isResearchSection && inspector && isDesktopLayout && (
-                  <>
-                    <ResizableHandle />
-                    <ResizablePanel
-                      id="inspector"
-                      order={3}
-                      defaultSize={26}
-                      minSize={20}
-                      className="relative min-w-[300px] bg-background"
-                    >
-                      <InspectorPanel onReportToMainChat={notifyMainChat} />
-                    </ResizablePanel>
-                  </>
+                  </ChatProvider>
+                </div>
+                {view === "skills" && <SkillsMarketplace />}
+                {view === "memory" && (
+                  <MemoryPanel
+                    initialTab={
+                      memoryTab as
+                        | "identity"
+                        | "knowledge"
+                        | "history"
+                        | null
+                        | undefined
+                    }
+                    initialObsId={memoryObs}
+                    initialExecId={memoryExec}
+                  />
                 )}
-              </ResizablePanelGroup>
-            </RealtimeActivityProvider>
-          </ChatProvider>
+                {view === "wiki" && <KnowledgePanel />}
+                {view === "schedule" && <ScheduledTasksPanel />}
+              </ResizablePanel>
+
+              {isResearchSection && inspector && isDesktopLayout && (
+                <>
+                  <ResizableHandle />
+                  <ResizablePanel
+                    id="inspector"
+                    order={3}
+                    defaultSize={26}
+                    minSize={20}
+                    className="relative min-w-[300px] bg-background"
+                  >
+                    <InspectorPanel
+                      onReportToMainChat={notifyMainChat}
+                    />
+                  </ResizablePanel>
+                </>
+              )}
+            </ResizablePanelGroup>
+          </RealtimeActivityProvider>
         </div>
       </div>
     </>
