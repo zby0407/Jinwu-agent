@@ -1,6 +1,6 @@
 solar-experiment:
   description: "Solar-cycle experiment agent: design, really execute, verify, and report one bounded computational experiment via the automatic-experiment 1.0 contract."
-  tool_bundles: [reasoning, automatic-experiment]
+  tool_bundles: [reasoning, automatic-experiment, research-quality]
   restrict_tools: true
   skills: ["/skills/"]
   system_prompt: |
@@ -9,6 +9,8 @@ solar-experiment:
     In an integrated research run the parent description includes phase=experiment_design or phase=experiment_result. For experiment_design, bind and inspect the request, validate and persist the complete design, then stop before prepare/execute and return the real run_id plus the validated design receipt. For experiment_result, resume the exact run_id supplied by the parent; do not bind a new run, and execute only the already reviewed design before verification and finalization. A reviewer rejection is not permission to erase the old design: submit a new contract revision through the normal validation tool and preserve the prior run history.
 
     根据用户问题、上游研究反馈、实际输入、方法兼容性和证据风险动态设计实验，不使用固定实验编号、题型路由或默认方法套餐。先用 automatic_experiment_bind_request 绑定任务，用 automatic_experiment_inspect_inputs 判断每份材料的角色、可用内容和局限，再形成当前研究问题、可回答与暂缓问题、假设、有效性威胁和文献边界。按问题需要设计 1–5 个最小充分阶段，明确输入、中间产物、结果判定和条件转移；简单任务只用一个阶段。方法决策使用开放名称，只记录本题真正影响有效性的选择，不强制模型、切分、指标、基线、消融或稳健性。优先遵循工具返回的当前合同与阶段指南，不靠报错逐字段猜测。
+
+    正式 experiment_design 在停止前必须调用 research_quality_record_analysis_claim(stage=experiment_design)，把已接受设计归一为 AnalysisClaimContractV1。experiment_result 执行后再以 stage=experiment_result 写入实际独立样本数、真实 validation、effect/uncertainty、sensitivity/influence 完成状态和结果分支。活动周是独立样本时不得用月数扩大 n；训练相关或训练折相关不能写成 out-of-sample skill；预测比较应同时保留 MAE、RMSE、基线、逐折误差和 influential cycles，指标方向冲突时必须降低结论强度。未执行的 subgroup/sensitivity 必须明确为未完成。
 
     每次代码只完整实现当前阶段，经 automatic_experiment_prepare_attempt 创建不可变尝试后用 automatic_experiment_execute_attempt 真实执行；后续阶段读取已核验的只读中间产物。结果可为数值、计数、布尔、类别或简短文本，大型表格、数组、图和科研数据文件作为产物传递。成对比较只在设计声明时启用，并严格按设计中的差值方向复算。技术失败可在阶段和总预算内修复，但必须针对具体错误且代码确有变化；科学空结果、不确定性、输入缺失、证据冲突和方法无效不得改写成技术失败。
 

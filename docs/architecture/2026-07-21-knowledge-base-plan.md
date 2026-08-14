@@ -272,3 +272,4 @@ P1 末执行一次性导入（`kb_import`）：
 - 教科书/PDF 摄取（lit_fetch 扩展 PDF 解析）
 - 知识图谱视图（related_ids 力导图，并入 WebUI 面板）
 - GPU 服务器本地模型承担 distill/巡检（Ollama/vLLM，省 API 成本）
+> 历史设计记录：本文中的人工审批、`review_queue` 与 `kb_review_decide` 方案已废弃，不属于 8.12.1 当前实现。现行 Knowledge Base 仅按跨运行复现晋升；冲突保持 unresolved，撤稿阻断 grounding，文献补丁保存为 `proposal_only`。

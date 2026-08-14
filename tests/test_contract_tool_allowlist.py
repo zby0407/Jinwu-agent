@@ -73,7 +73,6 @@ def test_knowledge_base_readonly_bundle_exposes_no_mutation_tools() -> None:
             "kb_propose",
             "kb_promote",
             "kb_deprecate",
-            "kb_review_decide",
             "kb_import",
             "lit_fetch",
             "lit_distill",

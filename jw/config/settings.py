@@ -143,8 +143,6 @@ class JWConfig:
         model: Default model name (short name or full ID).
         auxiliary_provider: Provider for auxiliary_model (empty = use main provider).
         auxiliary_model: Model for memory workers + tool selector + scheduler (empty = use main model).
-        independent_review_provider: Provider used only by independent scientific review.
-        independent_review_model: Model used only by independent scientific review.
         default_mode: Default workspace mode ('daemon' or 'run').
         default_workdir: Default workspace directory (empty = use current working directory).
         show_thinking: Whether to show thinking panels in CLI.
@@ -185,11 +183,6 @@ class JWConfig:
     # tool selector). Empty = fall back to the main model/provider.
     auxiliary_provider: str = ""  # empty = use main provider
     auxiliary_model: str = ""  # empty = use main model
-    # Keep cross-family scientific review separate from the low-cost auxiliary
-    # model used by routing, memory workers, and tool selection. Empty values
-    # preserve the legacy auxiliary -> main fallback chain.
-    independent_review_provider: str = ""
-    independent_review_model: str = ""
     # Optional per-agent model overrides for async sub-agents, keyed by the
     # sub-agent name (its ``graph_id``, e.g. "solar-planner"). Format mirrors
     # ``model_fallbacks``: "solar-planner:qwen3.7-max,solar-data:qwen-plus".
@@ -805,8 +798,6 @@ _ENV_MAPPINGS = {
     "model_fallbacks": "JW_MODEL_FALLBACKS",
     "auxiliary_provider": "JW_AUXILIARY_PROVIDER",
     "auxiliary_model": "JW_AUXILIARY_MODEL",
-    "independent_review_provider": "JW_INDEPENDENT_REVIEW_PROVIDER",
-    "independent_review_model": "JW_INDEPENDENT_REVIEW_MODEL",
     "agent_model_overrides": "JW_AGENT_MODEL_OVERRIDES",
     "reasoning_effort": "JW_REASONING_EFFORT",
     "openrouter_anthropic_prompt_cache": ("JW_OPENROUTER_ANTHROPIC_PROMPT_CACHE"),

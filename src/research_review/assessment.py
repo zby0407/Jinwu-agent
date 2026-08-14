@@ -1,7 +1,7 @@
 """ReviewAssessmentV1: per-claim structured sidecar for the two-pass Evidence review.
 
 This module is additive.  ReviewVerdictV2 remains the routing authority
-(accept / revise / block / human_review); an assessment records, for every
+(accept / accept_with_limits / revise / block); an assessment records, for every
 reviewed claim, the evidence-for/evidence-against picture and the single most
 discriminating next test, without feeding the verdict validator or the
 no-progress fingerprint machinery.

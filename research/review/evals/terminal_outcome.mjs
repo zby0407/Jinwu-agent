@@ -11,6 +11,35 @@ export function messageText(content) {
     .trim();
 }
 
+const TERMINAL_OUTCOMES = new Set([
+  "completed_with_answer",
+  "completed_without_answer",
+  "provider_error",
+  "runtime_error",
+  "interrupted",
+  "unknown_terminal_state",
+  "research_blocked",
+]);
+
+export function isTerminalOutcome(outcome) {
+  return TERMINAL_OUTCOMES.has(outcome);
+}
+
+export function blockedResearchOutcome(reviewStatus, evidence) {
+  if (reviewStatus?.status !== "blocked") return null;
+  const reason = reviewStatus?.terminal?.reasonCode || "UNRESOLVED_REVIEW_GATE";
+  const summary = reviewStatus?.terminal?.summary;
+  return {
+    outcome: "research_blocked",
+    terminal_status: "blocked",
+    has_answer: evidence.has_answer,
+    assistant_answer_count: evidence.assistant_answer_count,
+    error_summary: summary ? `${reason}: ${summary}` : reason,
+    blocked_stage:
+      reviewStatus?.terminal?.stage || reviewStatus?.currentStage || null,
+  };
+}
+
 export function classifyOutcome(thread, state, latestRun) {
   const taskErrors = (state?.tasks ?? [])
     .map((task) => task?.error)
@@ -19,11 +48,32 @@ export function classifyOutcome(thread, state, latestRun) {
     .filter(Boolean)
     .join("\n");
   const messages = state?.values?.messages ?? thread?.values?.messages ?? [];
-  const answerMessages = messages.filter(
+  const aiMessages = messages.filter(
     (message) => message?.type === "ai" && messageText(message.content),
+  );
+  const terminalProtocolMessages = aiMessages.filter((message) =>
+    messageText(message.content).startsWith("[RESEARCH REVIEW TERMINAL]"),
+  );
+  const answerMessages = aiMessages.filter(
+    (message) =>
+      !messageText(message.content).startsWith("[RESEARCH REVIEW TERMINAL]"),
   );
   const hasAnswer = answerMessages.length > 0;
   const terminalStatus = latestRun?.status ?? thread?.status ?? "unknown";
+
+  if (terminalProtocolMessages.length > 0) {
+    const protocolText = messageText(
+      terminalProtocolMessages[terminalProtocolMessages.length - 1].content,
+    );
+    const statusMatch = protocolText.match(/\bstatus=([^;\s.]+)/);
+    return {
+      outcome: "research_blocked",
+      terminal_status: statusMatch?.[1] ?? terminalStatus,
+      has_answer: hasAnswer,
+      assistant_answer_count: answerMessages.length,
+      error_summary: protocolText,
+    };
+  }
 
   if (thread?.status === "interrupted") {
     const approvalInterrupt = (state?.tasks ?? []).some((task) =>

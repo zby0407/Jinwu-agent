@@ -16,6 +16,7 @@ from .registry import (
     resolve_tool_bundles,
 )
 from .research_planner import RESEARCH_PLANNER_TOOLS
+from .research_quality import RESEARCH_QUALITY_TOOLS
 from .research_review import RESEARCH_RELEASE_TOOLS, RESEARCH_REVIEW_TOOLS
 from .scientific_hypothesis import SCIENTIFIC_HYPOTHESIS_TOOLS
 from .search import fetch_webpage_content, tavily_search
@@ -36,6 +37,7 @@ __all__ = [
     "KB_READONLY_TOOLS",
     "KB_TOOLS",
     "RESEARCH_PLANNER_TOOLS",
+    "RESEARCH_QUALITY_TOOLS",
     "RESEARCH_RELEASE_TOOLS",
     "RESEARCH_REVIEW_TOOLS",
     "SCIENTIFIC_HYPOTHESIS_TOOLS",

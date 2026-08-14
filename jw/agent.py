@@ -642,6 +642,44 @@ def _apply_agent_model_overrides(subs: list, *, cfg=None) -> list:
     return subs
 
 
+def _validate_agent_harness(
+    subs: list[dict],
+    *,
+    tool_bundles,
+    main_tools,
+    middleware,
+) -> None:
+    """Fail startup when the product manifest drifts from runtime ownership."""
+
+    from .agent_harness import DEEP_AGENT_CORE_TOOLS, validate_capability_manifest
+
+    runtime_tool_names = set(DEEP_AGENT_CORE_TOOLS)
+    for tool in main_tools:
+        name = getattr(tool, "name", None)
+        if isinstance(name, str):
+            runtime_tool_names.add(name)
+    for item in middleware:
+        for tool in getattr(item, "tools", ()):
+            name = getattr(tool, "name", None)
+            if isinstance(name, str):
+                runtime_tool_names.add(name)
+
+    missing = validate_capability_manifest(
+        tool_bundle_names=tool_bundles,
+        specialist_names=(
+            str(spec.get("name"))
+            for spec in subs
+            if isinstance(spec, dict) and spec.get("name")
+        ),
+        runtime_tool_names=runtime_tool_names,
+    )
+    if missing:
+        raise RuntimeError(
+            "agent capability manifest has unresolved runtime owners: "
+            + ", ".join(missing)
+        )
+
+
 def _build_base_kwargs(
     base_backend, base_middleware, *, cfg=None, chat_model=None, workspace_dir=None
 ):
@@ -663,6 +701,12 @@ def _build_base_kwargs(
         tool_bundles=get_tool_bundles(),
     )
     _ensure_general_purpose_subagent(subs)
+    _validate_agent_harness(
+        subs,
+        tool_bundles=get_tool_bundles(),
+        main_tools=base_tools,
+        middleware=base_middleware,
+    )
     _inject_subagent_middleware(
         subs, workspace_dir=workspace_dir, cfg=cfg, chat_model=chat_model
     )
@@ -738,6 +782,12 @@ def load_mcp_and_build_kwargs(
     )
 
     _ensure_general_purpose_subagent(subs)
+    _validate_agent_harness(
+        subs,
+        tool_bundles=get_tool_bundles(),
+        main_tools=[*base_tools, *mcp_main],
+        middleware=base_middleware,
+    )
     _inject_subagent_middleware(
         subs, workspace_dir=workspace_dir, cfg=cfg, chat_model=chat_model
     )
@@ -1248,12 +1298,6 @@ def _get_default_agent():
                         "execute": True,
                         "run_in_background": True,
                         "schedule_task": True,
-                        # Knowledge-base decision gates (see knowledge-base plan §5.6):
-                        # promotion to canonical, plan freeze, and hypothesis freeze
-                        # all pause for human review unless auto_approve is set.
-                        "kb_promote": True,
-                        "research_planner_freeze_plan": True,
-                        "scientific_hypothesis_freeze": True,
                     }
                 )
             )

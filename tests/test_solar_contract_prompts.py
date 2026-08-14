@@ -15,7 +15,7 @@ def _read(relative: str) -> str:
 
 def test_solar_planner_supports_explore_checkpoint_and_publish_modes():
     text = _read("jw/subagents/solar/solar_planner.yaml")
-    assert "tool_bundles: [research-planner]" in text
+    assert "tool_bundles: [research-planner, research-quality]" in text
     assert "think-tool loop" in text
     assert "Default to exploration mode" in text
     assert "checkpoint/publication mode" in text
@@ -49,42 +49,48 @@ def test_solar_data_requires_hash_bound_inputs_before_discovery():
     assert "must_stop=true" in text
 
 
-def test_knowledge_agent_is_read_only_and_routes_changes_to_humans():
+def test_knowledge_agent_is_read_only_and_reports_maintenance_gaps():
     text = _read("jw/subagents/solar/solar_knowledge.yaml")
     assert "tool_bundles: [reasoning, knowledge-base-inspection]" in text
     assert "restrict_tools: true" in text
     assert "never propose, import, patch, promote, deprecate, or decide" in text
     assert "kb_query" in text
     assert "kb_read" in text
-    assert "human-review recommendation" in text
+    assert "maintenance gap" in text
 
 
 def test_evidence_agent_is_read_only_and_uses_typed_review_tools():
     text = _read("jw/subagents/solar/solar_evidence.yaml")
     assert (
-        "tool_bundles: [reasoning, research-review, knowledge-base-inspection]" in text
+        "tool_bundles: [reasoning, evidence-review, knowledge-base-inspection]" in text
     )
     assert "restrict_tools: true" in text
-    review_tools = {tool.name for tool in get_tool_bundles()["research-review"]}
+    review_tools = {tool.name for tool in get_tool_bundles()["evidence-review"]}
     for name in (
         "evidence_review_open_context",
-        "evidence_review_record_assessment",
-        "evidence_review_submit_verdict",
+        "evidence_review_read_source",
+        "evidence_review_submit_round",
         "evidence_review_get_status",
     ):
         assert name in review_tools
-    assert "research_independent_review" not in review_tools
-    assert "research_independent_review" in {
-        tool.name for tool in get_tool_bundles()["research-release"]
-    }
+    assert "evidence_review_record_assessment" not in review_tools
+    assert "evidence_review_record_scientific_quality" not in review_tools
+    assert "evidence_review_submit_verdict" not in review_tools
+    assert "Decisions are accept, accept_with_limits, revise, or block" in text
     assert "never author, patch, overwrite" in text
     assert "never edit the producer artifact" in text
+    assert "assessment_claims contains exactly one summary row" in text
+    assert "accepted_claims must list the exact accepted artifact claim ids" in text
 
 
 def test_hypothesis_agent_reads_wiki_before_generating_candidates():
     text = _read("jw/subagents/solar/solar_hypothesis.yaml")
     assert "model_call_limit: 48" in text
-    assert "tool_bundles: [knowledge-base-readonly, scientific-hypothesis]" in text
+    assert "不宣称内部草稿、冻结、发布或 release 状态" in text
+    assert (
+        "tool_bundles: [knowledge-base-readonly, scientific-hypothesis, research-quality]"
+        in text
+    )
     assert "tool_bundles: [reasoning," not in text
     readonly_tools = {
         tool.name for tool in get_tool_bundles()["knowledge-base-readonly"]
@@ -109,6 +115,9 @@ def test_hypothesis_agent_reads_wiki_before_generating_candidates():
     assert "must not copy or shorten the bound research question" in text
     assert "call lit_bundle_read exactly once" in text
     assert "scientific_hypothesis_bind_literature_evidence" in text
+    assert "scientific_hypothesis_build_novelty_bundle" in text
+    assert "identifiability={association_only, mechanism_support_requires}" in text
+    assert "searched_family_count" in text
     assert "one source per assistant turn" in text
     assert "never issue parallel literature-evidence binding calls" in text
     assert "binding registers the source but does not attach it to the draft" in text

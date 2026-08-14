@@ -1,0 +1,29 @@
+{
+  "schema_version": "research-review-visible-suite-v2",
+  "suite_id": "main-hypothesis-evidence-v1",
+  "description": "从真实生产 WebUI 生成一个主任务科学假设，完成一轮异构 Evidence 审查，并直接交付假设、现有证据、反证与限制。",
+  "visibility": "checked_in_visible",
+  "release_gate_eligible": false,
+  "cases": [
+    {
+      "id": "MAIN-HYP-01",
+      "category": "single_hypothesis_with_evidence",
+      "prompt_style": "natural_user",
+      "allowed_user_intervention": "answer_agent_clarification_only",
+      "review_mode": "two_pass",
+      "reviewer_model": {
+        "provider": "kimi-coding",
+        "model": "kimi-k3"
+      },
+      "expected_outcome": "evidence_constrained_hypothesis",
+      "repetitions": 1,
+      "input_files": [],
+      "focus": [
+        "single_falsifiable_hypothesis",
+        "traceable_supporting_opposing_limiting_evidence",
+        "evidence_verdict"
+      ],
+      "prompt": "当前第 25 太阳活动周的观测信号，能否为第 26 太阳活动周的强度趋势和物理机制提供证据？请提出一个最值得检验的科学假设，并说明现有证据。"
+    }
+  ]
+}

@@ -46,16 +46,8 @@ DECISIONS = {
     "accept_with_limits",
     "revise",
     "block",
-    "human_review",
 }
 SEVERITIES = {"critical", "major", "minor"}
-INDEPENDENT_REVIEW_STATUSES = {
-    "not_required",
-    "not_configured",
-    "heterogeneous_pass",
-    "human_pass",
-    "failed",
-}
 ISSUE_OWNERS = {
     "solar-planner",
     "solar-data",
@@ -66,7 +58,6 @@ ISSUE_OWNERS = {
 RUN_STATUSES = {
     "active",
     "blocked",
-    "human_review",
     "release_ready",
     "released",
 }
@@ -206,7 +197,7 @@ def issue_fingerprint(rule_id: str, claim_ref: str, owner: str) -> str:
 
 def _validate_claim(value: object, label: str) -> dict[str, Any]:
     claim = _object(value, label)
-    fields = {
+    required_fields = {
         "schema_version",
         "claim_id",
         "kind",
@@ -217,7 +208,13 @@ def _validate_claim(value: object, label: str) -> dict[str, Any]:
         "confidence",
         "unknowns",
     }
-    _exact(claim, fields, label)
+    optional_fields = {"limiting_evidence"}
+    missing = sorted(required_fields - set(claim))
+    unknown = sorted(set(claim) - required_fields - optional_fields)
+    if missing:
+        raise ContractError(f"{label} missing fields: {', '.join(missing)}")
+    if unknown:
+        raise ContractError(f"{label} has unknown fields: {', '.join(unknown)}")
     if claim["schema_version"] != CLAIM_VERSION:
         raise ContractError(f"{label}.schema_version must be {CLAIM_VERSION}")
     return {
@@ -231,6 +228,9 @@ def _validate_claim(value: object, label: str) -> dict[str, Any]:
         ),
         "opposing_evidence": _text_list(
             claim["opposing_evidence"], f"{label}.opposing_evidence"
+        ),
+        "limiting_evidence": _text_list(
+            claim.get("limiting_evidence", []), f"{label}.limiting_evidence"
         ),
         "confidence": _enum(
             claim["confidence"], CONFIDENCE_LEVELS, f"{label}.confidence"
@@ -317,7 +317,10 @@ def build_research_artifact(
         "version": version,
         "producer": producer,
         "upstream_refs": upstream_refs or [],
-        "claims": claims or [],
+        "claims": [
+            _validate_claim(item, f"claims[{index}]")
+            for index, item in enumerate(claims or [])
+        ],
         "evidence_refs": evidence_refs or [],
         "limitations": limitations or [],
         "payload": payload,
@@ -397,7 +400,6 @@ def validate_review_verdict(value: object) -> dict[str, Any]:
         "carry_forward_limits",
         "next_owner",
         "reviewer_context",
-        "independent_review",
         "created_at",
         "verdict_sha256",
     }
@@ -419,11 +421,6 @@ def validate_review_verdict(value: object) -> dict[str, Any]:
     issue_ids = [item["issue_id"] for item in issues]
     if len(issue_ids) != len(set(issue_ids)):
         raise ContractError("issue_id values must be unique")
-    independent = _object(verdict["independent_review"], "independent_review")
-    _exact(independent, {"status", "reviewer", "notes"}, "independent_review")
-    reviewer = independent["reviewer"]
-    if reviewer is not None:
-        reviewer = _text(reviewer, "independent_review.reviewer", maximum=256)
     validated = {
         "schema_version": VERDICT_VERSION,
         "review_id": _id(verdict["review_id"], "review_id"),
@@ -451,20 +448,6 @@ def validate_review_verdict(value: object) -> dict[str, Any]:
         "reviewer_context": _enum(
             verdict["reviewer_context"], {"isolated"}, "reviewer_context"
         ),
-        "independent_review": {
-            "status": _enum(
-                independent["status"],
-                INDEPENDENT_REVIEW_STATUSES,
-                "independent_review.status",
-            ),
-            "reviewer": reviewer,
-            "notes": _text(
-                independent["notes"],
-                "independent_review.notes",
-                minimum=0,
-                maximum=4_000,
-            ),
-        },
         "created_at": _timestamp(verdict["created_at"], "created_at"),
         "verdict_sha256": _sha(verdict["verdict_sha256"], "verdict_sha256"),
     }
@@ -485,7 +468,7 @@ def validate_review_verdict(value: object) -> dict[str, Any]:
         issue["owner"] == validated["next_owner"] for issue in issues
     ):
         raise ContractError("next_owner must own at least one revision issue")
-    if decision in {"block", "human_review"} and not issues:
+    if decision == "block" and not issues:
         raise ContractError(f"{decision} requires at least one issue")
     unhashed = dict(validated)
     declared = unhashed.pop("verdict_sha256")
@@ -507,7 +490,6 @@ def build_review_verdict(
     blocked_claims: list[str] | None = None,
     carry_forward_limits: list[str] | None = None,
     next_owner: str | None = None,
-    independent_review: dict[str, Any] | None = None,
     created_at: str | None = None,
 ) -> dict[str, Any]:
     verdict = {
@@ -525,8 +507,6 @@ def build_review_verdict(
         "carry_forward_limits": carry_forward_limits or [],
         "next_owner": next_owner,
         "reviewer_context": "isolated",
-        "independent_review": independent_review
-        or {"status": "not_required", "reviewer": None, "notes": ""},
         "created_at": created_at or _now(),
     }
     verdict["verdict_sha256"] = canonical_json_sha256(verdict)
@@ -687,9 +667,7 @@ def validate_revision_capsule(value: object) -> dict[str, Any]:
     validated = {
         "schema_version": REVISION_CAPSULE_VERSION,
         "task_id": _id(capsule["task_id"], "task_id"),
-        "review_mode": _enum(
-            capsule["review_mode"], REVIEW_MODES, "review_mode"
-        ),
+        "review_mode": _enum(capsule["review_mode"], REVIEW_MODES, "review_mode"),
         "review_id": _id(capsule["review_id"], "review_id"),
         "verdict_sha256": _sha(capsule["verdict_sha256"], "verdict_sha256"),
         "policy_version": _id(capsule["policy_version"], "policy_version"),
@@ -806,7 +784,6 @@ def validate_run_state(value: object) -> dict[str, Any]:
                 "accepted_with_limits",
                 "revise",
                 "blocked",
-                "human_review",
             },
             f"stage_status.{stage}",
         )

@@ -17,6 +17,9 @@ from jw.middleware.research_router import (
     ResearchRouterMiddleware,
     _fallback_route,
     _latest_specialist_result,
+    _passthrough_accepted_bounded_stage,
+    _passthrough_accepted_release,
+    _passthrough_hypothesis_result,
     _successful_specialists,
     _with_analysis_protocol,
 )
@@ -113,11 +116,75 @@ def test_silso_cycle_reproduction_routes_to_bounded_data_specialist() -> None:
     assert route["required_analysis_protocol"] == "silso_cycle_reproduction_v1"
 
 
+def test_current_observation_hypothesis_adds_bounded_data_stage() -> None:
+    route = _with_analysis_protocol(
+        _route(
+            "verified_analysis",
+            source_mode="mixed",
+            task_intent="hypothesis_generation",
+            required_specialist="solar-hypothesis",
+        ),
+        text=(
+            "当前第25太阳活动周的观测信号，能否为第26太阳活动周的强度趋势和"
+            "物理机制提供证据？请提出一个最值得检验的科学假设，并说明现有证据。"
+        ),
+    )
+
+    assert route["required_specialist"] == "solar-hypothesis"
+    assert route["task_intent"] == "hypothesis_generation"
+    assert route["preliminary_stages"] == ["data"]
+    assert route["needs_computation"] is True
+
+
+def test_current_observation_hypothesis_starts_with_data_producer(monkeypatch) -> None:
+    middleware = _middleware(monkeypatch)
+    route = {
+        **_route(
+            "verified_analysis",
+            source_mode="mixed",
+            needs_computation=True,
+            task_intent="hypothesis_generation",
+            required_specialist="solar-hypothesis",
+        ),
+        "preliminary_stages": ["data"],
+    }
+    fake_store = MagicMock()
+    fake_store.bounded_sequence_action.return_value = {
+        "kind": "producer",
+        "stage": "data",
+        "producer": "solar-data",
+        "phase": "bounded_data",
+    }
+    monkeypatch.setattr(
+        "jw.middleware.research_router.store_from_config", lambda _config: fake_store
+    )
+
+    response = middleware.wrap_model_call(
+        _request(route=route, tools=[_tool("task")]),
+        lambda _inner: ModelResponse(result=[AIMessage("准备直接回答")]),
+    )
+
+    call = response.result[0].tool_calls[0]
+    assert response.result[0].content == ""
+    assert call["args"]["subagent_type"] == "solar-data"
+    fake_store.bounded_sequence_action.assert_called_with(("data", "hypothesis"))
+
+
 def test_fallback_preserves_explicit_bounded_planning_route() -> None:
     result = _fallback_route("请制定一份极区磁场研究计划")
 
     assert result["task_intent"] == "research_planning"
     assert result["required_specialist"] == "solar-planner"
+
+
+def test_fallback_recognizes_natural_reviewable_research_package() -> None:
+    result = _fallback_route(
+        "请系统研究第26太阳活动周预测是否可以启动，形成可供同行初审的研究包。"
+    )
+
+    assert result["mode"] == "full_research"
+    assert result["source_mode"] == "mixed"
+    assert result["required_specialist"] == "none"
 
 
 def test_specialist_success_requires_workspace_verified_artifact() -> None:
@@ -160,7 +227,11 @@ def test_router_runs_once_per_human_turn_and_persists_decision(monkeypatch) -> N
     update = middleware.before_agent(state, runtime=None)
 
     assert update == {
-        "research_route": _route("verified_analysis", source_mode="local"),
+        "research_route": {
+            **_route("verified_analysis", source_mode="local"),
+            "harness_version": "agent-runtime-harness-v1",
+            "capability_id": "analysis",
+        },
         "research_route_turn": "turn-1",
     }
     persisted = {**state, **update}
@@ -197,7 +268,7 @@ def test_router_preserves_bounded_graph_on_explicit_continuation(monkeypatch) ->
     state = {
         "messages": [
             HumanMessage(
-                "继续当前科研闭环，按 next_action 完成独立审查",
+                "继续当前科研闭环，按 next_action 完成证据审查",
                 id="turn-continue",
             )
         ],
@@ -239,7 +310,7 @@ def test_router_recovers_legacy_bounded_stage_on_explicit_continuation(
         ],
     )
     wrong_result = ToolMessage(
-        "[RESEARCH REVIEW BLOCKED] research run is human_review",
+        "[RESEARCH REVIEW BLOCKED] research run is blocked",
         tool_call_id="blocked-wrong-planner",
         name="task",
     )
@@ -353,6 +424,8 @@ def test_router_fallback_recognizes_bilingual_hypothesis_intent(
         "task_intent": expected_intent,
         "required_specialist": "solar-hypothesis",
         "reason": "router unavailable; explicit hypothesis intent kept specialized",
+        "harness_version": "agent-runtime-harness-v1",
+        "capability_id": "scientific_hypothesis",
     }
 
 
@@ -522,7 +595,7 @@ def test_hypothesis_model_result_removes_parent_authored_expected_answer(
 
     call = response.result[0].tool_calls[0]
     assert call["args"]["subagent_type"] == "solar-hypothesis"
-    assert response.result[0].content == "我去找专家。"
+    assert response.result[0].content == ""
 
 
 def test_hypothesis_task_execution_rewrites_generic_delegation_to_specialist(
@@ -638,6 +711,54 @@ def test_hypothesis_route_blocks_parent_preread_at_tool_execution(
     assert "pre-read Wiki or memory files" in str(result.content)
 
 
+def test_single_hypothesis_request_keeps_rivals_inside_one_candidate(
+    monkeypatch,
+) -> None:
+    middleware = _middleware(monkeypatch)
+    route = _route(
+        "verified_analysis",
+        source_mode="mixed",
+        task_intent="hypothesis_generation",
+        required_specialist="solar-hypothesis",
+    )
+    human = HumanMessage(
+        "请提出一个最值得检验的科学假设，并说明现有证据。",
+        id="turn-single-hypothesis",
+    )
+    model_call = AIMessage(
+        "",
+        tool_calls=[
+            {
+                "name": "task",
+                "args": {"subagent_type": "solar-hypothesis"},
+                "id": "task-single-hypothesis",
+            }
+        ],
+    )
+    request = ToolCallRequest(
+        tool_call=model_call.tool_calls[0],
+        tool=None,
+        state={"research_route": route, "messages": [human, model_call]},
+        runtime=SimpleNamespace(config={}),
+    )
+    captured: list[ToolCallRequest] = []
+
+    def handler(inner: ToolCallRequest) -> ToolMessage:
+        captured.append(inner)
+        return ToolMessage(
+            "persisted specialist draft",
+            tool_call_id=str(inner.tool_call["id"]),
+            name="task",
+        )
+
+    middleware.wrap_tool_call(request, handler)
+
+    description = captured[0].tool_call["args"]["description"]
+    assert "Honor the user's requested output cardinality" in description
+    assert "do not expand the visible or persisted result" in description
+    assert "请提出一个最值得检验的科学假设" in description
+
+
 def test_hypothesis_route_blocks_parallel_compensating_tasks(monkeypatch) -> None:
     middleware = _middleware(monkeypatch)
     route = _route(
@@ -680,6 +801,63 @@ def test_hypothesis_route_blocks_parallel_compensating_tasks(monkeypatch) -> Non
     assert called is False
     assert result.status == "error"
     assert "exactly one direct task delegation" in str(result.content)
+
+
+def test_hypothesis_review_error_is_not_relabelled_as_producer_failure(
+    monkeypatch,
+) -> None:
+    middleware = _middleware(monkeypatch)
+    route = _route(
+        "verified_analysis",
+        source_mode="mixed",
+        task_intent="hypothesis_generation",
+        required_specialist="solar-hypothesis",
+    )
+    monkeypatch.setattr(
+        "jw.middleware.research_router._bounded_review_action",
+        lambda _request: {
+            "kind": "review",
+            "stage": "hypothesis",
+            "review_mode": "hypothesis",
+        },
+    )
+    human = HumanMessage("提出竞争假设", id="turn-hypothesis")
+    model_call = AIMessage(
+        "",
+        tool_calls=[
+            {
+                "name": "task",
+                "args": {"subagent_type": "solar-evidence"},
+                "id": "task-evidence",
+            }
+        ],
+    )
+    request = ToolCallRequest(
+        tool_call=model_call.tool_calls[0],
+        tool=None,
+        state={"research_route": route, "messages": [human, model_call]},
+        runtime=SimpleNamespace(config={}),
+    )
+    failure = (
+        "[RESEARCH REVIEW BLOCKED] solar-evidence returned without persisting "
+        "a hash-bound ReviewVerdictV2"
+    )
+
+    result = middleware.wrap_tool_call(
+        request,
+        lambda inner: ToolMessage(
+            failure,
+            tool_call_id=str(inner.tool_call["id"]),
+            name="task",
+            status="error",
+        ),
+    )
+
+    assert result.status == "error"
+    assert result.content == failure
+    assert result.additional_kwargs.get("research_router_specialist") != (
+        "solar-hypothesis"
+    )
 
 
 def test_hypothesis_task_requires_persisted_draft_receipt(monkeypatch) -> None:
@@ -1020,6 +1198,13 @@ def test_hypothesis_result_is_passed_through_verbatim(monkeypatch) -> None:
         "jw.middleware.research_router._bounded_review_action",
         lambda _request: {"kind": "released", "stage": "hypothesis"},
     )
+    fake_store = MagicMock()
+    fake_store.accepted_bounded_markdown.return_value = (
+        "# DRAFT\n\nExact specialist body.\n\n## 独立证据审查\n"
+    )
+    monkeypatch.setattr(
+        "jw.middleware.research_router.store_from_config", lambda _config: fake_store
+    )
 
     def handler(inner: ModelRequest) -> ModelResponse:
         captured.append(inner)
@@ -1028,7 +1213,8 @@ def test_hypothesis_result_is_passed_through_verbatim(monkeypatch) -> None:
     response = middleware.wrap_model_call(request, handler)
 
     assert captured[0].tools == []
-    assert response.result[0].content == "# DRAFT\n\nExact specialist body."
+    assert response.result[0].content.endswith("## 独立证据审查\n")
+    fake_store.accepted_bounded_markdown.assert_called_once_with("hypothesis")
 
 
 def test_hypothesis_result_recovers_single_unattributed_tool_message() -> None:
@@ -1294,6 +1480,70 @@ def test_released_silso_data_uses_deterministic_final_markdown(monkeypatch) -> N
     )
 
 
+def test_bounded_stage_state_failure_does_not_release_model_prose(monkeypatch) -> None:
+    route = _route(
+        "verified_analysis",
+        source_mode="local",
+        task_intent="data_preparation",
+        required_specialist="solar-data",
+    )
+    monkeypatch.setattr(
+        "jw.middleware.research_router.store_from_config",
+        lambda _config: (_ for _ in ()).throw(RuntimeError("private state detail")),
+    )
+
+    response = _passthrough_accepted_bounded_stage(
+        _request(route=route),
+        ModelResponse(result=[AIMessage("unreviewed data result")]),
+    )
+
+    content = str(response.result[0].content)
+    assert "RESEARCH REVIEW BLOCKED" in content
+    assert "unreviewed data result" not in content
+    assert "private state detail" not in content
+
+
+def test_release_state_failure_does_not_release_model_prose(monkeypatch) -> None:
+    route = _route("full_research", source_mode="mixed", needs_computation=True)
+    monkeypatch.setattr(
+        "jw.middleware.research_router.store_from_config",
+        lambda _config: (_ for _ in ()).throw(RuntimeError("private state detail")),
+    )
+
+    response = _passthrough_accepted_release(
+        _request(route=route),
+        ModelResponse(result=[AIMessage("unreviewed final report")]),
+    )
+
+    content = str(response.result[0].content)
+    assert "RESEARCH REVIEW BLOCKED" in content
+    assert "unreviewed final report" not in content
+    assert "private state detail" not in content
+
+
+def test_hypothesis_state_failure_does_not_release_model_prose(monkeypatch) -> None:
+    route = _route(
+        "verified_analysis",
+        source_mode="mixed",
+        task_intent="hypothesis_generation",
+        required_specialist="solar-hypothesis",
+    )
+    monkeypatch.setattr(
+        "jw.middleware.research_router.store_from_config",
+        lambda _config: (_ for _ in ()).throw(RuntimeError("private state detail")),
+    )
+
+    response = _passthrough_hypothesis_result(
+        _request(route=route),
+        ModelResponse(result=[AIMessage("unreviewed hypothesis")]),
+    )
+
+    content = str(response.result[0].content)
+    assert "RESEARCH REVIEW BLOCKED" in content
+    assert "unreviewed hypothesis" not in content
+    assert "private state detail" not in content
+
+
 def test_bounded_hypothesis_rewrites_stale_producer_call_to_evidence(
     monkeypatch,
 ) -> None:
@@ -1341,41 +1591,6 @@ def test_bounded_hypothesis_rewrites_stale_producer_call_to_evidence(
     assert call["args"]["subagent_type"] == "solar-evidence"
 
 
-def test_bounded_hypothesis_forces_independent_review_tool(monkeypatch) -> None:
-    middleware = _middleware(monkeypatch)
-    route = _route(
-        "verified_analysis",
-        source_mode="mixed",
-        task_intent="hypothesis_generation",
-        required_specialist="solar-hypothesis",
-    )
-    fake_store = MagicMock()
-    fake_store.bounded_hypothesis_action.return_value = {
-        "kind": "independent_review",
-        "stage": "hypothesis",
-        "review_mode": "hypothesis",
-        "artifact_refs": [],
-    }
-    fake_store.bounded_stage_action.return_value = (
-        fake_store.bounded_hypothesis_action.return_value
-    )
-    monkeypatch.setattr(
-        "jw.middleware.research_router.store_from_config", lambda _config: fake_store
-    )
-
-    response = middleware.wrap_model_call(
-        _request(
-            route=route,
-            tools=[_tool("task"), _tool("research_independent_review")],
-        ),
-        lambda _inner: ModelResponse(result=[AIMessage("looks acceptable")]),
-    )
-
-    call = response.result[0].tool_calls[0]
-    assert call["name"] == "research_independent_review"
-    assert call["args"] == {"review_mode": "hypothesis"}
-
-
 def test_bounded_hypothesis_terminal_state_removes_stale_model_tool_call(
     monkeypatch,
 ) -> None:
@@ -1389,8 +1604,8 @@ def test_bounded_hypothesis_terminal_state_removes_stale_model_tool_call(
     fake_store = MagicMock()
     fake_store.bounded_hypothesis_action.return_value = {
         "kind": "terminal",
-        "status": "human_review",
-        "reason": "heterogeneous reviewer unavailable",
+        "status": "blocked",
+        "reason": "required evidence unavailable",
     }
     fake_store.bounded_stage_action.return_value = (
         fake_store.bounded_hypothesis_action.return_value
@@ -1419,7 +1634,7 @@ def test_bounded_hypothesis_terminal_state_removes_stale_model_tool_call(
 
     message = response.result[0]
     assert not message.tool_calls
-    assert "status=human_review" in str(message.content)
+    assert "status=blocked" in str(message.content)
     assert "do not claim release acceptance" in str(message.content)
 
 
@@ -1443,7 +1658,7 @@ def test_model_review_state_uses_active_runnable_config_when_runtime_has_none(
     fake_store = MagicMock()
     fake_store.bounded_hypothesis_action.return_value = {
         "kind": "terminal",
-        "status": "human_review",
+        "status": "blocked",
     }
     fake_store.bounded_stage_action.return_value = (
         fake_store.bounded_hypothesis_action.return_value
@@ -1464,7 +1679,7 @@ def test_model_review_state_uses_active_runnable_config_when_runtime_has_none(
 
     assert seen
     assert all(config is active_config for config in seen)
-    assert "status=human_review" in str(response.result[0].content)
+    assert "status=blocked" in str(response.result[0].content)
 
 
 def test_bounded_data_route_forces_evidence_after_production(monkeypatch) -> None:

@@ -554,7 +554,10 @@ def get_chat_model(
     elif provider in _OPENAI_ROUTED_PROVIDERS:
         _original_provider = provider
         base_url_default, api_key_env = _OPENAI_ROUTED_PROVIDERS[provider]
-        if provider in {"dashscope", "dashscope-code"}:
+        uses_qwen_research_stream = provider in {"dashscope", "dashscope-code"} or (
+            provider == "custom-openai" and str(model_id).casefold().startswith("qwen3")
+        )
+        if uses_qwen_research_stream:
             kwargs.setdefault("stream_chunk_timeout", _dashscope_stream_chunk_timeout())
             kwargs.setdefault("timeout", _dashscope_request_timeout())
             kwargs.setdefault("max_retries", _dashscope_max_retries())
@@ -642,6 +645,11 @@ def get_chat_model(
         # Kimi Coding Plan requires claude-code User-Agent header
         if provider == "kimi-coding":
             kwargs.setdefault("default_headers", {})["User-Agent"] = "claude-code/0.1.0"
+            # Evidence reviews are tool-driven and can take longer than the
+            # provider's streamed HTTP connection remains open.  Use the
+            # ordinary response path whenever tools are bound so a completed
+            # tool call is not lost as an incomplete chunked stream.
+            kwargs.setdefault("disable_streaming", "tool_calling")
         provider = "anthropic"
 
     elif provider == "ollama":

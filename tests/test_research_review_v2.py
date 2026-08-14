@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import multiprocessing
 import sys
 from dataclasses import dataclass
@@ -15,14 +16,18 @@ from langgraph.types import Command
 from jw import paths
 from jw.middleware.research_review_orchestration import (
     ResearchReviewOrchestrationMiddleware,
+    _cycle26_readiness_from_paths,
+    _upstream_context,
+    _write_hypothesis_request,
 )
 from jw.research_review import ResearchReviewStore
 from jw.tools import research_planner as planner_tools
 from jw.tools.research_review import (
     _normalize_issues,
     evidence_review_record_assessment,
+    evidence_review_record_scientific_quality,
+    evidence_review_submit_round,
     evidence_review_submit_verdict,
-    research_independent_review,
 )
 from jw.tools.solar_feature import _task_chat_session
 from jw.workspaces import ensure_thread_workspace
@@ -74,46 +79,59 @@ def _issue(owner: str = "solar-planner") -> dict[str, object]:
     }
 
 
-def _accept(
-    store: ResearchReviewStore, mode: str, *, independently: bool = False
-) -> None:
+def _quality_claim(claim_id: str, *, component: str = "statement") -> dict[str, object]:
+    return {
+        "claim_id": claim_id,
+        "claim_component": component,
+        "load_bearing": True,
+        "evidence_matrix": [
+            {
+                "source_ref": None,
+                "evidence_role": "gap",
+                "source_class": "unknown",
+                "evidence_scope": "unknown",
+                "directness": "not_assessable",
+                "scope_match": "not_assessable",
+                "independence_group": "unresolved-gap",
+                "locator": "No inspected source section is available.",
+                "entailment": "not_assessable",
+                "quality_cap": "exploratory",
+                "rationale": "The missing source is recorded as a gap, not support.",
+            }
+        ],
+        "method_assessment": {
+            "design_status": "not_assessed",
+            "independent_sample_unit": "not assessed",
+            "independent_sample_count": None,
+            "validation_status": "not_assessed",
+            "uncertainty_status": "not_assessed",
+            "reproducibility_status": "not_assessed",
+            "notes": "No empirical analysis is asserted by this planning claim.",
+        },
+        "novelty_assessment": {
+            "status": "novelty_not_assessed",
+            "contribution_type": "not_assessed",
+            "novelty_delta": "Novelty has not been adjudicated.",
+            "nearest_prior_art": [],
+            "query_axes": [],
+            "searched_family_count": 0,
+            "search_cutoff": None,
+            "coverage_gaps": ["Nearest-prior-art review is pending."],
+        },
+        "conclusion_cap": "exploratory",
+        "quality_status": "exploratory",
+        "key_gaps": ["Independent evidence is unavailable."],
+    }
+
+
+def _accept(store: ResearchReviewStore, mode: str) -> None:
     target = store.latest_artifact(mode)
     assert target is not None
-    independent_review = None
-    if independently:
-        refs = [store.artifact_ref(target)]
-        _write_independent_receipt(store, mode, refs)
-        independent_review = {"status": "heterogeneous_pass"}
     store.submit_verdict(
         mode=mode,
         decision="accept",
         issues=[],
         accepted_claims=[target["claims"][0]["claim_id"]],
-        independent_review=independent_review,
-    )
-
-
-def _write_independent_receipt(
-    store: ResearchReviewStore,
-    mode: str,
-    artifact_refs: list[dict[str, object]],
-) -> None:
-    receipt = {
-        "schema_version": "independent-review-receipt-v1",
-        "task_id": store.task_id,
-        "review_mode": mode,
-        "artifact_refs": artifact_refs,
-        "reviewer_kind": "heterogeneous_model",
-        "reviewer_id": "review-model-b",
-        "decision": "pass",
-        "notes": "Independent hash-bound pass.",
-        "created_at": "2026-08-01T00:00:00+00:00",
-    }
-    receipt["receipt_sha256"] = canonical_json_sha256(receipt)
-    receipt_dir = store.root / "independent_reviews" / mode
-    receipt_dir.mkdir(parents=True, exist_ok=True)
-    (receipt_dir / "review-model-b.json").write_text(
-        json.dumps(receipt), encoding="utf-8"
     )
 
 
@@ -181,6 +199,110 @@ def test_review_context_omits_long_producer_report_but_keeps_hash_and_sources(
     assert "producer_result" not in projection
     assert "REDUNDANT-PRODUCER-REPORT" not in encoded
     assert len(encoded) < 20_000
+
+
+def test_review_context_explains_accepted_upstream_boundary(tmp_path: Path) -> None:
+    store = ResearchReviewStore(tmp_path, "upstream-acceptance-context")
+    data = store.checkpoint_producer_result(
+        stage="data",
+        producer="solar-data",
+        content="A task-local historical cycle table was produced.",
+        phase="bounded_data",
+    )
+    data_claim_id = data["claims"][0]["claim_id"]
+    store.submit_verdict(
+        mode="data",
+        decision="accept_with_limits",
+        issues=[],
+        accepted_claims=[data_claim_id],
+        carry_forward_limits=["No current-cycle predictive skill was tested."],
+    )
+    store.checkpoint_producer_result(
+        stage="hypothesis",
+        producer="solar-hypothesis",
+        content="A bounded precursor hypothesis.",
+        phase="bounded_hypothesis",
+    )
+
+    context = store.review_context("hypothesis")
+
+    assert context["upstream_acceptance"] == [
+        {
+            "artifact_ref": store._long_ref(data),
+            "stage": "data",
+            "decision": "accept_with_limits",
+            "accepted_claims": [data_claim_id],
+            "carry_forward_limits": ["No current-cycle predictive skill was tested."],
+            "interpretation": (
+                "The upstream artifact and its declared data/provenance boundary "
+                "passed Evidence review. Preserve its limits. This acceptance does "
+                "not by itself establish predictive skill, a causal mechanism, or "
+                "support for the current stage's scientific claim."
+            ),
+        }
+    ]
+
+
+def test_upstream_producer_context_preserves_acceptance_without_claiming_skill(
+    tmp_path: Path,
+) -> None:
+    store = ResearchReviewStore(tmp_path, "upstream-producer-context")
+    data = store.checkpoint_producer_result(
+        stage="data",
+        producer="solar-data",
+        content="A historical cycle table was produced.",
+        phase="bounded_data",
+    )
+    claim_id = data["claims"][0]["claim_id"]
+    store.submit_verdict(
+        mode="data",
+        decision="accept_with_limits",
+        issues=[],
+        accepted_claims=[claim_id],
+        carry_forward_limits=["The current cycle was not analyzed."],
+    )
+
+    context = json.loads(_upstream_context(store, "hypothesis"))
+
+    assert context[0]["review_decision"] == "accept_with_limits"
+    assert context[0]["accepted_claims"] == [claim_id]
+    assert context[0]["carry_forward_limits"] == ["The current cycle was not analyzed."]
+    assert "Do not describe it as absent, unreviewed" in context[0]["interpretation"]
+    assert "does not establish predictive skill" in context[0]["interpretation"]
+
+
+def test_hypothesis_request_declares_accepted_data_as_verified_material(
+    tmp_path: Path,
+) -> None:
+    store = ResearchReviewStore(tmp_path, "hypothesis-upstream-request")
+    (tmp_path / "task.json").write_text(
+        json.dumps({"research_question": "极区磁场能否约束下一太阳活动周期强度？"}),
+        encoding="utf-8",
+    )
+    data = store.checkpoint_producer_result(
+        stage="data",
+        producer="solar-data",
+        content="已生成周期 15 至 24 的极区磁场前兆表；样本小且相互依赖。",
+        phase="bounded_data",
+    )
+    store.submit_verdict(
+        mode="data",
+        decision="accept_with_limits",
+        issues=[],
+        accepted_claims=[data["claims"][0]["claim_id"]],
+        carry_forward_limits=["不能把特征表直接解释为预测技能。"],
+    )
+
+    relative = _write_hypothesis_request(store)
+    request = json.loads((tmp_path / relative).read_text(encoding="utf-8"))
+
+    assert request["research_question"] == "极区磁场能否约束下一太阳活动周期强度？"
+    assert len(request["upstream_materials"]) == 1
+    material = request["upstream_materials"][0]
+    assert material["material_kind"] == "data_feature"
+    assert "已生成周期 15 至 24" in material["content_notes"]
+    assert "不能把特征表直接解释为预测技能" in material["content_notes"]
+    assert "not predictive skill or a causal mechanism" in material["content_notes"]
 
 
 def test_policy_registry_severity_is_a_deterministic_floor(tmp_path: Path) -> None:
@@ -742,6 +864,15 @@ def test_evidence_issue_identities_must_be_field_level_unique() -> None:
         _normalize_issues([issue, {**issue, "message": "A second defect."}])
 
 
+def test_evidence_issue_normalizer_assigns_id_when_optional_field_is_null() -> None:
+    issue = _issue("solar-data")
+    issue["issue_id"] = None
+
+    normalized = _normalize_issues([issue])
+
+    assert normalized[0]["issue_id"] == "issue-001"
+
+
 def test_planning_preflight_requires_full_global_stage_closure(tmp_path: Path) -> None:
     planner_run = tmp_path / "planner" / "runs" / "missing-design"
     planner_run.mkdir(parents=True)
@@ -937,6 +1068,32 @@ def test_blocked_stage_reopens_after_versioned_harness_change_without_budget_res
     )
 
 
+def test_reviewer_failure_reopen_preserves_unreviewed_artifact(tmp_path: Path) -> None:
+    store = ResearchReviewStore(tmp_path, "reviewer-reopen-task")
+    artifact = store.checkpoint_producer_result(
+        stage="planning", producer="solar-planner", content="frozen plan"
+    )
+    failure = store.block_for_review_failures(
+        stage="planning",
+        reviewer="solar-evidence",
+        fingerprints=["a" * 64],
+    )
+
+    recovery = store.reopen_tool_failure_after_harness_change(
+        failure_receipt_sha256=failure["receipt_sha256"],
+        change_id="evidence-navigation-v1",
+    )
+
+    assert recovery["restored_stage_status"] == "produced"
+    assert store.latest_artifact("planning") == artifact
+    assert store.next_action() == {
+        "kind": "review",
+        "stage": "planning",
+        "review_mode": "planning",
+        "artifact_refs": [store.artifact_ref(artifact)],
+    }
+
+
 def test_latest_tool_failure_is_chronological_across_stage_directories(
     tmp_path: Path,
 ) -> None:
@@ -1063,6 +1220,16 @@ def test_known_hypothesis_v1_state_adapts_candidates_as_separate_claims() -> Non
                 "source_ref": source_ref,
                 "payload": {
                     "schema_version": 1,
+                    "evidence_register": [
+                        {
+                            "evidence_id": "E1",
+                            "evidence_kind": "literature",
+                            "material_id": "litbundle-1",
+                            "excerpt": "Exact abstract excerpt.",
+                            "verified_support": True,
+                            "role": "supports",
+                        }
+                    ],
                     "latest_draft": {
                         "response_kind": "hypotheses_ready",
                         "candidates": [
@@ -1085,7 +1252,9 @@ def test_known_hypothesis_v1_state_adapts_candidates_as_separate_claims() -> Non
     )
 
     assert [claim["claim_id"] for claim in adapted["claims"]] == ["hypothesis-H1"]
-    assert adapted["claims"][0]["supporting_evidence"] == [source_ref]
+    assert adapted["claims"][0]["supporting_evidence"] == ["hypothesis-evidence:E1"]
+    assert adapted["claims"][0]["limiting_evidence"] == []
+    assert adapted["payload"]["result_status"] == "scientific_content"
     assert adapted["claims"][0]["confidence"] == "low"
 
 
@@ -1527,7 +1696,7 @@ def test_experiment_result_issue_routes_back_to_data_owner(tmp_path: Path) -> No
         store.checkpoint_producer_result(
             stage=stage, producer=producer, content=f"{stage} result"
         )
-        _accept(store, stage, independently=stage == "hypothesis")
+        _accept(store, stage)
     store.checkpoint_producer_result(
         stage="experiment_result",
         producer="solar-experiment",
@@ -1560,7 +1729,7 @@ def test_full_graph_requires_post_experiment_hypothesis_update(tmp_path: Path) -
         store.checkpoint_producer_result(
             stage=stage, producer=producer, content=f"{stage} result"
         )
-        _accept(store, stage, independently=stage == "hypothesis")
+        _accept(store, stage)
 
     action = store.next_action()
     assert action == {
@@ -1579,53 +1748,11 @@ def test_full_graph_requires_post_experiment_hypothesis_update(tmp_path: Path) -
     )
     assert any("experiment_result" in ref for ref in updated["upstream_refs"])
     assert store.load_state()["stage_status"]["experiment_result"] == "accepted"
-    _accept(store, "hypothesis", independently=True)
+    _accept(store, "hypothesis")
     assert store.next_action()["review_mode"] == "integration"
 
 
-def test_reviewer_cannot_self_attest_heterogeneous_pass(tmp_path: Path) -> None:
-    store = ResearchReviewStore(tmp_path, "task-1")
-    artifact = store.checkpoint_producer_result(
-        stage="planning", producer="solar-planner", content="bounded plan"
-    )
-
-    verdict = store.submit_verdict(
-        mode="planning",
-        decision="accept",
-        issues=[],
-        accepted_claims=[artifact["claims"][0]["claim_id"]],
-        independent_review={
-            "status": "heterogeneous_pass",
-            "reviewer": "self-asserted-model",
-            "notes": "claimed without a receipt",
-        },
-    )
-
-    assert verdict["independent_review"]["status"] == "not_configured"
-    assert verdict["independent_review"]["reviewer"] is None
-
-
-def test_hash_bound_independent_receipt_is_accepted(tmp_path: Path) -> None:
-    store = ResearchReviewStore(tmp_path, "task-1")
-    artifact = store.checkpoint_producer_result(
-        stage="planning", producer="solar-planner", content="bounded plan"
-    )
-    ref = store.artifact_ref(artifact)
-    _write_independent_receipt(store, "planning", [ref])
-
-    verdict = store.submit_verdict(
-        mode="planning",
-        decision="accept",
-        issues=[],
-        accepted_claims=[artifact["claims"][0]["claim_id"]],
-        independent_review={"status": "heterogeneous_pass"},
-    )
-
-    assert verdict["independent_review"]["status"] == "heterogeneous_pass"
-    assert verdict["independent_review"]["reviewer"] == "review-model-b"
-
-
-def test_integration_mechanism_claims_require_independent_review(
+def test_integration_mechanism_claims_complete_after_evidence_review(
     tmp_path: Path,
 ) -> None:
     store = ResearchReviewStore(tmp_path, "task-1")
@@ -1640,14 +1767,14 @@ def test_integration_mechanism_claims_require_independent_review(
         store.checkpoint_producer_result(
             stage=stage, producer=producer, content=f"{stage} result"
         )
-        _accept(store, stage, independently=stage == "hypothesis")
+        _accept(store, stage)
     store.checkpoint_producer_result(
         stage="hypothesis",
         producer="solar-hypothesis",
         content="post-result mechanism update",
         phase="hypothesis_update",
     )
-    _accept(store, "hypothesis", independently=True)
+    _accept(store, "hypothesis")
     integration = store.ensure_integration_artifact()
 
     verdict = store.submit_verdict(
@@ -1655,23 +1782,10 @@ def test_integration_mechanism_claims_require_independent_review(
         decision="accept",
         issues=[],
         accepted_claims=[claim["claim_id"] for claim in integration["claims"]],
-        independent_review={"status": "heterogeneous_pass"},
     )
 
-    assert verdict["decision"] == "human_review"
-    assert verdict["issues"][0]["rule_id"] == "INDEPENDENT_REVIEW_REQUIRED"
-    assert store.next_action()["kind"] == "independent_review"
-
-    refs = [store.artifact_ref(integration)]
-    store.mark_independent_review_unavailable(
-        "integration", refs, "auxiliary model unavailable"
-    )
-    assert store.next_action() == {"kind": "terminal", "status": "human_review"}
-
-    _write_independent_receipt(store, "integration", refs)
-    action = store.next_action()
-    assert action["kind"] == "review"
-    assert action["independent_review"] == "pass"
+    assert verdict["decision"] == "accept"
+    assert store.next_action()["kind"] == "prepare_release"
 
 
 def test_final_release_requires_limits_and_returns_exact_accepted_text(
@@ -1689,23 +1803,21 @@ def test_final_release_requires_limits_and_returns_exact_accepted_text(
         store.checkpoint_producer_result(
             stage=stage, producer=producer, content=f"{stage} result"
         )
-        _accept(store, stage, independently=stage == "hypothesis")
+        _accept(store, stage)
     store.checkpoint_producer_result(
         stage="hypothesis",
         producer="solar-hypothesis",
         content="hypothesis updated from the observed result",
         phase="hypothesis_update",
     )
-    _accept(store, "hypothesis", independently=True)
+    _accept(store, "hypothesis")
     integration = store.ensure_integration_artifact()
-    _write_independent_receipt(store, "integration", [store.artifact_ref(integration)])
     store.submit_verdict(
         mode="integration",
         decision="accept_with_limits",
         issues=[],
         accepted_claims=[claim["claim_id"] for claim in integration["claims"]],
         carry_forward_limits=["No external replication is available."],
-        independent_review={"status": "heterogeneous_pass"},
     )
 
     cited_claim_id = integration["claims"][0]["claim_id"]
@@ -1745,6 +1857,20 @@ def test_final_release_requires_limits_and_returns_exact_accepted_text(
                 }
             ],
         )
+    novelty_report = report.replace(
+        "A coherent accepted synthesis.",
+        "首次提出一项原创机制。",
+    )
+    with pytest.raises(ValueError, match="high-risk causal, novelty"):
+        store.prepare_release(
+            novelty_report,
+            [
+                {
+                    "claim_id": cited_claim_id,
+                    "draft_excerpt": "首次提出一项原创机制。",
+                }
+            ],
+        )
     release = store.prepare_release(
         report,
         [
@@ -1761,17 +1887,7 @@ def test_final_release_requires_limits_and_returns_exact_accepted_text(
         accepted_claims=[release["claims"][0]["claim_id"]],
     )
 
-    assert first_release_verdict["decision"] == "human_review"
-    assert store.next_action()["kind"] == "independent_review"
-    _write_independent_receipt(store, "final_release", [store.artifact_ref(release)])
-    store.submit_verdict(
-        mode="final_release",
-        decision="accept",
-        issues=[],
-        accepted_claims=[release["claims"][0]["claim_id"]],
-        independent_review={"status": "heterogeneous_pass"},
-    )
-
+    assert first_release_verdict["decision"] == "accept"
     assert store.next_action()["kind"] == "released"
     assert store.accepted_release_markdown() == report
 
@@ -1851,6 +1967,66 @@ def test_orchestration_checkpoints_producer_and_forces_reviewer(
     blocked = middleware.wrap_tool_call(wrong, lambda _request: object())
     assert blocked.status == "error"
     assert "expected solar-evidence" in str(blocked.content)
+
+
+def test_orchestration_uses_preliminary_data_stage_for_hypothesis_route(
+    monkeypatch,
+) -> None:
+    store = type(
+        "Store",
+        (),
+        {
+            "bounded_sequence_action": lambda self, stages: {
+                "kind": "producer",
+                "stage": "data",
+                "producer": "solar-data",
+                "phase": "bounded_data",
+            },
+            "accepted_artifacts": lambda self: [],
+            "reserve_action": lambda self, action: None,
+        },
+    )()
+    monkeypatch.setattr(
+        "jw.middleware.research_review_orchestration.store_from_config",
+        lambda _config: store,
+    )
+    monkeypatch.setattr(
+        "jw.middleware.research_review_orchestration._open_data_context_preflight",
+        lambda _config, **_kwargs: {
+            "status": "input_missing",
+            "context_mode": "bounded",
+            "analysis_protocol": "none",
+            "required_data_product": None,
+            "must_stop": True,
+            "receipt_ref": "receipts/datasets/context.json",
+            "required_dataset_ids": [],
+            "missing_required_dataset_ids": [],
+            "eligible_inputs": [],
+            "instruction": "Report the missing input.",
+        },
+    )
+    request = _Request(
+        {
+            "name": "task",
+            "id": "call-preliminary-data",
+            "args": {"subagent_type": "solar-data", "description": "prepare evidence"},
+        },
+        {
+            "research_route": {
+                "mode": "verified_analysis",
+                "task_intent": "hypothesis_generation",
+                "required_specialist": "solar-hypothesis",
+                "preliminary_stages": ["data"],
+            }
+        },
+        _Runtime({}),
+    )
+
+    rewritten, action, early = ResearchReviewOrchestrationMiddleware()._prepare(request)
+
+    assert early is None
+    assert action["stage"] == "data"
+    assert "stage=data" in rewritten.tool_call["args"]["description"]
 
 
 def test_orchestration_binds_exact_user_question_into_planner_dispatch(
@@ -2085,6 +2261,102 @@ def test_data_dispatch_opens_and_injects_deterministic_context_once(
     assert "persist at least one additional task-local data artifact" in description
 
 
+def test_data_revision_returns_supervisor_readiness_receipt_without_reopening_context(
+    tmp_path: Path, monkeypatch
+) -> None:
+    from jw.middleware import research_review_orchestration as orchestration
+
+    config = _config(tmp_path, monkeypatch, "data-readiness-dispatch")
+    monkeypatch.setattr(
+        ResearchReviewStore,
+        "next_action",
+        lambda _self: {
+            "kind": "producer",
+            "stage": "data",
+            "producer": "solar-data",
+            "phase": "data_revision_from_data",
+        },
+    )
+    monkeypatch.setattr(
+        orchestration,
+        "_open_data_context_preflight",
+        lambda *_args, **_kwargs: {
+            "schema_version": "solar-data-context-v1",
+            "status": "inputs_available",
+            "must_stop": False,
+            "receipt_ref": "receipts/datasets/data-context-a.json",
+            "eligible_inputs": [{"path": "/project/data/SN_m_tot.csv"}],
+        },
+    )
+    persisted: list[object] = []
+
+    def persist(received_config, data_context):
+        persisted.append((received_config, dict(data_context)))
+        relative = Path("receipts/datasets/cycle26_launch_readiness.json")
+        workspace = Path(
+            ensure_thread_workspace("data-readiness-dispatch", tmp_path).workspace
+        )
+        target = workspace / relative
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(
+            json.dumps(
+                {
+                    "observation_cutoff": "2026-06-30",
+                    "silso": {
+                        "last_observed_month_at_cutoff": "2026-05",
+                        "missing_months_through_cutoff": ["2026-06"],
+                        "cycle25_to_cycle26_minimum_confirmed": False,
+                    },
+                    "polar_field": {
+                        "cycle26_minimum_precursor_bindable": False,
+                    },
+                    "f107": {"status": "gap"},
+                    "historical_calibration": {"cycle_pair_count": 10},
+                    "trigger_status": {"cycle25_minimum_confirmed": False},
+                    "launch_readiness": "do_not_launch",
+                    "claim_limit": "readiness audit only",
+                }
+            ),
+            encoding="utf-8",
+        )
+        return relative.as_posix()
+
+    monkeypatch.setattr(orchestration, "_persist_cycle26_readiness_receipt", persist)
+    request = _Request(
+        {
+            "name": "task",
+            "id": "call-data-readiness",
+            "args": {"subagent_type": "solar-data", "description": "revise"},
+        },
+        {
+            "research_route": {
+                "mode": "full_research",
+                "required_analysis_protocol": "solar_polar_precursor_v1",
+            },
+            "messages": [],
+        },
+        _Runtime(config),
+    )
+
+    rewritten, action, terminal = ResearchReviewOrchestrationMiddleware()._prepare(
+        request
+    )
+
+    assert action is not None
+    assert terminal is None
+    assert len(persisted) == 1
+    assert "Launch readiness: do_not_launch" in action["precomputed_producer_text"]
+    description = rewritten.tool_call["args"]["description"]
+    assert "readiness_receipt_ref" in description
+    assert "cycle26_launch_readiness.json" in description
+    assert '"status": "launch_not_ready"' in description
+    assert '"must_stop": true' in description
+    assert (
+        "return its bounded status immediately without another tool call" in description
+    )
+    assert "do not open or rediscover the context again" in description
+
+
 def test_planner_auto_freeze_validates_complete_draft_before_freezing(
     monkeypatch,
 ) -> None:
@@ -2264,6 +2536,73 @@ def test_orchestration_counts_local_preflight_failures_as_specialist_failures(
     assert store.load_state()["status"] == "blocked"
 
 
+def test_orchestration_stops_third_evidence_round_without_verdict(
+    tmp_path: Path, monkeypatch
+) -> None:
+    config = _config(tmp_path, monkeypatch, "evidence-no-verdict-stop")
+    binding = ensure_thread_workspace("evidence-no-verdict-stop", tmp_path)
+    store = ResearchReviewStore(Path(binding.workspace), "evidence-no-verdict-stop")
+    store.checkpoint_producer_result(
+        stage="planning", producer="solar-planner", content="plan"
+    )
+    messages = [HumanMessage(content="run full research")]
+    failure_text = (
+        "[RESEARCH REVIEW BLOCKED] solar-evidence returned without persisting "
+        "a hash-bound ReviewVerdictV2"
+    )
+    for index in range(2):
+        call_id = f"call-evidence-{index}"
+        messages.extend(
+            [
+                AIMessage(
+                    content="",
+                    tool_calls=[
+                        {
+                            "name": "task",
+                            "args": {"subagent_type": "solar-evidence"},
+                            "id": call_id,
+                            "type": "tool_call",
+                        }
+                    ],
+                ),
+                ToolMessage(
+                    content=failure_text,
+                    tool_call_id=call_id,
+                    name="task",
+                    status="error",
+                ),
+            ]
+        )
+    request = _Request(
+        {
+            "name": "task",
+            "id": "call-evidence-third",
+            "args": {
+                "subagent_type": "solar-evidence",
+                "description": "retry Evidence",
+            },
+        },
+        {"research_route": {"mode": "full_research"}, "messages": messages},
+        _Runtime(config),
+    )
+
+    result = ResearchReviewOrchestrationMiddleware().wrap_tool_call(
+        request,
+        lambda _rewritten: pytest.fail("third no-verdict review must stop"),
+    )
+
+    assert isinstance(result, Command)
+    assert result.goto == "__end__"
+    assert "failed twice" in str(result.update["messages"][0].content)
+    assert store.load_state()["status"] == "blocked"
+    assert store.load_state()["stage_status"]["planning"] == "blocked"
+    receipt = store.latest_tool_failure_receipt()
+    assert receipt is not None
+    assert receipt["specialist"] == "solar-evidence"
+    assert receipt["specialist_role"] == "reviewer"
+    assert "producer" not in receipt
+
+
 def test_orchestration_checkpoints_command_shaped_task_result(
     tmp_path: Path, monkeypatch
 ) -> None:
@@ -2371,7 +2710,7 @@ def test_canonical_revision_must_change_producer_source(
     assert revised["version"] == first["version"] + 1
 
 
-def test_bounded_mechanism_hypothesis_routes_to_independent_review(
+def test_bounded_mechanism_hypothesis_completes_after_evidence_review(
     tmp_path: Path,
 ) -> None:
     store = ResearchReviewStore(tmp_path, "bounded-independent-task")
@@ -2387,89 +2726,107 @@ def test_bounded_mechanism_hypothesis_routes_to_independent_review(
         issues=[],
         accepted_claims=[artifact["claims"][0]["claim_id"]],
     )
-    assert verdict["decision"] == "human_review"
+    assert verdict["decision"] == "accept"
     action = store.bounded_stage_action("hypothesis")
-    assert action["kind"] == "independent_review"
-
-    _write_independent_receipt(store, "hypothesis", action["artifact_refs"])
-    resumed = store.bounded_stage_action("hypothesis")
-    assert resumed["kind"] == "review"
-    assert resumed["independent_review"] == "pass"
+    assert action["kind"] == "released"
 
 
-def test_wrong_task_call_is_deterministically_redirected_to_independent_review(
-    tmp_path: Path, monkeypatch
-) -> None:
-    config = _config(tmp_path, monkeypatch, "wrong-independent-action-task")
-    workspace = Path(
-        ensure_thread_workspace("wrong-independent-action-task", tmp_path).workspace
+def test_bounded_sequence_advances_data_before_hypothesis(tmp_path: Path) -> None:
+    store = ResearchReviewStore(tmp_path, "bounded-sequence-task")
+
+    first = store.bounded_sequence_action(("data", "hypothesis"))
+    assert first["stage"] == "data"
+    data = store.checkpoint_producer_result(
+        stage="data",
+        producer="solar-data",
+        content="bounded data result at receipts/data.json",
+        phase="bounded_data",
     )
-    store = ResearchReviewStore(workspace, "wrong-independent-action-task")
+    _accept(store, "data")
+
+    second = store.bounded_sequence_action(("data", "hypothesis"))
+    assert second["stage"] == "hypothesis"
+    assert second["producer"] == "solar-hypothesis"
+    hypothesis = store.checkpoint_producer_result(
+        stage="hypothesis",
+        producer="solar-hypothesis",
+        content="A hypothesis constrained by the accepted Data result.",
+        phase="bounded_hypothesis",
+    )
+    assert hypothesis["upstream_refs"] == [store._long_ref(data)]
+
+
+def test_accepted_hypothesis_markdown_includes_evidence_and_closes_state(
+    tmp_path: Path,
+) -> None:
+    store = ResearchReviewStore(tmp_path, "accepted-hypothesis-reader-task")
     artifact = store.checkpoint_producer_result(
         stage="hypothesis",
         producer="solar-hypothesis",
-        content="bounded mechanism hypothesis",
+        content="# 最值得检验的假设\n\n极区场前兆主张。",
         phase="bounded_hypothesis",
+    )
+    claim = artifact["claims"][0]
+    store.record_assessment(
+        mode="hypothesis",
+        assessment_review_mode="two_pass",
+        claims=[
+            {
+                "claim_id": claim["claim_id"],
+                "kind": claim["kind"],
+                "disposition": "limited_support",
+                "supporting_evidence": ["inspected abstract"],
+                "opposing_evidence": [],
+                "rationale": "The inspected source supports only the historical relation.",
+                "key_uncertainty": "Cycle 25 is not a closed independent sample.",
+                "confidence": "low",
+                "next_test": "Freeze a cutoff and test after the cycle closes.",
+            }
+        ],
+    )
+    store.record_scientific_quality_assessment(
+        mode="hypothesis",
+        assessment_review_mode="two_pass",
+        claims=[_quality_claim(claim["claim_id"], component="mechanism")],
     )
     store.submit_verdict(
         mode="hypothesis",
-        decision="accept",
+        decision="accept_with_limits",
         issues=[],
-        accepted_claims=[artifact["claims"][0]["claim_id"]],
-    )
-    middleware = ResearchReviewOrchestrationMiddleware()
-    redirected: list[tuple[str, object]] = []
-    monkeypatch.setattr(
-        research_independent_review,
-        "func",
-        lambda mode, config=None: (
-            redirected.append((mode, config))
-            or '{"ok":false,"message":"heterogeneous reviewer unavailable"}'
-        ),
-    )
-    route = {
-        "research_route": {
-            "mode": "verified_analysis",
-            "task_intent": "hypothesis_update",
-            "required_specialist": "solar-hypothesis",
-        }
-    }
-    first_request = _Request(
-        {
-            "name": "task",
-            "id": "wrong-independent-1",
-            "args": {"subagent_type": "solar-hypothesis"},
-        },
-        route,
-        _Runtime(config),
-    )
-    result = middleware.wrap_tool_call(
-        first_request, lambda _request: pytest.fail("wrong action must not run")
+        accepted_claims=[claim["claim_id"]],
+        carry_forward_limits=["当前周期尚未闭合。"],
     )
 
-    assert isinstance(result, ToolMessage)
-    assert str(result.content).startswith("[DETERMINISTIC ACTION REDIRECT]")
-    assert redirected == [("hypothesis", config)]
-    assert store.bounded_stage_action("hypothesis")["kind"] == "independent_review"
+    rendered = store.accepted_bounded_markdown("hypothesis")
+
+    assert rendered is not None
+    assert "# 最值得检验的假设" in rendered
+    assert "## 独立证据审查" in rendered
+    assert "有限支持" in rendered
+    assert "### 证据矩阵" in rendered
+    assert "当前周期尚未闭合" in rendered
+    state = store.load_state()
+    assert state["status"] == "released"
+    assert state["current_stage"] == "hypothesis"
 
 
-def test_accept_decision_rejects_unresolved_major_issue(tmp_path: Path) -> None:
+def test_accept_decision_with_major_issue_routes_to_revision(tmp_path: Path) -> None:
     store = ResearchReviewStore(tmp_path, "decision-consistency-task")
     artifact = store.checkpoint_producer_result(
         stage="planning", producer="solar-planner", content="bounded plan"
     )
-    with pytest.raises(
-        ValueError, match="accept cannot carry unresolved critical or major"
-    ):
-        store.submit_verdict(
-            mode="planning",
-            decision="accept",
-            issues=[_issue("solar-planner")],
-            accepted_claims=[artifact["claims"][0]["claim_id"]],
-        )
+    verdict = store.submit_verdict(
+        mode="planning",
+        decision="accept",
+        issues=[_issue("solar-planner")],
+        accepted_claims=[artifact["claims"][0]["claim_id"]],
+    )
+
+    assert verdict["decision"] == "revise"
+    assert verdict["next_owner"] == "solar-planner"
 
 
-def test_accept_with_limits_rejects_unresolved_critical_issue(
+def test_accept_with_limits_and_critical_issue_routes_to_revision(
     tmp_path: Path,
 ) -> None:
     store = ResearchReviewStore(tmp_path, "critical-consistency-task")
@@ -2478,23 +2835,22 @@ def test_accept_with_limits_rejects_unresolved_critical_issue(
     )
     issue = _issue("solar-planner")
     issue["severity"] = "critical"
-    with pytest.raises(
-        ValueError,
-        match="accept_with_limits cannot carry unresolved critical or major",
-    ):
-        store.submit_verdict(
-            mode="planning",
-            decision="accept_with_limits",
-            issues=[issue],
-            accepted_claims=[artifact["claims"][0]["claim_id"]],
-            carry_forward_limits=["The critical defect remains unresolved."],
-        )
+    verdict = store.submit_verdict(
+        mode="planning",
+        decision="accept_with_limits",
+        issues=[issue],
+        accepted_claims=[artifact["claims"][0]["claim_id"]],
+        carry_forward_limits=["The critical defect remains unresolved."],
+    )
+
+    assert verdict["decision"] == "revise"
+    assert verdict["next_owner"] == "solar-planner"
 
 
-def test_stale_policy_human_review_reopens_current_artifact(
+def test_stale_policy_verdict_reopens_current_artifact(
     tmp_path: Path,
 ) -> None:
-    store = ResearchReviewStore(tmp_path, "stale-human-review-task")
+    store = ResearchReviewStore(tmp_path, "stale-verdict-task")
     artifact = store.checkpoint_producer_result(
         stage="hypothesis",
         producer="solar-hypothesis",
@@ -2507,7 +2863,7 @@ def test_stale_policy_human_review_reopens_current_artifact(
         issues=[],
         accepted_claims=[artifact["claims"][0]["claim_id"]],
     )
-    assert verdict["decision"] == "human_review"
+    assert verdict["decision"] == "accept"
     verdict_path = store.root / "verdicts" / f"{verdict['review_id']}.json"
     stale = json.loads(verdict_path.read_text(encoding="utf-8"))
     stale["policy_version"] = "evidence-policy-obsolete"
@@ -2519,7 +2875,7 @@ def test_stale_policy_human_review_reopens_current_artifact(
     assert store.load_state()["status"] == "active"
 
 
-def test_reviewer_issue_cannot_invent_unbound_numbers(tmp_path: Path) -> None:
+def test_reviewer_issue_can_state_a_numeric_acceptance_test(tmp_path: Path) -> None:
     store = ResearchReviewStore(tmp_path, "reviewer-number-task")
     store.checkpoint_producer_result(
         stage="planning",
@@ -2529,13 +2885,47 @@ def test_reviewer_issue_cannot_invent_unbound_numbers(tmp_path: Path) -> None:
     issue = _issue("solar-planner")
     issue["message"] = "The direct observations allegedly begin in 1976."
     issue["required_action"] = "State that only 4-5 independent pairs exist."
-    with pytest.raises(ValueError, match="numbers absent from the reviewed"):
-        store.submit_verdict(
-            mode="planning",
-            decision="revise",
-            issues=[issue],
-            next_owner="solar-planner",
-        )
+    verdict = store.submit_verdict(
+        mode="planning",
+        decision="revise",
+        issues=[issue],
+        next_owner="solar-planner",
+    )
+
+    assert verdict["decision"] == "revise"
+    assert verdict["issues"][0]["required_action"] == issue["required_action"]
+
+
+def test_reviewer_issue_identifier_suffix_is_not_a_scientific_number(
+    tmp_path: Path,
+) -> None:
+    store = ResearchReviewStore(tmp_path, "reviewer-identifier-task")
+    artifact = store.checkpoint_producer_result(
+        stage="data",
+        producer="solar-data",
+        content="The producer returned a framework stop instead of a data result.",
+        phase="bounded_data",
+    )
+    issue = _issue("solar-data")
+    issue["message"] = (
+        "Close issue_prov_bound_001 only after a real bounded result exists."
+    )
+    issue["required_action"] = (
+        "Replace issue_prov_bound_001 with a source-bound data result."
+    )
+    issue["acceptance_test"] = (
+        "issue_prov_bound_001 is backed by the accepted immutable source."
+    )
+
+    verdict = store.submit_verdict(
+        mode="data",
+        decision="revise",
+        issues=[issue],
+        next_owner="solar-data",
+    )
+
+    assert verdict["artifact_refs"] == [store.artifact_ref(artifact)]
+    assert verdict["decision"] == "revise"
 
 
 def test_orchestration_applies_same_review_loop_to_bounded_data(
@@ -2583,6 +2973,89 @@ def test_orchestration_applies_same_review_loop_to_bounded_data(
     assert artifact["payload"]["phase"] == "bounded_data"
 
 
+def test_orchestration_never_checkpoints_model_call_limit_as_science(
+    tmp_path: Path, monkeypatch
+) -> None:
+    config = _config(tmp_path, monkeypatch, "producer-budget-stop")
+    workspace = Path(
+        ensure_thread_workspace("producer-budget-stop", tmp_path).workspace
+    )
+    data_state = workspace / "work" / "solar_data" / "chat_session.json"
+    data_state.parent.mkdir(parents=True)
+    data_state.write_text('{"schema_version":1}', encoding="utf-8")
+    request = _Request(
+        {
+            "name": "task",
+            "id": "call-data-budget-stop",
+            "args": {"subagent_type": "solar-data", "description": "prepare data"},
+        },
+        {
+            "research_route": {
+                "mode": "verified_analysis",
+                "task_intent": "data_preparation",
+                "required_specialist": "solar-data",
+            }
+        },
+        _Runtime(config),
+    )
+
+    result = ResearchReviewOrchestrationMiddleware().wrap_tool_call(
+        request,
+        lambda rewritten: ToolMessage(
+            content="Model call limits exceeded: run limit (24/24)",
+            tool_call_id=rewritten.tool_call["id"],
+            name="task",
+        ),
+    )
+
+    assert result.status == "error"
+    assert "model-call budget" in str(result.content)
+    store = ResearchReviewStore(workspace, "producer-budget-stop")
+    assert store.latest_artifact("data") is None
+
+
+def test_cycle26_readiness_receipt_preserves_missing_launch_inputs(
+    tmp_path: Path,
+) -> None:
+    sunspot = tmp_path / "SN_m_tot_V2.0.txt"
+    rows: list[str] = []
+    ordinal = 0
+    for year in range(1990, 2027):
+        for month in range(1, 13):
+            if (year, month) > (2026, 5):
+                break
+            value = 60.0 - 50.0 * math.cos(2 * math.pi * ordinal / (11 * 12))
+            provisional = " *" if (year, month) >= (2026, 1) else ""
+            rows.append(
+                f"{year:04d} {month:02d} {year + (month - 0.5) / 12:.3f} "
+                f"{value:.1f} 1.0 30{provisional}"
+            )
+            ordinal += 1
+    sunspot.write_text("\n".join(rows) + "\n", encoding="ascii")
+    polar = tmp_path / "e_PField_MWO_WSO.csv"
+    polar.write_text(
+        "N MWO Date,N MWO PField,N MWO SEM,N WSO Date,N WSO PField,N WSO SEM,"
+        "S MWO Date,S MWO PField,S MWO SEM,S WSO Date,S WSO PField,S WSO SEM\n"
+        "2023.7,NaN,NaN,2023.7,0.15,0.1,2023.2,NaN,NaN,2023.1,-0.39,0.1\n",
+        encoding="utf-8",
+    )
+
+    receipt = _cycle26_readiness_from_paths(
+        sunspot,
+        polar,
+        {"row_count": 10, "cycle_numbers": list(range(15, 25))},
+    )
+
+    assert receipt["silso"]["last_observed_month_at_cutoff"] == "2026-05"
+    assert receipt["silso"]["missing_months_through_cutoff"] == ["2026-06"]
+    assert receipt["silso"]["cycle25_to_cycle26_minimum_confirmed"] is False
+    assert receipt["polar_field"]["cycle26_minimum_precursor_bindable"] is False
+    assert receipt["f107"]["status"] == "gap"
+    assert receipt["historical_calibration"]["cycle_pair_count"] == 10
+    assert receipt["trigger_status"]["historical_validation_completed"] is False
+    assert receipt["launch_readiness"] == "do_not_launch"
+
+
 def test_reviewer_cannot_pass_without_persisted_verdict(
     tmp_path: Path, monkeypatch
 ) -> None:
@@ -2614,6 +3087,58 @@ def test_reviewer_cannot_pass_without_persisted_verdict(
 
     assert result.status == "error"
     assert "without persisting" in str(result.content)
+
+
+def test_review_delegation_discards_parent_copied_artifact_text(
+    tmp_path: Path, monkeypatch
+) -> None:
+    config = _config(tmp_path, monkeypatch, "review-description-task")
+    binding = ensure_thread_workspace("review-description-task", tmp_path)
+    store = ResearchReviewStore(Path(binding.workspace), "review-description-task")
+    store.checkpoint_producer_result(
+        stage="hypothesis",
+        producer="solar-hypothesis",
+        content="bounded hypothesis",
+        phase="bounded_hypothesis",
+    )
+    request = _Request(
+        {
+            "name": "task",
+            "id": "call-evidence-description",
+            "args": {
+                "subagent_type": "solar-evidence",
+                "description": "PARENT_COPY " + ("duplicated artifact " * 200),
+            },
+        },
+        {
+            "research_route": {
+                "mode": "verified_analysis",
+                "task_intent": "hypothesis_update",
+                "required_specialist": "solar-hypothesis",
+            }
+        },
+        _Runtime(config),
+    )
+    captured = {}
+
+    def handler(rewritten):
+        captured["description"] = rewritten.tool_call["args"]["description"]
+        verdict = ResearchReviewStore(
+            Path(binding.workspace), "review-description-task"
+        ).persist_deterministic_preflight_verdict("hypothesis")
+        assert verdict is None
+        return ToolMessage(
+            content="review ended before submission",
+            tool_call_id=rewritten.tool_call["id"],
+            name="task",
+        )
+
+    ResearchReviewOrchestrationMiddleware().wrap_tool_call(request, handler)
+
+    assert captured["description"].startswith("[EVIDENCE_REVIEW_V2]")
+    assert "review_mode=hypothesis" in captured["description"]
+    assert "PARENT_COPY" not in captured["description"]
+    assert "duplicated artifact" not in captured["description"]
 
 
 def test_orchestration_short_circuits_model_for_deterministic_review_defect(
@@ -2655,158 +3180,6 @@ def test_orchestration_short_circuits_model_for_deterministic_review_defect(
     verdict = store.verdicts(mode="hypothesis")[-1]
     assert verdict["decision"] == "revise"
     assert verdict["issues"][0]["rule_id"] == "TEMPORAL_CAUSAL_ORDER"
-
-
-def test_configured_heterogeneous_tool_writes_separate_receipt(
-    tmp_path: Path, monkeypatch
-) -> None:
-    config = _config(tmp_path, monkeypatch, "heterogeneous-task")
-    binding = ensure_thread_workspace("heterogeneous-task", tmp_path)
-    store = ResearchReviewStore(Path(binding.workspace), "heterogeneous-task")
-    producers = {
-        "planning": "solar-planner",
-        "data": "solar-data",
-        "hypothesis": "solar-hypothesis",
-        "experiment_design": "solar-experiment",
-        "experiment_result": "solar-experiment",
-    }
-    for stage, producer in producers.items():
-        store.checkpoint_producer_result(
-            stage=stage, producer=producer, content=f"{stage} result"
-        )
-        _accept(store, stage, independently=stage == "hypothesis")
-    store.checkpoint_producer_result(
-        stage="hypothesis",
-        producer="solar-hypothesis",
-        content="post-result mechanism update",
-        phase="hypothesis_update",
-    )
-    _accept(store, "hypothesis", independently=True)
-    integration = store.ensure_integration_artifact()
-    store.submit_verdict(
-        mode="integration",
-        decision="accept",
-        issues=[],
-        accepted_claims=[claim["claim_id"] for claim in integration["claims"]],
-        independent_review={"status": "heterogeneous_pass"},
-    )
-
-    class FakeModel:
-        def with_structured_output(self, _schema, **kwargs):
-            assert kwargs == {"method": "json_mode"}
-            return self
-
-        def invoke(self, messages):
-            prompt = messages[0]["content"]
-            assert "decision must be the string pass or fail" in prompt
-            assert "notes must be one string" in prompt
-            assert "Do not return arrays, nested objects" in prompt
-            return {"decision": "pass", "notes": "independent bounded pass"}
-
-    monkeypatch.setattr(
-        "jw.config.get_effective_config",
-        lambda: SimpleNamespace(
-            model="primary-model",
-            provider="primary-provider",
-            auxiliary_model="review-model",
-            auxiliary_provider="review-provider",
-            independent_review_model="deepseek-v4-pro",
-            independent_review_provider="deepseek",
-        ),
-    )
-    monkeypatch.setattr("jw.llm.get_chat_model", lambda **_kwargs: FakeModel())
-
-    result = json.loads(research_independent_review.func("integration", config=config))
-
-    assert result["ok"] is True
-    assert result["result"]["reviewer_id"] == "deepseek:deepseek-v4-pro"
-    assert store.next_action()["kind"] == "review"
-
-
-def test_same_qwen_family_cannot_satisfy_heterogeneous_release_gate(
-    tmp_path: Path, monkeypatch
-) -> None:
-    config = _config(tmp_path, monkeypatch, "same-family-review-task")
-    binding = ensure_thread_workspace("same-family-review-task", tmp_path)
-    store = ResearchReviewStore(Path(binding.workspace), "same-family-review-task")
-    artifact = store.checkpoint_producer_result(
-        stage="hypothesis",
-        producer="solar-hypothesis",
-        content="bounded mechanism hypothesis",
-        phase="bounded_hypothesis",
-    )
-    verdict = store.submit_verdict(
-        mode="hypothesis",
-        decision="accept",
-        issues=[],
-        accepted_claims=[artifact["claims"][0]["claim_id"]],
-    )
-    assert verdict["decision"] == "human_review"
-
-    monkeypatch.setattr(
-        "jw.config.get_effective_config",
-        lambda: SimpleNamespace(
-            model="qwen3.7-max",
-            provider="dashscope",
-            auxiliary_model="qwen3.7-plus",
-            auxiliary_provider="dashscope",
-        ),
-    )
-    monkeypatch.setattr(
-        "jw.llm.get_chat_model",
-        lambda **_kwargs: pytest.fail("same-family reviewer must not be invoked"),
-    )
-
-    result = json.loads(research_independent_review.func("hypothesis", config=config))
-
-    assert result["ok"] is False
-    assert (
-        "no genuinely heterogeneous independent-review model family"
-        in result["message"]
-    )
-    assert store.bounded_stage_action("hypothesis")["kind"] == "terminal"
-    assert store.load_state()["status"] == "human_review"
-
-
-def test_changed_auxiliary_reviewer_configuration_reopens_independent_action(
-    tmp_path: Path, monkeypatch
-) -> None:
-    store = ResearchReviewStore(tmp_path, "changed-reviewer-task")
-    artifact = store.checkpoint_producer_result(
-        stage="hypothesis",
-        producer="solar-hypothesis",
-        content="bounded mechanism hypothesis",
-        phase="bounded_hypothesis",
-    )
-    store.submit_verdict(
-        mode="hypothesis",
-        decision="accept",
-        issues=[],
-        accepted_claims=[artifact["claims"][0]["claim_id"]],
-    )
-    refs = [store.artifact_ref(artifact)]
-    store.mark_independent_review_unavailable(
-        "hypothesis",
-        refs,
-        "review-model-a unavailable",
-        reviewer_id="provider-a:review-model-a@independent-review-tool-v2",
-    )
-    current = SimpleNamespace(
-        model="primary-model",
-        provider="primary-provider",
-        auxiliary_model="review-model-a",
-        auxiliary_provider="provider-a",
-    )
-    monkeypatch.setattr(
-        "jw.config.get_effective_config",
-        lambda: current,
-    )
-    assert store.bounded_stage_action("hypothesis")["kind"] == "terminal"
-
-    current.auxiliary_model = "review-model-b"
-    reopened = store.bounded_stage_action("hypothesis")
-    assert reopened["kind"] == "independent_review"
-    assert reopened["artifact_refs"] == refs
 
 
 def test_record_assessment_roundtrip_and_state_isolation(tmp_path: Path) -> None:
@@ -2920,6 +3293,16 @@ def test_evidence_tool_requires_exactly_one_complete_current_assessment(
     assert duplicate["ok"] is False
     assert "already recorded" in duplicate["message"]
 
+    quality = json.loads(
+        evidence_review_record_scientific_quality.func(
+            review_mode="planning",
+            assessment_review_mode="two_pass",
+            claims=[_quality_claim(claim["claim_id"])],
+            config=config,
+        )
+    )
+    assert quality["ok"] is True
+
     accepted = json.loads(
         evidence_review_submit_verdict.func(
             review_mode="planning",
@@ -2931,6 +3314,174 @@ def test_evidence_tool_requires_exactly_one_complete_current_assessment(
     )
     assert accepted["ok"] is True
     assert accepted["result"]["decision"] == "accept"
+
+
+def test_evidence_submit_round_persists_exactly_one_bound_triplet(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.setenv("JW_EVIDENCE_REVIEW_MODE", "two_pass")
+    config = _config(tmp_path, monkeypatch, "atomic-round-task")
+    binding = ensure_thread_workspace("atomic-round-task", tmp_path)
+    store = ResearchReviewStore(Path(binding.workspace), "atomic-round-task")
+    artifact = store.checkpoint_producer_result(
+        stage="data",
+        producer="solar-data",
+        content="Three independent cycles; monthly rows are repeated measures.",
+        phase="bounded_data",
+    )
+    claim = artifact["claims"][0]
+    assessment_claim = {
+        "claim_id": claim["claim_id"],
+        "kind": "conclusion",
+        "disposition": "limited_support",
+        "supporting_evidence": [],
+        "opposing_evidence": ["Only three independent solar-cycle units."],
+        "rationale": "Monthly rows cannot inflate the independent cycle count.",
+        "key_uncertainty": "No independent holdout cycle is available.",
+        "confidence": "high",
+        "next_test": "Evaluate a future independently observed solar cycle.",
+    }
+
+    submitted = json.loads(
+        evidence_review_submit_round.func(
+            review_mode="data",
+            assessment_review_mode="two_pass",
+            assessment_claims=[assessment_claim],
+            scientific_quality_claims=[_quality_claim(claim["claim_id"])],
+            decision="block",
+            issues=[
+                {
+                    "rule_id": "SAMPLE_INDEPENDENCE_AND_UNCERTAINTY",
+                    "severity": "critical",
+                    "claim_ref": claim["claim_id"],
+                    "evidence_refs": [],
+                    "owner": "solar-data",
+                    "message": "Monthly rows are not independent cycle outcomes.",
+                    "required_action": "Use the solar cycle as the independent unit.",
+                    "acceptance_test": "The reported n equals independent cycles.",
+                }
+            ],
+            blocked_claims=[claim["claim_id"]],
+            carry_forward_limits=["Only three independent complete cycles."],
+            config=config,
+        )
+    )
+
+    assert submitted["ok"] is True
+    result = submitted["result"]
+    assert result["round"] == 1
+    assert result["assessment"]["round"] == 1
+    assert result["assessment"]["claims"][0]["kind"] == claim["kind"]
+    assert result["assessment"]["claims"][0]["disposition"] == "undecided"
+    assert result["scientific_quality_assessment"]["round"] == 1
+    assert result["verdict"]["round"] == 1
+    assert result["verdict"]["decision"] == "block"
+    assert len(store.assessments(mode="data")) == 1
+    assert len(store.scientific_quality_assessments(mode="data")) == 1
+    assert len(store.verdicts(mode="data")) == 1
+
+
+def test_evidence_submit_round_does_not_call_an_unsupported_claim_limited_support(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.setenv("JW_EVIDENCE_REVIEW_MODE", "two_pass")
+    config = _config(tmp_path, monkeypatch, "atomic-round-no-support-task")
+    binding = ensure_thread_workspace("atomic-round-no-support-task", tmp_path)
+    store = ResearchReviewStore(Path(binding.workspace), "atomic-round-no-support-task")
+    artifact = store.checkpoint_producer_result(
+        stage="hypothesis",
+        producer="solar-hypothesis",
+        content="An exploratory, falsifiable interaction hypothesis with no empirical result.",
+        phase="bounded_hypothesis",
+    )
+    claim = artifact["claims"][0]
+
+    submitted = json.loads(
+        evidence_review_submit_round.func(
+            review_mode="hypothesis",
+            assessment_review_mode="two_pass",
+            assessment_claims=[
+                {
+                    "claim_id": claim["claim_id"],
+                    "kind": claim["kind"],
+                    "disposition": "limited_support",
+                    "supporting_evidence": [],
+                    "opposing_evidence": [],
+                    "rationale": "The claim is testable but has not been tested.",
+                    "key_uncertainty": "The interaction estimate is unavailable.",
+                    "confidence": "low",
+                    "next_test": "Estimate the preregistered interaction.",
+                }
+            ],
+            scientific_quality_claims=[_quality_claim(claim["claim_id"])],
+            decision="accept_with_limits",
+            issues=[],
+            accepted_claims=[claim["claim_id"]],
+            carry_forward_limits=["No empirical interaction result is available."],
+            config=config,
+        )
+    )
+
+    assert submitted["ok"] is True
+    assert submitted["result"]["assessment"]["claims"][0]["disposition"] == "undecided"
+    assert submitted["result"]["verdict"]["decision"] == "accept_with_limits"
+
+
+def test_evidence_submit_round_rejection_leaves_no_unbound_sidecars(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.setenv("JW_EVIDENCE_REVIEW_MODE", "two_pass")
+    config = _config(tmp_path, monkeypatch, "atomic-round-rejection-task")
+    binding = ensure_thread_workspace("atomic-round-rejection-task", tmp_path)
+    store = ResearchReviewStore(Path(binding.workspace), "atomic-round-rejection-task")
+    artifact = store.checkpoint_producer_result(
+        stage="data",
+        producer="solar-data",
+        content="Three independent cycles; monthly rows are repeated measures.",
+        phase="bounded_data",
+    )
+    claim = artifact["claims"][0]
+
+    submitted = json.loads(
+        evidence_review_submit_round.func(
+            review_mode="data",
+            assessment_review_mode="two_pass",
+            assessment_claims=[
+                {
+                    "claim_id": claim["claim_id"],
+                    "kind": claim["kind"],
+                    "disposition": "limited_support",
+                    "supporting_evidence": [],
+                    "opposing_evidence": [],
+                    "rationale": "The independent sample is small.",
+                    "key_uncertainty": "No holdout cycle is available.",
+                    "confidence": "high",
+                    "next_test": "Observe another complete cycle.",
+                }
+            ],
+            scientific_quality_claims=[_quality_claim(claim["claim_id"])],
+            decision="revise",
+            issues=[
+                {
+                    "rule_id": "SAMPLE_INDEPENDENCE_AND_UNCERTAINTY",
+                    "severity": "major",
+                    "claim_ref": claim["claim_id"],
+                    "evidence_refs": [],
+                    "owner": "solar-data",
+                    "message": "The scope-matched count is unresolved.",
+                    "required_action": "Report the complete-cycle count.",
+                    "acceptance_test": "The count equals independent cycles.",
+                }
+            ],
+            next_owner="",
+            config=config,
+        )
+    )
+
+    assert submitted["ok"] is False
+    assert store.assessments(mode="data") == []
+    assert store.scientific_quality_assessments(mode="data") == []
+    assert store.verdicts(mode="data") == []
 
 
 def test_record_assessment_requires_every_reviewed_claim(tmp_path: Path) -> None:

@@ -2,13 +2,13 @@ const TERMINAL_PREFIX = "[RESEARCH REVIEW TERMINAL]";
 
 /**
  * @typedef {Object} ResearchTerminal
- * @property {"blocked" | "human_review"} status
+ * @property {"blocked"} status
  * @property {string} reasonCode
  * @property {string} [stage]
  * @property {string} [producer]
  * @property {number} [failureCount]
  * @property {string} [summary]
- * @property {"new_task_after_fix" | "configure_auxiliary_reviewer" | "human_review"} [recovery]
+ * @property {"new_task_after_fix"} [recovery]
  * @property {string} [raw]
  */
 
@@ -24,11 +24,11 @@ export function parseResearchTerminalMessage(content) {
   const statusMatch = raw.match(/\bstatus=([^;.]+)/i);
   const reasonMatch = raw.match(/\breason=([^;.]+)/i);
   const status = statusMatch?.[1]?.trim();
-  if (status !== "blocked" && status !== "human_review") return null;
+  if (status !== "blocked") return null;
   return {
     status,
     reasonCode: normalizeReasonCode(reasonMatch?.[1]),
-    recovery: status === "human_review" ? "human_review" : "new_task_after_fix",
+    recovery: "new_task_after_fix",
     raw,
   };
 }
@@ -36,8 +36,6 @@ export function parseResearchTerminalMessage(content) {
 function normalizeReasonCode(value) {
   const reason = String(value || "UNRESOLVED_REVIEW_GATE").trim();
   if (/^[A-Z][A-Z0-9_]+$/.test(reason)) return reason;
-  if (/independent review/i.test(reason)) return "INDEPENDENT_REVIEW_REQUIRED";
-  if (/human.review/i.test(reason)) return "HUMAN_REVIEW_REQUIRED";
   return "UNRESOLVED_REVIEW_GATE";
 }
 
@@ -76,26 +74,6 @@ export function describeResearchTerminal(terminal) {
       description: "本轮已达到允许的最大动作次数，系统停止继续调用工具。",
       action: "请缩小任务范围，或新建任务后分阶段执行。",
       tone: "blocked",
-    };
-  }
-  if (
-    terminal.reasonCode === "INDEPENDENT_REVIEW_REQUIRED" ||
-    terminal.recovery === "configure_auxiliary_reviewer"
-  ) {
-    return {
-      title: "需要独立模型复核",
-      description:
-        "当前结论需要不同模型家族进行独立审查，不能由主模型自行复核。",
-      action: "请配置非同家族的辅助审查模型后，在新任务中重新运行审查。",
-      tone: "human_review",
-    };
-  }
-  if (terminal.status === "human_review") {
-    return {
-      title: "需要人工复核",
-      description: terminal.summary || "当前证据存在无法自动裁决的审查要求。",
-      action: "请由领域专家检查已保存的产物和未解决问题。",
-      tone: "human_review",
     };
   }
   return {

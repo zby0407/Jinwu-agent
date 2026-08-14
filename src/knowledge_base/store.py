@@ -182,21 +182,13 @@ CREATE TABLE IF NOT EXISTS wiki_candidate_patches (
   relation TEXT NOT NULL,
   patch TEXT NOT NULL,
   patch_sha256 TEXT NOT NULL,
-  status TEXT NOT NULL DEFAULT 'pending',
-  review_queue_id INTEGER,
+  status TEXT NOT NULL DEFAULT 'proposal_only',
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL,
   UNIQUE(target_entry_id, family_id, patch_sha256),
   FOREIGN KEY (target_entry_id) REFERENCES entries(id),
   FOREIGN KEY (source_id) REFERENCES lit_sources(source_id),
   FOREIGN KEY (impact_id) REFERENCES lit_entry_impacts(id)
-);
-CREATE TABLE IF NOT EXISTS review_queue (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  kind TEXT,
-  entry_id TEXT, payload TEXT,
-  status TEXT,
-  reviewer TEXT, decided_at TEXT, note TEXT
 );
 CREATE VIRTUAL TABLE IF NOT EXISTS entries_fts USING fts5(id UNINDEXED, title, content);
 """
@@ -474,8 +466,7 @@ class KnowledgeStore:
               relation TEXT NOT NULL,
               patch TEXT NOT NULL,
               patch_sha256 TEXT NOT NULL,
-              status TEXT NOT NULL DEFAULT 'pending',
-              review_queue_id INTEGER,
+              status TEXT NOT NULL DEFAULT 'proposal_only',
               created_at TEXT NOT NULL,
               updated_at TEXT NOT NULL,
               UNIQUE(target_entry_id, family_id, patch_sha256),
@@ -486,6 +477,10 @@ class KnowledgeStore:
             CREATE INDEX IF NOT EXISTS idx_wiki_candidate_patches_status
               ON wiki_candidate_patches(status, created_at DESC);
             """
+        )
+        self._conn.execute(
+            "UPDATE wiki_candidate_patches SET status = 'proposal_only' "
+            "WHERE status = 'pending'"
         )
 
         rows = self._conn.execute(
@@ -595,7 +590,6 @@ class KnowledgeStore:
             if not provenance.get("lit_source_id"):
                 continue
             changed = False
-            needs_review = False
             if entry.get("confidence") == "high":
                 entry["confidence"] = "medium"
                 provenance["confidence_migration"] = (
@@ -610,16 +604,10 @@ class KnowledgeStore:
                 changed = True
             relevance = provenance.get("relevance")
             task_bound_and_validated = bool(
-                (
-                    isinstance(relevance, dict)
-                    and relevance.get("classification") == "direct_support"
-                    and provenance.get("research_question")
-                    and provenance.get("research_request_sha256")
-                )
-                or (
-                    provenance.get("revalidated_at")
-                    and provenance.get("human_reviewed")
-                )
+                isinstance(relevance, dict)
+                and relevance.get("classification") == "direct_support"
+                and provenance.get("research_question")
+                and provenance.get("research_request_sha256")
             )
             legacy_relevance = {"classification": "legacy_unverified"}
             if (
@@ -634,10 +622,8 @@ class KnowledgeStore:
                     "legacy literature distillation predates task-bound relevance validation"
                 )
                 changed = True
-                needs_review = entry.get("status") not in {"deprecated", "superseded"}
             legacy_doi_promotion = bool(
                 provenance.get("auto_rule") == "literature_support"
-                and not provenance.get("human_reviewed")
             )
             if legacy_doi_promotion and not provenance.get(
                 "legacy_promotion_invalidated"
@@ -648,9 +634,6 @@ class KnowledgeStore:
                 provenance["legacy_status_before_migration"] = "canonical"
                 entry["status"] = "candidate"
                 changed = True
-            needs_review = bool(provenance.get("grounding_blocked")) and entry.get(
-                "status"
-            ) not in {"deprecated", "superseded"}
             if changed:
                 entry["provenance"] = provenance
                 entry["version"] = int(entry.get("version") or 0) + 1
@@ -658,28 +641,8 @@ class KnowledgeStore:
                 self.update_entry(
                     entry,
                     changed_by="knowledge-base-migration",
-                    reason="legacy_literature_revalidation_required",
+                    reason="legacy_literature_reingestion_required",
                 )
-            if needs_review:
-                pending = self._conn.execute(
-                    "SELECT id FROM review_queue WHERE kind = 'revalidate' "
-                    "AND entry_id = ? AND status = 'pending' LIMIT 1",
-                    (entry["id"],),
-                ).fetchone()
-                if pending is None:
-                    self.add_review_item(
-                        kind="revalidate",
-                        entry_id=entry["id"],
-                        payload={
-                            "reason": provenance.get("grounding_block_reason", ""),
-                            "required_checks": [
-                                "research-question/focus binding",
-                                "source-to-focus direct relevance",
-                                "claim-to-quote support",
-                                "confidence calibration",
-                            ],
-                        },
-                    )
 
     # ------------------------------------------------------------------
     # row <-> dict
@@ -938,76 +901,6 @@ class KnowledgeStore:
         return [self._row_to_entry(row) for row in rows]
 
     # ------------------------------------------------------------------
-    # review_queue
-    # ------------------------------------------------------------------
-    @_locked
-    def add_review_item(
-        self,
-        *,
-        kind: str,
-        entry_id: str,
-        payload: dict[str, Any],
-        status: str = "pending",
-        reviewer: str = "",
-        note: str = "",
-    ) -> int:
-        cursor = self._conn.execute(
-            "INSERT INTO review_queue (kind, entry_id, payload, status, reviewer, "
-            "decided_at, note) VALUES (?, ?, ?, ?, ?, ?, ?)",
-            (
-                kind,
-                entry_id,
-                json.dumps(payload, ensure_ascii=False),
-                status,
-                reviewer,
-                utc_now() if status == "auto_approved" else None,
-                note,
-            ),
-        )
-        self._conn.commit()
-        return int(cursor.lastrowid)
-
-    def get_review_item(self, queue_id: int) -> dict[str, Any] | None:
-        row = self._conn.execute(
-            "SELECT * FROM review_queue WHERE id = ?", (queue_id,)
-        ).fetchone()
-        if not row:
-            return None
-        item = dict(row)
-        item["payload"] = json.loads(item["payload"]) if item.get("payload") else {}
-        return item
-
-    @_locked
-    def decide_review_item(
-        self, queue_id: int, *, status: str, reviewer: str, note: str
-    ) -> None:
-        self._conn.execute(
-            "UPDATE review_queue SET status = ?, reviewer = ?, decided_at = ?, "
-            "note = ? WHERE id = ?",
-            (status, reviewer, utc_now(), note, queue_id),
-        )
-        self._conn.commit()
-
-    def pending_review_items(
-        self, *, kind: str = "", entry_id: str = ""
-    ) -> list[dict[str, Any]]:
-        sql = "SELECT * FROM review_queue WHERE status = 'pending'"
-        params: list[Any] = []
-        if kind:
-            sql += " AND kind = ?"
-            params.append(kind)
-        if entry_id:
-            sql += " AND (entry_id = ? OR payload LIKE ?)"
-            params.extend((entry_id, f'%"{entry_id}"%'))
-        sql += " ORDER BY id"
-        items: list[dict[str, Any]] = []
-        for row in self._conn.execute(sql, params).fetchall():
-            item = dict(row)
-            item["payload"] = json.loads(item["payload"]) if item.get("payload") else {}
-            items.append(item)
-        return items
-
-    # ------------------------------------------------------------------
     # lit_sources (plan §5.3 literature cache)
     # ------------------------------------------------------------------
     _LIT_COLUMNS = (
@@ -1219,7 +1112,7 @@ class KnowledgeStore:
         row = self._conn.execute(sql).fetchone()
         return int(row["count"] if row else 0)
 
-    def _queue_literature_retraction_reviews(self, source_id: str) -> None:
+    def _block_literature_retraction_impacts(self, source_id: str) -> None:
         impacts = self._conn.execute(
             "SELECT * FROM lit_entry_impacts WHERE source_id = ? "
             "AND status <> 'rejected'",
@@ -1227,29 +1120,27 @@ class KnowledgeStore:
         ).fetchall()
         for impact in impacts:
             entry_id = str(impact["entry_id"])
-            already_pending = self._conn.execute(
-                "SELECT 1 FROM review_queue WHERE kind = 'literature_retraction' "
-                "AND entry_id = ? AND status = 'pending' "
-                "AND payload LIKE ? LIMIT 1",
-                (entry_id, f'%"source_id": "{source_id}"%'),
-            ).fetchone()
-            if already_pending:
-                continue
             self._conn.execute(
-                "UPDATE lit_entry_impacts SET status = 'needs_revalidation', "
+                "UPDATE lit_entry_impacts SET status = 'source_retracted', "
                 "updated_at = ? WHERE id = ?",
                 (utc_now(), int(impact["id"])),
             )
-            payload = {
-                "source_id": source_id,
-                "impact_id": int(impact["id"]),
-                "reason": "linked literature source is retracted",
-            }
-            self._conn.execute(
-                "INSERT INTO review_queue "
-                "(kind, entry_id, payload, status, reviewer, decided_at, note) "
-                "VALUES ('literature_retraction', ?, ?, 'pending', '', NULL, '')",
-                (entry_id, json.dumps(payload, ensure_ascii=False)),
+            entry = self.get_entry(entry_id)
+            if entry is None or entry.get("status") in {"deprecated", "superseded"}:
+                continue
+            provenance = dict(entry.get("provenance") or {})
+            provenance["grounding_blocked"] = True
+            provenance["grounding_block_reason"] = (
+                f"linked literature source {source_id} is retracted; "
+                "fresh task-bound evidence is required"
+            )
+            entry["provenance"] = provenance
+            entry["version"] = int(entry.get("version") or 0) + 1
+            entry["updated_at"] = utc_now()
+            self.update_entry(
+                entry,
+                changed_by="knowledge-base-retraction-guard",
+                reason="source_retracted_grounding_block",
             )
 
     def _family_for_record(self, record: dict[str, Any]) -> str:
@@ -1404,7 +1295,7 @@ class KnowledgeStore:
                 detected_at=observed_at,
             )
         if "source_retracted" in event_types:
-            self._queue_literature_retraction_reviews(source_id)
+            self._block_literature_retraction_impacts(source_id)
         self._conn.commit()
         result = self.get_lit_source(source_id) or {}
         result["delta_types"] = event_types
@@ -1739,7 +1630,7 @@ class KnowledgeStore:
             "INSERT OR IGNORE INTO wiki_candidate_patches "
             "(patch_id, target_entry_id, base_version, source_id, family_id, "
             "impact_id, relation, patch, patch_sha256, status, created_at, updated_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?)",
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'proposal_only', ?, ?)",
             (
                 patch_id,
                 target_entry_id,
@@ -1754,30 +1645,6 @@ class KnowledgeStore:
                 now,
             ),
         )
-        patch_row = self.get_wiki_candidate_patch(patch_id)
-        if patch_row and patch_row.get("review_queue_id") is None:
-            cursor = self._conn.execute(
-                "INSERT INTO review_queue "
-                "(kind, entry_id, payload, status, reviewer, decided_at, note) "
-                "VALUES ('wiki_patch', ?, ?, 'pending', '', NULL, '')",
-                (
-                    target_entry_id,
-                    json.dumps(
-                        {
-                            "patch_id": patch_id,
-                            "impact_id": int(impact_id),
-                            "base_version": int(base_version),
-                            "relation": relation,
-                        },
-                        ensure_ascii=False,
-                    ),
-                ),
-            )
-            self._conn.execute(
-                "UPDATE wiki_candidate_patches SET review_queue_id = ? "
-                "WHERE patch_id = ?",
-                (int(cursor.lastrowid), patch_id),
-            )
         self._conn.commit()
         return self.get_wiki_candidate_patch(patch_id) or {}
 
@@ -1815,7 +1682,21 @@ class KnowledgeStore:
     ) -> dict[str, Any] | None:
         if row is None:
             return None
-        patch = dict(row)
+        allowed = {
+            "patch_id",
+            "target_entry_id",
+            "base_version",
+            "source_id",
+            "family_id",
+            "impact_id",
+            "relation",
+            "patch",
+            "patch_sha256",
+            "status",
+            "created_at",
+            "updated_at",
+        }
+        patch = {key: value for key, value in dict(row).items() if key in allowed}
         patch["patch"] = json.loads(patch.get("patch") or "{}")
         return patch
 

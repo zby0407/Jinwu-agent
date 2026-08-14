@@ -85,6 +85,25 @@ function safeNumber(value: unknown): number {
   return typeof value === "number" && Number.isFinite(value) ? value : 0;
 }
 
+function nextActionCode(
+  runStatus: string,
+  currentStage: string,
+  stageStatus: Record<string, unknown>
+): string {
+  if (runStatus === "blocked") return "report_blocker";
+  if (runStatus === "release_ready" || runStatus === "released") {
+    return "deliver_release";
+  }
+  const current = safeString(stageStatus[currentStage], "pending");
+  if (current === "pending") return "produce_stage_artifact";
+  if (current === "produced") return "review_stage_artifact";
+  if (current === "revise") return "revise_stage_artifact";
+  if (current === "accepted" || current === "accepted_with_limits") {
+    return "advance_research_graph";
+  }
+  return "continue_current_stage";
+}
+
 async function latestToolFailure(
   workspace: string,
   taskId: string,
@@ -250,16 +269,13 @@ export async function GET(request: NextRequest) {
     const currentStage = safeString(state.current_stage);
     let terminal:
       | {
-          status: "blocked" | "human_review";
+          status: "blocked";
           reasonCode: string;
           stage: string;
           producer?: string;
           failureCount?: number;
           summary?: string;
-          recovery:
-            | "new_task_after_fix"
-            | "configure_auxiliary_reviewer"
-            | "human_review";
+          recovery: "new_task_after_fix";
         }
       | undefined;
     if (runStatus === "blocked") {
@@ -281,31 +297,6 @@ export async function GET(request: NextRequest) {
         summary: summaries[0]?.slice(0, 500),
         recovery: "new_task_after_fix",
       };
-    } else if (runStatus === "human_review") {
-      const review = Array.from(latestByMode.values())
-        .filter((value) => value.decision === "human_review")
-        .sort((left, right) =>
-          safeString(left.created_at).localeCompare(
-            safeString(right.created_at)
-          )
-        )
-        .at(-1);
-      const issues = Array.isArray(review?.issues) ? review.issues : [];
-      const independent = issues.find(
-        (value) =>
-          Boolean(value && typeof value === "object") &&
-          safeString((value as ReviewIssue).rule_id) ===
-            "INDEPENDENT_REVIEW_REQUIRED"
-      ) as ReviewIssue | undefined;
-      terminal = {
-        status: "human_review",
-        reasonCode: independent
-          ? "INDEPENDENT_REVIEW_REQUIRED"
-          : "HUMAN_REVIEW_REQUIRED",
-        stage: currentStage,
-        summary: safeString(independent?.message).slice(0, 500) || undefined,
-        recovery: independent ? "configure_auxiliary_reviewer" : "human_review",
-      };
     }
 
     return NextResponse.json(
@@ -313,6 +304,7 @@ export async function GET(request: NextRequest) {
         active: true,
         status: runStatus,
         currentStage,
+        nextAction: nextActionCode(runStatus, currentStage, stageStatus),
         revisionPolicy: safeString(state.revision_policy),
         actionInvocations: safeNumber(state.action_invocations),
         maxActionInvocations: safeNumber(state.max_action_invocations),

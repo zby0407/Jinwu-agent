@@ -47,6 +47,19 @@
     "all_visible_claims_traceable": true,
     "blind_review_majority_required": true
   },
+  "high_quality_review_gate": {
+    "visible_suite_file": "high_quality_review_visible_v1.json",
+    "visible_suite_is_quality_regression_only": true,
+    "workflow_status_misclassification_max": 0,
+    "unsupported_critical_claim_max": 0,
+    "false_novelty_priority_max": 0,
+    "evidence_matrix_coverage_min": 1.0,
+    "claim_evidence_role_entailment_accuracy_min": 0.95,
+    "negative_outcome_preservation_min": 1.0,
+    "external_hidden_cases_min": 12,
+    "real_replication_required": true,
+    "domain_methods_reproducibility_majority_required": true
+  },
   "hidden_record_contract": {
     "hard_gates_passed": "boolean",
     "unresolved_critical": "non_negative_integer",
