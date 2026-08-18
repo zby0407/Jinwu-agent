@@ -799,6 +799,16 @@ class TestApplyConfigToEnv:
 
         assert os.environ.get("OLLAMA_BASE_URL") == "http://existing:11434"
 
+    def test_dashscope_base_url_applied_without_overriding_env(self, monkeypatch):
+        monkeypatch.delenv("DASHSCOPE_BASE_URL", raising=False)
+        config = JWConfig(dashscope_base_url="https://proxy.example/v1")
+        apply_config_to_env(config)
+        assert os.environ["DASHSCOPE_BASE_URL"] == "https://proxy.example/v1"
+
+        monkeypatch.setenv("DASHSCOPE_BASE_URL", "https://env.example/v1")
+        apply_config_to_env(config)
+        assert os.environ["DASHSCOPE_BASE_URL"] == "https://env.example/v1"
+
 
 class TestAuxiliaryModelConfig:
     """auxiliary_model / auxiliary_provider config fields (plain str, optional)."""

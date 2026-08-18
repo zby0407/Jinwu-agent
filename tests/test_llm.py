@@ -700,6 +700,21 @@ class TestThirdPartyRouting:
         assert call_kwargs["api_key"] == "ds-key-456"
 
     @patch("jw.llm.models.init_chat_model")
+    def test_dashscope_base_url_can_be_overridden(self, mock_init, monkeypatch):
+        mock_init.return_value = "mock_model"
+        monkeypatch.setenv("DASHSCOPE_API_KEY", "ds-key-456")
+        monkeypatch.setenv(
+            "DASHSCOPE_BASE_URL",
+            "https://token-plan.cn-beijing.maas.aliyuncs.com/compatible-mode/v1/",
+        )
+
+        get_chat_model("qwen-max", provider="dashscope")
+
+        assert mock_init.call_args.kwargs["base_url"] == (
+            "https://token-plan.cn-beijing.maas.aliyuncs.com/compatible-mode/v1"
+        )
+
+    @patch("jw.llm.models.init_chat_model")
     def test_dashscope_stream_chunk_timeout_is_configurable_and_bounded(
         self, mock_init, monkeypatch
     ):

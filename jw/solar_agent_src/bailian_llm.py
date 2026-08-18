@@ -40,8 +40,11 @@ def load_bailian_config() -> dict[str, Any]:
 
     return {
         "api_key": api_key,
-        "base_url": os.getenv("BAILIAN_BASE_URL", DEFAULT_BASE_URL).strip()
-        or DEFAULT_BASE_URL,
+        "base_url": (
+            os.getenv("BAILIAN_BASE_URL", "").strip()
+            or os.getenv("DASHSCOPE_BASE_URL", "").strip()
+            or DEFAULT_BASE_URL
+        ),
         "model": os.getenv("BAILIAN_MODEL", DEFAULT_MODEL).strip() or DEFAULT_MODEL,
         "timeout_seconds": timeout_seconds,
         "trust_env": os.getenv("BAILIAN_TRUST_ENV", "false").strip().lower()

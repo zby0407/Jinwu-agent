@@ -142,6 +142,8 @@ class PiProcessManager:
             value = getattr(self.config, cfg_key, "")
             if value and not env.get(env_key):
                 env[env_key] = value
+        if self.config.dashscope_base_url and not env.get("DASHSCOPE_BASE_URL"):
+            env["DASHSCOPE_BASE_URL"] = self.config.dashscope_base_url
         if self._ensure_tool_bridge(thread_id) is not None:
             env["JW_PI_TOOL_SOCKET"] = str(self._socket_path(thread_id))
         return env
