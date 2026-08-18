@@ -8,7 +8,8 @@ export type ArtifactSource =
   | "outputs"
   | "legacy"
   | "experiment-report"
-  | "experiment-public";
+  | "experiment-public"
+  | "canonical-data";
 
 export interface ArtifactCandidate {
   path: string;
@@ -23,6 +24,9 @@ export interface ArtifactCandidate {
 export function normalizeArtifactPath(value: unknown): string | null;
 export function artifactCategory(ext: unknown): ArtifactCategory;
 export function artifactSource(path: unknown): ArtifactSource | null;
+export function verifiedCanonicalWorkArtifactPaths(
+  receipts: unknown
+): string[];
 export function sortAndDedupeArtifacts(
   entries: Array<Partial<ArtifactCandidate> & { path?: unknown }>,
   limit?: number

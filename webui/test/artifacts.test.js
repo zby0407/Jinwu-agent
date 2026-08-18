@@ -6,6 +6,7 @@ import {
   artifactSource,
   normalizeArtifactPath,
   sortAndDedupeArtifacts,
+  verifiedCanonicalWorkArtifactPaths,
 } from "../src/lib/artifacts.js";
 
 test("recognizes trusted deliverable locations", () => {
@@ -21,12 +22,18 @@ test("recognizes trusted deliverable locations", () => {
     artifactSource("experiment/runs/run-1/public/plots/chart.png"),
     "experiment-public"
   );
+  assert.equal(
+    artifactSource("work/solar_data/cycle_features.csv"),
+    "canonical-data"
+  );
 });
 
 test("excludes inputs, intermediate state, audit files, and malformed paths", () => {
   for (const path of [
     "inputs/source.csv",
     "work/analyze.py",
+    "work/other/result.csv",
+    "work/solar_data/research_review/state.csv",
     "receipts/review.json",
     "experiment/runs/run-1/attempts/a/output/chart.png",
     "experiment/runs/run-1/stage_artifacts/data.csv",
@@ -40,6 +47,33 @@ test("excludes inputs, intermediate state, audit files, and malformed paths", ()
   }
   assert.equal(normalizeArtifactPath("outputs\\plot.png"), "outputs/plot.png");
   assert.equal(normalizeArtifactPath("outputs//plot.png"), null);
+});
+
+test("selects only receipt-bound verified canonical data products", () => {
+  const sha256 = "a".repeat(64);
+  assert.deepEqual(
+    verifiedCanonicalWorkArtifactPaths([
+      {
+        status: "verified",
+        outputs: [
+          { path: "work/solar_data/cycle_features.csv", sha256 },
+          { path: "work/solar_data/cycle_features.csv", sha256 },
+          { path: "work/solar_data/comparison.json", sha256 },
+          { path: "outputs/report.md", sha256 },
+          { path: "work/solar_data/unhashed.csv" },
+        ],
+      },
+      {
+        status: "failed",
+        outputs: [{ path: "work/solar_data/failed.csv", sha256 }],
+      },
+      { status: "verified", outputs: "malformed" },
+    ]),
+    [
+      "work/solar_data/cycle_features.csv",
+      "work/solar_data/comparison.json",
+    ]
+  );
 });
 
 test("classifies common research formats", () => {
@@ -57,12 +91,18 @@ test("deduplicates by normalized full path and sorts newest first", () => {
     { path: "outputs/a.csv", ext: "csv", size: 2, mtime: 20 },
     { path: "results/a.csv", ext: "csv", size: 3, mtime: 15 },
     { path: "work/ignored.csv", ext: "csv", size: 4, mtime: 30 },
+    {
+      path: "work/solar_data/verified.csv",
+      ext: "csv",
+      size: 5,
+      mtime: 25,
+    },
   ]);
   assert.deepEqual(
     result.map((item) => item.path),
-    ["outputs/a.csv", "results/a.csv"]
+    ["work/solar_data/verified.csv", "outputs/a.csv", "results/a.csv"]
   );
-  assert.equal(result[0].size, 2);
+  assert.equal(result[1].size, 2);
   assert.equal(result[0].category, "data");
 });
 
