@@ -11,6 +11,7 @@ import {
   artifactCategory,
   artifactSource,
   sortAndDedupeArtifacts,
+  verifiedCanonicalWorkArtifactPaths,
   type ArtifactCandidate,
 } from "@/lib/artifacts";
 
@@ -18,6 +19,8 @@ export const runtime = "nodejs";
 
 const MAX_ARTIFACTS = 1000;
 const MAX_DEPTH = 12;
+const MAX_DATASET_RECEIPTS = 1000;
+const MAX_RECEIPT_BYTES = 1024 * 1024;
 const ROOTS = ["outputs", "artifacts", "reports", "results"];
 
 async function addFile(
@@ -106,6 +109,52 @@ async function collectExperimentArtifacts(
   }
 }
 
+async function collectVerifiedDataArtifacts(
+  workspaceDir: string,
+  output: ArtifactCandidate[]
+): Promise<void> {
+  let receiptDir: string;
+  try {
+    receiptDir = await safeResolve(workspaceDir, "receipts/datasets");
+  } catch {
+    return;
+  }
+  let entries;
+  try {
+    entries = await fs.readdir(receiptDir, { withFileTypes: true });
+  } catch {
+    return;
+  }
+
+  const receipts: unknown[] = [];
+  for (const entry of entries.slice(0, MAX_DATASET_RECEIPTS)) {
+    if (
+      !entry.isFile() ||
+      entry.isSymbolicLink() ||
+      isHiddenEntry(entry.name) ||
+      !entry.name.toLowerCase().endsWith(".json")
+    ) {
+      continue;
+    }
+    try {
+      const path = await safeResolve(
+        workspaceDir,
+        `receipts/datasets/${entry.name}`
+      );
+      const stat = await fs.stat(path);
+      if (!stat.isFile() || stat.size > MAX_RECEIPT_BYTES) continue;
+      receipts.push(JSON.parse(await fs.readFile(path, "utf8")));
+    } catch {
+      // Ignore malformed, oversized, or concurrently replaced receipts.
+    }
+  }
+
+  for (const path of verifiedCanonicalWorkArtifactPaths(receipts)) {
+    if (output.length >= MAX_ARTIFACTS) return;
+    await addFile(workspaceDir, path, output);
+  }
+}
+
 export async function GET(request: NextRequest) {
   try {
     if (isCrossOrigin(request)) {
@@ -121,6 +170,7 @@ export async function GET(request: NextRequest) {
       await walkTrustedDirectory(workspaceDir, root, 0, candidates);
     }
     await collectExperimentArtifacts(workspaceDir, candidates);
+    await collectVerifiedDataArtifacts(workspaceDir, candidates);
     const artifacts = sortAndDedupeArtifacts(candidates, MAX_ARTIFACTS);
     return NextResponse.json({
       artifacts,
