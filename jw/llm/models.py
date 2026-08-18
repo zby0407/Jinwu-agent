@@ -572,8 +572,7 @@ def get_chat_model(
             base_url = base_url.rstrip("/")
         elif provider == "dashscope":
             base_url = (
-                os.environ.get("DASHSCOPE_BASE_URL", "").strip()
-                or base_url_default
+                os.environ.get("DASHSCOPE_BASE_URL", "").strip() or base_url_default
             )
             base_url = base_url.rstrip("/")
         else:
