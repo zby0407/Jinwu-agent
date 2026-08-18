@@ -99,17 +99,18 @@ def test_yaml_subagent_resolves_tools_from_canonical_registry() -> None:
     assert hypothesis_contract_tools.isdisjoint(evidence_tool_names)
     assert {
         "evidence_review_open_context",
-        "evidence_review_submit_verdict",
+        "evidence_review_submit_round",
         "evidence_review_get_status",
         "kb_query",
         "kb_read",
     }.issubset(evidence_tool_names)
+    assert "evidence_review_submit_verdict" not in evidence_tool_names
+    assert "evidence_review_record_assessment" not in evidence_tool_names
     assert hypothesis["_restrict_tools"] is True
     assert {
         "kb_propose",
         "kb_promote",
         "kb_deprecate",
-        "kb_review_decide",
         "kb_import",
         "lit_fetch",
         "lit_distill",

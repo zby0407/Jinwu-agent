@@ -1,0 +1,53 @@
+{
+  "schema_version": "high-quality-review-visible-suite-v1",
+  "suite_id": "high-quality-review-visible-10-v1",
+  "visibility": "checked_in_visible",
+  "release_gate_eligible": false,
+  "requires_review_fields": true,
+  "purpose": "Visible scientific-quality regression only; it cannot establish externally validated high-quality research capability.",
+  "source_suites": [
+    "all_visible_e2e_v2.json"
+  ],
+  "implementation_baseline": {
+    "fresh_8_12_1_runs_required": true,
+    "historical_worktree_results_forbidden": true,
+    "repetitions_before_change": 1,
+    "repetitions_after_freeze": 3,
+    "comparison_unit": "scientific_conclusion_signature"
+  },
+  "cases": [
+    {"id": "FR-H01", "focus": ["mechanism", "rival", "nearest_prior_art", "temporal_causality"]},
+    {"id": "FR-H02", "focus": ["mechanism_scope", "measurement_null", "nearest_prior_art"]},
+    {"id": "FR-H03", "focus": ["forecast_origin", "rolling_backtest", "calibration"]},
+    {"id": "FR-H05", "focus": ["negative_result", "out_of_sample_priority", "no_result_chasing"]},
+    {"id": "FR-H09", "focus": ["null_result", "low_power", "confidence_boundary"]},
+    {"id": "FR-H10", "focus": ["independent_sample_count", "small_sample", "evidence_limit_preservation"]},
+    {"id": "FR-H12", "focus": ["integration_claim_diff", "unsupported_causality", "unsupported_interval"]},
+    {"id": "SC26-B03", "focus": ["measurement_drift", "physical_change", "source_quality"]},
+    {"id": "SC26-B05", "focus": ["direct_measurement", "small_sample_precursor", "insufficient_evidence"]},
+    {"id": "SC26-B06", "focus": ["do_not_launch", "censored_precursor", "negative_outcome_preservation"]}
+  ],
+  "automated_hard_gates": {
+    "workflow_status_misclassification_max": 0,
+    "unsupported_critical_claim_max": 0,
+    "false_novelty_priority_max": 0,
+    "load_bearing_evidence_matrix_coverage_min": 1.0,
+    "seeded_counterevidence_conflict_recall_min": 1.0,
+    "major_defect_recall_min": 0.9,
+    "negative_insufficient_do_not_launch_preservation_min": 1.0,
+    "stable_repetitions_required": 3
+  },
+  "external_annotation_metrics": {
+    "claim_evidence_role_entailment_accuracy_min": 0.95,
+    "reviewer_dimensions": ["domain", "methods_statistics", "reproducibility"],
+    "minimum_score_each": 80,
+    "unresolved_critical_max": 0,
+    "minimum_blind_score_gain_vs_baseline": 5,
+    "potentially_novel_requires_domain_confirmation": true
+  },
+  "external_validation_boundary": {
+    "minimum_external_hidden_cases": 12,
+    "real_data_replication_or_external_test_required": true,
+    "three_view_majority_required": true
+  }
+}

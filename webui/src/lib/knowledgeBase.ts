@@ -80,8 +80,7 @@ export interface KbOverview {
   literature_baseline_sources: number;
   literature_task_bundles: number;
   literature_impacts: number;
-  pending_wiki_patches: number;
-  pending_reviews: number;
+  wiki_patch_proposals: number;
   usage_reads: number;
   by_type: Record<string, number>;
   by_status: Record<string, number>;
@@ -279,8 +278,7 @@ export interface KbWikiCandidatePatch {
     rationale?: string;
   };
   patch_sha256: string;
-  status: "pending" | "applied" | "rejected" | "stale" | string;
-  review_queue_id: number | null;
+  status: "proposal_only" | "stale" | string;
   entry_title?: string;
   source_title?: string;
   created_at: string;
@@ -324,17 +322,6 @@ export interface KbGraph {
     entry_nodes?: number;
     source_nodes?: number;
   };
-}
-
-export interface KbReviewItem {
-  id: number;
-  kind: string;
-  entry_id: string;
-  payload: Record<string, unknown>;
-  status: string;
-  reviewer: string;
-  decided_at: string | null;
-  note: string;
 }
 
 export interface KbUsageRow {
@@ -473,14 +460,6 @@ export async function fetchKbSource(id: string): Promise<KbSourceDetail> {
 
 export async function fetchKbGraph(limit = 200): Promise<KbGraph> {
   return kbFetch<KbGraph>(`/api/kb/graph?limit=${limit}`);
-}
-
-export async function fetchKbReviewQueue(
-  status = "pending"
-): Promise<KbReviewItem[]> {
-  return kbFetch<KbReviewItem[]>(
-    `/api/kb/review_queue?status=${encodeURIComponent(status)}`
-  );
 }
 
 export async function fetchKbUsage(runId = ""): Promise<KbUsageRow[]> {

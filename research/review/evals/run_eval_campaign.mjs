@@ -49,7 +49,6 @@ const reviewerEnv =
           process.env.JW_EVAL_QWEN_REVIEWER_PROVIDER || "custom-openai",
         JW_EVAL_REVIEWER_FAMILY: "qwen",
         JW_EVAL_HETEROGENEOUS: "0",
-        JW_EVAL_HUMAN_REVIEW_REQUIRED: "1",
       }
     : reviewer === "deepseek"
     ? {
@@ -66,7 +65,6 @@ const reviewerEnv =
           process.env.JW_EVAL_KIMI_REVIEWER_PROVIDER || "kimi-coding",
         JW_EVAL_REVIEWER_FAMILY: "kimi",
         JW_EVAL_HETEROGENEOUS: "1",
-        JW_EVAL_HUMAN_REVIEW_REQUIRED: "0",
       };
 const jobs =
   phase === "closed-core"

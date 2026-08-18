@@ -3,33 +3,172 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
-import re
-from typing import Any
+from typing import Any, Literal
 
 from langchain_core.runnables import RunnableConfig
 from langchain_core.tools import tool
+from pydantic import BaseModel, ConfigDict, Field
 
-from jw.research_review import (
-    ALL_REVIEW_MODES,
-    INDEPENDENT_REVIEW_TOOL_CONTRACT_VERSION,
-    store_from_config,
-)
+from jw.research_review import ALL_REVIEW_MODES, store_from_config
 from research_review.contracts import issue_fingerprint
 
 from .registry import register_tool_bundle
 
-_INDEPENDENT_REVIEW_SCHEMA = {
-    "title": "IndependentReviewVerdict",
-    "description": "A bounded pass/fail verdict from an independent model family.",
-    "type": "object",
-    "properties": {
-        "decision": {"type": "string", "enum": ["pass", "fail"]},
-        "notes": {"type": "string"},
-    },
-    "required": ["decision", "notes"],
-    "additionalProperties": False,
-}
+logger = logging.getLogger(__name__)
+
+
+class AssessmentClaimInput(BaseModel):
+    """One ReviewAssessmentV1 row for one exact artifact claim id."""
+
+    model_config = ConfigDict(extra="forbid")
+    claim_id: str
+    kind: str
+    disposition: Literal[
+        "supported", "limited_support", "opposed", "contradicted", "undecided"
+    ]
+    supporting_evidence: list[str]
+    opposing_evidence: list[str]
+    rationale: str
+    key_uncertainty: str
+    confidence: Literal["unknown", "low", "medium", "high"]
+    next_test: str
+
+
+class EvidenceMatrixRowInput(BaseModel):
+    """One locator-level evidence relationship."""
+
+    model_config = ConfigDict(extra="forbid")
+    source_ref: str | None
+    evidence_role: Literal["supports", "opposes", "limits", "gap"]
+    source_class: Literal[
+        "direct_observation",
+        "real_experiment",
+        "simulation",
+        "method_paper",
+        "review",
+        "data_documentation",
+        "user_premise",
+        "wiki_context",
+        "unknown",
+    ]
+    evidence_scope: Literal[
+        "full_text",
+        "abstract_only",
+        "dataset_record",
+        "experiment_record",
+        "user_statement",
+        "wiki_entry",
+        "unknown",
+    ]
+    directness: Literal["direct", "indirect", "context_only", "not_assessable"]
+    scope_match: Literal["matched", "partial", "mismatch", "not_assessable"]
+    independence_group: str
+    locator: str
+    entailment: Literal["entailed", "partial", "not_entailed", "not_assessable"]
+    quality_cap: Literal["exploratory", "evidence_constrained", "release_candidate"]
+    rationale: str
+
+
+class MethodAssessmentInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    design_status: Literal[
+        "valid", "limited", "invalid", "not_applicable", "not_assessed"
+    ]
+    independent_sample_unit: str
+    independent_sample_count: int | None
+    validation_status: Literal[
+        "valid", "limited", "invalid", "not_applicable", "not_assessed"
+    ]
+    uncertainty_status: Literal[
+        "valid", "limited", "invalid", "not_applicable", "not_assessed"
+    ]
+    reproducibility_status: Literal[
+        "valid", "limited", "invalid", "not_applicable", "not_assessed"
+    ]
+    notes: str
+
+
+class NearestPriorArtInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    source_ref: str
+    existing_claim: str
+    overlap: str
+    difference: str
+    duplication_risk: str
+
+
+class NoveltyAssessmentInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    status: Literal[
+        "known_baseline",
+        "incremental_extension",
+        "potentially_novel",
+        "novelty_not_assessed",
+        "not_applicable",
+    ]
+    contribution_type: Literal[
+        "known_baseline",
+        "mechanism_extension",
+        "new_prediction",
+        "new_data_linkage",
+        "new_method_application",
+        "measurement_or_null_explanation",
+        "not_assessed",
+    ]
+    novelty_delta: str
+    nearest_prior_art: list[NearestPriorArtInput]
+    query_axes: list[str]
+    searched_family_count: int = Field(ge=0)
+    search_cutoff: str | None
+    coverage_gaps: list[str]
+
+
+class ScientificQualityClaimInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    claim_id: str
+    claim_component: Literal[
+        "statement",
+        "mechanism",
+        "prediction",
+        "scope",
+        "numeric_result",
+        "conclusion",
+        "workflow_status",
+    ]
+    load_bearing: bool
+    evidence_matrix: list[EvidenceMatrixRowInput] = Field(min_length=1)
+    method_assessment: MethodAssessmentInput
+    novelty_assessment: NoveltyAssessmentInput
+    conclusion_cap: Literal["exploratory", "evidence_constrained", "release_candidate"]
+    quality_status: Literal[
+        "release_candidate",
+        "evidence_constrained",
+        "exploratory",
+        "blocked",
+        "workflow_status",
+    ]
+    key_gaps: list[str]
+
+
+class VerdictIssueInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    issue_id: str | None = None
+    rule_id: str
+    severity: Literal["critical", "major", "minor"]
+    claim_ref: str
+    evidence_refs: list[str]
+    owner: Literal[
+        "solar-planner",
+        "solar-data",
+        "solar-hypothesis",
+        "solar-experiment",
+        "main",
+    ]
+    message: str
+    required_action: str
+    acceptance_test: str
 
 
 def _configured_assessment_review_mode() -> str:
@@ -68,74 +207,31 @@ def _require_current_assessment(store: Any, review_mode: str) -> dict[str, Any]:
     return assessment
 
 
-def _model_family(model: str) -> str:
-    """Return a conservative lineage label for independence gating."""
-
-    normalized = model.casefold().rsplit("/", 1)[-1]
-    for prefix, family in (
-        (("qwen", "qwq"), "qwen"),
-        (("claude",), "claude"),
-        (("gpt", "o1", "o3", "o4", "codex"), "openai"),
-        (("gemini",), "gemini"),
-        (("deepseek",), "deepseek"),
-        (("llama",), "llama"),
-        (("mistral", "mixtral"), "mistral"),
-    ):
-        if normalized.startswith(prefix):
-            return family
-    return re.split(r"[-_:]", normalized, maxsplit=1)[0]
-
-
-def _independent_review_context(store: Any, review_mode: str) -> str:
-    """Build a bounded evidence-first packet without producer-report duplication."""
-
-    review_context = store.review_context(review_mode)
-    source_refs: list[str] = []
-    for artifact in review_context.get("artifacts", []):
-        if not isinstance(artifact, dict):
-            continue
-        candidates = list(artifact.get("evidence_refs", []))
-        for claim in artifact.get("claims", []):
-            if not isinstance(claim, dict):
-                continue
-            candidates.extend(claim.get("supporting_evidence", []))
-            candidates.extend(claim.get("opposing_evidence", []))
-        for ref in candidates:
-            if isinstance(ref, str) and ref not in source_refs:
-                source_refs.append(ref)
-
-    inspected_sources: list[dict[str, Any]] = []
-    remaining = 60_000
-    for ref in source_refs[:8]:
-        if remaining <= 0:
-            break
-        try:
-            source = store.review_source(review_mode, ref)
-        except Exception as exc:
-            source = {
-                "source_ref": ref,
-                "status": "unavailable",
-                "error": f"{type(exc).__name__}: {exc}",
-            }
-        encoded = json.dumps(source, ensure_ascii=False)
-        if len(encoded) > remaining:
-            source = {
-                "source_ref": ref,
-                "status": "truncated_for_independent_review",
-                "content_prefix": encoded[:remaining],
-            }
-            encoded = json.dumps(source, ensure_ascii=False)
-        inspected_sources.append(source)
-        remaining -= len(encoded)
-
-    return json.dumps(
-        {
-            "schema_version": "independent-review-context-v1",
-            "review_context": review_context,
-            "inspected_declared_sources": inspected_sources,
-        },
-        ensure_ascii=False,
-    )
+def _require_current_scientific_quality(store: Any, review_mode: str) -> dict[str, Any]:
+    round_number = len(store.verdicts(mode=review_mode)) + 1
+    rows = [
+        row
+        for row in store.scientific_quality_assessments(mode=review_mode)
+        if row["round"] == round_number
+    ]
+    if len(rows) != 1:
+        raise ValueError(
+            "record exactly one ScientificQualityAssessmentV1 for the current "
+            "review round before submitting the verdict"
+        )
+    assessment = rows[0]
+    configured_mode = _configured_assessment_review_mode()
+    if assessment["assessment_review_mode"] != configured_mode:
+        raise ValueError(
+            "scientific quality assessment mode does not match configured Evidence "
+            f"mode: expected {configured_mode}"
+        )
+    refs = [store.artifact_ref(item) for item in store.review_targets(review_mode)]
+    if assessment["artifact_refs"] != refs:
+        raise ValueError(
+            "scientific quality assessment does not match current review artifacts"
+        )
+    return assessment
 
 
 def _json_arg(value: Any, label: str, expected: type) -> Any:
@@ -151,6 +247,26 @@ def _json_arg(value: Any, label: str, expected: type) -> Any:
     raise ValueError(
         f"{label} must be {expected.__name__} or JSON-encoded {expected.__name__}"
     )
+
+
+def _normalize_assessment_claims(
+    value: Any, label: str = "assessment_claims"
+) -> list[Any]:
+    """Do not describe an evidence-free claim as supported."""
+
+    normalized: list[Any] = []
+    for raw in _json_arg(value, label, list):
+        row = raw.model_dump() if isinstance(raw, BaseModel) else raw
+        if not isinstance(row, dict):
+            normalized.append(row)
+            continue
+        row = dict(row)
+        if row.get("disposition") in {"supported", "limited_support"} and not row.get(
+            "supporting_evidence"
+        ):
+            row["disposition"] = "undecided"
+        normalized.append(row)
+    return normalized
 
 
 def _ok(payload: object) -> str:
@@ -174,10 +290,13 @@ def _normalize_issues(value: Any) -> list[dict[str, Any]]:
     normalized: list[dict[str, Any]] = []
     identities: set[tuple[str, str, str]] = set()
     for index, item in enumerate(rows, start=1):
+        if isinstance(item, BaseModel):
+            item = item.model_dump()
         if not isinstance(item, dict):
             raise ValueError(f"issues[{index - 1}] must be an object")
         row = dict(item)
-        row.setdefault("issue_id", f"issue-{index:03d}")
+        if not isinstance(row.get("issue_id"), str) or not row["issue_id"].strip():
+            row["issue_id"] = f"issue-{index:03d}"
         for field in (
             "rule_id",
             "severity",
@@ -264,6 +383,71 @@ def evidence_review_read_source(
 
 
 @tool(parse_docstring=True)
+def evidence_review_search_document(
+    review_mode: str,
+    source_ref: str,
+    query: str,
+    max_hits: int = 8,
+    config: RunnableConfig = None,
+) -> str:
+    """Search a declared task-local PDF/Markdown/HTML/text source by section.
+
+    Args:
+        review_mode: Typed stage being reviewed.
+        source_ref: Exact declared source reference from the review context.
+        query: Concrete mechanism, observable, method, or contradiction query.
+        max_hits: Maximum section hits, from 1 to 20.
+
+    Returns:
+        Exact section ids and bounded excerpts. An empty result is a search gap,
+        never evidence that the claim is true.
+    """
+
+    try:
+        if review_mode not in ALL_REVIEW_MODES:
+            raise ValueError(f"unsupported review_mode: {review_mode}")
+        return _ok(
+            store_from_config(config).search_document(
+                review_mode, source_ref, query, max_hits=max_hits
+            )
+        )
+    except Exception as exc:
+        return _error(exc)
+
+
+@tool(parse_docstring=True)
+def evidence_review_read_document_sections(
+    review_mode: str,
+    source_ref: str,
+    section_ids: list[str] | str,
+    config: RunnableConfig = None,
+) -> str:
+    """Read exact sections previously located in a declared document.
+
+    Args:
+        review_mode: Typed stage being reviewed.
+        source_ref: Exact declared source reference from the review context.
+        section_ids: JSON list of 1 to 12 exact section ids.
+
+    Returns:
+        Full bounded text for the requested sections and stable locators.
+    """
+
+    try:
+        if review_mode not in ALL_REVIEW_MODES:
+            raise ValueError(f"unsupported review_mode: {review_mode}")
+        return _ok(
+            store_from_config(config).read_document_sections(
+                review_mode,
+                source_ref,
+                _string_list(section_ids, "section_ids"),
+            )
+        )
+    except Exception as exc:
+        return _error(exc)
+
+
+@tool(parse_docstring=True)
 def evidence_review_submit_verdict(
     review_mode: str,
     decision: str,
@@ -272,16 +456,13 @@ def evidence_review_submit_verdict(
     blocked_claims: list[str] | str = "[]",
     carry_forward_limits: list[str] | str = "[]",
     next_owner: str = "",
-    independent_review_status: str = "not_required",
-    independent_reviewer: str = "",
-    independent_notes: str = "",
     config: RunnableConfig = None,
 ) -> str:
     """Persist a hash-bound review verdict without modifying producer artifacts.
 
     Args:
         review_mode: Typed stage being reviewed.
-        decision: accept, accept_with_limits, revise, block, or human_review.
+        decision: accept, accept_with_limits, revise, or block.
         issues: JSON issue list with rule_id, severity, claim_ref, owner,
             message, required_action, acceptance_test, and evidence_refs. Each
             distinct defect must use a unique, stable field-level claim_ref.
@@ -289,10 +470,6 @@ def evidence_review_submit_verdict(
         blocked_claims: JSON list of blocked claim ids.
         carry_forward_limits: JSON list of limitations that final prose must retain.
         next_owner: Producer responsible for a revise decision.
-        independent_review_status: not_required, not_configured,
-            heterogeneous_pass, human_pass, or failed.
-        independent_reviewer: Optional independent reviewer identifier.
-        independent_notes: Bounded independent-review note.
 
     Returns:
         The persisted ReviewVerdictV2, including server-bound hashes and round.
@@ -301,6 +478,7 @@ def evidence_review_submit_verdict(
     try:
         store = store_from_config(config)
         _require_current_assessment(store, review_mode)
+        _require_current_scientific_quality(store, review_mode)
         verdict = store.submit_verdict(
             mode=review_mode,
             decision=decision,
@@ -311,11 +489,6 @@ def evidence_review_submit_verdict(
                 carry_forward_limits, "carry_forward_limits"
             ),
             next_owner=next_owner.strip() or None,
-            independent_review={
-                "status": independent_review_status,
-                "reviewer": independent_reviewer.strip() or None,
-                "notes": independent_notes,
-            },
         )
         return _ok(verdict)
     except Exception as exc:
@@ -371,10 +544,202 @@ def evidence_review_record_assessment(
         assessment = store_from_config(config).record_assessment(
             mode=review_mode,
             assessment_review_mode=requested_mode,
+            claims=_normalize_assessment_claims(claims, "claims"),
+        )
+        return _ok(assessment)
+    except Exception as exc:
+        return _error(exc)
+
+
+@tool(parse_docstring=True)
+def evidence_review_record_scientific_quality(
+    review_mode: str,
+    assessment_review_mode: str,
+    claims: list[dict[str, Any]] | str,
+    config: RunnableConfig = None,
+) -> str:
+    """Record the claim-level high-quality research review matrix.
+
+    Call this exactly once per review round after inspecting the declared
+    sources and before submitting the verdict. It is a sidecar and never
+    overrides ReviewVerdictV2 routing.
+
+    Args:
+        review_mode: Typed stage being reviewed.
+        assessment_review_mode: closed or two_pass, matching backend config.
+        claims: One quality object per reviewed claim component. A claim may
+            have multiple rows, but each claim_id + claim_component pair is unique. Each object contains
+            claim_id, claim_component, load_bearing, a non-empty
+            evidence_matrix, method_assessment, novelty_assessment,
+            conclusion_cap, quality_status, and key_gaps. Evidence rows record
+            source_ref, evidence_role, source_class, evidence_scope, directness, scope_match,
+            independence_group, locator, entailment, quality_cap, and rationale.
+
+    Returns:
+        The persisted ScientificQualityAssessmentV1 for the current round.
+    """
+
+    try:
+        configured_mode = _configured_assessment_review_mode()
+        requested_mode = assessment_review_mode.strip() or configured_mode
+        if requested_mode != configured_mode:
+            raise ValueError(
+                "assessment_review_mode does not match the configured Evidence mode: "
+                f"expected {configured_mode}"
+            )
+        assessment = store_from_config(config).record_scientific_quality_assessment(
+            mode=review_mode,
+            assessment_review_mode=requested_mode,
             claims=_json_arg(claims, "claims", list),
         )
         return _ok(assessment)
     except Exception as exc:
+        return _error(exc)
+
+
+@tool(parse_docstring=True)
+def evidence_review_submit_round(
+    review_mode: str,
+    assessment_review_mode: str,
+    assessment_claims: list[AssessmentClaimInput] | str,
+    scientific_quality_claims: list[ScientificQualityClaimInput] | str,
+    decision: str,
+    issues: list[VerdictIssueInput] | str,
+    accepted_claims: list[str] | str = "[]",
+    blocked_claims: list[str] | str = "[]",
+    carry_forward_limits: list[str] | str = "[]",
+    next_owner: str = "",
+    config: RunnableConfig = None,
+) -> str:
+    """Persist one complete Evidence round through a single model tool call.
+
+    This convenience entry point does not weaken any contract. It validates and
+    writes exactly one ReviewAssessmentV1, one ScientificQualityAssessmentV1,
+    and then one ReviewVerdictV2 for the same current artifact and round. A
+    retry may replace only sidecars that have not yet been bound by a verdict.
+
+    Args:
+        review_mode: Typed stage being reviewed.
+        assessment_review_mode: closed or two_pass, matching backend config.
+        assessment_claims: Exactly one ReviewAssessmentV1 row per target artifact
+            claim. Reuse each exact claim_id once; do not add component suffixes or
+            create synthetic ids.
+        scientific_quality_claims: Complete ScientificQualityAssessmentV1 rows.
+            These may reuse an exact artifact claim_id for distinct claim_component
+            values; each claim_id plus claim_component pair must be unique.
+        decision: accept, accept_with_limits, revise, or block.
+        issues: Complete ReviewVerdictV2 issue rows.
+        accepted_claims: Exact target artifact claim ids accepted by the verdict.
+            accept and accept_with_limits require at least one such id.
+        blocked_claims: Blocked claim ids.
+        carry_forward_limits: Limitations that downstream prose must retain.
+        next_owner: Producer responsible for a revise decision.
+
+    Returns:
+        All three persisted records and their shared round.
+    """
+
+    logger.info("Evidence atomic round submission started for mode=%s", review_mode)
+    store = None
+    pending_round = None
+    try:
+        if review_mode not in ALL_REVIEW_MODES:
+            raise ValueError(f"unsupported review_mode: {review_mode}")
+        configured_mode = _configured_assessment_review_mode()
+        requested_mode = assessment_review_mode.strip() or configured_mode
+        if requested_mode != configured_mode:
+            raise ValueError(
+                "assessment_review_mode does not match the configured Evidence mode: "
+                f"expected {configured_mode}"
+            )
+        store = store_from_config(config)
+        pending_round = len(store.verdicts(mode=review_mode)) + 1
+        normalized_assessment_claims = _normalize_assessment_claims(assessment_claims)
+        reviewed_kinds = {
+            claim["claim_id"]: claim["kind"]
+            for target in store.review_targets(review_mode)
+            for claim in target.get("claims", [])
+            if isinstance(claim, dict)
+            and isinstance(claim.get("claim_id"), str)
+            and isinstance(claim.get("kind"), str)
+        }
+        normalized_assessment_claims = [
+            {
+                **row,
+                "kind": reviewed_kinds.get(row.get("claim_id"), row.get("kind")),
+            }
+            if isinstance(row, dict)
+            else row
+            for row in normalized_assessment_claims
+        ]
+        assessment = store.record_assessment(
+            mode=review_mode,
+            assessment_review_mode=requested_mode,
+            claims=normalized_assessment_claims,
+            replace_uncommitted=True,
+        )
+        quality = store.record_scientific_quality_assessment(
+            mode=review_mode,
+            assessment_review_mode=requested_mode,
+            claims=[
+                row.model_dump() if isinstance(row, BaseModel) else row
+                for row in _json_arg(
+                    scientific_quality_claims, "scientific_quality_claims", list
+                )
+            ],
+            replace_uncommitted=True,
+        )
+        _require_current_assessment(store, review_mode)
+        _require_current_scientific_quality(store, review_mode)
+        verdict = store.submit_verdict(
+            mode=review_mode,
+            decision=decision,
+            issues=_normalize_issues(issues),
+            accepted_claims=_string_list(accepted_claims, "accepted_claims"),
+            blocked_claims=_string_list(blocked_claims, "blocked_claims"),
+            carry_forward_limits=_string_list(
+                carry_forward_limits, "carry_forward_limits"
+            ),
+            next_owner=next_owner.strip() or None,
+        )
+        if not (
+            assessment["round"] == quality["round"] == verdict["round"]
+            and assessment["artifact_refs"]
+            == quality["artifact_refs"]
+            == verdict["artifact_refs"]
+        ):
+            raise RuntimeError("Evidence round records do not share one binding")
+        logger.info(
+            "Evidence atomic round submission persisted mode=%s round=%s decision=%s",
+            review_mode,
+            verdict["round"],
+            verdict["decision"],
+        )
+        return _ok(
+            {
+                "round": verdict["round"],
+                "assessment": assessment,
+                "scientific_quality_assessment": quality,
+                "verdict": verdict,
+            }
+        )
+    except Exception as exc:
+        if store is not None and pending_round is not None:
+            for path in (
+                store.root
+                / "assessments"
+                / f"{review_mode}-assessment-{pending_round:04d}.json",
+                store.root
+                / "scientific_quality_assessments"
+                / f"{review_mode}-quality-{pending_round:04d}.json",
+            ):
+                path.unlink(missing_ok=True)
+        logger.warning(
+            "Evidence atomic round submission rejected for mode=%s: %s: %s",
+            review_mode,
+            type(exc).__name__,
+            exc,
+        )
         return _error(exc)
 
 
@@ -419,138 +784,36 @@ def research_release_get_accepted(config: RunnableConfig = None) -> str:
         return _error(exc)
 
 
-@tool(parse_docstring=True)
-def research_independent_review(
-    review_mode: str,
-    config: RunnableConfig = None,
-) -> str:
-    """Run the configured heterogeneous model for a hash-bound second review.
-
-    This tool is available to the Supervisor, not to the primary Evidence
-    agent. It refuses the same model family (even when model variants differ)
-    and leaves the run at human_review when no genuinely heterogeneous reviewer
-    can be invoked.
-
-    Args:
-        review_mode: The integration or final_release mode requested by the
-            deterministic state machine.
-
-    Returns:
-        A separately persisted independent-review receipt.
-    """
-
-    store = store_from_config(config)
-    targets = store.review_targets(review_mode)
-    refs = [store.artifact_ref(item) for item in targets]
-    reviewer_id = "unspecified"
-    reviewer_attempt_id = "unspecified"
-    try:
-        if review_mode not in {"hypothesis", "integration", "final_release"}:
-            raise ValueError(
-                "independent review is limited to hypothesis/integration/final_release"
-            )
-        from jw.config import get_effective_config
-        from jw.llm import get_chat_model
-
-        cfg = get_effective_config()
-        review_model = (
-            getattr(cfg, "independent_review_model", "")
-            or cfg.auxiliary_model
-            or cfg.model
-        )
-        review_provider = (
-            getattr(cfg, "independent_review_provider", "")
-            or cfg.auxiliary_provider
-            or cfg.provider
-        )
-        reviewer_id = f"{review_provider}:{review_model}"
-        reviewer_attempt_id = (
-            f"{reviewer_id}@{INDEPENDENT_REVIEW_TOOL_CONTRACT_VERSION}"
-        )
-        if (review_model, review_provider) == (
-            cfg.model,
-            cfg.provider,
-        ) or _model_family(review_model) == _model_family(cfg.model):
-            raise RuntimeError(
-                "no genuinely heterogeneous independent-review model family is configured"
-            )
-        model = get_chat_model(model=review_model, provider=review_provider)
-        context = _independent_review_context(store, review_mode)
-        from jw.middleware.utils import disable_thinking
-
-        # DashScope thinking mode only accepts tool_choice=auto/none, while
-        # LangChain's function-calling structured output forces a schema tool.
-        # DeepSeek V4 currently exposes JSON-object mode but not JSON Schema.
-        # Keep adjudication deterministic with a provider-compatible structured
-        # method; never fall back to parsing unconstrained prose.
-        model = disable_thinking(model)
-        structured_kwargs = (
-            {"method": "json_mode"} if review_provider == "deepseek" else {}
-        )
-        response = model.with_structured_output(
-            _INDEPENDENT_REVIEW_SCHEMA, **structured_kwargs
-        ).invoke(
-            [
-                {
-                    "role": "system",
-                    "content": (
-                        "You are an independent scientific meta-reviewer using a "
-                        "genuinely different model family from the primary reviewer. "
-                        "Inspect the hash-bound projection and every included declared "
-                        "source. Return pass only when its accepted "
-                        "mechanism claims are evidence-bounded, reproducible, and do "
-                        "not exceed the stated limitations. Otherwise return fail. "
-                        "Do not edit the artifact and do not output chain-of-thought. "
-                        "Return exactly one JSON object with only two fields: decision "
-                        "must be the string pass or fail, and notes must be one string. "
-                        "Do not return arrays, nested objects, markdown, or extra fields."
-                    ),
-                },
-                {"role": "user", "content": context},
-            ]
-        )
-        if not isinstance(response, dict):
-            raise RuntimeError("heterogeneous reviewer returned no structured verdict")
-        decision = response.get("decision")
-        notes = response.get("notes")
-        if decision not in {"pass", "fail"} or not isinstance(notes, str):
-            raise RuntimeError("heterogeneous reviewer returned an invalid verdict")
-        receipt = store.write_independent_review_receipt(
-            review_mode,
-            refs,
-            reviewer_kind="heterogeneous_model",
-            reviewer_id=reviewer_id,
-            decision=decision,
-            notes=notes,
-        )
-        return _ok(receipt)
-    except Exception as exc:
-        store.mark_independent_review_unavailable(
-            review_mode,
-            refs,
-            f"{type(exc).__name__}: {exc}",
-            reviewer_id=reviewer_attempt_id,
-        )
-        return _error(exc)
-
-
 RESEARCH_REVIEW_TOOLS = [
     evidence_review_open_context,
     evidence_review_read_source,
+    evidence_review_search_document,
+    evidence_review_read_document_sections,
     evidence_review_submit_verdict,
     evidence_review_get_status,
     evidence_review_record_assessment,
+    evidence_review_record_scientific_quality,
+    evidence_review_submit_round,
+]
+EVIDENCE_REVIEW_TOOLS = [
+    evidence_review_open_context,
+    evidence_review_read_source,
+    evidence_review_search_document,
+    evidence_review_read_document_sections,
+    evidence_review_get_status,
+    evidence_review_submit_round,
 ]
 RESEARCH_RELEASE_TOOLS = [
     research_release_prepare,
     research_release_get_accepted,
-    research_independent_review,
 ]
 
 register_tool_bundle("research-review", RESEARCH_REVIEW_TOOLS)
+register_tool_bundle("evidence-review", EVIDENCE_REVIEW_TOOLS)
 register_tool_bundle("research-release", RESEARCH_RELEASE_TOOLS, include_in_main=True)
 
 __all__ = [
+    "EVIDENCE_REVIEW_TOOLS",
     "RESEARCH_RELEASE_TOOLS",
     "RESEARCH_REVIEW_TOOLS",
 ] + [tool.name for tool in [*RESEARCH_REVIEW_TOOLS, *RESEARCH_RELEASE_TOOLS]]

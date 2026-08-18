@@ -142,13 +142,12 @@ def _research_premise(value: object, labels: Mapping[str, str]) -> str:
     text = _clean_reader_text(value, labels)
     if not text:
         return ""
-    premise = re.split(
+    parts = re.split(
         r"(?=请(?:形成|提出|生成|给出|构建|搜索|比较|更新))",
         text,
         maxsplit=1,
-    )[0].strip()
-    if len(premise) < 12:
-        premise = text
+    )
+    premise = parts[0].strip() if len(parts) == 2 and parts[0].strip() else text
     premise = re.sub(
         r"^(?:把|将)?(?:下面|以下)?(?:这句|这句话|内容)?"
         r"(?:仅|只)?作为待核验的研究前提(?:，|、)?"
@@ -214,7 +213,7 @@ def _candidate_evidence_line(
     empirical_support = epistemic.get("empirical_support")
     gaps = _join_text(candidate.get("evidence_gaps"), limit=1)
     if empirical_support == "none" or not supporting:
-        opening = "目前没有直接实证支持"
+        opening = "本次分析尚无可直接支持该主张的实证结果"
     else:
         opening = f"目前有 {len(supporting)} 项材料提供支持或约束"
     if opposing:

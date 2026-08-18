@@ -20,7 +20,6 @@ from knowledge_base.contracts import (  # noqa: E402
     check_status_transition,
     validate_content,
     validate_entry,
-    validate_review_decision,
 )
 
 
@@ -198,20 +197,6 @@ class TestStatusMachine(unittest.TestCase):
             check_status_transition("archived", "canonical")
         with self.assertRaises(ContractError):
             check_status_transition("candidate", "archived")
-
-
-class TestReviewDecisionSchema(unittest.TestCase):
-    def test_valid_decision(self):
-        decision = validate_review_decision({"queue_id": 1, "decision": "approved"})
-        self.assertEqual(decision["decision"], "approved")
-
-    def test_invalid_decision_rejected(self):
-        with self.assertRaises(ContractError):
-            validate_review_decision({"queue_id": 1, "decision": "maybe"})
-        with self.assertRaises(ContractError):
-            validate_review_decision({"queue_id": 0, "decision": "approved"})
-        with self.assertRaises(ContractError):
-            validate_review_decision({"queue_id": "1", "decision": "approved"})
 
 
 if __name__ == "__main__":

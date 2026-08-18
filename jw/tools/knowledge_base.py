@@ -76,22 +76,6 @@ def _binding_context_key(config: RunnableConfig | None) -> str:
     return run_id or agent or "__default__"
 
 
-def _human_gate_active() -> bool:
-    """True when kb_promote calls cannot execute without human approval.
-
-    ``kb_promote`` is in the HITL ``interrupt_on`` set whenever
-    ``auto_approve`` is off, so a promote call that *runs* necessarily
-    passed human review — that approval IS the expert-review evidence.
-    """
-
-    try:
-        from jw.config import get_effective_config
-
-        return not bool(get_effective_config().auto_approve)
-    except Exception:  # noqa: BLE001
-        return False
-
-
 def _query_knowledge_base(
     query: str,
     *,
@@ -290,35 +274,22 @@ def kb_propose(
 def kb_promote(
     entry_id: str,
     reason: str,
-    reviewer: str = "",
     config: RunnableConfig = None,
 ) -> str:
-    """Run the promotion review gate for a candidate entry.
+    """Run the cross-run evidence gate for a candidate entry.
 
-    Auto-approves to canonical only when the finding was reproduced in >=2
-    distinct run ids or a non-empty ``reviewer`` provides expert review.
-    A DOI proves source identity but never auto-approves scientific support.
-    When HITL approval is active (auto_approve off), a promote call that
-    executes has necessarily been human-approved, so the expert rule fires
-    with reviewer recorded as ``human(HITL)``. Otherwise the request is
-    queued as pending for human decision via ``kb_review_decide`` and the
-    entry stays candidate.
+    Promotes to canonical only when the finding was reproduced in at least two
+    distinct run ids. A DOI proves source identity but never scientific support.
 
     Args:
         entry_id: Candidate entry id to promote.
-        reason: Promotion justification (reproduction evidence / literature
-            support / expert judgement).
-        reviewer: Expert reviewer name; non-empty triggers the expert rule.
+        reason: Promotion justification based on cross-run reproduction.
 
     Returns:
-        JSON string with the gate decision (auto_approved or pending_review).
+        JSON string with the gate decision (promoted or promotion_not_ready).
     """
     try:
-        if not reviewer.strip() and _human_gate_active():
-            reviewer = "human(HITL)"
-        return _ok(
-            service.promote(_get_store(), entry_id, reason=reason, reviewer=reviewer)
-        )
+        return _ok(service.promote(_get_store(), entry_id, reason=reason))
     except Exception as exc:  # noqa: BLE001
         return _err(str(exc))
 
@@ -349,67 +320,16 @@ def kb_deprecate(entry_id: str, reason: str, superseded_by: str = "") -> str:
 
 @tool(parse_docstring=True)
 def kb_conflicts(entry_id: str = "") -> str:
-    """List pending conflict-review items (counterexample vs canonical).
+    """List unresolved evidence conflicts (counterexample vs canonical).
 
     Args:
         entry_id: Optional entry id to filter conflicts involving it.
 
     Returns:
-        JSON string with pending conflict queue items.
+        JSON string with unresolved conflict records.
     """
     try:
         return _ok(service.conflicts(_get_store(), entry_id=entry_id))
-    except Exception as exc:  # noqa: BLE001
-        return _err(str(exc))
-
-
-@tool(parse_docstring=True)
-def kb_review_queue(kind: str = "", entry_id: str = "") -> str:
-    """List pending knowledge review items, including legacy revalidation.
-
-    Args:
-        kind: Optional promote/conflict/deprecate/revalidate filter.
-        entry_id: Optional entry id filter.
-
-    Returns:
-        JSON string with pending review items and their evidence requirements.
-    """
-    try:
-        return _ok(service.review_queue(_get_store(), kind=kind, entry_id=entry_id))
-    except Exception as exc:  # noqa: BLE001
-        return _err(str(exc))
-
-
-@tool(parse_docstring=True)
-def kb_review_decide(
-    queue_id: int, decision: str, note: str = "", reviewer: str = "human"
-) -> str:
-    """Apply a human approve/reject decision to a pending review-queue item.
-
-    For ``revalidate`` items, approval only unblocks the legacy entry for
-    grounding; rejection deprecates it. A legacy DOI-promoted canonical is
-    demoted to candidate and still needs a separate promotion decision. All
-    outcomes preserve version history.
-
-    Args:
-        queue_id: Review queue id from kb_review_queue, kb_promote, or kb_conflicts.
-        decision: ``approved`` or ``rejected``.
-        note: Optional reviewer note recorded with the decision.
-        reviewer: Reviewer name (defaults to ``human``).
-
-    Returns:
-        JSON string with the queue item outcome and affected entry status.
-    """
-    try:
-        return _ok(
-            service.review_decide(
-                _get_store(),
-                int(queue_id),
-                decision=decision,
-                note=note,
-                reviewer=reviewer,
-            )
-        )
     except Exception as exc:  # noqa: BLE001
         return _err(str(exc))
 
@@ -872,8 +792,6 @@ KB_TOOLS = [
     kb_promote,
     kb_deprecate,
     kb_conflicts,
-    kb_review_queue,
-    kb_review_decide,
     kb_log,
     kb_import,
     lit_feed_catalog,

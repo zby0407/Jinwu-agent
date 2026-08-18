@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 import asyncio
+import csv
 import hashlib
+import io
 import json
+import math
 import re
 import shutil
 from collections.abc import Awaitable, Callable, Mapping, Sequence
@@ -54,9 +57,14 @@ _CANONICAL_CHECKPOINT_DIRECTIVE = {
         "specialist attempt immediately and preserve its saved checkpoint."
     ),
     "data": (
-        "First call solar_data_open_context exactly once. Use only its "
-        "eligible_inputs; if it returns input_missing/must_stop, return that "
-        "hash-bound blocker immediately without guessing paths. Otherwise persist "
+        "The Supervisor has already called solar_data_open_context exactly once; "
+        "do not open or rediscover the context again. Use only the supplied "
+        "deterministic_data_context eligible_inputs. If it reports "
+        "input_missing/must_stop, return that hash-bound blocker immediately "
+        "without guessing paths. If readiness_receipt_ref is present, that "
+        "Supervisor-derived receipt is the canonical bounded Data result: inspect "
+        "its stated status and return the exact receipt path without making "
+        "another tool call or inventing missing observations. Otherwise persist "
         "the inspected dataset semantics and transformations in the task-local "
         "data session or receipts/datasets; return exact paths and hashes. Prose "
         "without a canonical data artifact cannot enter review."
@@ -103,6 +111,11 @@ _CANONICAL_CHECKPOINT_DIRECTIVE = {
         "artifact paths."
     ),
 }
+
+_MODEL_CALL_BUDGET_STOP = re.compile(
+    r"^\s*Model call limits exceeded:\s*(?:run|thread) limit\b",
+    re.IGNORECASE,
+)
 
 
 def _route_kind(state: object) -> str | None:
@@ -303,6 +316,9 @@ def _upstream_context(store: ResearchReviewStore, stage: str) -> str:
     for artifact in store.accepted_artifacts():
         if artifact["stage"] == stage:
             continue
+        verdict = store.matching_verdict(
+            artifact["stage"], [store.artifact_ref(artifact)]
+        )
         rows.append(
             {
                 "artifact_id": artifact["artifact_id"],
@@ -311,6 +327,17 @@ def _upstream_context(store: ResearchReviewStore, stage: str) -> str:
                 "artifact_sha256": artifact["artifact_sha256"],
                 "payload": artifact["payload"],
                 "limitations": artifact["limitations"],
+                "review_decision": verdict["decision"] if verdict else None,
+                "accepted_claims": verdict["accepted_claims"] if verdict else [],
+                "carry_forward_limits": (
+                    verdict["carry_forward_limits"] if verdict else []
+                ),
+                "interpretation": (
+                    "The upstream artifact and its data/provenance boundary were "
+                    "accepted. Preserve the carried limits. Do not describe it as "
+                    "absent, unreviewed, or requiring regeneration. Acceptance does "
+                    "not establish predictive skill or causal support for this stage."
+                ),
             }
         )
     if stage == "experiment_result":
@@ -341,6 +368,75 @@ def _upstream_context(store: ResearchReviewStore, stage: str) -> str:
                     break
     encoded = json.dumps(rows, ensure_ascii=False)
     return encoded[:30_000]
+
+
+def _write_hypothesis_request(store: ResearchReviewStore) -> str:
+    """Bind accepted Data output into the Hypothesis tool's native request."""
+
+    question = _bound_research_question(store)
+    if not question:
+        raise RuntimeError("the task has no bound research question")
+    materials: list[dict[str, Any]] = []
+    for artifact in store.accepted_artifacts():
+        if artifact["stage"] != "data":
+            continue
+        verdict = store.matching_verdict("data", [store.artifact_ref(artifact)])
+        if verdict is None:
+            continue
+        claim_text = "\n\n".join(
+            str(claim.get("text") or "").strip()
+            for claim in artifact.get("claims", [])
+            if isinstance(claim, Mapping) and str(claim.get("text") or "").strip()
+        )
+        limits = [
+            str(value).strip()
+            for value in (
+                list(artifact.get("limitations") or [])
+                + list(verdict.get("carry_forward_limits") or [])
+            )
+            if str(value).strip()
+        ]
+        notes = (
+            "Evidence review accepted this Data artifact's declared data and "
+            "provenance boundary. This establishes the inspected feature product, "
+            "not predictive skill or a causal mechanism.\n\n" + claim_text
+        )
+        if limits:
+            notes += "\n\nAccepted limitations:\n- " + "\n- ".join(limits)
+        relative = (
+            store.root
+            / "artifacts"
+            / artifact["artifact_id"]
+            / f"v{artifact['version']:04d}.json"
+        ).relative_to(store.workspace_root)
+        materials.append(
+            {
+                "id": f"accepted_{artifact['artifact_id'].replace('-', '_')}_v{artifact['version']}",
+                "material_kind": "data_feature",
+                "title": f"Accepted {artifact['artifact_id']} version {artifact['version']}",
+                "locator": relative.as_posix(),
+                "content_notes": notes[:8_000],
+                "experiment_summary": None,
+            }
+        )
+    request = {
+        "schema_version": "scientific-hypothesis-request-v1",
+        "task_name": f"hypothesis_{store.task_id}",
+        "research_question": question,
+        "upstream_materials": materials,
+        "prior_hypotheses": [],
+        "max_candidates": 3,
+    }
+    from scientific_hypothesis.contracts import validate_hypothesis_request
+
+    validated = validate_hypothesis_request(request)
+    relative = Path("work") / "research_quality" / "hypothesis_request.json"
+    target = store.workspace_root / relative
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(
+        json.dumps(validated, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
+    return relative.as_posix()
 
 
 def _stage_data_produced_inputs(store: ResearchReviewStore) -> list[str]:
@@ -527,6 +623,20 @@ def _prior_task_failures(
                         " ".join(stripped.split())[:500],
                     )
                 )
+            elif subagent_type == "solar-evidence" and stripped.startswith(
+                "[RESEARCH REVIEW BLOCKED] solar-evidence returned without "
+                "persisting a hash-bound ReviewVerdictV2"
+            ):
+                # A reviewer that returns without the atomic assessment/quality/
+                # verdict round has failed its required contract. Count this as
+                # a specialist failure so the Supervisor cannot retry the same
+                # non-progressing Evidence delegation indefinitely.
+                failures.append(
+                    (
+                        hashlib.sha256(stripped.encode("utf-8")).hexdigest(),
+                        " ".join(stripped.split())[:500],
+                    )
+                )
     return tuple(failures)
 
 
@@ -584,6 +694,200 @@ def _open_data_context_preflight(
     return payload
 
 
+def _cycle26_readiness_from_paths(
+    sunspot_path: Path,
+    polar_path: Path,
+    precursor_receipt: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Derive the launch-readiness facts that the historical table cannot hold."""
+
+    import numpy as np
+    from scipy.signal import find_peaks
+
+    cutoff = (2026, 6)
+    monthly: list[tuple[int, int, float, bool]] = []
+    for line_number, raw in enumerate(
+        sunspot_path.read_text(encoding="ascii").splitlines(), start=1
+    ):
+        fields = raw.split()
+        if not fields:
+            continue
+        if len(fields) not in {6, 7}:
+            raise ValueError(f"invalid SILSO row {line_number}")
+        year, month = int(fields[0]), int(fields[1])
+        if (year, month) > cutoff:
+            continue
+        monthly.append((year, month, float(fields[3]), len(fields) == 7))
+    if not monthly:
+        raise RuntimeError("SILSO has no observations at or before the cutoff")
+    observed_keys = {(year, month) for year, month, _value, _flag in monthly}
+    missing_months: list[str] = []
+    year, month = monthly[0][0], monthly[0][1]
+    while (year, month) <= cutoff:
+        if (year, month) not in observed_keys:
+            missing_months.append(f"{year:04d}-{month:02d}")
+        month += 1
+        if month == 13:
+            year += 1
+            month = 1
+
+    values = np.asarray([value for _y, _m, value, _flag in monthly], dtype=float)
+    weights = np.ones(13, dtype=float)
+    weights[[0, -1]] = 0.5
+    weights /= 12.0
+    smoothed = np.convolve(values, weights, mode="same")
+    smoothed[:6] = np.nan
+    smoothed[-6:] = np.nan
+    search = np.asarray(
+        [
+            index
+            for index, (row_year, _month, _value, _flag) in enumerate(monthly)
+            if row_year >= 1895 and np.isfinite(smoothed[index])
+        ]
+    )
+    minima_offsets, _ = find_peaks(-smoothed[search], distance=8 * 12, prominence=5)
+    minima = search[minima_offsets]
+    if not len(minima):
+        raise RuntimeError("SILSO cutoff series has no confirmed cycle minimum")
+    latest_minimum = int(minima[-1])
+    peak = latest_minimum + int(np.nanargmax(smoothed[latest_minimum:]))
+
+    material_lines = [
+        line
+        for line in polar_path.read_text(encoding="utf-8").splitlines()
+        if line.strip() and not line.startswith("#")
+    ]
+    reader = csv.DictReader(io.StringIO("\n".join(material_lines)))
+    latest_polar: dict[str, float | None] = {"north": None, "south": None}
+    for row in reader:
+        for hemisphere, prefix in (("north", "N"), ("south", "S")):
+            for source in ("MWO", "WSO"):
+                try:
+                    date = float(str(row.get(f"{prefix} {source} Date") or ""))
+                    field = float(str(row.get(f"{prefix} {source} PField") or ""))
+                except ValueError:
+                    continue
+                if not (math.isfinite(date) and math.isfinite(field)):
+                    continue
+                previous = latest_polar[hemisphere]
+                if previous is None or date > previous:
+                    latest_polar[hemisphere] = date
+
+    row_count = precursor_receipt.get("row_count")
+    cycle_numbers = precursor_receipt.get("cycle_numbers")
+    historical_pairs_verified = (
+        isinstance(row_count, int)
+        and isinstance(cycle_numbers, list)
+        and row_count == len(cycle_numbers)
+        and cycle_numbers == list(range(15, 25))
+    )
+    last_year, last_month, _last_value, _last_flag = monthly[-1]
+    min_year, min_month, _value, _flag = monthly[latest_minimum]
+    peak_year, peak_month, _value, _flag = monthly[peak]
+    return {
+        "schema_version": "cycle26-launch-readiness-v1",
+        "observation_cutoff": "2026-06-30",
+        "silso": {
+            "dataset_product": "SILSO monthly total sunspot number v2.0",
+            "unit": "monthly total sunspot number",
+            "last_observed_month_at_cutoff": f"{last_year:04d}-{last_month:02d}",
+            "missing_months_through_cutoff": missing_months,
+            "provisional_months": [
+                f"{y:04d}-{m:02d}" for y, m, _v, provisional in monthly if provisional
+            ],
+            "latest_confirmed_cycle_minimum": f"{min_year:04d}-{min_month:02d}",
+            "latest_confirmed_cycle_peak_to_date": f"{peak_year:04d}-{peak_month:02d}",
+            "cycle25_to_cycle26_minimum_confirmed": False,
+            "confirmation_rule": (
+                "centered 13-month tapered smoother; six later months are required"
+            ),
+        },
+        "polar_field": {
+            "dataset_product": "MWO facular proxy calibrated to WSO plus WSO polar field v2",
+            "unit": "gauss",
+            "latest_north_measurement_decimal_year": latest_polar["north"],
+            "latest_south_measurement_decimal_year": latest_polar["south"],
+            "cycle26_minimum_precursor_bindable": False,
+            "reason": (
+                "the cycle-25/26 minimum is not confirmed, so no measurement can "
+                "yet be bound to that future minimum under the frozen rule"
+            ),
+        },
+        "f107": {
+            "dataset_product": "F10.7 authoritative archive",
+            "status": "gap",
+            "reason": "no F10.7 dataset is registered in the task input manifest",
+        },
+        "historical_calibration": {
+            "verified": historical_pairs_verified,
+            "cycle_pair_count": row_count if historical_pairs_verified else None,
+            "cycle_numbers": cycle_numbers if historical_pairs_verified else [],
+            "independence_note": (
+                "cycle pairs are the sampling units; statistical independence is not inferred"
+            ),
+        },
+        "trigger_status": {
+            "complete_silso_through_cutoff": not missing_months,
+            "f107_bound": False,
+            "cycle25_minimum_confirmed": False,
+            "cycle26_polar_precursor_bound": False,
+            "historical_validation_completed": False,
+        },
+        "launch_readiness": "do_not_launch",
+        "claim_limit": (
+            "This is a readiness audit, not a Cycle 26 amplitude forecast or peak interval."
+        ),
+    }
+
+
+def _persist_cycle26_readiness_receipt(
+    config: object, data_context: Mapping[str, Any]
+) -> str:
+    """Persist a stable cutoff/readiness ledger for the polar-precursor protocol."""
+
+    from ..tools.solar_feature import _resolve_eligible_data_path
+    from ..workspaces import binding_from_config
+
+    eligible = data_context.get("eligible_inputs")
+    if not isinstance(eligible, list):
+        raise RuntimeError("data context has no eligible inputs")
+    by_id = {
+        str(item.get("dataset_id")): item
+        for item in eligible
+        if isinstance(item, Mapping) and isinstance(item.get("path"), str)
+    }
+    sunspot_record = by_id.get("silso-monthly-total-v2")
+    polar_record = by_id.get("mwo-wso-polar-field-v2")
+    if sunspot_record is None or polar_record is None:
+        raise RuntimeError(
+            "cycle-26 readiness audit lacks the required registered inputs"
+        )
+    binding = binding_from_config(config)  # type: ignore[arg-type]
+    if binding is None:
+        raise RuntimeError("cycle-26 readiness audit has no task workspace binding")
+    root = Path(binding.workspace)
+    precursor_path = root / "receipts/datasets/solar_precursor_cycle_table.json"
+    if not precursor_path.is_file():
+        raise RuntimeError("historical precursor receipt is unavailable")
+    precursor = json.loads(precursor_path.read_text(encoding="utf-8"))
+    if not isinstance(precursor, Mapping):
+        raise RuntimeError("historical precursor receipt is not an object")
+    payload = _cycle26_readiness_from_paths(
+        _resolve_eligible_data_path(str(sunspot_record["path"]), config),
+        _resolve_eligible_data_path(str(polar_record["path"]), config),
+        precursor,
+    )
+    relative = Path("receipts/datasets/cycle26_launch_readiness.json")
+    destination = root / relative
+    rendered = json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n"
+    if not destination.is_file() or destination.read_text(encoding="utf-8") != rendered:
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        temporary = destination.with_suffix(".json.tmp")
+        temporary.write_text(rendered, encoding="utf-8")
+        temporary.replace(destination)
+    return relative.as_posix()
+
+
 def _data_context_projection(payload: Mapping[str, Any]) -> dict[str, Any]:
     """Return the bounded context fields safe to place in a task description."""
 
@@ -600,7 +904,54 @@ def _data_context_projection(payload: Mapping[str, Any]) -> dict[str, Any]:
         "missing_required_dataset_ids": payload.get("missing_required_dataset_ids", []),
         "eligible_inputs": eligible if isinstance(eligible, list) else [],
         "instruction": payload.get("instruction"),
+        "readiness_receipt_ref": payload.get("readiness_receipt_ref"),
     }
+
+
+def _cycle26_readiness_producer_text(workspace_root: Path, receipt_ref: str) -> str:
+    """Project a canonical readiness receipt into a bounded Data result."""
+
+    receipt_path = (workspace_root / receipt_ref).resolve()
+    if not receipt_path.is_relative_to(workspace_root.resolve()):
+        raise RuntimeError("readiness receipt escapes the task workspace")
+    payload = json.loads(receipt_path.read_text(encoding="utf-8"))
+    if not isinstance(payload, Mapping):
+        raise RuntimeError("readiness receipt is not an object")
+    silso = payload.get("silso") if isinstance(payload.get("silso"), Mapping) else {}
+    polar = (
+        payload.get("polar_field")
+        if isinstance(payload.get("polar_field"), Mapping)
+        else {}
+    )
+    f107 = payload.get("f107") if isinstance(payload.get("f107"), Mapping) else {}
+    historical = (
+        payload.get("historical_calibration")
+        if isinstance(payload.get("historical_calibration"), Mapping)
+        else {}
+    )
+    triggers = (
+        payload.get("trigger_status")
+        if isinstance(payload.get("trigger_status"), Mapping)
+        else {}
+    )
+    return (
+        "Cycle 26 launch-readiness Data result (deterministic receipt projection).\n"
+        f"Canonical source: {receipt_ref}\n"
+        f"Observation cutoff: {payload.get('observation_cutoff')}\n"
+        "SILSO last observed month at cutoff: "
+        f"{silso.get('last_observed_month_at_cutoff')}; missing through cutoff: "
+        f"{json.dumps(silso.get('missing_months_through_cutoff', []))}.\n"
+        "Cycle 25-to-26 minimum confirmed: "
+        f"{str(bool(silso.get('cycle25_to_cycle26_minimum_confirmed'))).lower()}.\n"
+        "Cycle 26 minimum polar precursor bindable: "
+        f"{str(bool(polar.get('cycle26_minimum_precursor_bindable'))).lower()}.\n"
+        f"F10.7 status: {f107.get('status')}.\n"
+        "Historical cycle-pair count: "
+        f"{historical.get('cycle_pair_count')}; independence is not inferred.\n"
+        f"Trigger ledger: {json.dumps(triggers, ensure_ascii=False, sort_keys=True)}\n"
+        f"Launch readiness: {payload.get('launch_readiness')}.\n"
+        f"Claim limit: {payload.get('claim_limit')}"
+    )
 
 
 def _prior_transient_task_failure_count(state: object, subagent_type: str) -> int:
@@ -732,11 +1083,28 @@ class ResearchReviewOrchestrationMiddleware(AgentMiddleware[Any, Any, Any]):
         store = store_from_config(config)
         if route_kind == "full":
             store.recover_canonical_producer_after_tool_failure()
-        action = (
-            store.next_action()
-            if route_kind == "full"
-            else store.bounded_stage_action(route_kind.split(":", 1)[1])
-        )
+        if route_kind == "full":
+            action = store.next_action()
+        else:
+            route = request.state.get("research_route", {})
+            final_stage = route_kind.split(":", 1)[1]
+            preliminary = (
+                route.get("preliminary_stages", [])
+                if isinstance(route, Mapping)
+                else []
+            )
+            stages = [
+                str(stage)
+                for stage in preliminary
+                if stage in {"planning", "data", "hypothesis", "experiment_design"}
+                and stage != final_stage
+            ]
+            action = (
+                store.bounded_sequence_action((*stages, final_stage))
+                if stages
+                else store.bounded_stage_action(final_stage)
+            )
+            route_kind = f"bounded:{action['stage']}"
         name = str(request.tool_call.get("name") or "")
         args = request.tool_call.get("args", {})
         args = dict(args) if isinstance(args, Mapping) else {}
@@ -774,52 +1142,6 @@ class ResearchReviewOrchestrationMiddleware(AgentMiddleware[Any, Any, Any]):
             except RuntimeError as exc:
                 return request, action, self._blocked(request, str(exc))
             return request, action, None
-        if action["kind"] == "independent_review":
-            if name != "research_independent_review":
-                # The arguments for this state-machine edge are fully known. Do
-                # not ask Qwen to rediscover the tool after it emits a stale task
-                # call: the Supervisor executes the typed action itself and
-                # returns the real tool receipt. This is orchestration, not a
-                # reviewer decision, and the independent tool still enforces
-                # model-family separation and hash binding.
-                try:
-                    store.reserve_action(action)
-                    from ..tools.research_review import research_independent_review
-
-                    result = research_independent_review.func(
-                        action["review_mode"], config=config
-                    )
-                except Exception:
-                    return (
-                        request,
-                        action,
-                        _wrong_deterministic_action(
-                            request,
-                            required_tool="research_independent_review",
-                            required_args={"review_mode": action["review_mode"]},
-                        ),
-                    )
-                return (
-                    request,
-                    action,
-                    ToolMessage(
-                        content=(
-                            "[DETERMINISTIC ACTION REDIRECT] Supervisor replaced a "
-                            "stale model tool call with the required hash-bound "
-                            "independent review action.\n" + str(result)
-                        ),
-                        tool_call_id=str(
-                            request.tool_call.get("id")
-                            or "research-independent-review-redirect"
-                        ),
-                        name=name,
-                    ),
-                )
-            try:
-                store.reserve_action(action)
-            except RuntimeError as exc:
-                return request, action, self._blocked(request, str(exc))
-            return request, action, None
         if name != "task":
             return (
                 request,
@@ -844,12 +1166,20 @@ class ResearchReviewOrchestrationMiddleware(AgentMiddleware[Any, Any, Any]):
         prior_failures = _prior_task_failures(request.state, expected)
         failure_fingerprints = tuple(item[0] for item in prior_failures)
         if len(failure_fingerprints) >= 2:
-            receipt = store.block_for_tool_failures(
-                stage=action["stage"],
-                producer=expected,
-                fingerprints=failure_fingerprints,
-                failure_summaries=tuple(item[1] for item in prior_failures),
-            )
+            if expected == "solar-evidence":
+                receipt = store.block_for_review_failures(
+                    stage=action["stage"],
+                    reviewer=expected,
+                    fingerprints=failure_fingerprints,
+                    failure_summaries=tuple(item[1] for item in prior_failures),
+                )
+            else:
+                receipt = store.block_for_tool_failures(
+                    stage=action["stage"],
+                    producer=expected,
+                    fingerprints=failure_fingerprints,
+                    failure_summaries=tuple(item[1] for item in prior_failures),
+                )
             message = ToolMessage(
                 content=(
                     "[RESEARCH REVIEW TOOL FAILURE STOP] The required specialist "
@@ -950,8 +1280,13 @@ class ResearchReviewOrchestrationMiddleware(AgentMiddleware[Any, Any, Any]):
                         name=name,
                     ),
                 )
-            description += (
-                "\n\n[EVIDENCE_REVIEW_V2]\n"
+            # The persisted review context is authoritative.  Do not forward
+            # parent-authored copies of an artifact through task.description;
+            # that duplicates a large payload and lets orchestration prose
+            # masquerade as evidence.  The reviewer opens the bound artifact
+            # and source refs itself.
+            description = (
+                "[EVIDENCE_REVIEW_V2]\n"
                 f"review_mode={action['review_mode']}\n"
                 "Open the server-bound context with evidence_review_open_context, "
                 "inspect the immutable artifact and sources, then submit exactly one "
@@ -973,11 +1308,42 @@ class ResearchReviewOrchestrationMiddleware(AgentMiddleware[Any, Any, Any]):
                         if isinstance(route, Mapping)
                         else "none"
                     )
+                    if analysis_protocol == "none" and route_kind == "full":
+                        from ..research_protocols import detect_analysis_protocol
+
+                        bound_question = _bound_research_question(store) or ""
+                        analysis_protocol = detect_analysis_protocol(bound_question)
                     data_context = _open_data_context_preflight(
                         config,
                         route_kind=route_kind,
                         analysis_protocol=analysis_protocol,
                     )
+                    if (
+                        action.get("phase") == "data_revision_from_data"
+                        and analysis_protocol == "solar_polar_precursor_v1"
+                        and data_context.get("must_stop") is not True
+                    ):
+                        data_context["readiness_receipt_ref"] = (
+                            _persist_cycle26_readiness_receipt(config, data_context)
+                        )
+                        # The launch-readiness receipt is itself the requested
+                        # bounded answer.  Missing Cycle-26 minimum/precursor
+                        # observations cannot be repaired by rebuilding the
+                        # historical precursor table, so make the scientific
+                        # stop explicit to the unmodified Data Agent contract.
+                        data_context["status"] = "launch_not_ready"
+                        data_context["must_stop"] = True
+                        data_context["instruction"] = (
+                            "Return readiness_receipt_ref as the source-bound "
+                            "Data result. Do not rebuild the historical table or "
+                            "invent the unavailable Cycle 26 launch inputs."
+                        )
+                        action["precomputed_producer_text"] = (
+                            _cycle26_readiness_producer_text(
+                                store.workspace_root,
+                                str(data_context["readiness_receipt_ref"]),
+                            )
+                        )
                 except Exception as exc:
                     return (
                         request,
@@ -1040,9 +1406,12 @@ class ResearchReviewOrchestrationMiddleware(AgentMiddleware[Any, Any, Any]):
                     )
                     + "\nThe Supervisor already opened this hash-bound context. "
                     "Do not rediscover or guess inputs. If must_stop=true, return "
-                    "the blocker immediately. Otherwise inspect the exact eligible "
-                    "input and persist at least one additional task-local data "
-                    "artifact before returning."
+                    "the blocker immediately. If readiness_receipt_ref is present, "
+                    "the receipt is already the additional task-local Data artifact: "
+                    "return its bounded status immediately without another tool "
+                    "call. Otherwise inspect the exact eligible input and persist "
+                    "at least one additional task-local data artifact before "
+                    "returning."
                 )
             bound_question_directive = ""
             if action["stage"] == "planning":
@@ -1055,6 +1424,32 @@ class ResearchReviewOrchestrationMiddleware(AgentMiddleware[Any, Any, Any]):
                         "label is orchestration metadata, not the research topic; "
                         "never substitute that label for bound_research_question."
                     )
+            hypothesis_request_directive = ""
+            if action["stage"] == "hypothesis" and any(
+                artifact["stage"] == "data" for artifact in store.accepted_artifacts()
+            ):
+                try:
+                    request_path = _write_hypothesis_request(store)
+                except Exception as exc:
+                    return (
+                        request,
+                        action,
+                        self._blocked(
+                            request,
+                            "the accepted upstream could not be bound into the "
+                            f"Hypothesis request: {type(exc).__name__}: {exc}",
+                        ),
+                    )
+                hypothesis_request_directive = (
+                    "\nbound_hypothesis_request=@"
+                    + request_path
+                    + "\nCall scientific_hypothesis_bind_request with exactly this "
+                    "@ path. It contains the accepted Data artifact as a declared "
+                    "data_feature. Bind an exact excerpt from that material as "
+                    "verified upstream evidence when it supports or limits a "
+                    "candidate. Preserve the stated boundary: Data acceptance does "
+                    "not establish predictive skill or causality."
+                )
             description += (
                 "\n\n[RESEARCH_PRODUCER_V2]\n"
                 f"phase={action['phase']}\n"
@@ -1062,7 +1457,11 @@ class ResearchReviewOrchestrationMiddleware(AgentMiddleware[Any, Any, Any]):
                 "Return one bounded result owned by this producer. Never claim a "
                 "receipt that the dedicated tools did not produce. For a revision, "
                 "consume only revision_capsule, preserve accepted and unchanged "
-                "work, and stop after one new immutable artifact.\n"
+                "work, and stop after one new immutable artifact. The accepted "
+                "producer result becomes reader-visible: report scientific content "
+                "and evidence boundaries only. Do not mention internal draft, "
+                "checkpoint, freeze, publish, or release state; the runtime owns "
+                "those lifecycle labels.\n"
                 f"revision_capsule={json.dumps(revision_capsule, ensure_ascii=False)}\n"
                 "planner_revision_checkpoint="
                 f"{json.dumps(planner_revision_checkpoint, ensure_ascii=False)}\n"
@@ -1071,6 +1470,7 @@ class ResearchReviewOrchestrationMiddleware(AgentMiddleware[Any, Any, Any]):
                 f"{staged_directive}"
                 f"{data_context_directive}"
                 f"{bound_question_directive}"
+                f"{hypothesis_request_directive}"
                 "\ncanonical_checkpoint="
                 f"{_CANONICAL_CHECKPOINT_DIRECTIVE[action['stage']]}"
             )
@@ -1099,6 +1499,16 @@ class ResearchReviewOrchestrationMiddleware(AgentMiddleware[Any, Any, Any]):
         store = store_from_config(config)
         if action["kind"] == "producer":
             producer_text = _tool_result_text(result)
+            if _MODEL_CALL_BUDGET_STOP.match(producer_text):
+                # A specialist loop guard is an execution failure, not a
+                # scientific observation.  In particular, do not let a stale
+                # canonical source bundle make this framework message look like
+                # a new immutable producer result.
+                return self._blocked(
+                    request,
+                    "producer exhausted its model-call budget before returning "
+                    "a bounded scientific result",
+                )
             try:
                 artifact = store.checkpoint_producer_result(
                     stage=action["stage"],
@@ -1225,6 +1635,15 @@ class ResearchReviewOrchestrationMiddleware(AgentMiddleware[Any, Any, Any]):
         rewritten, action, blocked = self._prepare(request)
         if blocked is not None:
             return blocked
+        if action is not None and isinstance(
+            action.get("precomputed_producer_text"), str
+        ):
+            result = ToolMessage(
+                content=action["precomputed_producer_text"],
+                tool_call_id=str(request.tool_call.get("id") or "data-readiness"),
+                name=str(request.tool_call.get("name") or "task"),
+            )
+            return self._after(request, action, result)
         return self._after(request, action, handler(rewritten))
 
     async def awrap_tool_call(
@@ -1235,6 +1654,15 @@ class ResearchReviewOrchestrationMiddleware(AgentMiddleware[Any, Any, Any]):
         rewritten, action, blocked = await asyncio.to_thread(self._prepare, request)
         if blocked is not None:
             return blocked
+        if action is not None and isinstance(
+            action.get("precomputed_producer_text"), str
+        ):
+            result = ToolMessage(
+                content=action["precomputed_producer_text"],
+                tool_call_id=str(request.tool_call.get("id") or "data-readiness"),
+                name=str(request.tool_call.get("name") or "task"),
+            )
+            return await asyncio.to_thread(self._after, request, action, result)
         result = await handler(rewritten)
         return await asyncio.to_thread(self._after, request, action, result)
 

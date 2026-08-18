@@ -55,8 +55,6 @@ export JW_AUXILIARY_MODEL="$light_model"
 export JW_AUXILIARY_PROVIDER="$light_provider"
 # Independent review is a distinct role, never the auxiliary selector. It is
 # invoked only at the deterministic hypothesis/integration/final_release gates.
-export JW_INDEPENDENT_REVIEW_MODEL="${JW_EVAL_INDEPENDENT_REVIEW_MODEL:-deepseek-v4-pro}"
-export JW_INDEPENDENT_REVIEW_PROVIDER="${JW_EVAL_INDEPENDENT_REVIEW_PROVIDER:-deepseek}"
 # Evaluation artifacts already capture the complete task state. Post-run memory
 # workers are outside the Planner/Evidence graph and some providers reject their
 # structured response format, so isolate them from formal gate traffic.

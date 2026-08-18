@@ -44,6 +44,82 @@ def test_evaluation_policy_freezes_four_variants_and_release_thresholds() -> Non
     assert policy["adaptive_promotion"]["max_cost_ratio_vs_fixed_3"] == 2.0
     assert policy["hidden_release_suite"]["minimum_cases_per_variant"] == 12
     assert policy["hidden_release_suite"]["prompt_storage"] == "external_to_repository"
+    assert policy["high_quality_review_gate"]["evidence_matrix_coverage_min"] == 1.0
+    assert policy["high_quality_review_gate"]["external_hidden_cases_min"] == 12
+
+
+def test_high_quality_visible_suite_has_ten_frozen_non_release_cases() -> None:
+    suite = json.loads(
+        (EVAL_ROOT / "high_quality_review_visible_v1.json").read_text(encoding="utf-8")
+    )
+
+    assert suite["visibility"] == "checked_in_visible"
+    assert suite["release_gate_eligible"] is False
+    assert len(suite["cases"]) == 10
+    assert len({case["id"] for case in suite["cases"]}) == 10
+    assert suite["implementation_baseline"]["fresh_8_12_1_runs_required"] is True
+    assert (
+        suite["implementation_baseline"]["historical_worktree_results_forbidden"]
+        is True
+    )
+    assert suite["automated_hard_gates"]["stable_repetitions_required"] == 3
+    assert suite["external_annotation_metrics"]["minimum_score_each"] == 80
+
+
+def test_high_quality_scorer_refuses_to_claim_external_validation() -> None:
+    script = EVAL_ROOT / "score_high_quality_records.py"
+    spec = importlib.util.spec_from_file_location("score_high_quality_records", script)
+    assert spec is not None
+    assert spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    signature = {
+        "conclusion": "evidence bounded",
+        "release_class": "evidence_constrained",
+        "evidence_limit_preservation": "unsupported priority is omitted",
+    }
+    rows = []
+    for case_id in sorted(module.EXPECTED_CASES):
+        for phase, repetitions, blind_score in (
+            ("baseline", (1,), 80),
+            ("post_freeze", (1, 2, 3), 86),
+        ):
+            for repetition in repetitions:
+                rows.append(
+                    {
+                        "case_id": case_id,
+                        "implementation_phase": phase,
+                        "repetition": repetition,
+                        "scientific_conclusion_signature": signature,
+                        "workflow_status_misclassifications": 0,
+                        "unsupported_critical_claims": 0,
+                        "false_novelty_priority": 0,
+                        "load_bearing_claims": 1,
+                        "matrix_covered_claims": 1,
+                        "seeded_conflicts_total": 1,
+                        "seeded_conflicts_detected": 1,
+                        "major_defects_total": 1,
+                        "major_defects_detected": 1,
+                        "potentially_novel_count": 0,
+                        "domain_novelty_confirmed_count": 0,
+                        "negative_outcome_expected": True,
+                        "negative_outcome_preserved": True,
+                        "external_annotation": {
+                            "role_entailment_total": 1,
+                            "role_entailment_correct": 1,
+                            "blind_scores": {
+                                "domain": blind_score,
+                                "methods_statistics": blind_score,
+                                "reproducibility": blind_score,
+                            },
+                            "unresolved_critical": 0,
+                        },
+                    }
+                )
+    result = module.score(rows)
+
+    assert result["visible_suite_passed"] is True
+    assert result["scientific_capability_validated"] is False
 
 
 def test_evaluation_scorer_enforces_calibration_and_cost_gate() -> None:

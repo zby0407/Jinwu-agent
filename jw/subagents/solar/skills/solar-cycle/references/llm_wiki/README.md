@@ -65,18 +65,18 @@ reused as canonical grounding.
 
 For Wiki maintenance, a changed source first creates a quote-grounded
 source-to-entry impact (`supports`, `contradicts`, `qualifies`, or `extends`).
-Any concrete edit is a candidate patch against an exact entry version and
-requires review. A stale patch never auto-merges; a retraction preserves the
-source and opens revalidation work instead of deleting history.
+Any concrete edit is saved only as a `proposal_only` patch against an exact
+entry version. It never auto-merges; a retraction preserves the source and
+blocks affected grounding until fresh task-bound evidence is ingested.
 
 ## Write boundary
 
-- Files in this directory are the built-in canonical seed and are changed
-  through reviewed source work.
+- Files in this directory are the built-in canonical seed and are maintained
+  from traceable source work.
 - Research-run findings, counterexamples, and failed experiments begin as
   `candidate` entries in the dynamic knowledge service.
-- A runtime candidate becomes built-in knowledge only after review and an
-  explicit versioned Wiki update.
+- A runtime candidate becomes canonical only after cross-run reproduction;
+  promotion writes an explicit versioned Wiki update.
 - Deprecated knowledge is retained with its replacement or deprecation reason.
 
 ## Directory map

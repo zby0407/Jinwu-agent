@@ -13,12 +13,15 @@
 //   JW_EVAL_MODEL / JW_EVAL_PROVIDER   default qwen3.8-max / custom-openai
 //   JW_EVAL_PROFILE    Chrome user-data-dir; default a fresh mktemp profile
 //   JW_EVAL_SUBMIT_ONLY=1   stop after the run is accepted by the backend
+//   JW_EVAL_HEADLESS=0      optionally show the automation browser itself
 //
 // The harness never persists auth material, full network bodies, or browser
-// credentials. Chrome runs headless on a throwaway profile that is deleted
-// after the run unless JW_EVAL_KEEP_PROFILE=1.
+// credentials. Automation uses a throwaway browser profile. Once the WebUI
+// creates the real thread, the harness prints an observer_url so a person can
+// open the same production conversation in their own browser.
 
 import { spawn } from "node:child_process";
+import { existsSync } from "node:fs";
 import {
   access,
   mkdtemp,
@@ -30,7 +33,11 @@ import {
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { classifyOutcome } from "./terminal_outcome.mjs";
+import {
+  blockedResearchOutcome,
+  classifyOutcome,
+  isTerminalOutcome,
+} from "./terminal_outcome.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const DEFAULT_SUITE = path.join(HERE, "sc26_core_e2e_v1.json");
@@ -64,16 +71,33 @@ if (stopStage && !["planning", "evidence"].includes(stopStage)) {
 async function loadSuite(suitePath) {
   const document = JSON.parse(await readFile(suitePath, "utf8"));
   if (!Array.isArray(document.source_suites)) return document;
+  const selectors = Array.isArray(document.cases)
+    ? new Map(document.cases.map((entry) => [entry.id, entry]))
+    : null;
   const cases = [];
   const seen = new Set();
   for (const source of document.source_suites) {
     const sourcePath = path.resolve(path.dirname(suitePath), String(source));
-    const sourceDocument = JSON.parse(await readFile(sourcePath, "utf8"));
+    const sourceDocument = await loadSuite(sourcePath);
     for (const entry of sourceDocument.cases || []) {
+      if (selectors && !selectors.has(entry.id)) continue;
       if (seen.has(entry.id)) throw new Error(`Duplicate case ID: ${entry.id}`);
       seen.add(entry.id);
       const overrides = document.case_overrides?.[entry.id] || {};
-      cases.push({ ...(document.defaults || {}), ...entry, ...overrides });
+      cases.push({
+        ...(sourceDocument.defaults || {}),
+        ...entry,
+        ...(sourceDocument.case_overrides?.[entry.id] || {}),
+        ...(document.defaults || {}),
+        ...overrides,
+        ...(selectors?.get(entry.id) || {}),
+      });
+    }
+  }
+  if (selectors) {
+    const missing = [...selectors.keys()].filter((id) => !seen.has(id));
+    if (missing.length) {
+      throw new Error(`Selected case IDs not found: ${missing.join(", ")}`);
     }
   }
   return { ...document, cases };
@@ -83,7 +107,10 @@ const suiteFile = path.resolve(process.env.JW_EVAL_SUITE || DEFAULT_SUITE);
 const suite = await loadSuite(suiteFile);
 const selectedCase = (suite.cases || []).find((entry) => entry.id === caseId);
 if (!selectedCase) throw new Error(`Unknown case ID: ${caseId}`);
-if (suite.schema_version === "research-review-visible-suite-v2") {
+if (
+  suite.schema_version === "research-review-visible-suite-v2" ||
+  suite.requires_review_fields === true
+) {
   for (const field of [
     "prompt",
     "input_files",
@@ -96,6 +123,22 @@ if (suite.schema_version === "research-review-visible-suite-v2") {
       throw new Error(`Case ${caseId} is missing required v2 field: ${field}`);
     }
   }
+}
+if (process.env.JW_EVAL_RESOLVE_ONLY === "1") {
+  process.stdout.write(
+    `${JSON.stringify({
+      case_id: selectedCase.id,
+      review_mode: selectedCase.review_mode,
+      reviewer_model: selectedCase.reviewer_model,
+      expected_outcome: selectedCase.expected_outcome,
+      input_files: selectedCase.input_files,
+      focus: selectedCase.focus || [],
+      prompt_style: selectedCase.prompt_style || "diagnostic",
+      allowed_user_intervention:
+        selectedCase.allowed_user_intervention || "unspecified",
+    })}\n`,
+  );
+  process.exit(0);
 }
 const prompt = String(selectedCase.prompt || "").trim();
 if (!prompt) throw new Error(`Case ${caseId} has an empty prompt`);
@@ -149,11 +192,9 @@ const reviewerFamily =
 const heterogeneous = process.env.JW_EVAL_HETEROGENEOUS
   ? process.env.JW_EVAL_HETEROGENEOUS === "1"
   : reviewerFamily !== generatorFamily;
-const humanReviewRequired = process.env.JW_EVAL_HUMAN_REVIEW_REQUIRED
-  ? process.env.JW_EVAL_HUMAN_REVIEW_REQUIRED === "1"
-  : !heterogeneous;
 
 const onWindows = process.platform === "win32";
+const headless = process.env.JW_EVAL_HEADLESS !== "0";
 // Under WSL the Windows Chrome at /mnt/c binds its DevTools port on the
 // Windows side, which WSL2's localhost forwarding cannot reach (confirmed:
 // ws://127.0.0.1:<port> unreachable on both IPv4 and IPv6). Prefer the
@@ -166,6 +207,26 @@ const chromePath =
   (onWindows
     ? "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe"
     : WSL_CHROMIUM);
+const hasWslg =
+  !onWindows && existsSync("/mnt/wslg/runtime-dir/wayland-0");
+if (
+  !headless &&
+  !onWindows &&
+  !process.env.DISPLAY &&
+  !process.env.WAYLAND_DISPLAY &&
+  !hasWslg
+) {
+  throw new Error(
+    "Visible frontend validation requires a graphical display; use JW_EVAL_HEADLESS=1 only for automation diagnostics",
+  );
+}
+const chromeEnv = { ...process.env };
+if (!headless && hasWslg) {
+  chromeEnv.DISPLAY ||= ":0";
+  chromeEnv.WAYLAND_DISPLAY ||= "wayland-0";
+  chromeEnv.XDG_RUNTIME_DIR ||= "/mnt/wslg/runtime-dir";
+  chromeEnv.PULSE_SERVER ||= "/mnt/wslg/PulseServer";
+}
 const debugPort = Number(process.env.JW_EVAL_DEBUG_PORT || 9227);
 if (!Number.isInteger(debugPort) || debugPort < 1024 || debugPort > 65535) {
   throw new Error(`Invalid JW_EVAL_DEBUG_PORT: ${debugPort}`);
@@ -283,6 +344,77 @@ async function collectAssessments(threadId) {
   return rows;
 }
 
+async function collectScientificQualityAssessments(threadId) {
+  const entries = await listWorkspace(
+    threadId,
+    "research_review/scientific_quality_assessments",
+  );
+  const rows = [];
+  for (const entry of entries) {
+    if (entry.type !== "file" || !entry.name.endsWith(".json")) continue;
+    const doc = await readWorkspaceJson(
+      threadId,
+      `research_review/scientific_quality_assessments/${entry.name}`,
+    );
+    if (doc) rows.push(doc);
+  }
+  rows.sort((a, b) =>
+    String(a.assessment_id).localeCompare(String(b.assessment_id)),
+  );
+  return rows;
+}
+
+async function collectVerdicts(threadId) {
+  const entries = await listWorkspace(threadId, "research_review/verdicts");
+  const rows = [];
+  for (const entry of entries) {
+    if (entry.type !== "file" || !entry.name.endsWith(".json")) continue;
+    const doc = await readWorkspaceJson(
+      threadId,
+      `research_review/verdicts/${entry.name}`,
+    );
+    if (doc) rows.push(doc);
+  }
+  rows.sort((a, b) => String(a.review_id).localeCompare(String(b.review_id)));
+  return rows;
+}
+
+function assessmentRoundIntegrity(assessments, qualityAssessments, verdicts) {
+  const countByRound = (rows) => {
+    const counts = new Map();
+    for (const row of rows) {
+      const key = `${row.review_mode || "unknown"}:${Number(row.round || 0)}`;
+      counts.set(key, (counts.get(key) || 0) + 1);
+    }
+    return counts;
+  };
+  const reviewCounts = countByRound(assessments);
+  const qualityCounts = countByRound(qualityAssessments);
+  const verdictCounts = countByRound(verdicts);
+  const keys = [
+    ...new Set([
+      ...reviewCounts.keys(),
+      ...qualityCounts.keys(),
+      ...verdictCounts.keys(),
+    ]),
+  ].sort();
+  const rounds = keys.map((key) => ({
+    key,
+    review_assessments: reviewCounts.get(key) || 0,
+    scientific_quality_assessments: qualityCounts.get(key) || 0,
+    review_verdicts: verdictCounts.get(key) || 0,
+  }));
+  return {
+    exact_one_each: rounds.length > 0 && rounds.every(
+      (row) =>
+        row.review_assessments === 1 &&
+        row.scientific_quality_assessments === 1 &&
+        row.review_verdicts === 1,
+    ),
+    rounds,
+  };
+}
+
 async function collectPlannerPlans(threadId) {
   const entries = await listWorkspace(threadId, "planner/runs");
   const rows = [];
@@ -368,10 +500,8 @@ class CdpClient {
   }
 }
 
-const chrome = spawn(
-  chromePath,
-  [
-    "--headless=new",
+const chromeArgs = [
+    ...(headless ? ["--headless=new"] : []),
     "--disable-gpu",
     "--no-first-run",
     "--no-default-browser-check",
@@ -379,9 +509,11 @@ const chrome = spawn(
     `--user-data-dir=${chromeProfile}`,
     "--window-size=1600,1000",
     "about:blank",
-  ],
-  { stdio: ["ignore", "pipe", "pipe"] },
-);
+  ];
+const chrome = spawn(chromePath, chromeArgs, {
+  env: chromeEnv,
+  stdio: ["ignore", "pipe", "pipe"],
+});
 const chromeStdout = [];
 const chromeStderr = [];
 chrome.stdout.on("data", (chunk) => chromeStdout.push(chunk));
@@ -575,6 +707,23 @@ try {
     "task workspace binding",
   );
 
+  const observerUrl = new URL(frontendUrl);
+  observerUrl.searchParams.set("threadId", threadId);
+  const observer = {
+    schema_version: "webui-eval-observer-v1",
+    event: "observer_ready",
+    case_id: caseId,
+    run_label: runLabel,
+    thread_id: threadId,
+    observer_url: observerUrl.toString(),
+  };
+  await writeFile(
+    path.join(outputDir, "observer.json"),
+    `${JSON.stringify(observer, null, 2)}\n`,
+    "utf8",
+  );
+  process.stdout.write(`${JSON.stringify(observer)}\n`);
+
   if (submitOnly) {
     const runs = await waitFor(
       async () => {
@@ -619,19 +768,17 @@ try {
   let stageStopRequested = false;
   const terminal = await waitFor(
     async () => {
-      const [thread, state, runs] = await Promise.all([
+      const [thread, state, runs, reviewStatus] = await Promise.all([
         fetchJson(`${backendUrl}/threads/${threadId}`),
         fetchJson(`${backendUrl}/threads/${threadId}/state`),
         fetchJson(`${backendUrl}/threads/${threadId}/runs`),
+        readReviewStatus(threadId),
       ]);
       const latestRun = Array.isArray(runs) && runs.length > 0 ? runs[0] : null;
       const evidence = classifyOutcome(thread, state, latestRun);
 
       if (stopStage === "planning" && !stageStop) {
-        const [plans, status] = await Promise.all([
-          collectPlannerPlans(threadId),
-          readReviewStatus(threadId),
-        ]);
+        const plans = await collectPlannerPlans(threadId);
         const frozen = plans.find((row) => row.plan?.status === "frozen");
         if (frozen) {
           stageStop = {
@@ -643,17 +790,17 @@ try {
             planner_plan_path: frozen.rel_path,
           };
         } else if (
-          status?.terminal?.stage === "planning" ||
-          (status?.currentStage === "planning" &&
-            ["blocked", "human_review"].includes(status?.status))
+          reviewStatus?.terminal?.stage === "planning" ||
+          (reviewStatus?.currentStage === "planning" &&
+            reviewStatus?.status === "blocked")
         ) {
           stageStop = {
             outcome: "planning_blocked",
-            terminal_status: status.status || "blocked",
+            terminal_status: reviewStatus.status || "blocked",
             has_answer: evidence.has_answer,
             assistant_answer_count: evidence.assistant_answer_count,
             error_summary:
-              status?.terminal?.reasonCode || "Planning did not freeze",
+              reviewStatus?.terminal?.reasonCode || "Planning did not freeze",
             planner_plan_path: null,
           };
         } else if (
@@ -685,16 +832,20 @@ try {
       }
 
       if (stopStage === "evidence" && !stageStop) {
-        const [status, assessments] = await Promise.all([
-          readReviewStatus(threadId),
+        const [assessments, qualityAssessments, verdicts] = await Promise.all([
           collectAssessments(threadId),
+          collectScientificQualityAssessments(threadId),
+          collectVerdicts(threadId),
         ]);
-        const reviewedStage = (status?.stages || []).find(
+        const reviewedStage = (reviewStatus?.stages || []).find(
           (stage) => stage?.decision && Number(stage?.round || 0) >= 1,
         );
         if (
-          Number(status?.reviewInvocations || 0) >= 1 &&
+          Number(reviewStatus?.reviewInvocations || 0) >= 1 &&
           assessments.length >= 1 &&
+          qualityAssessments.length >= 1 &&
+          assessmentRoundIntegrity(assessments, qualityAssessments, verdicts)
+            .exact_one_each &&
           reviewedStage
         ) {
           stageStop = {
@@ -706,6 +857,10 @@ try {
             reviewed_stage: reviewedStage.stage,
           };
         }
+      }
+
+      if (!stageStop) {
+        stageStop = blockedResearchOutcome(reviewStatus, evidence);
       }
 
       if (stageStop) {
@@ -760,14 +915,7 @@ try {
       }
 
       if (
-        [
-          "completed_with_answer",
-          "completed_without_answer",
-          "provider_error",
-          "runtime_error",
-          "interrupted",
-          "unknown_terminal_state",
-        ].includes(evidence.outcome) &&
+        isTerminalOutcome(evidence.outcome) &&
         !["busy", "pending", "running", "queued"].includes(thread.status)
       ) {
         return { thread, state, runs, latestRun, evidence };
@@ -784,6 +932,14 @@ try {
   // Structured scientific status + assessment sidecars (read-only).
   const reviewStatus = await readReviewStatus(threadId);
   const assessments = await collectAssessments(threadId);
+  const scientificQualityAssessments =
+    await collectScientificQualityAssessments(threadId);
+  const verdicts = await collectVerdicts(threadId);
+  const assessmentIntegrity = assessmentRoundIntegrity(
+    assessments,
+    scientificQualityAssessments,
+    verdicts,
+  );
   const answers = assistantAnswers(terminal.state);
   const usage = observedUsage(terminal.state);
 
@@ -835,6 +991,13 @@ try {
     has_answer: terminalEvidence.has_answer,
     error_summary: terminalEvidence.error_summary,
     approval_count: approvalCount,
+    automatic_approval_count: approvalCount,
+    operator_guidance_count: 0,
+    prompt_style: selectedCase.prompt_style || "diagnostic",
+    allowed_user_intervention:
+      selectedCase.allowed_user_intervention || "unspecified",
+    automation_browser_mode: headless ? "headless" : "headed",
+    observer_url: observerUrl.toString(),
     thread_id: threadId,
     run_id:
       terminal.latestRun?.run_id ?? terminal.state?.metadata?.run_id ?? null,
@@ -853,7 +1016,6 @@ try {
       model: reviewerModel,
       family: reviewerFamily,
       heterogeneous,
-      human_review_required: humanReviewRequired,
       review_mode: reviewMode,
     },
     input_files: inputFiles.map((value) => path.basename(value)),
@@ -864,6 +1026,8 @@ try {
     current_stage: reviewStatus.currentStage ?? null,
     stage_verdicts: stageVerdicts,
     assessment_count: assessments.length,
+    scientific_quality_assessment_count: scientificQualityAssessments.length,
+    assessment_round_integrity: assessmentIntegrity,
     evidence_review_invocations: Number(reviewStatus.reviewInvocations || 0),
     evidence_action_invocations: Number(reviewStatus.actionInvocations || 0),
     observed_usage: usage,
@@ -910,6 +1074,11 @@ try {
       "utf8",
     ),
     writeFile(
+      path.join(outputDir, "scientific_quality_assessments.json"),
+      `${JSON.stringify(scientificQualityAssessments, null, 2)}\n`,
+      "utf8",
+    ),
+    writeFile(
       path.join(outputDir, "assistant_answers.json"),
       `${JSON.stringify(answers, null, 2)}\n`,
       "utf8",
@@ -947,6 +1116,8 @@ try {
       assessments: assessments.length,
       review_mode: reviewMode,
       reviewer_family: reviewerFamily,
+      automation_browser_mode: metadata.automation_browser_mode,
+      observer_url: metadata.observer_url,
       latency_seconds: metadata.latency_seconds,
     })}\n`,
   );
@@ -991,3 +1162,8 @@ try {
     await rm(chromeProfile, { recursive: true, force: true }).catch(() => {});
   }
 }
+
+// This file is a one-shot CLI. Native WebSocket implementations can retain an
+// event-loop handle after Chromium has already exited, so finish with the
+// outcome code once all artifacts and cleanup steps are complete.
+process.exit(process.exitCode ?? 0);

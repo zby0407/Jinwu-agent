@@ -151,6 +151,30 @@ class TestValidateCommandDangerous:
         assert validate_command("rm -rf /", dangerous=True) is not None
 
 
+def test_merged_skills_grep_surfaces_programming_errors(monkeypatch) -> None:
+    class BrokenBackend:
+        def grep(self, *_args, **_kwargs):
+            raise re.error("invalid expression")
+
+    merged = object.__new__(MergedSkillsBackend)
+    monkeypatch.setattr(merged, "_backends", lambda: iter([BrokenBackend()]))
+
+    with pytest.raises(re.error, match="invalid expression"):
+        merged.grep("[")
+
+
+def test_merged_skills_glob_surfaces_programming_errors(monkeypatch) -> None:
+    class BrokenBackend:
+        def glob(self, *_args, **_kwargs):
+            raise RuntimeError("backend contract bug")
+
+    merged = object.__new__(MergedSkillsBackend)
+    monkeypatch.setattr(merged, "_backends", lambda: iter([BrokenBackend()]))
+
+    with pytest.raises(RuntimeError, match="backend contract bug"):
+        merged.glob("*.md")
+
+
 # === convert_virtual_paths_in_command ===
 
 

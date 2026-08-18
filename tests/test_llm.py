@@ -573,6 +573,23 @@ class TestThirdPartyRouting:
         assert call_kwargs["api_key"] == "custom-key-789"
 
     @patch("jw.llm.models.init_chat_model")
+    def test_custom_qwen_uses_research_stream_timeouts(self, mock_init, monkeypatch):
+        """A Qwen business-space endpoint needs the same long-stream allowance."""
+        mock_init.return_value = "mock_model"
+        monkeypatch.setenv(
+            "CUSTOM_OPENAI_BASE_URL",
+            "https://workspace.example.com/compatible-mode/v1",
+        )
+        monkeypatch.setenv("CUSTOM_OPENAI_API_KEY", "custom-key")
+
+        get_chat_model("qwen3.8-max", provider="custom-openai")
+
+        call_kwargs = mock_init.call_args.kwargs
+        assert call_kwargs["stream_chunk_timeout"] == 300.0
+        assert call_kwargs["timeout"] == 300.0
+        assert call_kwargs["max_retries"] == 0
+
+    @patch("jw.llm.models.init_chat_model")
     def test_anthropic_base_url_override(self, mock_init, monkeypatch):
         """Anthropic provider should support base_url override (e.g. ccproxy)."""
         mock_init.return_value = "mock_model"
@@ -639,6 +656,7 @@ class TestThirdPartyRouting:
         assert call_kwargs["base_url"] == "https://api.kimi.com/coding/"
         assert call_kwargs["api_key"] == "kimi-test-key"
         assert call_kwargs["default_headers"]["User-Agent"] == "claude-code/0.1.0"
+        assert call_kwargs["disable_streaming"] == "tool_calling"
 
     @patch("jw.llm.models.init_chat_model")
     def test_kimi_coding_missing_key_does_not_use_anthropic_key(

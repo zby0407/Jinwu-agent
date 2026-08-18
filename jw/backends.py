@@ -2,6 +2,7 @@
 
 import hashlib
 import json
+import logging
 import os
 import posixpath
 import re
@@ -27,6 +28,8 @@ from deepagents.backends.protocol import (
 from tree_sitter import Language, Node, Parser
 
 from . import paths
+
+logger = logging.getLogger(__name__)
 
 # Reproduced here to dodge a circular import from .agent (the canonical
 # SKILLS_DIR constant).
@@ -1494,8 +1497,12 @@ class MergedSkillsBackend(BackendProtocol):
             try:
                 result = backend.grep(pattern, path, glob)
                 matches.extend(result.matches or [])
-            except Exception:
-                pass
+            except OSError:
+                logger.warning(
+                    "grep backend is unavailable: %s",
+                    type(backend).__name__,
+                    exc_info=True,
+                )
         return GrepResult(matches=matches)
 
     # -- glob: merge all tiers, higher priority wins on name conflicts --
@@ -1507,8 +1514,12 @@ class MergedSkillsBackend(BackendProtocol):
                 result = backend.glob(pattern, path)
                 for item in result.matches or []:
                     merged[item["path"]] = item
-            except Exception:
-                pass
+            except OSError:
+                logger.warning(
+                    "glob backend is unavailable: %s",
+                    type(backend).__name__,
+                    exc_info=True,
+                )
         return GlobResult(matches=sorted(merged.values(), key=lambda x: x["path"]))
 
     # -- write / edit: only workspace/skills/ (primary) is writable --

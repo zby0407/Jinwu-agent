@@ -983,19 +983,16 @@ def _read_cfg_configurable(agent_name: str | None = None) -> dict[str, str]:
     """Read live model and task-workspace context for async child runs.
 
     Returns a dict suitable for inserting under
-    ``RunnableConfig.configurable``. Empty dict on any failure (so the
-    patch degrades to a no-op rather than breaking async tool calls).
+    ``RunnableConfig.configurable``. Configuration errors are surfaced;
+    absence of a runnable parent context only omits workspace inheritance.
 
     ``agent_name`` is the target sub-agent's name (its ``graph_id`` /
     ``assistant_id``); when ``cfg.agent_model_overrides`` names it, the
     per-agent model is injected instead of the global default.
     """
-    try:
-        from jw.agent import _ensure_config
+    from jw.agent import _ensure_config
 
-        cfg = _ensure_config()
-    except Exception:
-        return {}
+    cfg = _ensure_config()
 
     out: dict[str, str] = {}
     model, provider = _resolve_agent_model(cfg, agent_name)
@@ -1016,7 +1013,7 @@ def _read_cfg_configurable(agent_name: str | None = None) -> dict[str, str]:
         if parent_scope:
             out["workspace_thread_id"] = parent_scope
             out["project_id"] = project_id_from_config(runtime_config)
-    except Exception:
+    except RuntimeError:
         pass
     return out
 
