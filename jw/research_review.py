@@ -5,6 +5,7 @@ from __future__ import annotations
 import csv
 import hashlib
 import json
+import logging
 import mimetypes
 import os
 import re
@@ -32,11 +33,20 @@ from jw.workspaces import (  # noqa: E402
     workspace_context_key,
     workspace_root_from_config,
 )
+from research_quality.contracts import (  # noqa: E402
+    build_scientific_quality_assessment,
+    validate_scientific_quality_assessment,
+)
 from research_review.adapters import adapt_v1_producer_output  # noqa: E402
+from research_review.assessment import (  # noqa: E402
+    build_review_assessment,
+    validate_review_assessment,
+)
 from research_review.contracts import (  # noqa: E402
     CLAIM_VERSION,
     POLICY_VERSION,
     RUN_STATE_VERSION,
+    ContractError,
     build_research_artifact,
     build_review_verdict,
     build_revision_capsule,
@@ -48,6 +58,8 @@ from research_review.contracts import (  # noqa: E402
     validate_run_state,
 )
 from research_review.policies import policy_registry  # noqa: E402
+
+logger = logging.getLogger(__name__)
 
 Producer = Literal[
     "solar-planner", "solar-data", "solar-hypothesis", "solar-experiment", "main"
@@ -105,7 +117,6 @@ REVIEW_SEQUENCE = (
     "experiment_result",
 )
 ALL_REVIEW_MODES = (*REVIEW_SEQUENCE, "integration", "final_release")
-INDEPENDENT_REVIEW_TOOL_CONTRACT_VERSION = "independent-review-tool-v2"
 SINGLE_PASS_REVIEW_INVOCATIONS = len(ALL_REVIEW_MODES)
 SINGLE_PASS_ACTION_INVOCATIONS = 17
 STAGE_DEPENDENCIES: dict[str, tuple[str, ...]] = {
@@ -132,11 +143,16 @@ STAGE_DEPENDENCIES: dict[str, tuple[str, ...]] = {
 _PATH_REF = re.compile(
     r"(?<![A-Za-z0-9_.-])(?:inputs|work|outputs|receipts|planner|hypothesis|experiment|research_review)/[A-Za-z0-9_./:-]+"
 )
-_PROSE_NUMBER = re.compile(r"(?<![A-Za-z0-9])\d+(?:\.\d+)?(?![A-Za-z0-9])")
+# Scientific-number guards must not interpret the numeric suffix of a stable
+# identifier (for example ``issue_prov_bound_001``) as a reviewer-authored
+# measurement.  Underscores are identifier characters throughout the review
+# contracts, so keep them inside both token boundaries.
 _SEVERITY_RANK = {"minor": 0, "major": 1, "critical": 2}
 _LOCKS: dict[str, threading.RLock] = {}
 _LOCKS_GUARD = threading.RLock()
 _MAX_REVIEW_SOURCE_BYTES = 256 * 1024
+_MAX_DOCUMENT_TEXT_CHARS = 800_000
+_MAX_DOCUMENT_SECTION_CHARS = 6_000
 _STRUCTURED_SOURCE_SUFFIXES = {
     ".csv",
     ".json",
@@ -147,6 +163,24 @@ _STRUCTURED_SOURCE_SUFFIXES = {
 }
 _MATERIAL_NUMBER = re.compile(
     r"(?<![A-Za-z0-9_])(?:[+-]?(?:\d+\.\d+|\d{2,}|\d+%|\d+[eE][+-]?\d+))(?![A-Za-z0-9_])"
+)
+_HIGH_RISK_RELEASE_TERMS = (
+    "首次",
+    "首个",
+    "原创",
+    "导致",
+    "决定",
+    "主导",
+    "预测区间",
+    "置信区间",
+    " first ",
+    " novel",
+    "causal",
+    "causes",
+    "determines",
+    "dominates",
+    "prediction interval",
+    "confidence interval",
 )
 _SAME_CYCLE_BMR_CAUSALITY = re.compile(
     r"(?:下一|后一)\s*(?:太阳)?(?:活动)?(?:周|周期).{0,30}"
@@ -161,6 +195,84 @@ _SAME_CYCLE_BMR_CAUSALITY = re.compile(
 
 def _now() -> str:
     return datetime.now(UTC).isoformat()
+
+
+def _query_terms(query: str) -> list[str]:
+    folded = query.casefold()
+    terms = re.findall(r"[a-z0-9][a-z0-9_.-]{2,}", folded)
+    chinese = "".join(re.findall(r"[\u4e00-\u9fff]", folded))
+    terms.extend(
+        chinese[index : index + 2] for index in range(max(len(chinese) - 1, 0))
+    )
+    return list(dict.fromkeys(term for term in terms if term))[:40]
+
+
+def _chunk_document_text(text: str, prefix: str) -> list[dict[str, str]]:
+    sections: list[dict[str, str]] = []
+    blocks = [block.strip() for block in re.split(r"\n\s*\n", text) if block.strip()]
+    for block_index, block in enumerate(blocks, start=1):
+        for part_index, start in enumerate(
+            range(0, len(block), _MAX_DOCUMENT_SECTION_CHARS), start=1
+        ):
+            suffix = (
+                f"/part:{part_index}"
+                if len(block) > _MAX_DOCUMENT_SECTION_CHARS
+                else ""
+            )
+            sections.append(
+                {
+                    "section_id": f"{prefix}:{block_index}{suffix}",
+                    "text": block[start : start + _MAX_DOCUMENT_SECTION_CHARS],
+                }
+            )
+    return sections
+
+
+def _normalize_claim_versions(claims: object) -> object:
+    """Remove adapter-only version suffixes for idempotence comparison."""
+
+    cloned = json.loads(json.dumps(claims, ensure_ascii=False))
+    if isinstance(cloned, list):
+        for claim in cloned:
+            if isinstance(claim, dict) and isinstance(claim.get("claim_id"), str):
+                claim["claim_id"] = re.sub(r"-v\d+$", "-v", claim["claim_id"])
+    return cloned
+
+
+def _adapted_producer_semantics(
+    adapted: dict[str, Any], *, evidence_refs: list[str], upstream_refs: list[str]
+) -> dict[str, Any]:
+    payload = adapted.get("payload") if isinstance(adapted.get("payload"), dict) else {}
+    semantic_payload = {
+        key: value
+        for key, value in payload.items()
+        if key not in {"producer_result", "revision_response"}
+    }
+    if "hypothesis_scientific_content" in semantic_payload:
+        # Hypothesis content and its exact evidence rows are already retained
+        # in semantic fields. A state-file digest change caused only by a
+        # timestamp or checkpoint counter must not mint a new scientific
+        # artifact version.
+        semantic_payload.pop("source_manifest", None)
+    return {
+        "claims": _normalize_claim_versions(adapted.get("claims", [])),
+        "limitations": adapted.get("limitations", []),
+        "evidence_refs": evidence_refs,
+        "upstream_refs": upstream_refs,
+        "payload": semantic_payload,
+    }
+
+
+def _producer_semantics(artifact: dict[str, Any]) -> dict[str, Any]:
+    return _adapted_producer_semantics(
+        {
+            "claims": artifact.get("claims", []),
+            "limitations": artifact.get("limitations", []),
+            "payload": artifact.get("payload", {}),
+        },
+        evidence_refs=list(artifact.get("evidence_refs", [])),
+        upstream_refs=list(artifact.get("upstream_refs", [])),
+    )
 
 
 def _int_env(name: str, default: int, *, minimum: int, maximum: int) -> int:
@@ -431,6 +543,55 @@ class ResearchReviewStore:
             self._save_state(state)
             return receipt
 
+    def block_for_review_failures(
+        self,
+        *,
+        stage: str,
+        reviewer: str,
+        fingerprints: Sequence[str],
+        failure_summaries: Sequence[str] = (),
+        recovery: str = "new_task_after_fix",
+    ) -> dict[str, Any]:
+        """Persist repeated reviewer-contract failures without blaming a producer."""
+
+        if stage not in PRODUCER_FOR_STAGE:
+            raise ValueError(f"unknown research stage {stage}")
+        if reviewer != "solar-evidence":
+            raise ValueError(f"unsupported research reviewer {reviewer}")
+        stable_fingerprints = sorted(
+            {value for value in fingerprints if re.fullmatch(r"[0-9a-f]{64}", value)}
+        )
+        summaries = []
+        for value in failure_summaries:
+            sanitized = " ".join(str(value).split()).strip()
+            if sanitized and sanitized not in summaries:
+                summaries.append(sanitized[:500])
+        with self._transaction():
+            failure_dir = self.root / "failures" / stage
+            index = len(list(failure_dir.glob("*.json"))) + 1
+            receipt = {
+                "schema_version": "research-tool-failure-v1",
+                "task_id": self.task_id,
+                "stage": stage,
+                "specialist": reviewer,
+                "specialist_role": "reviewer",
+                "reason_code": "REQUIRED_SPECIALIST_FAILED_TWICE",
+                "failure_count": 2,
+                "fingerprints": stable_fingerprints,
+                "failure_summaries": summaries[:2],
+                "recovery": recovery,
+                "created_at": _now(),
+            }
+            receipt["receipt_sha256"] = canonical_json_sha256(receipt)
+            path = failure_dir / f"tool-failure-{index:04d}.json"
+            _atomic_write_json(path, receipt)
+            state = self.load_state()
+            state["status"] = "blocked"
+            state["current_stage"] = stage
+            state["stage_status"][stage] = "blocked"
+            self._save_state(state)
+            return receipt
+
     def recover_canonical_producer_after_tool_failure(
         self,
     ) -> dict[str, Any] | None:
@@ -450,6 +611,7 @@ class ResearchReviewStore:
                 failure is None
                 or failure.get("reason_code") != "REQUIRED_SPECIALIST_FAILED_TWICE"
                 or failure.get("stage") != state["current_stage"]
+                or failure.get("specialist_role") == "reviewer"
             ):
                 return None
             stage = str(failure["stage"])
@@ -511,6 +673,25 @@ class ResearchReviewStore:
             for path in recovery_dir.glob("harness-reopen-*.json"):
                 prior = _read_json(path)
                 if isinstance(prior, dict) and prior.get("change_id") == change_id:
+                    # Older recovery code restored an unreviewed reviewer-failed
+                    # artifact to pending, which incorrectly re-ran the producer.
+                    # Repair that idempotently when the immutable artifact still
+                    # exists and no verdict has been bound.
+                    artifact = self.latest_artifact(stage)
+                    verdict = (
+                        self.matching_verdict(stage, [self.artifact_ref(artifact)])
+                        if artifact is not None
+                        else None
+                    )
+                    if (
+                        prior.get("restored_stage_status") == "pending"
+                        and artifact is not None
+                        and verdict is None
+                    ):
+                        state["status"] = "active"
+                        state["current_stage"] = stage
+                        state["stage_status"][stage] = "produced"
+                        self._save_state(state)
                     return prior
             if (
                 state["status"] != "blocked"
@@ -526,7 +707,11 @@ class ResearchReviewStore:
             restored_stage_status = (
                 "revise"
                 if verdict is not None and verdict.get("decision") == "revise"
-                else "pending"
+                else (
+                    "produced"
+                    if artifact is not None and verdict is None
+                    else "pending"
+                )
             )
             preserved_action_invocations = state["action_invocations"]
             state["status"] = "active"
@@ -694,6 +879,10 @@ class ResearchReviewStore:
 
     def _producer_upstream_refs(self, stage: str, phase: str) -> list[str]:
         if phase.startswith("bounded_"):
+            if stage == "hypothesis":
+                data = self._accepted_stage("data")
+                if data is not None:
+                    return [self._long_ref(data)]
             return []
         refs: list[str] = []
         for dependency in STAGE_DEPENDENCIES.get(stage, ()):
@@ -791,6 +980,14 @@ class ResearchReviewStore:
                         ["record.json", "entry_result.json", "report.md", "audit.md"]
                     )
                 candidates.extend(run / name for name in names)
+        quality_contract = (
+            self.workspace_root
+            / "work"
+            / "research_quality"
+            / f"{stage}.analysis_claim.json"
+        )
+        if quality_contract.is_file():
+            candidates.append(quality_contract)
         unique = {
             path.resolve(): path.resolve()
             for path in candidates
@@ -1031,6 +1228,7 @@ class ResearchReviewStore:
                 evidence_refs=evidence_refs,
                 canonical_documents=self._canonical_documents(canonical_sources),
             )
+            artifact_evidence_refs = list(adapted.get("evidence_refs", evidence_refs))
             adapted["payload"]["source_manifest"] = self._source_manifest(
                 canonical_sources
             )
@@ -1044,6 +1242,22 @@ class ResearchReviewStore:
                 raise RuntimeError(
                     "revision did not change any task-local canonical producer source"
                 )
+            if (
+                previous is not None
+                and prior_revision_verdict is None
+                and _producer_semantics(previous)
+                == _adapted_producer_semantics(
+                    adapted,
+                    evidence_refs=artifact_evidence_refs,
+                    upstream_refs=self._producer_upstream_refs(stage, phase or stage),
+                )
+            ):
+                # Model retries and duplicate handoffs frequently change only
+                # rendered prose, timestamps, or the proposed artifact version.
+                # Reuse the immutable artifact unless the scientific claim,
+                # evidence surface, source manifest, phase, or upstream binding
+                # actually changed.
+                return previous
             if prior_revision_verdict is not None:
                 adapted["payload"]["revision_response"] = build_revision_response(
                     task_id=self.task_id,
@@ -1061,7 +1275,7 @@ class ResearchReviewStore:
                 producer=producer,
                 upstream_refs=self._producer_upstream_refs(stage, phase or stage),
                 claims=adapted["claims"],
-                evidence_refs=evidence_refs,
+                evidence_refs=artifact_evidence_refs,
                 limitations=adapted["limitations"],
                 payload=adapted["payload"],
             )
@@ -1135,6 +1349,11 @@ class ResearchReviewStore:
                     for item in accepted
                     for claim in item["claims"]
                     if claim["claim_id"] in accepted_claim_ids
+                    and not (
+                        item["stage"] == "hypothesis"
+                        and item.get("payload", {}).get("result_status")
+                        in {"clarification_status", "blocked_status"}
+                    )
                 ],
                 evidence_refs=sorted(
                     {ref for item in accepted for ref in item["evidence_refs"]}
@@ -1169,10 +1388,38 @@ class ResearchReviewStore:
 
     def review_context(self, mode: str) -> dict[str, Any]:
         targets = self.review_targets(mode)
-        refs = [self.artifact_ref(item) for item in targets]
-        independent = self._independent_review_receipt(mode, refs)
         prior = self.verdicts(mode=mode)
         state = self.load_state()
+        upstream_acceptance: list[dict[str, Any]] = []
+        accepted_by_ref = {
+            self._long_ref(artifact): artifact for artifact in self.accepted_artifacts()
+        }
+        for target in targets:
+            for upstream_ref in target.get("upstream_refs", []):
+                artifact = accepted_by_ref.get(upstream_ref)
+                if artifact is None:
+                    continue
+                verdict = self.matching_verdict(
+                    artifact["stage"], [self.artifact_ref(artifact)]
+                )
+                if verdict is None:
+                    continue
+                upstream_acceptance.append(
+                    {
+                        "artifact_ref": upstream_ref,
+                        "stage": artifact["stage"],
+                        "decision": verdict["decision"],
+                        "accepted_claims": verdict["accepted_claims"],
+                        "carry_forward_limits": verdict["carry_forward_limits"],
+                        "interpretation": (
+                            "The upstream artifact and its declared data/provenance "
+                            "boundary passed Evidence review. Preserve its limits. "
+                            "This acceptance does not by itself establish predictive "
+                            "skill, a causal mechanism, or support for the current "
+                            "stage's scientific claim."
+                        ),
+                    }
+                )
         return {
             "schema_version": "research-review-context-v2",
             "task_id": self.task_id,
@@ -1187,24 +1434,8 @@ class ResearchReviewStore:
             # of redundant characters before it could inspect the canonical
             # evidence and materially increased timeout/loop risk.
             "artifacts": [self._review_artifact_projection(item) for item in targets],
+            "upstream_acceptance": upstream_acceptance,
             "prior_verdicts": prior[-3:],
-            "independent_review": (
-                {
-                    "status": (
-                        "failed"
-                        if independent["decision"] == "fail"
-                        else (
-                            "human_pass"
-                            if independent["reviewer_kind"] == "human_expert"
-                            else "heterogeneous_pass"
-                        )
-                    ),
-                    "reviewer": independent["reviewer_id"],
-                    "notes": independent["notes"],
-                }
-                if independent is not None
-                else {"status": "not_configured", "reviewer": None, "notes": ""}
-            ),
             "budget": {
                 "revision_policy": state["revision_policy"],
                 "max_revisions": state["max_revisions"],
@@ -1277,6 +1508,7 @@ class ResearchReviewStore:
             for claim in artifact["claims"]:
                 refs.update(claim["supporting_evidence"])
                 refs.update(claim["opposing_evidence"])
+                refs.update(claim.get("limiting_evidence", []))
             for ref in refs:
                 upstream = by_ref.get(ref)
                 if upstream is not None and upstream not in visible:
@@ -1685,8 +1917,43 @@ class ResearchReviewStore:
         if artifact is None:
             return None
         producer_result = artifact.get("payload", {}).get("producer_result")
+        if stage == "hypothesis":
+            if not isinstance(producer_result, str) or not producer_result.strip():
+                return None
+            verdict = self.matching_verdict(stage, [self.artifact_ref(artifact)])
+            if verdict is None:
+                return None
+            assessment = next(
+                (
+                    row
+                    for row in reversed(self.assessments(mode=stage))
+                    if row["round"] == verdict["round"]
+                    and row["artifact_refs"] == verdict["artifact_refs"]
+                ),
+                None,
+            )
+            quality = next(
+                (
+                    row
+                    for row in reversed(self.scientific_quality_assessments(mode=stage))
+                    if row["round"] == verdict["round"]
+                    and row["artifact_refs"] == verdict["artifact_refs"]
+                ),
+                None,
+            )
+            rendered = self._accepted_hypothesis_markdown(
+                producer_result,
+                verdict=verdict,
+                assessment=assessment,
+                quality=quality,
+            )
+            self._mark_bounded_result_released(stage)
+            return rendered
         if analysis_protocol != "silso_cycle_reproduction_v1":
-            return producer_result if isinstance(producer_result, str) else None
+            if not isinstance(producer_result, str):
+                return None
+            self._mark_bounded_result_released(stage)
+            return producer_result
 
         manifest = artifact.get("payload", {}).get("source_manifest", [])
         if not isinstance(manifest, list):
@@ -1725,9 +1992,150 @@ class ResearchReviewStore:
         if not isinstance(payload, Mapping):
             return None
         try:
-            return render_silso_cycle_reproduction_markdown(payload)
+            rendered = render_silso_cycle_reproduction_markdown(payload)
         except (KeyError, TypeError, ValueError):
             return None
+        self._mark_bounded_result_released(stage)
+        return rendered
+
+    def _mark_bounded_result_released(self, stage: str) -> None:
+        state = self.load_state()
+        state["status"] = "released"
+        state["current_stage"] = stage
+        self._save_state(state)
+
+    @staticmethod
+    def _accepted_hypothesis_markdown(
+        producer_result: str,
+        *,
+        verdict: Mapping[str, Any],
+        assessment: Mapping[str, Any] | None,
+        quality: Mapping[str, Any] | None,
+    ) -> str:
+        """Append the accepted Evidence assessment to the reviewed hypothesis."""
+
+        decision_labels = {
+            "accept": "接受",
+            "accept_with_limits": "接受，但保留限制",
+        }
+        disposition_labels = {
+            "supported": "支持",
+            "limited_support": "有限支持",
+            "opposed": "受到反对证据挑战",
+            "contradicted": "受到证据否定",
+            "undecided": "证据不足",
+        }
+        confidence_labels = {
+            "high": "高",
+            "moderate": "中等",
+            "low": "低",
+            "very_low": "很低",
+            "unknown": "未知",
+        }
+        component_labels = {
+            "statement": "主张",
+            "mechanism": "机制",
+            "prediction": "预测",
+            "scope": "适用范围",
+            "numeric_result": "数值结果",
+            "conclusion": "结论",
+            "unknown": "待界定部分",
+        }
+        role_labels = {
+            "supports": "支持",
+            "opposes": "反对",
+            "limits": "限制",
+            "gap": "缺口",
+        }
+        novelty_labels = {
+            "known_baseline": "已知基线",
+            "incremental_extension": "增量扩展",
+            "potentially_novel": "可能具有新意",
+            "novelty_not_assessed": "尚未评估原创性",
+        }
+        lines = [producer_result.rstrip(), "", "## 独立证据审查", ""]
+        lines.append(
+            "- 审查结论："
+            + decision_labels.get(str(verdict["decision"]), str(verdict["decision"]))
+            + "。"
+        )
+        if assessment is not None:
+            for row in assessment["claims"]:
+                disposition = disposition_labels.get(
+                    str(row["disposition"]), str(row["disposition"])
+                )
+                confidence = confidence_labels.get(
+                    str(row["confidence"]), str(row["confidence"])
+                )
+                lines.append(
+                    f"- 主张评估：{disposition}；置信度：{confidence}；"
+                    f"主要不确定性：{row['key_uncertainty']}；"
+                    f"下一步检验：{row['next_test']}"
+                )
+        if quality is not None:
+            rows = quality["claims"]
+            component_summaries = []
+            for row in rows:
+                component = component_labels.get(
+                    str(row["claim_component"]), str(row["claim_component"])
+                )
+                component_summaries.append(
+                    f"{component}：{row['quality_status']}，结论上限 {row['conclusion_cap']}"
+                )
+            if component_summaries:
+                lines.extend(("", "### 主张分量与证据上限", ""))
+                lines.extend(f"- {item}" for item in component_summaries)
+
+            seen_evidence: set[tuple[str, ...]] = set()
+            evidence_rows: list[Mapping[str, Any]] = []
+            for row in rows:
+                for evidence in row["evidence_matrix"]:
+                    key = (
+                        str(evidence["source_ref"]),
+                        str(evidence["evidence_role"]),
+                        str(evidence["locator"]),
+                        str(evidence["rationale"]),
+                    )
+                    if key not in seen_evidence:
+                        seen_evidence.add(key)
+                        evidence_rows.append(evidence)
+            if evidence_rows:
+                lines.extend(("", "### 证据矩阵", ""))
+                for evidence in evidence_rows:
+                    role = role_labels.get(
+                        str(evidence["evidence_role"]),
+                        str(evidence["evidence_role"]),
+                    )
+                    lines.append(
+                        f"- {role}｜{evidence['source_class']}｜"
+                        f"{evidence['evidence_scope']}｜{evidence['scope_match']}："
+                        f"{evidence['locator']}。{evidence['rationale']}"
+                    )
+
+            novelty = rows[0]["novelty_assessment"] if rows else None
+            if novelty is not None:
+                lines.extend(("", "### 原创性边界", ""))
+                novelty_status = novelty_labels.get(
+                    str(novelty["status"]), str(novelty["status"])
+                )
+                lines.append(
+                    f"- 定位：{novelty_status}；贡献类型：{novelty['contribution_type']}。"
+                )
+                lines.append(f"- 可核查增量：{novelty['novelty_delta']}")
+                for prior in novelty["nearest_prior_art"]:
+                    lines.append(
+                        f"- 最近既有工作：{prior['source_ref']}；"
+                        f"重叠：{prior['overlap']}；差异：{prior['difference']}；"
+                        f"重复风险：{prior['duplication_risk']}"
+                    )
+                for gap in novelty["coverage_gaps"]:
+                    lines.append(f"- 检索缺口：{gap}")
+
+        limits = list(verdict["carry_forward_limits"])
+        if limits:
+            lines.extend(("", "### 结论限制", ""))
+            lines.extend(f"- {limit}" for limit in limits)
+        return "\n".join(lines).strip() + "\n"
 
     def _data_input_boundary_issues(
         self, targets: list[dict[str, Any]]
@@ -2035,14 +2443,6 @@ class ResearchReviewStore:
                             decision="accept",
                             issues=[],
                             accepted_claims=accepted_claims,
-                            independent_review={
-                                "status": "not_required",
-                                "reviewer": None,
-                                "notes": (
-                                    "deterministic SILSO protocol validation covers "
-                                    "the complete bounded artifact"
-                                ),
-                            },
                         )
             return None
         claim_ids = {
@@ -2079,11 +2479,6 @@ class ResearchReviewStore:
             blocked_claims=blocked_claims,
             carry_forward_limits=limitations,
             next_owner=None if hard_block else str(issues[0]["owner"]),
-            independent_review={
-                "status": "not_required",
-                "reviewer": None,
-                "notes": "deterministic policy preflight; no model acceptance",
-            },
         )
 
     def review_source(self, mode: str, source_ref: str) -> dict[str, Any]:
@@ -2110,9 +2505,25 @@ class ResearchReviewStore:
             for claim in artifact["claims"]:
                 allowed.update(claim["supporting_evidence"])
                 allowed.update(claim["opposing_evidence"])
+                allowed.update(claim.get("limiting_evidence", []))
         if normalized not in allowed:
             raise PermissionError(
                 "source_ref is not declared by the current hash-bound artifact"
+            )
+
+        if normalized.startswith("hypothesis-evidence:"):
+            for visible in visible_artifacts:
+                index = visible.get("payload", {}).get("hypothesis_evidence_index", {})
+                if isinstance(index, dict) and isinstance(index.get(normalized), dict):
+                    return {
+                        "schema_version": "review-source-v2",
+                        "source_ref": normalized,
+                        "kind": "hypothesis_evidence_entry",
+                        "truncated": False,
+                        "evidence": index[normalized],
+                    }
+            raise FileNotFoundError(
+                f"declared hypothesis evidence entry is unavailable: {normalized}"
             )
 
         artifact = by_ref.get(normalized)
@@ -2180,207 +2591,117 @@ class ResearchReviewStore:
             "content": content,
         }
 
-    def _independent_review_receipt(
-        self, mode: str, artifact_refs: list[dict[str, Any]]
-    ) -> dict[str, Any] | None:
-        """Read a separately written human/heterogeneous review receipt.
+    def _document_sections(self, mode: str, source_ref: str) -> list[dict[str, str]]:
+        """Extract bounded, locator-stable text sections from an allowed source."""
 
-        The Evidence agent has no tool capable of creating this file. A matching
-        pass can therefore be asserted only by an external reviewer or approved
-        human workflow, never by the primary Reviewer itself.
-        """
-
-        expected_refs = sorted(
-            artifact_refs,
-            key=lambda item: (item["artifact_id"], item["version"]),
-        )
-        root = self.root / "independent_reviews" / mode
-        for path in sorted(root.glob("*.json"), reverse=True):
-            payload = _read_json(path)
-            if payload is None:
-                continue
-            required = {
-                "schema_version",
-                "task_id",
-                "review_mode",
-                "artifact_refs",
-                "reviewer_kind",
-                "reviewer_id",
-                "decision",
-                "notes",
-                "created_at",
-                "receipt_sha256",
-            }
-            if set(payload) != required:
-                continue
-            declared = payload.get("receipt_sha256")
-            unsigned = dict(payload)
-            unsigned.pop("receipt_sha256", None)
-            if (
-                not isinstance(declared, str)
-                or canonical_json_sha256(unsigned) != declared
-            ):
-                continue
-            refs = payload.get("artifact_refs")
-            if not isinstance(refs, list):
-                continue
-            try:
-                actual_refs = sorted(
-                    [
-                        {
-                            "artifact_id": str(item["artifact_id"]),
-                            "version": int(item["version"]),
-                            "artifact_sha256": str(item["artifact_sha256"]),
-                        }
-                        for item in refs
-                        if isinstance(item, dict)
-                    ],
-                    key=lambda item: (item["artifact_id"], item["version"]),
-                )
-            except (KeyError, TypeError, ValueError):
-                continue
-            if (
-                payload.get("schema_version") != "independent-review-receipt-v1"
-                or payload.get("task_id") != self.task_id
-                or payload.get("review_mode") != mode
-                or payload.get("reviewer_kind")
-                not in {"heterogeneous_model", "human_expert"}
-                or payload.get("decision") not in {"pass", "fail"}
-                or actual_refs != expected_refs
-            ):
-                continue
-            return payload
-        return None
-
-    def write_independent_review_receipt(
-        self,
-        mode: str,
-        artifact_refs: list[dict[str, Any]],
-        *,
-        reviewer_kind: str,
-        reviewer_id: str,
-        decision: str,
-        notes: str,
-    ) -> dict[str, Any]:
-        """Persist a receipt produced outside the primary Evidence context."""
-
-        if reviewer_kind not in {"heterogeneous_model", "human_expert"}:
+        source = self.review_source(mode, source_ref)
+        if source.get("kind") != "workspace_file":
             raise ValueError(
-                "reviewer_kind must be heterogeneous_model or human_expert"
+                "document section reading requires a workspace file source"
             )
-        if decision not in {"pass", "fail"}:
-            raise ValueError("independent decision must be pass or fail")
-        receipt: dict[str, Any] = {
-            "schema_version": "independent-review-receipt-v1",
-            "task_id": self.task_id,
-            "review_mode": mode,
-            "artifact_refs": artifact_refs,
-            "reviewer_kind": reviewer_kind,
-            "reviewer_id": reviewer_id,
-            "decision": decision,
-            "notes": notes[:4_000],
-            "created_at": _now(),
-        }
-        receipt["receipt_sha256"] = canonical_json_sha256(receipt)
-        path = (
-            self.root
-            / "independent_reviews"
-            / mode
-            / f"{receipt['receipt_sha256']}.json"
-        )
-        with self._transaction():
-            _atomic_write_json(path, receipt)
-        return receipt
+        relative = source_ref.strip().removeprefix("/")
+        path = (self.workspace_root / relative).resolve()
+        suffix = path.suffix.casefold()
+        sections: list[dict[str, str]] = []
+        total = 0
+        if suffix == ".pdf":
+            try:
+                from pypdf import PdfReader
+            except ImportError as exc:
+                raise RuntimeError(
+                    "PDF section reading requires the declared pypdf dependency"
+                ) from exc
+            reader = PdfReader(str(path))
+            for page_index, page in enumerate(reader.pages, start=1):
+                page_text = str(page.extract_text() or "").strip()
+                if not page_text:
+                    continue
+                remaining = _MAX_DOCUMENT_TEXT_CHARS - total
+                if remaining <= 0:
+                    break
+                page_text = page_text[:remaining]
+                page_sections = _chunk_document_text(page_text, f"page:{page_index}")
+                sections.extend(page_sections)
+                total += len(page_text)
+        else:
+            text = path.read_text(encoding="utf-8", errors="replace")
+            if suffix in {".html", ".htm"}:
+                from markdownify import markdownify
 
-    def mark_independent_review_unavailable(
+                text = markdownify(text)
+            text = text[:_MAX_DOCUMENT_TEXT_CHARS]
+            sections = _chunk_document_text(text, "paragraph")
+        if not sections:
+            raise ValueError("document contains no readable text sections")
+        return sections
+
+    def search_document(
         self,
         mode: str,
-        artifact_refs: list[dict[str, Any]],
-        reason: str,
+        source_ref: str,
+        query: str,
         *,
-        reviewer_id: str = "unspecified",
-    ) -> None:
-        payload = {
-            "schema_version": "independent-review-unavailable-v2",
-            "task_id": self.task_id,
-            "review_mode": mode,
-            "artifact_refs": artifact_refs,
-            "reviewer_id": reviewer_id[:500],
-            "reason": reason[:1_000],
-            "created_at": _now(),
-        }
-        _atomic_write_json(
-            self.root / "independent_reviews" / mode / "unavailable.json",
-            payload,
-        )
-
-    def _independent_unavailable(
-        self, mode: str, artifact_refs: list[dict[str, Any]]
-    ) -> bool:
-        payload = _read_json(
-            self.root / "independent_reviews" / mode / "unavailable.json"
-        )
-        if not (
-            payload
-            and payload.get("schema_version") == "independent-review-unavailable-v2"
-            and payload.get("task_id") == self.task_id
-            and payload.get("review_mode") == mode
-            and payload.get("artifact_refs") == artifact_refs
-        ):
-            # A v1 marker predates reviewer-configuration binding. Permit one
-            # retry so a newly configured model family is not permanently
-            # hidden behind stale local state; the next failure writes v2.
-            return False
-        reviewer_id = payload.get("reviewer_id")
-        if reviewer_id == "unspecified":
-            return True
-        try:
-            from jw.config import get_effective_config
-
-            cfg = get_effective_config()
-            current = (
-                f"{cfg.auxiliary_provider or cfg.provider}:"
-                f"{cfg.auxiliary_model or cfg.model}@"
-                f"{INDEPENDENT_REVIEW_TOOL_CONTRACT_VERSION}"
-            )
-        except Exception:
-            return True
-        return reviewer_id == current
-
-    def _bind_independent_review(
-        self,
-        mode: str,
-        refs: list[dict[str, Any]],
-        requested: dict[str, Any] | None,
+        max_hits: int = 8,
     ) -> dict[str, Any]:
-        requested = requested or {}
-        status = requested.get("status", "not_required")
-        if status not in {"heterogeneous_pass", "human_pass", "failed"}:
-            return {
-                "status": status,
-                "reviewer": None,
-                "notes": str(requested.get("notes") or "")[:4_000],
-            }
-        receipt = self._independent_review_receipt(mode, refs)
-        if receipt is None:
-            return {
-                "status": "not_configured",
-                "reviewer": None,
-                "notes": "No hash-matching independent review receipt is present.",
-            }
-        receipt_status = (
-            "failed"
-            if receipt["decision"] == "fail"
-            else (
-                "human_pass"
-                if receipt["reviewer_kind"] == "human_expert"
-                else "heterogeneous_pass"
+        """Search one declared task-local document and return exact section ids."""
+
+        normalized_query = query.strip()
+        if len(normalized_query) < 2:
+            raise ValueError("document query must contain at least 2 characters")
+        if not 1 <= max_hits <= 20:
+            raise ValueError("max_hits must be in [1, 20]")
+        terms = _query_terms(normalized_query)
+        if not terms:
+            raise ValueError("document query has no searchable terms")
+        scored: list[tuple[int, int, dict[str, str]]] = []
+        for index, section in enumerate(self._document_sections(mode, source_ref)):
+            folded = section["text"].casefold()
+            score = sum(folded.count(term) for term in terms)
+            if score:
+                scored.append((score, -index, section))
+        scored.sort(reverse=True, key=lambda item: (item[0], item[1]))
+        hits = []
+        for score, _, section in scored[:max_hits]:
+            text = section["text"]
+            folded = text.casefold()
+            positions = [folded.find(term) for term in terms if folded.find(term) >= 0]
+            start = max(min(positions, default=0) - 240, 0)
+            hits.append(
+                {
+                    "section_id": section["section_id"],
+                    "score": score,
+                    "excerpt": text[start : start + 1_200],
+                }
             )
-        )
         return {
-            "status": receipt_status,
-            "reviewer": str(receipt["reviewer_id"]),
-            "notes": str(receipt["notes"])[:4_000],
+            "schema_version": "review-document-search-v1",
+            "source_ref": source_ref,
+            "query": normalized_query,
+            "hits": hits,
+            "search_gap": not bool(hits),
+        }
+
+    def read_document_sections(
+        self, mode: str, source_ref: str, section_ids: list[str]
+    ) -> dict[str, Any]:
+        """Read exact sections returned by search_document, capped for one call."""
+
+        if not section_ids or len(section_ids) > 12:
+            raise ValueError("section_ids must contain 1 to 12 ids")
+        if len(section_ids) != len(set(section_ids)):
+            raise ValueError("section_ids must be unique")
+        by_id = {
+            section["section_id"]: section
+            for section in self._document_sections(mode, source_ref)
+        }
+        unknown = [section_id for section_id in section_ids if section_id not in by_id]
+        if unknown:
+            raise ValueError("unknown document section ids: " + ", ".join(unknown))
+        selected = [by_id[section_id] for section_id in section_ids]
+        return {
+            "schema_version": "review-document-sections-v1",
+            "source_ref": source_ref,
+            "sections": selected,
         }
 
     def _no_progress_count(
@@ -2414,58 +2735,6 @@ class ResearchReviewStore:
             count += 1
             last_refs = previous_refs
         return count
-
-    def _validate_reviewer_issue_numbers(
-        self,
-        targets: list[dict[str, Any]],
-        issues: list[dict[str, Any]],
-    ) -> None:
-        """Reject reviewer-authored numbers absent from the reviewed sources."""
-
-        corpus: list[str] = []
-        for artifact in self._artifact_closure(targets):
-            corpus.extend(
-                str(claim.get(field) or "")
-                for claim in artifact.get("claims", [])
-                for field in ("text", "scope")
-                if isinstance(claim, Mapping)
-            )
-            corpus.extend(str(item) for item in artifact.get("limitations", []))
-            payload = artifact.get("payload", {})
-            if isinstance(payload, Mapping):
-                corpus.append(str(payload.get("producer_result") or ""))
-                corpus.append(
-                    json.dumps(
-                        payload.get("canonical_documents", []),
-                        ensure_ascii=False,
-                    )
-                )
-                for item in payload.get("source_manifest", []):
-                    if not isinstance(item, Mapping):
-                        continue
-                    source_ref = item.get("source_ref")
-                    if not isinstance(source_ref, str):
-                        continue
-                    path = (
-                        self.workspace_root / source_ref.removeprefix("/")
-                    ).resolve()
-                    try:
-                        path.relative_to(self.workspace_root)
-                        corpus.append(path.read_text(encoding="utf-8"))
-                    except (OSError, UnicodeError, ValueError):
-                        continue
-        available = set(_PROSE_NUMBER.findall("\n".join(corpus)))
-        for issue in issues:
-            prose = "\n".join(
-                str(issue.get(field) or "")
-                for field in ("message", "required_action", "acceptance_test")
-            )
-            missing = sorted(set(_PROSE_NUMBER.findall(prose)) - available)
-            if missing:
-                raise ValueError(
-                    "review issue introduces numbers absent from the reviewed "
-                    f"artifact and canonical sources: {', '.join(missing[:8])}"
-                )
 
     @staticmethod
     def _enforce_policy_severity_floors(
@@ -2502,7 +2771,6 @@ class ResearchReviewStore:
         blocked_claims: list[str] | None = None,
         carry_forward_limits: list[str] | None = None,
         next_owner: str | None = None,
-        independent_review: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         with self._transaction():
             issues = self._enforce_policy_severity_floors(mode, issues)
@@ -2530,7 +2798,6 @@ class ResearchReviewStore:
                 and next_owner not in REVISION_OWNERS_FOR_MODE[mode]
             ):
                 raise ValueError(f"{next_owner} cannot own a revision from {mode}")
-            self._validate_reviewer_issue_numbers(targets, issues)
             integrity_issues = self._source_integrity_issues(targets)
             if integrity_issues:
                 decision = "block"
@@ -2553,79 +2820,25 @@ class ResearchReviewStore:
                 for issue in issues
                 if isinstance(issue, Mapping)
             }
-            if decision == "accept" and unresolved_severities & {
+            if decision in {
+                "accept",
+                "accept_with_limits",
+            } and unresolved_severities & {
                 "critical",
                 "major",
             }:
-                raise ValueError(
-                    "accept cannot carry unresolved critical or major issues"
+                revision_owner = next(
+                    (
+                        str(issue.get("owner"))
+                        for issue in issues
+                        if isinstance(issue, Mapping)
+                        and issue.get("severity") in {"critical", "major"}
+                        and issue.get("owner") in REVISION_OWNERS_FOR_MODE[mode]
+                    ),
+                    None,
                 )
-            if decision == "accept_with_limits" and unresolved_severities & {
-                "critical",
-                "major",
-            }:
-                raise ValueError(
-                    "accept_with_limits cannot carry unresolved critical or major issues"
-                )
-            bound_independent_review = self._bind_independent_review(
-                mode, refs, independent_review
-            )
-            accepted_kinds = {
-                claim["kind"]
-                for item in targets
-                for claim in item["claims"]
-                if claim["claim_id"] in accepted_claim_set
-            }
-            independent_required = mode == "final_release" or (
-                mode in {"hypothesis", "integration"} and "mechanism" in accepted_kinds
-            )
-            if (
-                independent_required
-                and decision in {"accept", "accept_with_limits"}
-                and bound_independent_review["status"]
-                not in {"heterogeneous_pass", "human_pass"}
-            ):
-                decision = "human_review"
-                next_owner = None
-                issue = {
-                    "issue_id": f"independent-{mode}",
-                    "rule_id": "INDEPENDENT_REVIEW_REQUIRED",
-                    "severity": "major",
-                    "claim_ref": (
-                        f"{mode}:release"
-                        if mode == "final_release"
-                        else f"{mode}:mechanism"
-                    ),
-                    "evidence_refs": [],
-                    "owner": "main",
-                    "message": (
-                        "Accepted mechanism claims lack a hash-matching "
-                        "heterogeneous or human review receipt."
-                        if mode in {"hypothesis", "integration"}
-                        else "The reader-facing release lacks a hash-matching "
-                        "heterogeneous or human review receipt."
-                    ),
-                    "required_action": (
-                        "Obtain independent adjudication or exclude the mechanism "
-                        "claims from the accepted integration set."
-                        if mode in {"hypothesis", "integration"}
-                        else "Obtain independent adjudication of the exact release "
-                        "artifact or keep the run at human review."
-                    ),
-                    "acceptance_test": (
-                        "A separate pass receipt matches every reviewed artifact hash."
-                    ),
-                    "fingerprint": issue_fingerprint(
-                        "INDEPENDENT_REVIEW_REQUIRED",
-                        (
-                            f"{mode}:release"
-                            if mode == "final_release"
-                            else f"{mode}:mechanism"
-                        ),
-                        "main",
-                    ),
-                }
-                issues = [*issues, issue]
+                decision = "revise" if revision_owner else "block"
+                next_owner = revision_owner
             existing = self.verdicts(mode=mode)
             round_number = len(existing) + 1
             state = self.load_state()
@@ -2667,10 +2880,10 @@ class ResearchReviewStore:
                         ),
                         "required_action": (
                             "Stop serial self-revision and return the best artifact "
-                            "with the unresolved issues for external adjudication."
+                            "with the unresolved issues as a blocked result."
                         ),
                         "acceptance_test": (
-                            "New external evidence or a human-approved method change "
+                            "New external evidence or a predeclared method change "
                             "materially alters an unresolved issue or its severity."
                         ),
                         "fingerprint": issue_fingerprint(
@@ -2701,8 +2914,8 @@ class ResearchReviewStore:
                             "converting the limit into scientific acceptance."
                         ),
                         "acceptance_test": (
-                            "A separately authorized run or human review supplies a "
-                            "new budget and method decision."
+                            "A new task with an explicitly authorized budget and "
+                            "method decision is available."
                         ),
                         "fingerprint": issue_fingerprint(
                             "REVISION_LIMIT_REACHED", f"{mode}:all", "main"
@@ -2721,7 +2934,6 @@ class ResearchReviewStore:
                 blocked_claims=blocked_claims,
                 carry_forward_limits=carry_forward_limits,
                 next_owner=next_owner,
-                independent_review=bound_independent_review,
             )
             path = self.root / "verdicts" / f"{verdict['review_id']}.json"
             _atomic_write_json(path, verdict)
@@ -2736,12 +2948,9 @@ class ResearchReviewStore:
                 "accept_with_limits": "accepted_with_limits",
                 "revise": "revise",
                 "block": "blocked",
-                "human_review": "human_review",
             }[decision]
             if decision == "block":
                 state["status"] = "blocked"
-            elif decision == "human_review":
-                state["status"] = "human_review"
             elif mode == "final_release" and decision in {
                 "accept",
                 "accept_with_limits",
@@ -2762,6 +2971,181 @@ class ResearchReviewStore:
         if verdict is None:
             raise ValueError("review_id does not identify a persisted verdict")
         return build_revision_capsule(prior_verdict=verdict, owner=owner)
+
+    def assessments(self, *, mode: str | None = None) -> list[dict[str, Any]]:
+        """Read every persisted ReviewAssessmentV1 sidecar, newest round last."""
+
+        directory = self.root / "assessments"
+        rows: list[dict[str, Any]] = []
+        for path in sorted(directory.glob("*.json")):
+            payload = _read_json(path)
+            if payload is None:
+                continue
+            try:
+                row = validate_review_assessment(payload)
+            except ContractError:
+                continue
+            if mode is None or row["review_mode"] == mode:
+                rows.append(row)
+        rows.sort(key=lambda row: (row["round"], row["assessment_id"]))
+        return rows
+
+    def record_assessment(
+        self,
+        *,
+        mode: str,
+        assessment_review_mode: str,
+        claims: list[dict[str, Any]],
+        replace_uncommitted: bool = False,
+    ) -> dict[str, Any]:
+        """Persist one ReviewAssessmentV1 sidecar for the current review round.
+
+        The assessment is additive: it binds the exact artifact refs the verdict
+        for this round reviews, but it never enters run_state, never feeds the
+        verdict validator, and never drives no-progress or severity machinery.
+        """
+
+        with self._transaction():
+            targets = self.review_targets(mode)
+            refs = [self.artifact_ref(item) for item in targets]
+            target_claims = {
+                claim["claim_id"] for item in targets for claim in item["claims"]
+            }
+            target_claim_kinds = {
+                claim["claim_id"]: claim["kind"]
+                for item in targets
+                for claim in item["claims"]
+            }
+            referenced = {claim["claim_id"] for claim in claims}
+            unknown = referenced - target_claims
+            if unknown:
+                raise ValueError(
+                    "assessment references unknown claim ids: "
+                    + ", ".join(sorted(unknown))
+                )
+            missing = target_claims - referenced
+            if missing:
+                raise ValueError(
+                    "assessment omits reviewed claim ids: " + ", ".join(sorted(missing))
+                )
+            mismatched_kinds = sorted(
+                claim["claim_id"]
+                for claim in claims
+                if target_claim_kinds.get(claim["claim_id"]) != claim.get("kind")
+            )
+            if mismatched_kinds:
+                raise ValueError(
+                    "assessment claim kind does not match the reviewed artifact: "
+                    + ", ".join(mismatched_kinds)
+                )
+            existing = self.verdicts(mode=mode)
+            round_number = len(existing) + 1
+            assessment_id = f"{mode}-assessment-{round_number:04d}"
+            assessment_path = self.root / "assessments" / f"{assessment_id}.json"
+            if assessment_path.exists():
+                if not replace_uncommitted:
+                    raise ValueError(
+                        f"assessment already recorded for {mode} round {round_number}"
+                    )
+                if any(row["round"] == round_number for row in existing):
+                    raise ValueError(
+                        f"assessment for {mode} round {round_number} is already bound to a verdict"
+                    )
+            assessment = build_review_assessment(
+                assessment_id=assessment_id,
+                task_id=self.task_id,
+                review_mode=mode,
+                assessment_review_mode=assessment_review_mode,
+                artifact_refs=refs,
+                policy_version=POLICY_VERSION,
+                round=round_number,
+                claims=claims,
+                created_at=_now(),
+            )
+            _atomic_write_json(assessment_path, assessment)
+            return assessment
+
+    def scientific_quality_assessments(
+        self, *, mode: str | None = None
+    ) -> list[dict[str, Any]]:
+        """Read persisted ScientificQualityAssessmentV1 sidecars."""
+
+        directory = self.root / "scientific_quality_assessments"
+        rows: list[dict[str, Any]] = []
+        for path in sorted(directory.glob("*.json")):
+            payload = _read_json(path)
+            if payload is None:
+                continue
+            try:
+                row = validate_scientific_quality_assessment(payload)
+            except ContractError:
+                continue
+            if mode is None or row["review_mode"] == mode:
+                rows.append(row)
+        rows.sort(key=lambda row: (row["round"], row["assessment_id"]))
+        return rows
+
+    def record_scientific_quality_assessment(
+        self,
+        *,
+        mode: str,
+        assessment_review_mode: str,
+        claims: list[dict[str, Any]],
+        replace_uncommitted: bool = False,
+    ) -> dict[str, Any]:
+        """Persist exactly one scientific-quality matrix for the current round."""
+
+        with self._transaction():
+            targets = self.review_targets(mode)
+            refs = [self.artifact_ref(item) for item in targets]
+            target_claims = {
+                claim["claim_id"] for item in targets for claim in item["claims"]
+            }
+            referenced = {
+                claim.get("claim_id") for claim in claims if isinstance(claim, dict)
+            }
+            unknown = referenced - target_claims
+            missing = target_claims - referenced
+            if unknown:
+                raise ValueError(
+                    "scientific quality assessment references unknown claim ids: "
+                    + ", ".join(sorted(str(item) for item in unknown))
+                )
+            if missing:
+                raise ValueError(
+                    "scientific quality assessment omits claim ids: "
+                    + ", ".join(sorted(missing))
+                )
+            round_number = len(self.verdicts(mode=mode)) + 1
+            assessment_id = f"{mode}-quality-{round_number:04d}"
+            path = (
+                self.root / "scientific_quality_assessments" / f"{assessment_id}.json"
+            )
+            if path.exists():
+                if not replace_uncommitted:
+                    raise ValueError(
+                        f"scientific quality assessment already recorded for {mode} "
+                        f"round {round_number}"
+                    )
+                if any(
+                    row["round"] == round_number for row in self.verdicts(mode=mode)
+                ):
+                    raise ValueError(
+                        f"scientific quality assessment for {mode} round {round_number} "
+                        "is already bound to a verdict"
+                    )
+            assessment = build_scientific_quality_assessment(
+                assessment_id=assessment_id,
+                task_id=self.task_id,
+                review_mode=mode,
+                assessment_review_mode=assessment_review_mode,
+                artifact_refs=refs,
+                round=round_number,
+                claims=claims,
+                created_at=_now(),
+            )
+            _atomic_write_json(path, assessment)
+            return assessment
 
     def prepare_release(
         self,
@@ -2830,6 +3214,25 @@ class ResearchReviewStore:
             normalized_citations.append(
                 {"claim_id": claim_id, "draft_excerpt": excerpt.strip()}
             )
+            excerpt_folded = f" {excerpt.strip().casefold()} "
+            source_claim = integration_claims[claim_id]
+            source_folded = " ".join(
+                (
+                    str(source_claim.get("text") or ""),
+                    str(source_claim.get("scope") or ""),
+                )
+            ).casefold()
+            added_high_risk = [
+                term.strip()
+                for term in _HIGH_RISK_RELEASE_TERMS
+                if term in excerpt_folded and term.strip() not in source_folded
+            ]
+            if added_high_risk:
+                raise ValueError(
+                    "draft excerpt adds high-risk causal, novelty, or interval wording "
+                    "absent from its cited accepted claim: "
+                    + ", ".join(sorted(set(added_high_risk)))
+                )
         cited_claim_ids = {row["claim_id"] for row in normalized_citations}
         numeric_source_corpus = "\n".join(
             [
@@ -2975,54 +3378,6 @@ class ResearchReviewStore:
                     else "UNRESOLVED_REVIEW_GATE"
                 ),
             }
-        if state["status"] == "human_review":
-            latest = max(
-                self.verdicts(),
-                key=lambda row: row["created_at"],
-                default=None,
-            )
-            current = (
-                self.matching_verdict(latest["review_mode"], latest["artifact_refs"])
-                if latest is not None
-                else None
-            )
-            if latest is not None and current is None:
-                state["status"] = "active"
-                mode = latest["review_mode"]
-                if mode in state["stage_status"]:
-                    state["stage_status"][mode] = "produced"
-                self._save_state(state)
-                state = self.load_state()
-                latest = None
-            independent_issue = bool(
-                latest
-                and latest["decision"] == "human_review"
-                and any(
-                    issue["rule_id"] == "INDEPENDENT_REVIEW_REQUIRED"
-                    for issue in latest["issues"]
-                )
-            )
-            if independent_issue and latest is not None:
-                mode = latest["review_mode"]
-                refs = latest["artifact_refs"]
-                receipt = self._independent_review_receipt(mode, refs)
-                if receipt is not None:
-                    return {
-                        "kind": "review",
-                        "stage": mode,
-                        "review_mode": mode,
-                        "artifact_refs": refs,
-                        "independent_review": receipt["decision"],
-                    }
-                if not self._independent_unavailable(mode, refs):
-                    return {
-                        "kind": "independent_review",
-                        "stage": mode,
-                        "review_mode": mode,
-                        "artifact_refs": refs,
-                    }
-            if state["status"] == "human_review":
-                return {"kind": "terminal", "status": state["status"]}
         if state["action_invocations"] >= state["max_action_invocations"]:
             state["status"] = "blocked"
             self._save_state(state)
@@ -3079,7 +3434,7 @@ class ResearchReviewStore:
                         issue for issue in verdict["issues"] if issue["owner"] == owner
                     ],
                 }
-            if verdict["decision"] in {"block", "human_review"}:
+            if verdict["decision"] == "block":
                 return {
                     "kind": "terminal",
                     "status": verdict["decision"],
@@ -3134,7 +3489,7 @@ class ResearchReviewStore:
                 "revision_review_id": integration_verdict["review_id"],
                 "issues": integration_verdict["issues"],
             }
-        if integration_verdict["decision"] in {"block", "human_review"}:
+        if integration_verdict["decision"] == "block":
             return {"kind": "terminal", "status": integration_verdict["decision"]}
 
         release = self.latest_artifact("final_release")
@@ -3210,7 +3565,7 @@ class ResearchReviewStore:
                     ),
                 },
             }
-        if release_verdict["decision"] in {"block", "human_review"}:
+        if release_verdict["decision"] == "block":
             return {"kind": "terminal", "status": release_verdict["decision"]}
         return {"kind": "released", "stage": "final_release"}
 
@@ -3219,50 +3574,21 @@ class ResearchReviewStore:
 
         return self.bounded_stage_action("hypothesis")
 
+    def bounded_sequence_action(self, stages: Sequence[str]) -> dict[str, Any]:
+        """Return the first unfinished action in a short bounded stage sequence."""
+
+        if not stages:
+            raise ValueError("bounded stage sequence cannot be empty")
+        for stage in stages:
+            action = self.bounded_stage_action(stage)
+            if action["kind"] != "released":
+                return action
+        return action
+
     def bounded_stage_action(self, stage: str) -> dict[str, Any]:
         """Return a producer/reviewer loop for one explicitly bounded stage."""
 
         state = self.load_state()
-        if state["status"] == "human_review":
-            artifact = self.latest_artifact(stage)
-            verdict = (
-                self.matching_verdict(stage, [self.artifact_ref(artifact)])
-                if artifact is not None
-                else None
-            )
-            if artifact is not None and verdict is None:
-                state["status"] = "active"
-                state["stage_status"][stage] = "produced"
-                self._save_state(state)
-                state = self.load_state()
-            independent_issue = bool(
-                verdict
-                and verdict["decision"] == "human_review"
-                and any(
-                    issue["rule_id"] == "INDEPENDENT_REVIEW_REQUIRED"
-                    for issue in verdict["issues"]
-                )
-            )
-            if independent_issue and verdict is not None:
-                refs = verdict["artifact_refs"]
-                receipt = self._independent_review_receipt(stage, refs)
-                if receipt is not None:
-                    return {
-                        "kind": "review",
-                        "stage": stage,
-                        "review_mode": stage,
-                        "artifact_refs": refs,
-                        "independent_review": receipt["decision"],
-                    }
-                if not self._independent_unavailable(stage, refs):
-                    return {
-                        "kind": "independent_review",
-                        "stage": stage,
-                        "review_mode": stage,
-                        "artifact_refs": refs,
-                    }
-            if state["status"] == "human_review":
-                return {"kind": "terminal", "status": state["status"]}
         if state["status"] == "blocked":
             failure = self.latest_tool_failure_receipt()
             return {
@@ -3327,7 +3653,7 @@ class ResearchReviewStore:
             if verdict["next_owner"] != producer:
                 return {
                     "kind": "terminal",
-                    "status": "human_review",
+                    "status": "blocked",
                     "reason": "bounded request cannot expand to another owner",
                 }
             return {
@@ -3338,7 +3664,7 @@ class ResearchReviewStore:
                 "revision_review_id": verdict["review_id"],
                 "issues": verdict["issues"],
             }
-        if verdict["decision"] in {"block", "human_review"}:
+        if verdict["decision"] == "block":
             return {
                 "kind": "terminal",
                 "status": verdict["decision"],
@@ -3349,7 +3675,6 @@ class ResearchReviewStore:
 
 __all__ = [
     "ALL_REVIEW_MODES",
-    "INDEPENDENT_REVIEW_TOOL_CONTRACT_VERSION",
     "PRODUCER_FOR_STAGE",
     "REVIEW_SEQUENCE",
     "ResearchReviewStore",

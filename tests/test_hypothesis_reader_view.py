@@ -9,8 +9,15 @@ if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
 from scientific_hypothesis.reader_view import (  # noqa: E402
+    _research_premise,
     render_hypothesis_reader_markdown,
 )
+
+
+def test_research_premise_uses_successful_split_without_length_heuristic() -> None:
+    premise = _research_premise("短前提。请形成候选假设。", {})
+
+    assert premise == "短前提"
 
 
 def _candidate(candidate_id: str, statement: str, objective: str) -> dict:

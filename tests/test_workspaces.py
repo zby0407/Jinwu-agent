@@ -594,6 +594,20 @@ def test_async_child_run_config_inherits_parent_workspace_scope(monkeypatch):
     assert configurable["project_id"] == "project-a"
 
 
+def test_async_child_run_config_surfaces_invalid_model_configuration(monkeypatch):
+    import jw.agent as agent_module
+    from jw.llm import patches
+
+    monkeypatch.setattr(
+        agent_module,
+        "_ensure_config",
+        lambda: (_ for _ in ()).throw(ValueError("invalid model configuration")),
+    )
+
+    with pytest.raises(ValueError, match="invalid model configuration"):
+        patches._read_cfg_configurable()
+
+
 async def test_api_checkpointer_primes_workspace_before_first_graph_node(
     tmp_path, monkeypatch
 ):

@@ -747,10 +747,8 @@
 2. **晋升 Promote（审核门）**  
    candidate 晋升为 canonical 必须满足以下任一条件：
    - **跨运行复现**：同一条发现在至少 2 次独立研究运行中被复现，且无反例；
-   - **文献支撑**：有同行评议文献或权威教科书直接支持；
-   - **专家审核**：由领域专家人工审核通过。
 
-   晋升时必须记录晋升理由、支持 run_id 或文献引用、审核人，并写入 provenance 字段。
+   晋升时必须记录晋升理由与支持 run_id，并写入 provenance 字段。
 
 3. **废弃/修正 Deprecate**  
    当出现以下情况时，旧条目进入 deprecated 或 superseded 状态：
@@ -962,7 +960,7 @@
    领域canonical知识、历史研究发现、反例与失败实验经验沉淀在LLM Wiki中，被所有子Agent共享消费；系统每次运行都不归零，可在已有研究记忆基础上继续推进，而不是反复从零开始。
 
 10. **读写分离 + 审核门保证知识可信度。**  
-    运行只能向LLM Wiki写入candidate条目，晋升canonical必须满足“跨运行复现、文献支撑、专家审核”之一；矛盾知识不静默覆盖，而是标记deprecated/superseded并保留历史。这使系统能够积累经验，又不会把大模型幻觉或单次偶发结果固化成“事实”。
+    运行只能向LLM Wiki写入candidate条目，晋升canonical必须满足跨运行复现；单篇文献只提供来源定位和候选证据，不能绕过复现门。矛盾知识不静默覆盖，而是标记deprecated/superseded并保留历史。这使系统能够积累经验，又不会把大模型幻觉或单次偶发结果固化成“事实”。
 
 11. **全链路溯源使结论可复查。**  
     每条知识带来源、置信度与适用范围，每条结论带所引用的知识条目id；评委可以从最终报告的任意一条结论，反向追溯到支撑它的数据、实验、canonical知识与历史研究经验，形成完整的证据—知识对照链。
@@ -1429,3 +1427,4 @@ POST /api/knowledge/{id}/deprecate                  # 标记条目废弃/被替�
 - NOAA Solar Cycle Progression：https://www.swpc.noaa.gov/products/solar-cycle-progression
 - karpathy/autoresearch：https://github.com/karpathy/autoresearch
 - Google Co-Scientist 论文：https://www.nature.com/articles/s41586-026-10644-y
+> 历史设计记录：本文中涉及人工审批、知识审核队列或独立 meta-review 的路线已废弃，不属于 8.12.1 当前实现。现行科研裁决仅包含 `accept`、`accept_with_limits`、`revise`、`block`；Knowledge Base 仅按跨运行复现晋升。

@@ -83,7 +83,7 @@ class TestLiteratureSchemaMigration(unittest.TestCase):
         )
         self.assertEqual(distill["entry_id"], "kb_concept_legacy_001")
 
-    def test_legacy_literature_entries_are_capped_blocked_and_revalidated(self):
+    def test_legacy_literature_entries_are_capped_and_blocked(self):
         tmp = tempfile.mkdtemp(prefix="kb_entry_migration_test_")
         self.addCleanup(lambda: shutil.rmtree(tmp, ignore_errors=True))
         db_path = Path(tmp) / "knowledge.db"
@@ -112,7 +112,6 @@ class TestLiteratureSchemaMigration(unittest.TestCase):
                 "lit_source_id": "openalex:Wlegacy-entry",
                 "distill_focus": "legacy precursor focus",
                 "auto_rule": "literature_support",
-                "human_reviewed": False,
             },
         )["entry"]
         entry["status"] = "canonical"
@@ -131,26 +130,16 @@ class TestLiteratureSchemaMigration(unittest.TestCase):
         with self.assertRaises(ContractError) as ctx:
             service.read(migrated, entry["id"], purpose="grounding")
         self.assertEqual(ctx.exception.error_code, "knowledge_entry_grounding_blocked")
-        queue = migrated.pending_review_items(kind="revalidate", entry_id=entry["id"])
-        self.assertEqual(len(queue), 1)
-        decision = service.review_decide(
-            migrated,
-            queue[0]["id"],
-            decision="approved",
-            reviewer="Dr. Reviewer",
-            note="Question, focus, source, and claim were checked.",
-        )
-        self.assertEqual(decision["entry_status"], "candidate")
-        unblocked = migrated.get_entry(entry["id"])
-        self.assertFalse(unblocked["provenance"]["grounding_blocked"])
-        self.assertEqual(service.search(migrated, "Legacy")["count"], 1)
+        reopened = migrated.get_entry(entry["id"])
+        self.assertTrue(reopened["provenance"]["grounding_blocked"])
+        self.assertEqual(service.search(migrated, "Legacy")["count"], 0)
         promoted = service.promote(
             migrated,
             entry["id"],
-            reason="Named expert confirmed the canonical claim.",
-            reviewer="Dr. Reviewer",
+            reason="The migrated entry still needs cross-run reproduction.",
         )
-        self.assertEqual(promoted["entry_status"], "canonical")
+        self.assertEqual(promoted["decision"], "promotion_not_ready")
+        self.assertEqual(promoted["entry_status"], "candidate")
 
     def test_task_bound_direct_distillation_is_not_quarantined(self):
         tmp = tempfile.mkdtemp(prefix="kb_valid_distill_migration_test_")
@@ -181,7 +170,6 @@ class TestLiteratureSchemaMigration(unittest.TestCase):
         self.addCleanup(reopened.close)
         unchanged = reopened.get_entry(entry["id"])
         self.assertFalse(unchanged["provenance"].get("grounding_blocked", False))
-        self.assertEqual(reopened.pending_review_items(kind="revalidate"), [])
 
 
 class StoreTestCase(unittest.TestCase):
@@ -190,6 +178,13 @@ class StoreTestCase(unittest.TestCase):
         self.store = make_store(self.tmp)
         self.addCleanup(self.store.close)
         self.addCleanup(lambda: shutil.rmtree(self.tmp, ignore_errors=True))
+
+    def test_new_store_has_no_approval_queue_table(self):
+        row = self.store._conn.execute(
+            "SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?",
+            ("review_queue",),
+        ).fetchone()
+        self.assertIsNone(row)
 
 
 class TestProposeSearchRead(StoreTestCase):
@@ -268,17 +263,13 @@ class TestPromotionGate(StoreTestCase):
         )["entry"]
         service.read(self.store, entry["id"], run_id="run_B", purpose="compare")
         result = service.promote(self.store, entry["id"], reason="两次独立运行复现")
-        self.assertEqual(result["decision"], "auto_approved")
+        self.assertEqual(result["decision"], "promoted")
         self.assertEqual(result["auto_rule"], "cross_run_reproduction")
         self.assertEqual(result["entry_status"], "canonical")
-        item = self.store.get_review_item(result["queue_id"])
-        self.assertEqual(item["status"], "auto_approved")
-        self.assertEqual(item["kind"], "promote")
         promoted = self.store.get_entry(entry["id"])
         self.assertEqual(promoted["status"], "canonical")
-        self.assertFalse(promoted["provenance"]["human_reviewed"])
 
-    def test_literature_with_doi_stays_pending_without_review(self):
+    def test_literature_with_doi_stays_candidate_without_reproduction(self):
         entry = propose_concept(
             self.store,
             title="Babcock-Leighton 发电机",
@@ -288,54 +279,27 @@ class TestPromotionGate(StoreTestCase):
             source_ref="doi:10.1086/xyz123",
         )["entry"]
         result = service.promote(self.store, entry["id"], reason="文献直接支撑")
-        self.assertEqual(result["decision"], "pending_review")
+        self.assertEqual(result["decision"], "promotion_not_ready")
         self.assertEqual(result["entry_status"], "candidate")
 
-    def test_auto_rule_expert_review(self):
-        entry = propose_concept(self.store, title="专家核定条目")["entry"]
-        result = service.promote(
-            self.store, entry["id"], reason="专家审核通过", reviewer="Dr. Sun"
-        )
-        self.assertEqual(result["decision"], "auto_approved")
-        self.assertEqual(result["auto_rule"], "expert_review")
-        promoted = self.store.get_entry(entry["id"])
-        self.assertTrue(promoted["provenance"]["human_reviewed"])
-        self.assertEqual(promoted["provenance"]["reviewer"], "Dr. Sun")
-
-    def test_pending_then_human_approve(self):
-        entry = propose_concept(self.store, title="待审条目")["entry"]
-        result = service.promote(self.store, entry["id"], reason="证据不足")
-        self.assertEqual(result["decision"], "pending_review")
-        self.assertEqual(self.store.get_entry(entry["id"])["status"], "candidate")
-
-        decided = service.review_decide(
-            self.store,
-            result["queue_id"],
-            decision="approved",
-            note="人工确认",
-            reviewer="human",
-        )
-        self.assertEqual(decided["entry_status"], "canonical")
-        self.assertEqual(self.store.get_entry(entry["id"])["status"], "canonical")
-        item = self.store.get_review_item(result["queue_id"])
-        self.assertEqual(item["status"], "approved")
-        self.assertEqual(item["reviewer"], "human")
-
-        with self.assertRaises(ContractError):
-            service.review_decide(self.store, result["queue_id"], decision="approved")
-
-    def test_pending_then_reject_keeps_candidate(self):
-        entry = propose_concept(self.store, title="被拒条目")["entry"]
+    def test_single_run_evidence_keeps_candidate(self):
+        entry = propose_concept(self.store, title="单次运行条目")["entry"]
         result = service.promote(self.store, entry["id"], reason="孤证")
-        decided = service.review_decide(
-            self.store, result["queue_id"], decision="rejected", note="证据不足"
-        )
-        self.assertEqual(decided["entry_status"], "candidate")
+        self.assertEqual(result["decision"], "promotion_not_ready")
         self.assertEqual(self.store.get_entry(entry["id"])["status"], "candidate")
 
     def test_promote_non_candidate_rejected(self):
-        entry = propose_concept(self.store, title="已 canonical 条目")["entry"]
-        service.promote(self.store, entry["id"], reason="专家", reviewer="human")
+        entry = service.propose(
+            self.store,
+            entry_type="finding",
+            title="已 canonical 条目",
+            content={"statement": "可复现条目。", "run_id": "run_A"},
+            source_type="historical_run",
+            source_ref="run_A",
+            confidence="low",
+        )["entry"]
+        service.read(self.store, entry["id"], run_id="run_B", purpose="compare")
+        service.promote(self.store, entry["id"], reason="两次独立运行复现")
         with self.assertRaises(ContractError):
             service.promote(self.store, entry["id"], reason="重复晋升")
 
@@ -348,7 +312,9 @@ class TestPromotionGate(StoreTestCase):
 class TestDeprecateAndVersions(StoreTestCase):
     def test_deprecate_snapshots_allow_rollback(self):
         entry = propose_concept(self.store, title="将废弃条目")["entry"]
-        service.promote(self.store, entry["id"], reason="专家", reviewer="human")
+        entry["status"] = "canonical"
+        entry["version"] += 1
+        self.store.update_entry(entry, changed_by="fixture", reason="seed canonical")
         result = service.deprecate(self.store, entry["id"], reason="新证据矛盾")
         self.assertEqual(result["entry_status"], "deprecated")
         self.assertEqual(result["version"], 3)
@@ -396,7 +362,11 @@ class TestConflictsAndLog(StoreTestCase):
             entry_type="mechanism",
             content={"claim": "极区场强度决定下一周振幅。"},
         )["entry"]
-        service.promote(self.store, canonical["id"], reason="专家", reviewer="human")
+        canonical["status"] = "canonical"
+        canonical["version"] += 1
+        self.store.update_entry(
+            canonical, changed_by="fixture", reason="seed canonical"
+        )
 
         result = service.propose(
             self.store,
@@ -415,23 +385,15 @@ class TestConflictsAndLog(StoreTestCase):
         pending = service.conflicts(self.store)
         self.assertEqual(pending["count"], 1)
         item = pending["conflicts"][0]
-        self.assertEqual(item["payload"]["canonical_id"], canonical["id"])
-        self.assertEqual(item["payload"]["candidate_id"], result["entry"]["id"])
+        self.assertEqual(item["canonical_id"], canonical["id"])
+        self.assertEqual(item["candidate_id"], result["entry"]["id"])
 
         by_entry = service.conflicts(self.store, entry_id=canonical["id"])
         self.assertEqual(by_entry["count"], 1)
         unrelated = service.conflicts(self.store, entry_id="kb_concept_none_999")
         self.assertEqual(unrelated["count"], 0)
 
-        decided = service.review_decide(
-            self.store,
-            item["id"],
-            decision="approved",
-            note="已知边界",
-            reviewer="human",
-        )
-        self.assertEqual(decided["kind"], "conflict")
-        # 冲突裁决不自动改写条目（R5：不静默覆盖）
+        # 未解决冲突不自动改写条目（R5：不静默覆盖）
         self.assertEqual(self.store.get_entry(canonical["id"])["status"], "canonical")
         self.assertEqual(
             self.store.get_entry(result["entry"]["id"])["status"], "candidate"
@@ -439,7 +401,9 @@ class TestConflictsAndLog(StoreTestCase):
 
     def test_non_counterexample_propose_has_no_conflict(self):
         canonical = propose_concept(self.store, title="基线概念")["entry"]
-        service.promote(self.store, canonical["id"], reason="专家", reviewer="human")
+        canonical["status"] = "canonical"
+        canonical["version"] += 1
+        self.store.update_entry(canonical, changed_by="fixture", reason="seed canonical")
         result = propose_concept(
             self.store, title="关联概念", related_ids=[canonical["id"]]
         )
@@ -496,7 +460,7 @@ class TestLiteratureImpactPatchLifecycle(StoreTestCase):
             confidence="low",
         )["impact"]
 
-    def test_reviewed_patch_applies_exactly_once(self):
+    def test_patch_remains_non_applying_proposal(self):
         source, entry = self._source_and_entry()
         impact = self._impact(source, entry)
         proposal = service.propose_literature_patch(
@@ -509,26 +473,16 @@ class TestLiteratureImpactPatchLifecycle(StoreTestCase):
             rationale="把单源限定写入现有定义和适用范围。",
         )
         patch = proposal["patch"]
-        self.assertEqual(patch["status"], "pending")
+        self.assertEqual(patch["status"], "proposal_only")
         self.assertEqual(self.store.get_entry(entry["id"])["version"], 1)
-
-        decision = service.review_decide(
-            self.store,
-            patch["review_queue_id"],
-            decision="approved",
-            reviewer="Dr. Reviewer",
-            note="Quote and scope checked.",
-        )
-        self.assertEqual(decision["patch_status"], "applied")
         updated = self.store.get_entry(entry["id"])
-        self.assertEqual(updated["version"], 2)
-        self.assertIn("经校准", updated["content"]["definition"])
-        self.assertEqual(updated["valid_range"], "接近太阳极小期且跨仪器校准完成")
+        self.assertEqual(updated["version"], 1)
+        self.assertNotIn("经校准", updated["content"]["definition"])
         self.assertEqual(
-            self.store.get_lit_entry_impact(impact["id"])["status"], "verified"
+            self.store.get_lit_entry_impact(impact["id"])["status"], "proposed"
         )
 
-    def test_patch_becomes_stale_when_entry_version_changes(self):
+    def test_changed_entry_gets_a_new_patch_proposal(self):
         source, entry = self._source_and_entry()
         impact = self._impact(source, entry)
         patch = service.propose_literature_patch(
@@ -538,19 +492,11 @@ class TestLiteratureImpactPatchLifecycle(StoreTestCase):
             rationale="测试 stale 保护。",
         )["patch"]
         current = self.store.get_entry(entry["id"])
-        current["content"]["definition"] = "人工先行更新。"
+        current["content"]["definition"] = "外部版本已经更新。"
         current["version"] += 1
-        self.store.update_entry(current, changed_by="human", reason="concurrent_edit")
-
-        decision = service.review_decide(
-            self.store,
-            patch["review_queue_id"],
-            decision="approved",
-            reviewer="Dr. Reviewer",
-        )
-        self.assertEqual(decision["patch_status"], "stale")
+        self.store.update_entry(current, changed_by="fixture", reason="concurrent_edit")
         unchanged = self.store.get_entry(entry["id"])
-        self.assertEqual(unchanged["content"]["definition"], "人工先行更新。")
+        self.assertEqual(unchanged["content"]["definition"], "外部版本已经更新。")
         refreshed = service.propose_literature_patch(
             self.store,
             impact["id"],
@@ -559,9 +505,9 @@ class TestLiteratureImpactPatchLifecycle(StoreTestCase):
         )["patch"]
         self.assertNotEqual(refreshed["patch_id"], patch["patch_id"])
         self.assertEqual(refreshed["base_version"], 2)
-        self.assertEqual(refreshed["status"], "pending")
+        self.assertEqual(refreshed["status"], "proposal_only")
 
-    def test_retraction_opens_linked_review_without_deleting_source(self):
+    def test_retraction_blocks_grounding_without_deleting_source(self):
         source, entry = self._source_and_entry()
         impact = self._impact(source, entry)
         self.store.upsert_lit_source(
@@ -570,15 +516,13 @@ class TestLiteratureImpactPatchLifecycle(StoreTestCase):
                 "is_retracted": True,
             }
         )
-        queue = self.store.pending_review_items(
-            kind="literature_retraction", entry_id=entry["id"]
-        )
-        self.assertEqual(len(queue), 1)
-        self.assertEqual(queue[0]["payload"]["impact_id"], impact["id"])
         self.assertIsNotNone(self.store.get_lit_source(source["source_id"]))
+        self.assertTrue(
+            self.store.get_entry(entry["id"])["provenance"]["grounding_blocked"]
+        )
         self.assertEqual(
             self.store.get_lit_entry_impact(impact["id"])["status"],
-            "needs_revalidation",
+            "source_retracted",
         )
 
 

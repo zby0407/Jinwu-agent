@@ -45,17 +45,6 @@ test("uses a safe fallback for unknown terminal reasons", () => {
   assert.match(copy.action, /技术详情/);
 });
 
-test("distinguishes human review from a blocked run", () => {
-  const copy = describeResearchTerminal({
-    status: "human_review",
-    reasonCode: "HUMAN_REVIEW_REQUIRED",
-    stage: "final_release",
-  });
-
-  assert.equal(copy.title, "需要人工复核");
-  assert.equal(copy.tone, "human_review");
-});
-
 test("does not reinterpret normal assistant content", () => {
   assert.equal(parseResearchTerminalMessage("正常科研回答"), null);
 });

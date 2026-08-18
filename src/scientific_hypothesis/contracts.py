@@ -33,6 +33,21 @@ MECHANISM_EPISTEMIC_LEVELS = {
     "unknown",
 }
 EMPIRICAL_SUPPORT_LEVELS = {"verified", "partial", "none"}
+CONTRIBUTION_TYPES = {
+    "known_baseline",
+    "mechanism_extension",
+    "new_prediction",
+    "new_data_linkage",
+    "new_method_application",
+    "measurement_or_null_explanation",
+    "not_assessed",
+}
+NOVELTY_STATUSES = {
+    "known_baseline",
+    "incremental_extension",
+    "potentially_novel",
+    "novelty_not_assessed",
+}
 EXPERIMENT_OUTCOMES = {"completed", "null_result", "uncertain", "technical_failure"}
 BLOCKER_CODES = {
     "unsupported_scope",
@@ -467,37 +482,213 @@ def _validate_evidence_link(value: object, label: str) -> dict[str, Any]:
     }
 
 
+def _default_scientific_quality_profile() -> dict[str, Any]:
+    return {
+        "contribution_type": "not_assessed",
+        "novelty_status": "novelty_not_assessed",
+        "novelty_delta": "原创性尚未按最近既有工作逐项核验。",
+        "nearest_prior_art": [],
+        "query_axes": [],
+        "searched_family_count": 0,
+        "search_cutoff": None,
+        "coverage_gaps": ["尚未完成 nearest-prior-art 检索，不能主张优先权。"],
+        "causal_chain": {
+            "cause": "未知",
+            "mediator": "未知",
+            "observable": "未知",
+            "cycle_index": "未建立活动周时间索引。",
+        },
+        "identifiability": {
+            "association_only": "当前材料最多支持关联性解释。",
+            "mechanism_support_requires": "需要时间有效且能区分竞争机制的独立证据。",
+        },
+        "evidence_confidence_caps": {
+            "supporting": "exploratory",
+            "opposing": "exploratory",
+            "limiting": "exploratory",
+            "unknown": "exploratory",
+        },
+        "outcome_branches": [
+            {
+                "outcome": "结果与候选方向一致",
+                "claim_update": "仅在方法有效且范围匹配时提高证据约束。",
+            },
+            {
+                "outcome": "结果与候选方向不一致或不确定",
+                "claim_update": "降低置信度或保持无法裁决。",
+            },
+        ],
+    }
+
+
+def _validate_scientific_quality_profile(value: object, label: str) -> dict[str, Any]:
+    profile = _object(value, label)
+    fields = {
+        "contribution_type",
+        "novelty_status",
+        "novelty_delta",
+        "nearest_prior_art",
+        "query_axes",
+        "searched_family_count",
+        "search_cutoff",
+        "coverage_gaps",
+        "causal_chain",
+        "identifiability",
+        "evidence_confidence_caps",
+        "outcome_branches",
+    }
+    _exact_fields(profile, fields, label)
+    prior = _array(
+        profile["nearest_prior_art"], f"{label}.nearest_prior_art", max_items=20
+    )
+    prior_rows: list[dict[str, str]] = []
+    for index, item in enumerate(prior):
+        plabel = f"{label}.nearest_prior_art[{index}]"
+        row = _object(item, plabel)
+        _exact_fields(
+            row,
+            {
+                "source_ref",
+                "existing_claim",
+                "overlap",
+                "difference",
+                "duplication_risk",
+            },
+            plabel,
+        )
+        prior_rows.append(
+            {key: _text(row[key], f"{plabel}.{key}", max_length=2_000) for key in row}
+        )
+    chain = _object(profile["causal_chain"], f"{label}.causal_chain")
+    _exact_fields(
+        chain,
+        {"cause", "mediator", "observable", "cycle_index"},
+        f"{label}.causal_chain",
+    )
+    identifiability = _object(profile["identifiability"], f"{label}.identifiability")
+    _exact_fields(
+        identifiability,
+        {"association_only", "mechanism_support_requires"},
+        f"{label}.identifiability",
+    )
+    caps = _object(
+        profile["evidence_confidence_caps"], f"{label}.evidence_confidence_caps"
+    )
+    _exact_fields(
+        caps,
+        {"supporting", "opposing", "limiting", "unknown"},
+        f"{label}.evidence_confidence_caps",
+    )
+    cap_values = {"exploratory", "evidence_constrained", "release_candidate"}
+    branches = _array(
+        profile["outcome_branches"],
+        f"{label}.outcome_branches",
+        min_items=2,
+        max_items=12,
+    )
+    branch_rows: list[dict[str, str]] = []
+    for index, item in enumerate(branches):
+        blabel = f"{label}.outcome_branches[{index}]"
+        row = _object(item, blabel)
+        _exact_fields(row, {"outcome", "claim_update"}, blabel)
+        branch_rows.append(
+            {
+                "outcome": _text(row["outcome"], f"{blabel}.outcome", max_length=1_000),
+                "claim_update": _text(
+                    row["claim_update"], f"{blabel}.claim_update", max_length=1_000
+                ),
+            }
+        )
+    searched = profile["searched_family_count"]
+    if isinstance(searched, bool) or not isinstance(searched, int) or searched < 0:
+        raise ContractError(f"{label}.searched_family_count 必须是非负整数")
+    status = _enum(
+        profile["novelty_status"], NOVELTY_STATUSES, f"{label}.novelty_status"
+    )
+    query_axes = _string_list(
+        profile["query_axes"], f"{label}.query_axes", max_items=10
+    )
+    if status == "potentially_novel":
+        if len(query_axes) < 3 or searched < 8 or not prior_rows:
+            raise ContractError(
+                f"{label} 标记 potentially_novel 前必须覆盖三条查询轴、至少八个文献家族、"
+                "并记录 nearest prior art"
+            )
+    return {
+        "contribution_type": _enum(
+            profile["contribution_type"],
+            CONTRIBUTION_TYPES,
+            f"{label}.contribution_type",
+        ),
+        "novelty_status": status,
+        "novelty_delta": _text(
+            profile["novelty_delta"], f"{label}.novelty_delta", max_length=2_000
+        ),
+        "nearest_prior_art": prior_rows,
+        "query_axes": query_axes,
+        "searched_family_count": searched,
+        "search_cutoff": (
+            None
+            if profile["search_cutoff"] is None
+            else _text(
+                profile["search_cutoff"], f"{label}.search_cutoff", max_length=64
+            )
+        ),
+        "coverage_gaps": _string_list(
+            profile["coverage_gaps"], f"{label}.coverage_gaps", max_items=20
+        ),
+        "causal_chain": {
+            key: _text(chain[key], f"{label}.causal_chain.{key}", max_length=1_000)
+            for key in chain
+        },
+        "identifiability": {
+            key: _text(
+                identifiability[key], f"{label}.identifiability.{key}", max_length=2_000
+            )
+            for key in identifiability
+        },
+        "evidence_confidence_caps": {
+            key: _enum(caps[key], cap_values, f"{label}.evidence_confidence_caps.{key}")
+            for key in caps
+        },
+        "outcome_branches": branch_rows,
+    }
+
+
 def _validate_candidate(
     value: object,
     label: str,
     prior_versions: dict[str, int],
 ) -> dict[str, Any]:
     candidate = _object(value, label)
-    _exact_fields(
-        candidate,
-        {
-            "id",
-            "statement",
-            "applicability",
-            "scope_conditions",
-            "epistemic_status",
-            "mechanism",
-            "assumptions",
-            "predictions",
-            "supporting_evidence",
-            "opposing_evidence",
-            "evidence_gaps",
-            "alternative_explanations",
-            "confounders",
-            "falsification_conditions",
-            "next_test",
-            "uncertainty",
-            "confidence",
-            "evidence_update",
-            "prior_version_id",
-        },
-        label,
-    )
+    required_fields = {
+        "id",
+        "statement",
+        "applicability",
+        "scope_conditions",
+        "epistemic_status",
+        "mechanism",
+        "assumptions",
+        "predictions",
+        "supporting_evidence",
+        "opposing_evidence",
+        "evidence_gaps",
+        "alternative_explanations",
+        "confounders",
+        "falsification_conditions",
+        "next_test",
+        "uncertainty",
+        "confidence",
+        "evidence_update",
+        "prior_version_id",
+    }
+    optional_fields = {"scientific_quality"}
+    missing = sorted(required_fields - set(candidate))
+    unknown = sorted(set(candidate) - required_fields - optional_fields)
+    if missing:
+        raise ContractError(f"{label} 缺少字段：{', '.join(missing)}")
+    if unknown:
+        raise ContractError(f"{label} 存在未定义字段：{', '.join(unknown)}")
     candidate_id = _id(candidate["id"], f"{label}.id")
     prior_version_id = candidate["prior_version_id"]
     if prior_version_id is not None:
@@ -771,6 +962,10 @@ def _validate_candidate(
         ),
         "evidence_update": update_row,
         "prior_version_id": prior_version_id,
+        "scientific_quality": _validate_scientific_quality_profile(
+            candidate.get("scientific_quality", _default_scientific_quality_profile()),
+            f"{label}.scientific_quality",
+        ),
     }
 
 

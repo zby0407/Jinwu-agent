@@ -25,6 +25,7 @@ from langchain.agents.middleware.types import (
     ModelRequest,
     ModelResponse,
 )
+from langchain.agents.structured_output import ProviderStrategy
 from langchain_core.messages import AIMessage, BaseMessage, ToolMessage
 from langchain_core.tools import BaseTool
 
@@ -43,8 +44,8 @@ This deployment is optimized for Qwen as an evidence-producing research agent.
   not verification.
 - When a tool returns an ``artifact_manifest``, use the listed path as the
   downstream program's input. Read or pass that file directly; never copy its
-  rows or numeric values from tool output into source code. Preserve the
-  reported SHA-256 in the final evidence trail when one is available.
+  rows or numeric values from tool output into source code. Reader-facing
+  handoffs cite the source path and version without internal integrity fields.
 - Treat tool errors as unfinished work. Inspect the failure and use the
   appropriate follow-up operation (for example, edit an existing file rather
   than trying to create it again).
@@ -100,8 +101,9 @@ _PLANNER_SERIAL_TOOL_NAMES = frozenset(
 )
 # No-deliberation transitions that carry no scientific arguments. Forcing Qwen
 # to "decide" one of these via an object ``tool_choice`` costs a remote call
-# and re-opens the DashScope thinking-mode rejection. The Supervisor executes
-# them deterministically instead of asking the model.
+# and re-opens the DashScope thinking-mode rejection.  The middleware emits the
+# corresponding tool call locally so planner sub-agents can also take this path;
+# the Supervisor's post-task close-out is only reached after a sub-agent returns.
 _PLANNER_NO_DELIBERATION_TOOLS = frozenset(
     {
         "research_planner_validate_draft",
@@ -113,6 +115,25 @@ _PLANNER_DETERMINISTIC_ACTION_TO_TOOL = {
     "validate_draft": "research_planner_validate_draft",
     "freeze_plan": "research_planner_freeze_plan",
 }
+# ``commit_revision_candidate`` has the same property.  Keep all three edges in
+# one set so a complete draft cannot burn its remaining model-call budget by
+# repeatedly asking the model to re-emit validate/freeze calls.
+_PLANNER_LOCAL_NO_DELIBERATION_TOOLS = frozenset(
+    {
+        *_PLANNER_NO_DELIBERATION_TOOLS,
+        "research_planner_commit_revision_candidate",
+    }
+)
+_DATA_DETERMINISTIC_TOOLS = frozenset(
+    {
+        "solar_data_open_context",
+        "prepare_solar_precursor_cycle_table",
+        "reproduce_silso_cycle_extrema",
+    }
+)
+_EVIDENCE_OPEN_TOOL = "evidence_review_open_context"
+_EVIDENCE_READ_TOOL = "evidence_review_read_source"
+_EVIDENCE_SUBMIT_TOOL = "evidence_review_submit_round"
 _SOLAR_PRECURSOR_DATASET_IDS = frozenset(
     {"silso-monthly-total-v2", "mwo-wso-polar-field-v2"}
 )
@@ -216,7 +237,14 @@ class QwenToolCompatibilityMiddleware(AgentMiddleware):
         super().__init__()
         self._default_model = default_model
 
-    def _active_model_is_qwen(self) -> bool:
+    def _active_model_is_qwen(self, request: ModelRequest | None = None) -> bool:
+        if request is not None:
+            request_model = str(
+                getattr(request.model, "model_name", None)
+                or getattr(request.model, "model", "")
+            ).strip()
+            if request_model:
+                return is_qwen_model(request_model)
         override_model, _ = _read_model_override()
         return is_qwen_model(override_model or self._default_model)
 
@@ -234,11 +262,19 @@ class QwenToolCompatibilityMiddleware(AgentMiddleware):
             # hidden reasoning makes Qwen more likely to keep revising the same
             # JSON until the upstream connection is dropped; reserve tokens for
             # the visible, validator-bound plan instead.
-            name, default = "JW_QWEN_PLANNING_THINKING_BUDGET", 3072
+            name, default = "JW_QWEN_PLANNING_THINKING_BUDGET", 1536
         elif "[RESEARCH_PRODUCER_V2]" in context and "stage=data" in context:
             name, default = "JW_QWEN_DATA_THINKING_BUDGET", 4096
         elif "[RESEARCH_PRODUCER_V2]" in context:
             name, default = "JW_QWEN_PRODUCER_THINKING_BUDGET", 6144
+        elif "ResearchRunStateV2" in context or "full_research" in context:
+            # The Supervisor chooses the next typed action; it does not author
+            # the stage's scientific payload. Giving every routing/delegation
+            # edge the same multi-thousand-token budget as a producer caused
+            # several minutes of idle frontend latency per edge on real Qwen
+            # Max streams. Keep scientific reasoning in the producer while
+            # bounding the protocol decision itself.
+            name, default = "JW_QWEN_SUPERVISOR_THINKING_BUDGET", 1024
         else:
             name, default = "JW_QWEN_THINKING_BUDGET", 4096
         raw = os.environ.get(name, "").strip()
@@ -253,8 +289,51 @@ class QwenToolCompatibilityMiddleware(AgentMiddleware):
         return value
 
     def _prepare_request(self, request: ModelRequest) -> ModelRequest:
-        if not self._active_model_is_qwen():
-            return request
+        if not self._active_model_is_qwen(request):
+            context = "\n".join(
+                [self._message_text(request.system_message)]
+                + [self._message_text(message) for message in request.messages]
+            )
+            deterministic_tool = self._deterministic_evidence_submit_tool(
+                list(request.messages),
+                list(request.tools),
+                enabled="[EVIDENCE_REVIEW_V2]" in context,
+                review_mode=self._evidence_review_mode(context),
+            )
+            if deterministic_tool is None or not type(
+                request.model
+            ).__module__.startswith("langchain_anthropic"):
+                return request
+            from deepagents.middleware._utils import append_to_system_message
+
+            submit_tool = next(
+                tool for tool in request.tools if _tool_name(tool) == deterministic_tool
+            )
+            schema = getattr(submit_tool, "args_schema", None)
+            if schema is None:
+                return request
+            model_name = str(
+                getattr(request.model, "model_name", None)
+                or getattr(request.model, "model", "")
+            ).casefold()
+            if model_name != "kimi-for-coding":
+                return request.override(
+                    tools=[submit_tool],
+                    system_message=append_to_system_message(
+                        request.system_message,
+                        self._atomic_evidence_submit_instruction(deterministic_tool),
+                    ),
+                    tool_choice=None,
+                )
+            return request.override(
+                tools=[],
+                system_message=append_to_system_message(
+                    request.system_message,
+                    self._atomic_evidence_submit_instruction(deterministic_tool),
+                ),
+                tool_choice=None,
+                response_format=ProviderStrategy(schema),
+            )
         request_tools = list(request.tools)
         validate_qwen_tool_schema(request_tools)
         from deepagents.middleware._utils import append_to_system_message
@@ -268,18 +347,25 @@ class QwenToolCompatibilityMiddleware(AgentMiddleware):
         projected_messages = self._compact_repeated_tool_rounds(
             self._compact_tool_error_messages(request.messages)
         )
+        request_context = "\n".join(
+            [self._message_text(system_message)]
+            + [self._message_text(message) for message in projected_messages]
+        )
         overrides: dict[str, Any] = {
             "system_message": system_message,
             "messages": projected_messages,
         }
-        planning_revision_context = "[RESEARCH_PRODUCER_V2]" in str(
-            system_message.content
-        ) and "stage=planning" in str(system_message.content)
-        data_stage_context = "[RESEARCH_PRODUCER_V2]" in str(
-            system_message.content
-        ) and "stage=data" in str(system_message.content)
+        planning_revision_context = (
+            "[RESEARCH_PRODUCER_V2]" in request_context
+            and "stage=planning" in request_context
+        )
+        data_stage_context = (
+            "[RESEARCH_PRODUCER_V2]" in request_context
+            and "stage=data" in request_context
+        )
+        evidence_review_context = "[EVIDENCE_REVIEW_V2]" in request_context
         closed_loop_context = any(
-            marker in str(system_message.content)
+            marker in request_context
             for marker in ("[RESEARCH_PRODUCER_V2]", "[EVIDENCE_REVIEW_V2]")
         )
         if closed_loop_context:
@@ -291,7 +377,7 @@ class QwenToolCompatibilityMiddleware(AgentMiddleware):
                 tool for tool in request_tools if _tool_name(tool) != "think_tool"
             ]
             overrides["tools"] = request_tools
-        if planning_revision_context:
+        if planning_revision_context or evidence_review_context:
             # Qwen frequently emits every planned JSON replacement in one
             # parallel tool-call response. Those responses are both too large
             # for a reliable upstream connection and prone to schema drift.
@@ -314,12 +400,44 @@ class QwenToolCompatibilityMiddleware(AgentMiddleware):
                     str(system_message.content)
                 ),
             )
+        if deterministic_tool is None:
+            deterministic_tool = self._deterministic_evidence_submit_tool(
+                projected_messages,
+                request_tools,
+                enabled=evidence_review_context,
+                review_mode=self._evidence_review_mode(request_context),
+            )
         tool_choice = request.tool_choice
         if deterministic_tool is not None:
-            tool_choice = {
-                "type": "function",
-                "function": {"name": deterministic_tool},
-            }
+            # ChatAnthropic (used by Kimi for Coding) accepts a tool name or
+            # Anthropic ``{type: tool, name: ...}``, not the OpenAI
+            # ``{type: function, function: ...}`` shape used by ChatOpenAI.
+            # A plain name is normalized by LangChain for the provider while
+            # preserving the same required-tool semantics.
+            model_class = type(request.model)
+            if model_class.__module__.startswith("langchain_anthropic"):
+                # Kimi for Coding is always-thinking.  Its Anthropic endpoint
+                # rejects *all* forced tool choices while thinking is active.
+                # At the scientific-decision edge, expose only the atomic
+                # submit tool and leave selection on auto; the model still
+                # supplies every assessment/verdict argument.
+                request_tools = [
+                    tool
+                    for tool in request_tools
+                    if _tool_name(tool) == deterministic_tool
+                ]
+                overrides["tools"] = request_tools
+                system_message = append_to_system_message(
+                    system_message,
+                    self._atomic_evidence_submit_instruction(deterministic_tool),
+                )
+                overrides["system_message"] = system_message
+                tool_choice = None
+            else:
+                tool_choice = {
+                    "type": "function",
+                    "function": {"name": deterministic_tool},
+                }
             overrides["tool_choice"] = tool_choice
         explicitly_disabled = (
             dict(getattr(request.model, "extra_body", None) or {}).get(
@@ -361,6 +479,195 @@ class QwenToolCompatibilityMiddleware(AgentMiddleware):
             )
             overrides["messages"] = self._bound_reasoning_history(projected_messages)
         return request.override(**overrides)
+
+    @staticmethod
+    def _atomic_evidence_submit_instruction(tool_name: str) -> str:
+        return (
+            "All declared evidence sources have now been inspected. The only "
+            f"remaining action is to call {tool_name} once with the complete "
+            "scientific assessment and routing verdict. Do not return prose. "
+            "In assessment_claims, provide exactly one row for each artifact "
+            "claim_id and reuse only the exact ids returned by "
+            "evidence_review_open_context; never append a component suffix or "
+            "invent a new id. In scientific_quality_claims, provide one "
+            "scientific_quality_claims row per artifact claim by default, using "
+            "its load-bearing component; add another component row only when the "
+            "artifact states a distinct numeric result or prediction that needs "
+            "a separate decision. Keep each prose field to one short sentence, "
+            "and do not repeat source quotations outside locator. "
+            "When sources span instrument, proxy, or processing regimes, set "
+            "independent_sample_count to the scope-matched complete independent units "
+            "for the reviewed component. A broader table row count may be stated in "
+            "notes but must not raise the conclusion cap; mark mixed-regime evidence "
+            "as partial unless a documented harmonization supports pooling. An accept or "
+            "accept_with_limits data verdict must also compare the produced fields and "
+            "derivable inputs with every load-bearing observable requested by the task. "
+            "If a requested core variable and the inputs needed to calculate it are absent, "
+            "treat that absence as a major gap and use revise or block; the existence of a "
+            "related historical table is not sufficient. An accept or "
+            "accept_with_limits verdict must enumerate "
+            "accepted_claims using the exact reviewed claim ids. An "
+            "evidence_matrix row whose evidence_role is gap must omit source_ref "
+            "or set it to null, because a gap is not a source. An accept or "
+            "accept_with_limits verdict may carry only minor or informational "
+            "issues. Put retained scientific limitations in carry_forward_limits; "
+            "do not also encode them as issue rows unless a producer revision is "
+            "actually required. An explicitly labeled exploratory hypothesis may be "
+            "accepted with limits when it claims no empirical confirmation, records "
+            "its evidence gaps, and supplies falsifiable predictions plus a bounded "
+            "next test; absence of a completed test is not itself a defect in a "
+            "hypothesis proposal. Before reporting a missing portfolio or novelty "
+            "field, inspect the candidate fields in the artifact. Explicit alternatives, "
+            "confounders, and falsification conditions satisfy the portfolio structure, "
+            "and novelty_not_assessed with coverage gaps is valid when no priority or "
+            "novelty claim is made. If any unresolved critical or major issue remains, "
+            "use revise or block. novelty_assessment.search_cutoff must be null or "
+            "a complete ISO-8601 timestamp including time and timezone, not a bare "
+            "calendar date. For revise, next_owner must be a producer at or "
+            "before the reviewed stage; for data use solar-data or solar-planner, "
+            "never solar-hypothesis."
+        )
+
+    @staticmethod
+    def _evidence_review_mode(content: str) -> str | None:
+        explicit = list(
+            re.finditer(
+                r"(?m)^review_mode=(planning|data|hypothesis|experiment_design|"
+                r"experiment_result|integration|final_release)\s*$",
+                content,
+            )
+        )
+        if explicit:
+            return explicit[-1].group(1)
+        delegated = list(
+            re.finditer(
+                r"(?i)\b(planning|data|hypothesis|experiment[ _-]design|"
+                r"experiment[ _-]result|integration|final[ _-]release)"
+                r"[ _-](?:stage[ _-])?review\b",
+                content,
+            )
+        )
+        if delegated:
+            return re.sub(r"[ -]", "_", delegated[-1].group(1).lower())
+        return None
+
+    @classmethod
+    def _evidence_navigation_state(
+        cls,
+        messages: Sequence[BaseMessage],
+        review_mode: str | None,
+    ) -> tuple[dict[str, Any] | None, list[str], set[str], int, bool]:
+        """Return opened context, ordered sources, reads, and submit state."""
+
+        if review_mode is None:
+            return None, [], set(), 0, False
+        latest_human_index = -1
+        for index, message in enumerate(messages):
+            if getattr(message, "type", "") in {"human", "user"}:
+                latest_human_index = index
+        calls: dict[str, tuple[str, Mapping[str, Any]]] = {}
+        opened: dict[str, Any] | None = None
+        read_refs: set[str] = set()
+        submit_attempts = 0
+        submit_succeeded = False
+        for message in messages[latest_human_index + 1 :]:
+            if isinstance(message, AIMessage):
+                for call in message.tool_calls:
+                    name = call.get("name")
+                    args = call.get("args")
+                    call_id = call.get("id")
+                    if (
+                        isinstance(name, str)
+                        and isinstance(args, Mapping)
+                        and isinstance(call_id, str)
+                    ):
+                        calls[call_id] = (name, args)
+                        if name == _EVIDENCE_SUBMIT_TOOL:
+                            submit_attempts += 1
+                continue
+            if not isinstance(message, ToolMessage):
+                continue
+            call = calls.get(str(message.tool_call_id))
+            if call is None:
+                continue
+            name, args = call
+            if name == _EVIDENCE_OPEN_TOOL:
+                try:
+                    payload = json.loads(cls._message_text(message))
+                except (TypeError, ValueError):
+                    continue
+                result = payload.get("result") if isinstance(payload, Mapping) else None
+                if payload.get("ok") is True and isinstance(result, Mapping):
+                    opened = dict(result)
+            elif name == _EVIDENCE_READ_TOOL:
+                source_ref = args.get("source_ref")
+                if isinstance(source_ref, str) and source_ref:
+                    try:
+                        payload = json.loads(cls._message_text(message))
+                    except (TypeError, ValueError):
+                        continue
+                    if isinstance(payload, Mapping) and payload.get("ok") is True:
+                        read_refs.add(source_ref)
+            elif name == _EVIDENCE_SUBMIT_TOOL:
+                try:
+                    payload = json.loads(cls._message_text(message))
+                except (TypeError, ValueError):
+                    continue
+                submit_succeeded = (
+                    isinstance(payload, Mapping) and payload.get("ok") is True
+                )
+
+        ordered_refs: list[str] = []
+        if opened is not None:
+            for artifact in opened.get("artifacts", []):
+                if not isinstance(artifact, Mapping):
+                    continue
+                candidates = list(artifact.get("evidence_refs", []))
+                for claim in artifact.get("claims", []):
+                    if not isinstance(claim, Mapping):
+                        continue
+                    candidates.extend(claim.get("supporting_evidence", []))
+                    candidates.extend(claim.get("opposing_evidence", []))
+                    candidates.extend(claim.get("limiting_evidence", []))
+                for source_ref in candidates:
+                    if (
+                        isinstance(source_ref, str)
+                        and source_ref
+                        and source_ref not in ordered_refs
+                    ):
+                        ordered_refs.append(source_ref)
+        return opened, ordered_refs, read_refs, submit_attempts, submit_succeeded
+
+    @classmethod
+    def _deterministic_evidence_submit_tool(
+        cls,
+        messages: Sequence[BaseMessage],
+        tools: list[BaseTool | dict[str, Any]],
+        *,
+        enabled: bool,
+        review_mode: str | None,
+    ) -> str | None:
+        """Force the one scientific decision call after deterministic inspection."""
+
+        if not enabled:
+            return None
+        available = {name for tool in tools if (name := _tool_name(tool)) is not None}
+        (
+            opened,
+            ordered_refs,
+            read_refs,
+            submit_attempts,
+            submit_succeeded,
+        ) = cls._evidence_navigation_state(messages, review_mode)
+        if (
+            opened is not None
+            and all(source_ref in read_refs for source_ref in ordered_refs)
+            and not submit_succeeded
+            and submit_attempts < 2
+            and _EVIDENCE_SUBMIT_TOOL in available
+        ):
+            return _EVIDENCE_SUBMIT_TOOL
+        return None
 
     @classmethod
     def _deterministic_data_tool(
@@ -493,13 +800,6 @@ class QwenToolCompatibilityMiddleware(AgentMiddleware):
             tool_name = _PLANNER_DETERMINISTIC_ACTION_TO_TOOL.get(
                 str(next_action or "")
             )
-            # ``validate_draft`` / ``freeze_plan`` carry no scientific content:
-            # the Supervisor executes them in-process instead of asking the
-            # model to re-emit them, so they must not pin a forced tool_choice
-            # here. Returning None leaves the edge to the deterministic
-            # orchestration close-out.
-            if tool_name in _PLANNER_NO_DELIBERATION_TOOLS:
-                return None
             return tool_name if tool_name in available else None
         return None
 
@@ -1061,14 +1361,419 @@ class QwenToolCompatibilityMiddleware(AgentMiddleware):
             structured_response=response.structured_response,
         )
 
+    def _synthesize_planner_no_deliberation_response(
+        self,
+        request: ModelRequest,
+        prepared: ModelRequest,
+    ) -> ModelResponse | None:
+        """Short-circuit a forced planner transition with no scientific args.
+
+        Returns ``None`` unless the deterministic planner resolution pinned
+        validate, freeze, or shadow-candidate commit. Otherwise the graph's
+        tool node executes the exact transition in-process with runtime config.
+        """
+
+        if not self._active_model_is_qwen(request):
+            return None
+        system = self._message_text(prepared.system_message)
+        if "[RESEARCH_PRODUCER_V2]" not in system or "stage=planning" not in system:
+            return None
+        forced = getattr(prepared, "tool_choice", None)
+        if not isinstance(forced, Mapping):
+            return None
+        function = forced.get("function")
+        if not isinstance(function, Mapping):
+            return None
+        tool_name = function.get("name")
+        if tool_name not in _PLANNER_LOCAL_NO_DELIBERATION_TOOLS:
+            return None
+        if not any(_tool_name(tool) == tool_name for tool in list(prepared.tools)):
+            return None
+        _logger.info(
+            "[jw.middleware.qwen_compat] synthesizing local planner %s "
+            "tool_call (no remote call); deterministic no-deliberation edge",
+            tool_name,
+        )
+        tool_call = {
+            "name": tool_name,
+            "args": {"request_sha256": ""},
+            "id": f"local_{str(tool_name).removeprefix('research_planner_')}",
+            "type": "tool_call",
+        }
+        message = AIMessage(
+            content="",
+            tool_calls=[tool_call],
+            response_metadata={"finish_reason": "tool_calls"},
+        )
+        return ModelResponse(result=[message])
+
+    @classmethod
+    def _synthesize_data_transition_response(
+        cls,
+        prepared: ModelRequest,
+    ) -> ModelResponse | None:
+        """Emit a deterministic Data transition after a provider rejection.
+
+        Some Qwen business-space routes remain always-thinking even when the
+        OpenAI-compatible request explicitly sets ``enable_thinking=false``.
+        Those routes reject a required/object ``tool_choice`` before the model
+        can emit the already-resolved Data action.  The compatibility fallback
+        therefore reconstructs only the same bounded transition selected by
+        :meth:`_deterministic_data_tool`; it never invents dataset paths or
+        scientific content.
+        """
+
+        context_text = "\n".join(
+            [cls._message_text(prepared.system_message)]
+            + [cls._message_text(message) for message in prepared.messages]
+        )
+        if (
+            "[RESEARCH_PRODUCER_V2]" not in context_text
+            or "stage=data" not in context_text
+        ):
+            return None
+        forced = getattr(prepared, "tool_choice", None)
+        if not isinstance(forced, Mapping):
+            return None
+        function = forced.get("function")
+        if not isinstance(function, Mapping):
+            return None
+        name = function.get("name")
+        if name not in _DATA_DETERMINISTIC_TOOLS or not any(
+            _tool_name(tool) == name for tool in list(prepared.tools)
+        ):
+            return None
+
+        data_context = cls._preopened_data_context(
+            cls._message_text(prepared.system_message)
+        )
+        if data_context is None:
+            for message in reversed(prepared.messages):
+                if (
+                    not isinstance(message, ToolMessage)
+                    or message.name != "solar_data_open_context"
+                ):
+                    continue
+                try:
+                    candidate = json.loads(cls._message_text(message))
+                except (TypeError, ValueError):
+                    continue
+                if isinstance(candidate, Mapping):
+                    data_context = candidate
+                    break
+
+        args: dict[str, Any]
+        if name == "solar_data_open_context":
+            protocol = None
+            patterns = (
+                r"required_analysis_protocol\s*[=:]\s*[\"']?([A-Za-z0-9_.-]+)",
+                r"[\"']analysis_protocol[\"']\s*:\s*[\"']([A-Za-z0-9_.-]+)",
+                r"analysis_protocol\s*=\s*([A-Za-z0-9_.-]+)",
+            )
+            for pattern in patterns:
+                match = re.search(pattern, context_text)
+                if match:
+                    protocol = match.group(1)
+                    break
+            if not protocol:
+                return None
+            args = {"analysis_protocol": protocol}
+        else:
+            if not isinstance(data_context, Mapping):
+                return None
+            eligible = data_context.get("eligible_inputs")
+            if not isinstance(eligible, Sequence) or isinstance(eligible, (str, bytes)):
+                return None
+            paths = {
+                str(item.get("dataset_id")): str(item.get("path"))
+                for item in eligible
+                if isinstance(item, Mapping)
+                and isinstance(item.get("dataset_id"), str)
+                and isinstance(item.get("path"), str)
+                and item.get("path")
+            }
+            if name == "prepare_solar_precursor_cycle_table":
+                required = {
+                    "sunspot_path": paths.get("silso-monthly-total-v2"),
+                    "polar_field_path": paths.get("mwo-wso-polar-field-v2"),
+                }
+            else:
+                required = {
+                    "monthly_total_path": paths.get("silso-monthly-total-v2"),
+                    "smoothed_path": paths.get("silso-monthly-smoothed-v2"),
+                    "official_extrema_path": paths.get("silso-cycle-extrema-v2"),
+                    "cycles": "21-24",
+                }
+            if any(value is None for value in required.values()):
+                return None
+            args = required
+
+        _logger.info(
+            "[jw.middleware.qwen_compat] synthesizing local Data transition "
+            "tool_call after thinking/tool_choice provider rejection: tool=%s",
+            name,
+        )
+        return ModelResponse(
+            result=[
+                AIMessage(
+                    content="",
+                    tool_calls=[
+                        {
+                            "name": name,
+                            "args": args,
+                            "id": f"local_data_{name}",
+                            "type": "tool_call",
+                        }
+                    ],
+                    response_metadata={"finish_reason": "tool_calls"},
+                )
+            ]
+        )
+
+    @staticmethod
+    def _is_thinking_tool_choice_rejection(exc: Exception) -> bool:
+        rendered = str(exc).casefold()
+        return (
+            "tool_choice parameter does not support" in rendered
+            and "thinking mode" in rendered
+        )
+
+    @classmethod
+    def _synthesize_evidence_navigation_response(
+        cls,
+        prepared: ModelRequest,
+    ) -> ModelResponse | None:
+        """Execute Evidence context opening and declared-source reads as fixed edges."""
+
+        context = "\n".join(
+            [cls._message_text(prepared.system_message)]
+            + [cls._message_text(message) for message in prepared.messages]
+        )
+        if "[EVIDENCE_REVIEW_V2]" not in context:
+            return None
+        review_mode = cls._evidence_review_mode(context)
+        if review_mode is None:
+            return None
+        available = set(validate_qwen_tool_schema(list(prepared.tools)))
+        (
+            opened,
+            ordered_refs,
+            read_refs,
+            submit_attempts,
+            submit_succeeded,
+        ) = cls._evidence_navigation_state(list(prepared.messages), review_mode)
+        if submit_succeeded:
+            return ModelResponse(
+                result=[
+                    AIMessage(
+                        content="Evidence review round persisted.",
+                        response_metadata={"finish_reason": "stop"},
+                    )
+                ]
+            )
+        if submit_attempts >= 2:
+            return ModelResponse(
+                result=[
+                    AIMessage(
+                        content=(
+                            "Evidence review round did not persist after two attempts."
+                        ),
+                        response_metadata={"finish_reason": "stop"},
+                    )
+                ]
+            )
+        if opened is None and _EVIDENCE_OPEN_TOOL in available:
+            name = _EVIDENCE_OPEN_TOOL
+            args = {"review_mode": review_mode}
+            suffix = "open"
+        else:
+            unread = [ref for ref in ordered_refs if ref not in read_refs]
+            if not unread or _EVIDENCE_READ_TOOL not in available:
+                return None
+            name = _EVIDENCE_READ_TOOL
+            args = {"review_mode": review_mode, "source_ref": unread[0]}
+            suffix = hashlib.sha256(unread[0].encode("utf-8")).hexdigest()[:20]
+        message = AIMessage(
+            content="",
+            tool_calls=[
+                {
+                    "name": name,
+                    "args": args,
+                    "id": f"local_evidence_{suffix}",
+                    "type": "tool_call",
+                }
+            ],
+            response_metadata={"finish_reason": "tool_calls"},
+        )
+        return ModelResponse(result=[message])
+
+    @staticmethod
+    def _is_kimi_evidence_structured_submit(prepared: ModelRequest) -> bool:
+        response_format = getattr(prepared, "response_format", None)
+        if not isinstance(response_format, ProviderStrategy):
+            return False
+        model_name = str(
+            getattr(prepared.model, "model_name", None)
+            or getattr(prepared.model, "model", "")
+        ).casefold()
+        return (
+            model_name == "kimi-for-coding"
+            and response_format.schema_spec.name == _EVIDENCE_SUBMIT_TOOL
+        )
+
+    @staticmethod
+    def _normalize_kimi_evidence_submission(
+        submission: Mapping[str, Any],
+    ) -> dict[str, Any]:
+        normalized = dict(submission)
+        issues = [
+            issue
+            for issue in normalized.get("issues", [])
+            if isinstance(issue, Mapping)
+        ]
+        has_major_issue = any(
+            issue.get("severity") in {"critical", "major"} for issue in issues
+        )
+        if (
+            normalized.get("decision") in {"accept", "accept_with_limits"}
+            and has_major_issue
+        ):
+            normalized["decision"] = "revise"
+        if normalized.get("decision") == "revise" and not normalized.get("next_owner"):
+            owners = [issue.get("owner") for issue in issues if issue.get("owner")]
+            if owners:
+                normalized["next_owner"] = owners[0]
+
+        quality_claims: list[Any] = []
+        for raw_claim in normalized.get("scientific_quality_claims", []):
+            if not isinstance(raw_claim, Mapping):
+                quality_claims.append(raw_claim)
+                continue
+            claim = dict(raw_claim)
+            evidence_matrix = claim.get("evidence_matrix", [])
+            unresolved_scope = any(
+                isinstance(row, Mapping)
+                and (
+                    row.get("scope_match") in {"mismatch", "not_assessable"}
+                    or row.get("entailment") in {"not_entailed", "not_assessable"}
+                )
+                for row in evidence_matrix
+            )
+            if claim.get("quality_status") == "release_candidate" and unresolved_scope:
+                claim["quality_status"] = "evidence_constrained"
+                if claim.get("conclusion_cap") == "release_candidate":
+                    claim["conclusion_cap"] = "evidence_constrained"
+            quality_claims.append(claim)
+        normalized["scientific_quality_claims"] = quality_claims
+        return normalized
+
+    @classmethod
+    def _evidence_structured_result(
+        cls,
+        result: Mapping[str, Any],
+    ) -> ModelResponse:
+        parsing_error = result.get("parsing_error")
+        if isinstance(parsing_error, BaseException):
+            raise parsing_error
+        parsed = result.get("parsed")
+        if hasattr(parsed, "model_dump"):
+            submission = parsed.model_dump()
+        elif isinstance(parsed, Mapping):
+            submission = dict(parsed)
+        else:
+            raise TypeError("Kimi Evidence structured output returned no parsed value")
+        submission = cls._normalize_kimi_evidence_submission(submission)
+        raw = result.get("raw")
+        if not isinstance(raw, AIMessage):
+            raise TypeError("Kimi Evidence structured output returned no AI message")
+        message = raw.model_copy(
+            update={
+                "content": "",
+                "tool_calls": [
+                    {
+                        "name": _EVIDENCE_SUBMIT_TOOL,
+                        "args": dict(submission),
+                        "id": "local_evidence_submit",
+                        "type": "tool_call",
+                    }
+                ],
+                "response_metadata": {
+                    **raw.response_metadata,
+                    "finish_reason": "tool_calls",
+                },
+            }
+        )
+        return ModelResponse(result=[message], structured_response=None)
+
+    @staticmethod
+    def _kimi_evidence_output_model(model: Any) -> Any:
+        # ChatAnthropic otherwise sends max_tokens=4096, which is too small for
+        # one schema-bound assessment, quality matrix, and verdict transaction.
+        return model.model_copy(update={"max_tokens": 32768})
+
+    @classmethod
+    def _invoke_kimi_evidence_structured(
+        cls,
+        prepared: ModelRequest,
+    ) -> ModelResponse:
+        response_format = prepared.response_format
+        assert isinstance(response_format, ProviderStrategy)
+        review_model = cls._kimi_evidence_output_model(prepared.model)
+        structured = review_model.with_structured_output(
+            response_format.schema,
+            method="json_schema",
+            include_raw=True,
+        )
+        messages = list(prepared.messages)
+        if prepared.system_message is not None:
+            messages.insert(0, prepared.system_message)
+        result = structured.invoke(messages)
+        return cls._evidence_structured_result(result)
+
+    @classmethod
+    async def _ainvoke_kimi_evidence_structured(
+        cls,
+        prepared: ModelRequest,
+    ) -> ModelResponse:
+        response_format = prepared.response_format
+        assert isinstance(response_format, ProviderStrategy)
+        review_model = cls._kimi_evidence_output_model(prepared.model)
+        structured = review_model.with_structured_output(
+            response_format.schema,
+            method="json_schema",
+            include_raw=True,
+        )
+        messages = list(prepared.messages)
+        if prepared.system_message is not None:
+            messages.insert(0, prepared.system_message)
+        result = await structured.ainvoke(messages)
+        return cls._evidence_structured_result(result)
+
     def wrap_model_call(
         self,
         request: ModelRequest,
         handler: Callable[[ModelRequest], ModelResponse],
     ) -> ModelResponse:
         prepared = self._prepare_request(request)
-        response = handler(prepared)
-        if not self._active_model_is_qwen():
+        local_transition = self._synthesize_planner_no_deliberation_response(
+            request, prepared
+        )
+        if local_transition is not None:
+            return local_transition
+        local_evidence = self._synthesize_evidence_navigation_response(prepared)
+        if local_evidence is not None:
+            return local_evidence
+        if self._is_kimi_evidence_structured_submit(prepared):
+            return self._invoke_kimi_evidence_structured(prepared)
+        try:
+            response = handler(prepared)
+        except Exception as exc:
+            if self._is_thinking_tool_choice_rejection(exc):
+                local_data = self._synthesize_data_transition_response(prepared)
+                if local_data is not None:
+                    return local_data
+            raise
+        if not self._active_model_is_qwen(request):
             return response
         tools = list(prepared.tools)
         audit_messages = list(request.messages)
@@ -1102,8 +1807,37 @@ class QwenToolCompatibilityMiddleware(AgentMiddleware):
         handler: Callable[[ModelRequest], Awaitable[ModelResponse]],
     ) -> ModelResponse:
         prepared = self._prepare_request(request)
-        response = await handler(prepared)
-        if not self._active_model_is_qwen():
+        _logger.info(
+            "[jw.middleware.qwen_compat] model call: model=%s stage_planning=%s "
+            "producer_v2=%s active_qwen=%s",
+            str(
+                getattr(request.model, "model_name", None)
+                or getattr(request.model, "model", "")
+            ),
+            "stage=planning" in str(getattr(prepared.system_message, "content", "")),
+            "[RESEARCH_PRODUCER_V2]"
+            in str(getattr(prepared.system_message, "content", "")),
+            self._active_model_is_qwen(request),
+        )
+        local_transition = self._synthesize_planner_no_deliberation_response(
+            request, prepared
+        )
+        if local_transition is not None:
+            return local_transition
+        local_evidence = self._synthesize_evidence_navigation_response(prepared)
+        if local_evidence is not None:
+            return local_evidence
+        if self._is_kimi_evidence_structured_submit(prepared):
+            return await self._ainvoke_kimi_evidence_structured(prepared)
+        try:
+            response = await handler(prepared)
+        except Exception as exc:
+            if self._is_thinking_tool_choice_rejection(exc):
+                local_data = self._synthesize_data_transition_response(prepared)
+                if local_data is not None:
+                    return local_data
+            raise
+        if not self._active_model_is_qwen(request):
             return response
         tools = list(prepared.tools)
         audit_messages = list(request.messages)

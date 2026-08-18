@@ -183,6 +183,12 @@ class JWConfig:
     # tool selector). Empty = fall back to the main model/provider.
     auxiliary_provider: str = ""  # empty = use main provider
     auxiliary_model: str = ""  # empty = use main model
+    # Optional per-agent model overrides for async sub-agents, keyed by the
+    # sub-agent name (its ``graph_id``, e.g. "solar-planner"). Format mirrors
+    # ``model_fallbacks``: "solar-planner:qwen3.7-max,solar-data:qwen-plus".
+    # Agents not listed here fall back to the global ``model``/``provider``,
+    # so an empty value reproduces the single-model behaviour exactly.
+    agent_model_overrides: str = ""
 
     # Async Sub-agent Settings
     # When True (default), the jw CLI auto-starts a langgraph dev subprocess
@@ -792,6 +798,7 @@ _ENV_MAPPINGS = {
     "model_fallbacks": "JW_MODEL_FALLBACKS",
     "auxiliary_provider": "JW_AUXILIARY_PROVIDER",
     "auxiliary_model": "JW_AUXILIARY_MODEL",
+    "agent_model_overrides": "JW_AGENT_MODEL_OVERRIDES",
     "reasoning_effort": "JW_REASONING_EFFORT",
     "openrouter_anthropic_prompt_cache": ("JW_OPENROUTER_ANTHROPIC_PROMPT_CACHE"),
     "dangerous_mode": "JW_DANGEROUS_MODE",

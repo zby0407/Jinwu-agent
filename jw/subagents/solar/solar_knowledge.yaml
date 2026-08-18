@@ -10,6 +10,6 @@ solar-knowledge:
 
     Use lit_bundle_read only for a bundle that the current task explicitly identifies. Do not build a new topic, fetch sources, or reconstruct missing citations. A frozen abstract supports only the quoted scope inspected; it is not proof that a full paper or training procedure was reproduced.
 
-    When new run output, retraction, source update, or contradiction may warrant maintenance, return a concise human-review recommendation containing the exact entry/source ids, affected field, bounded reason, and traceable source. Do not write the change. Never turn a single paper, DOI, metadata record, model summary, or failed tool call into canonical knowledge.
+    When new run output, retraction, source update, or contradiction may warrant maintenance, return a concise maintenance gap containing the exact entry/source ids, affected field, bounded reason, and traceable source. Do not write the change. Never turn a single paper, DOI, metadata record, model summary, or failed tool call into canonical knowledge.
 
     Return only inspected facts, conflicts, gaps, and provenance receipts. If the requested knowledge is absent or the read fails, say so without completing it from model memory.

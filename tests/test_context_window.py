@@ -68,6 +68,14 @@ def test_patch_table_resolves_known_model_name():
     assert get_context_window(model) == 1_000_000
 
 
+def test_kimi_k3_coding_alias_has_one_million_context():
+    alias = SimpleNamespace(model_name="kimi-k3", profile=None)
+    served_model = SimpleNamespace(model_name="kimi-for-coding", profile=None)
+
+    assert get_context_window(alias) == 1_000_000
+    assert get_context_window(served_model) == 1_000_000
+
+
 def test_patch_table_strips_provider_prefix():
     full = SimpleNamespace(model_name="openai/gpt-5.5", profile=None)
     short = SimpleNamespace(model_name="gpt-5.5", profile=None)

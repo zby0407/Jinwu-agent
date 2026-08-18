@@ -1,10 +1,9 @@
 """Business logic for the knowledge base (plan §5.2).
 
 Implements the hard rules R1-R5: candidates first (R2), automatic
-provenance logging on read (R4), the promotion gate with two defensible
-auto-approval rules (cross-run reproduction or explicit expert review),
-and explicit conflict surfacing (R5). A DOI proves identity, not scientific
-support, so literature entries without review remain candidates.
+provenance logging on read (R4), cross-run reproduction as the promotion
+gate, and explicit conflict surfacing (R5). A DOI proves identity, not
+scientific support, so single-source literature entries remain candidates.
 """
 
 from __future__ import annotations
@@ -16,7 +15,6 @@ from pathlib import Path
 from typing import Any
 
 from .contracts import (
-    REVIEW_DECISIONS,
     ContractError,
     check_status_transition,
     normalize_content,
@@ -25,8 +23,6 @@ from .contracts import (
 )
 from .export import export_entry, import_entry_file
 from .store import KnowledgeStore, utc_now
-
-_AUTO_RULES = ("cross_run_reproduction", "expert_review")
 
 _SLUG_STRIP = re.compile(r"[^a-z0-9_-]+")
 
@@ -93,16 +89,12 @@ def read(
             field_path="entry_id",
             suggestion="先用 kb_search 检索有效条目 id。",
         )
-    if entry.get("provenance", {}).get("grounding_blocked") and purpose not in {
-        "audit",
-        "review",
-        "revalidate",
-    }:
+    if entry.get("provenance", {}).get("grounding_blocked") and purpose != "audit":
         raise ContractError(
-            f"knowledge entry requires literature revalidation: {entry_id!r}",
+            f"knowledge entry requires fresh task-bound ingestion: {entry_id!r}",
             error_code="knowledge_entry_grounding_blocked",
             field_path="entry_id",
-            suggestion="该旧蒸馏尚未通过问题/focus/来源相关性复核；仅可用于 audit/review。",
+            suggestion="该条目不可用于科研 grounding；请按当前研究问题重新摄取有效来源。",
         )
     store.log_provenance(run_id=run_id, agent=agent, entry_id=entry_id, purpose=purpose)
     return {"status": "ok", "entry": entry}
@@ -163,7 +155,7 @@ def propose(
         result["conflicts"] = conflicts
         result["warning"] = (
             "candidate conflicts with existing canonical entries; "
-            "queued for review (R5), not merged"
+            "promotion remains blocked until new evidence resolves the conflict"
         )
     return result
 
@@ -171,8 +163,7 @@ def propose(
 def _detect_conflicts(
     store: KnowledgeStore, entry: dict[str, Any]
 ) -> list[dict[str, Any]]:
-    """Simplified conflict detection: a counterexample that names a canonical
-    entry in related_ids is surfaced as a pending conflict, never merged."""
+    """Surface a counterexample against a canonical entry without merging it."""
 
     if entry["type"] != "counterexample":
         return []
@@ -181,29 +172,19 @@ def _detect_conflicts(
         target = store.get_entry(related_id)
         if target is None or target.get("status") != "canonical":
             continue
-        queue_id = store.add_review_item(
-            kind="conflict",
-            entry_id=entry["id"],
-            payload={
-                "candidate_id": entry["id"],
-                "candidate_title": entry["title"],
-                "canonical_id": target["id"],
-                "canonical_title": target["title"],
-                "reason": (
-                    f"counterexample {entry['id']} relates to canonical "
-                    f"{target['id']}; human adjudication required"
-                ),
-            },
-            status="pending",
-        )
         conflicts.append(
-            {"queue_id": queue_id, "canonical_id": target["id"], "status": "pending"}
+            {
+                "candidate_id": entry["id"],
+                "canonical_id": target["id"],
+                "status": "unresolved",
+                "reason": "new evidence is required before either claim can be promoted",
+            }
         )
     return conflicts
 
 
 # ----------------------------------------------------------------------
-# promote (审核门, §4.9.6)
+# promote (cross-run evidence gate, §4.9.6)
 # ----------------------------------------------------------------------
 def _supporting_run_ids(store: KnowledgeStore, entry: dict[str, Any]) -> list[str]:
     run_ids = set(store.distinct_run_ids(entry["id"]))
@@ -217,13 +198,11 @@ def _supporting_run_ids(store: KnowledgeStore, entry: dict[str, Any]) -> list[st
 
 
 def _auto_rule(
-    store: KnowledgeStore, entry: dict[str, Any], reviewer: str
+    store: KnowledgeStore, entry: dict[str, Any]
 ) -> tuple[str | None, list[str]]:
     """First satisfied §4.9.6 auto rule, plus the supporting run_id list."""
 
     run_ids = _supporting_run_ids(store, entry)
-    if reviewer.strip():
-        return "expert_review", run_ids
     if len(run_ids) >= 2:
         return "cross_run_reproduction", run_ids
     return None, run_ids
@@ -234,14 +213,12 @@ def promote(
     entry_id: str,
     *,
     reason: str,
-    reviewer: str = "",
 ) -> dict[str, Any]:
     """Run the promotion gate for a candidate.
 
-    If any §4.9.6 auto rule holds, the entry becomes canonical immediately
-    and the queue records ``auto_approved`` (with ``human_reviewed`` marked
-    in provenance). Otherwise a pending review item is queued and the entry
-    stays candidate until ``review_decide``.
+    Cross-run reproduction promotes the entry to canonical. Otherwise the
+    entry remains a candidate and the response reports that promotion evidence
+    is not ready; no approval queue is created.
     """
 
     entry = store.get_entry(entry_id)
@@ -264,21 +241,14 @@ def promote(
             "promotion reason is required",
             error_code="promote_reason_missing",
             field_path="reason",
-            suggestion="说明晋升理由（复现证据 / 文献支撑 / 专家判断依据）。",
+            suggestion="说明晋升理由（跨运行复现证据及其可追溯来源）。",
         )
 
-    rule, run_ids = _auto_rule(store, entry, reviewer)
+    rule, run_ids = _auto_rule(store, entry)
     if rule is None:
-        queue_id = store.add_review_item(
-            kind="promote",
-            entry_id=entry_id,
-            payload={"reason": reason, "supporting_run_ids": run_ids},
-            status="pending",
-        )
         return {
             "status": "ok",
-            "decision": "pending_review",
-            "queue_id": queue_id,
+            "decision": "promotion_not_ready",
             "entry_id": entry_id,
             "entry_status": "candidate",
             "supporting_run_ids": run_ids,
@@ -294,31 +264,16 @@ def promote(
         "promote_reason": reason,
         "auto_rule": rule,
         "supporting_run_ids": run_ids,
-        "reviewer": reviewer,
-        "human_reviewed": bool(reviewer.strip()),
         "promoted_at": now,
     }
     store.update_entry(
-        entry, changed_by=reviewer or entry.get("created_by", ""), reason="promote"
-    )
-    queue_id = store.add_review_item(
-        kind="promote",
-        entry_id=entry_id,
-        payload={
-            "reason": reason,
-            "auto_rule": rule,
-            "supporting_run_ids": run_ids,
-            "human_reviewed": bool(reviewer.strip()),
-        },
-        status="auto_approved",
-        reviewer=reviewer,
+        entry, changed_by="cross-run-evidence-gate", reason="promote"
     )
     entry["export_path"] = _export(store, entry)
     return {
         "status": "ok",
-        "decision": "auto_approved",
+        "decision": "promoted",
         "auto_rule": rule,
-        "queue_id": queue_id,
         "entry_id": entry_id,
         "entry_status": "canonical",
         "supporting_run_ids": run_ids,
@@ -395,12 +350,27 @@ def deprecate(
 
 
 # ----------------------------------------------------------------------
-# conflicts / review decisions (R5, HITL landing point)
+# unresolved evidence conflicts (R5)
 # ----------------------------------------------------------------------
 def conflicts(store: KnowledgeStore, entry_id: str = "") -> dict[str, Any]:
-    """List pending conflict-review items, optionally for one entry."""
+    """List counterexamples linked to canonical entries."""
 
-    items = store.pending_review_items(kind="conflict", entry_id=entry_id)
+    items: list[dict[str, Any]] = []
+    for candidate in store.search(entry_type="counterexample", status="candidate", limit=500):
+        for related_id in candidate.get("related_ids", []):
+            target = store.get_entry(str(related_id))
+            if target is None or target.get("status") != "canonical":
+                continue
+            if entry_id and entry_id not in {candidate["id"], target["id"]}:
+                continue
+            items.append(
+                {
+                    "candidate_id": candidate["id"],
+                    "canonical_id": target["id"],
+                    "status": "unresolved",
+                    "reason": "new evidence is required before either claim can be promoted",
+                }
+            )
     return {"status": "ok", "count": len(items), "conflicts": items}
 
 
@@ -412,7 +382,7 @@ def propose_literature_patch(
     valid_range: str = "",
     rationale: str = "",
 ) -> dict[str, Any]:
-    """Create a reviewable Wiki patch from a quote-grounded literature impact."""
+    """Create a non-applying Wiki patch proposal from a grounded impact."""
 
     impact = store.get_lit_entry_impact(int(impact_id))
     if impact is None:
@@ -422,7 +392,7 @@ def propose_literature_patch(
             field_path="impact_id",
             suggestion="impact_id 使用 lit_impact_record 返回的 id。",
         )
-    if impact["status"] in {"rejected", "needs_revalidation"}:
+    if impact["status"] in {"rejected", "source_retracted"}:
         raise ContractError(
             f"literature impact {impact_id} is {impact['status']}",
             error_code="lit_impact_not_patchable",
@@ -505,234 +475,13 @@ def propose_literature_patch(
         patch_sha256=patch_sha256,
     )
     return {
-        "status": "pending_review",
+        "status": "proposal_only",
         "patch": candidate,
         "wiki_changed": False,
-        "notice": "候选补丁不会自动修改 Wiki；需由 kb_review_decide 审核。",
+        "notice": "候选补丁只作为证据化提案保存，不会进入运行时审批或自动修改 Wiki。",
     }
 
 
-def review_queue(
-    store: KnowledgeStore, *, kind: str = "", entry_id: str = ""
-) -> dict[str, Any]:
-    """List pending promotion, conflict, deprecation, or revalidation items."""
-
-    allowed_kinds = {
-        "promote",
-        "conflict",
-        "deprecate",
-        "revalidate",
-        "wiki_patch",
-        "literature_impact",
-        "literature_retraction",
-    }
-    if kind and kind not in allowed_kinds:
-        raise ContractError(
-            f"unknown review kind: {kind!r}",
-            error_code="unknown_review_kind",
-            field_path="kind",
-            suggestion=f"kind 留空或使用 {sorted(allowed_kinds)}。",
-        )
-    items = store.pending_review_items(kind=kind, entry_id=entry_id)
-    return {"status": "ok", "count": len(items), "items": items}
-
-
-def review_decide(
-    store: KnowledgeStore,
-    queue_id: int,
-    *,
-    decision: str,
-    note: str = "",
-    reviewer: str = "human",
-) -> dict[str, Any]:
-    """Apply a human decision to a pending review-queue item.
-
-    Approved promote items flip the entry to canonical (transition checked
-    against the current status); rejected items leave the entry untouched.
-    Conflict items only record the resolution. Revalidation approval unblocks
-    a legacy entry for grounding; rejection deprecates it with a versioned
-    audit trail.
-    """
-
-    if decision not in REVIEW_DECISIONS:
-        raise ContractError(
-            f"unknown review decision: {decision!r}",
-            error_code="unknown_review_decision",
-            field_path="decision",
-            suggestion=f"decision 必须是 {sorted(REVIEW_DECISIONS)} 之一。",
-        )
-    item = store.get_review_item(int(queue_id))
-    if item is None:
-        raise ContractError(
-            f"review queue item not found: {queue_id}",
-            error_code="queue_item_not_found",
-            field_path="queue_id",
-            suggestion="queue_id 取自 kb_conflicts / kb_promote 返回结果。",
-        )
-    if item["status"] != "pending":
-        raise ContractError(
-            f"review queue item {queue_id} is already {item['status']}",
-            error_code="queue_item_already_decided",
-            field_path="queue_id",
-            suggestion="该审核项已有决定；如需变更请人工处理。",
-        )
-    store.decide_review_item(
-        int(queue_id), status=decision, reviewer=reviewer, note=note
-    )
-
-    entry_status = ""
-    patch_status = ""
-    if item["kind"] == "promote" and decision == "approved":
-        entry = store.get_entry(item["entry_id"])
-        if entry is not None and entry["status"] == "candidate":
-            check_status_transition(entry["status"], "canonical")
-            now = utc_now()
-            entry["status"] = "canonical"
-            entry["version"] = int(entry["version"]) + 1
-            entry["updated_at"] = now
-            entry["provenance"] = {
-                **entry.get("provenance", {}),
-                "promote_reason": item["payload"].get("reason", ""),
-                "reviewer": reviewer,
-                "review_note": note,
-                "human_reviewed": True,
-                "promoted_at": now,
-            }
-            store.update_entry(entry, changed_by=reviewer, reason="review_approved")
-            entry["export_path"] = _export(store, entry)
-        entry_status = entry["status"] if entry is not None else "missing"
-    elif item["kind"] == "wiki_patch":
-        patch_id = str(item["payload"].get("patch_id") or "")
-        candidate_patch = store.get_wiki_candidate_patch(patch_id)
-        entry = store.get_entry(item["entry_id"])
-        if candidate_patch is None:
-            patch_status = "missing"
-        elif decision == "rejected":
-            store.update_wiki_candidate_patch_status(patch_id, status="rejected")
-            patch_status = "rejected"
-        elif entry is None:
-            store.update_wiki_candidate_patch_status(patch_id, status="stale")
-            patch_status = "stale"
-        elif int(entry["version"]) != int(candidate_patch["base_version"]):
-            store.update_wiki_candidate_patch_status(patch_id, status="stale")
-            patch_status = "stale"
-        else:
-            patch = dict(candidate_patch.get("patch") or {})
-            merged_content = {
-                **entry.get("content", {}),
-                **dict(patch.get("content") or {}),
-            }
-            entry["content"] = normalize_content(entry["type"], merged_content)
-            if patch.get("valid_range") is not None:
-                entry["valid_range"] = str(patch["valid_range"])
-            now = utc_now()
-            literature_impacts = list(
-                entry.get("provenance", {}).get("literature_impacts") or []
-            )
-            literature_impacts.append(
-                {
-                    "impact_id": int(candidate_patch["impact_id"]),
-                    "patch_id": patch_id,
-                    "source_id": candidate_patch["source_id"],
-                    "family_id": candidate_patch["family_id"],
-                    "relation": candidate_patch["relation"],
-                    "reviewer": reviewer,
-                    "review_note": note,
-                    "applied_at": now,
-                }
-            )
-            entry["provenance"] = {
-                **entry.get("provenance", {}),
-                "literature_impacts": literature_impacts,
-            }
-            entry["version"] = int(entry["version"]) + 1
-            entry["updated_at"] = now
-            store.update_entry(
-                entry, changed_by=reviewer, reason="literature_patch_approved"
-            )
-            store.update_wiki_candidate_patch_status(patch_id, status="applied")
-            store.update_lit_entry_impact_status(
-                int(candidate_patch["impact_id"]), status="verified"
-            )
-            entry["export_path"] = _export(store, entry)
-            patch_status = "applied"
-        entry_status = entry["status"] if entry is not None else "missing"
-    elif item["kind"] == "literature_retraction":
-        entry = store.get_entry(item["entry_id"])
-        if decision == "approved":
-            impact_id = int(item["payload"].get("impact_id") or 0)
-            if impact_id:
-                store.update_lit_entry_impact_status(impact_id, status="rejected")
-            if entry is not None:
-                now = utc_now()
-                retracted_sources = list(
-                    entry.get("provenance", {}).get("retracted_literature_sources")
-                    or []
-                )
-                source_id = str(item["payload"].get("source_id") or "")
-                if source_id and source_id not in retracted_sources:
-                    retracted_sources.append(source_id)
-                entry["provenance"] = {
-                    **entry.get("provenance", {}),
-                    "retracted_literature_sources": retracted_sources,
-                    "literature_retraction_reviewed_at": now,
-                    "literature_retraction_reviewed_by": reviewer,
-                }
-                entry["version"] = int(entry["version"]) + 1
-                entry["updated_at"] = now
-                store.update_entry(
-                    entry,
-                    changed_by=reviewer,
-                    reason="literature_retraction_acknowledged",
-                )
-                entry["export_path"] = _export(store, entry)
-        entry_status = entry["status"] if entry is not None else "missing"
-    elif item["kind"] == "revalidate":
-        entry = store.get_entry(item["entry_id"])
-        if entry is not None:
-            now = utc_now()
-            provenance = dict(entry.get("provenance") or {})
-            if decision == "approved":
-                provenance["grounding_blocked"] = False
-                provenance["revalidated_at"] = now
-                provenance["revalidated_by"] = reviewer
-                provenance["human_reviewed"] = True
-                provenance["review_note"] = note
-            elif entry["status"] in {"candidate", "canonical"}:
-                check_status_transition(entry["status"], "deprecated")
-                entry["status"] = "deprecated"
-                provenance["deprecated_at"] = now
-                provenance["deprecate_reason"] = (
-                    note or "legacy literature revalidation rejected"
-                )
-                provenance["deprecated_by"] = reviewer
-            entry["provenance"] = provenance
-            entry["version"] = int(entry["version"]) + 1
-            entry["updated_at"] = now
-            store.update_entry(
-                entry, changed_by=reviewer, reason=f"revalidate_{decision}"
-            )
-            entry["export_path"] = _export(store, entry)
-        entry_status = entry["status"] if entry is not None else "missing"
-    else:
-        entry = store.get_entry(item["entry_id"])
-        entry_status = entry["status"] if entry is not None else "missing"
-
-    result = {
-        "status": "ok",
-        "queue_id": int(queue_id),
-        "kind": item["kind"],
-        "decision": decision,
-        "reviewer": reviewer,
-        "entry_id": item["entry_id"],
-        "entry_status": entry_status,
-    }
-    if patch_status:
-        result["patch_status"] = patch_status
-    return result
-
-
-# ----------------------------------------------------------------------
 # grounding gate (R3, warning mode; plan §5.4 #2/#3)
 # ----------------------------------------------------------------------
 def grounding_warnings(

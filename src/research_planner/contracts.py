@@ -337,6 +337,27 @@ def _assert_acyclic(graph: dict[str, set[str]], label: str) -> None:
         visit(node_id)
 
 
+def format_illegal_transition_message(step_id: str, outcome: str, target: str) -> str:
+    """One actionable message for a non-completed transition into a completion-required target.
+
+    Shared by the hard contract check and the preflight aggregator so the planner
+    sees identical guidance either way. It names the source step, the outcome, the
+    target, and the concrete repair directions so the model fixes it in one pass.
+    """
+
+    return (
+        f"route step {step_id} outcome {outcome} cannot transition to {target}; "
+        f"the target requires {step_id} to complete. Fix one way: "
+        f"point outcome '{outcome}' of {step_id} at a terminal_status instead "
+        f"(only 'completed' may target {target}) and add a stop_rules entry for "
+        f"that terminal status; or point '{outcome}' back at {step_id} or an "
+        f"earlier step as a rework/self-correction cycle (needs "
+        f"self_correction_enabled and visit_limit >= 2); or remove {step_id} "
+        f"from {target}'s prerequisite_step_ids and consumes_artifact_ids if "
+        f"{target} truly tolerates an incomplete {step_id}."
+    )
+
+
 def _requires_completed_step(
     graph: dict[str, set[str]],
     join_policies: dict[str, str],
@@ -761,6 +782,12 @@ def _validate_plan_content(content_value: object, request: dict[str, Any]) -> di
         source_kind = _enum(artifact["source_kind"], {"request_input", "external_input", "planned_output"}, f"{label}.source_kind")
         producer = artifact["producer_step_id"]
         if source_kind == "planned_output":
+            if producer is None or not isinstance(producer, str) or not producer.strip():
+                raise ContractError(
+                    f"{label} is planned_output but has no producer step: set "
+                    "producer_step_id to the id of the research_route step that produces it, "
+                    "or change source_kind to request_input/external_input if it is an input"
+                )
             producer_ref = _safe_ref(producer, f"{label}.producer_step_id")
         else:
             if producer is not None:
@@ -994,8 +1021,7 @@ def _validate_plan_content(content_value: object, request: dict[str, Any]) -> di
                 static_dependencies, join_policies, target, step_id
             ):
                 raise ContractError(
-                    f"route step {step_id} outcome {outcome} cannot transition to {target}; "
-                    "the target requires this step to complete"
+                    format_illegal_transition_message(step_id, outcome, target)
                 )
 
     cyclic = _cyclic_nodes(control_graph)

@@ -948,23 +948,54 @@ def _patch_qwen_reasoning_passback(model: Any) -> None:
 _model_passthrough_patched = False
 
 
-def _read_cfg_configurable() -> dict[str, str]:
+def _resolve_agent_model(
+    cfg: Any, agent_name: str | None
+) -> tuple[str | None, str | None]:
+    """Resolve the ``(model, provider)`` for one async sub-agent.
+
+    Reads ``cfg.agent_model_overrides`` — a comma-separated
+    ``"name:model[:provider]"`` map keyed by sub-agent name (its
+    ``graph_id``/``assistant_id``). An entry with an explicit provider uses
+    it; otherwise the global ``cfg.provider`` applies. Agents not listed fall
+    back to the global ``cfg.model``/``cfg.provider``, so an empty or
+    unparsable override string reproduces single-model behaviour exactly.
+    """
+    model = getattr(cfg, "model", None)
+    provider = getattr(cfg, "provider", None)
+    if not agent_name:
+        return model, provider
+    raw = getattr(cfg, "agent_model_overrides", "") or ""
+    for token in raw.split(","):
+        token = token.strip()
+        if not token or ":" not in token:
+            continue
+        name, _, rest = token.partition(":")
+        if name.strip() != agent_name:
+            continue
+        override_model, _, override_provider = rest.partition(":")
+        if override_model.strip():
+            return override_model.strip(), override_provider.strip() or provider
+        return model, provider
+    return model, provider
+
+
+def _read_cfg_configurable(agent_name: str | None = None) -> dict[str, str]:
     """Read live model and task-workspace context for async child runs.
 
     Returns a dict suitable for inserting under
-    ``RunnableConfig.configurable``. Empty dict on any failure (so the
-    patch degrades to a no-op rather than breaking async tool calls).
-    """
-    try:
-        from jw.agent import _ensure_config
+    ``RunnableConfig.configurable``. Configuration errors are surfaced;
+    absence of a runnable parent context only omits workspace inheritance.
 
-        cfg = _ensure_config()
-    except Exception:
-        return {}
+    ``agent_name`` is the target sub-agent's name (its ``graph_id`` /
+    ``assistant_id``); when ``cfg.agent_model_overrides`` names it, the
+    per-agent model is injected instead of the global default.
+    """
+    from jw.agent import _ensure_config
+
+    cfg = _ensure_config()
 
     out: dict[str, str] = {}
-    model = getattr(cfg, "model", None)
-    provider = getattr(cfg, "provider", None)
+    model, provider = _resolve_agent_model(cfg, agent_name)
     if isinstance(model, str) and model:
         out["model"] = model
     if isinstance(provider, str) and provider:
@@ -982,7 +1013,7 @@ def _read_cfg_configurable() -> dict[str, str]:
         if parent_scope:
             out["workspace_thread_id"] = parent_scope
             out["project_id"] = project_id_from_config(runtime_config)
-    except Exception:
+    except RuntimeError:
         pass
     return out
 
@@ -993,8 +1024,15 @@ def _merge_runs_config_kwargs(kwargs: dict) -> dict:
     Preserves any caller-supplied ``config.configurable`` keys. JW's
     keys take precedence on conflict (callers shouldn't be passing model
     overrides — the CLI is the source of truth).
+
+    ``runs.create`` always carries ``assistant_id=<sub-agent graph_id>``, so
+    the per-agent model from ``cfg.agent_model_overrides`` is resolved for
+    that specific sub-agent; unlisted agents keep the global default.
     """
-    overrides = _read_cfg_configurable()
+    agent_name = kwargs.get("assistant_id")
+    overrides = _read_cfg_configurable(
+        agent_name if isinstance(agent_name, str) else None
+    )
     if not overrides:
         return kwargs
     existing = kwargs.get("config")

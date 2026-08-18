@@ -1,4 +1,4 @@
-"""工具层上下文注入与人审痕迹测试（kb_read/kb_propose/kb_promote 的 RunnableConfig 回填）。
+"""工具层上下文注入与晋升证据测试（kb_read/kb_propose/kb_promote 的 RunnableConfig 回填）。
 
 db 用临时目录隔离（JW_DATA_DIR / JW_KB_EXPORT_DIR），不碰真实
 ~/.jw 与临时 knowledge_base/ 导出树；不访问网络。
@@ -170,71 +170,16 @@ class ToolContextTests(unittest.TestCase):
         self.assertEqual(result["status"], "ok", result)
         self.assertEqual(result["research_request_sha256"], binding["binding_id"])
 
-    def test_review_queue_exposes_revalidation_items(self) -> None:
+    def test_kb_promote_requires_cross_run_reproduction(self) -> None:
         entry_id = self._propose()
-        kb_tools._get_store().add_review_item(
-            kind="revalidate",
-            entry_id=entry_id,
-            payload={"reason": "legacy relevance check required"},
-        )
         result = json.loads(
-            kb_tools.kb_review_queue.invoke(
-                {"kind": "revalidate", "entry_id": entry_id}
+            kb_tools.kb_promote.invoke(
+                {"entry_id": entry_id, "reason": "证据尚不足"}
             )
         )
-        self.assertEqual(result["count"], 1)
-        self.assertEqual(result["items"][0]["entry_id"], entry_id)
-
-    # -- kb_promote：HITL 门激活时人审痕迹写入 provenance -------------------
-
-    def test_kb_promote_records_human_review_under_hitl_gate(self) -> None:
-        entry_id = self._propose()
-        original = kb_tools._human_gate_active
-        kb_tools._human_gate_active = lambda: True
-        try:
-            result = json.loads(
-                kb_tools.kb_promote.invoke(
-                    {"entry_id": entry_id, "reason": "人工复核通过"}
-                )
-            )
-        finally:
-            kb_tools._human_gate_active = original
-        self.assertEqual(result.get("decision"), "auto_approved", result)
-        entry = kb_tools._get_store().get_entry(entry_id)
-        self.assertEqual(entry["status"], "canonical")
-        self.assertEqual(entry["provenance"].get("reviewer"), "human(HITL)")
-        self.assertTrue(entry["provenance"].get("human_reviewed"))
-        self.assertEqual(entry["provenance"].get("auto_rule"), "expert_review")
-
-    def test_kb_promote_stays_pending_without_gate_or_rule(self) -> None:
-        entry_id = self._propose()
-        original = kb_tools._human_gate_active
-        kb_tools._human_gate_active = lambda: False
-        try:
-            result = json.loads(
-                kb_tools.kb_promote.invoke(
-                    {"entry_id": entry_id, "reason": "证据尚不足"}
-                )
-            )
-        finally:
-            kb_tools._human_gate_active = original
-        self.assertEqual(result.get("decision"), "pending_review", result)
+        self.assertEqual(result.get("decision"), "promotion_not_ready", result)
         entry = kb_tools._get_store().get_entry(entry_id)
         self.assertEqual(entry["status"], "candidate")
-
-    def test_kb_promote_explicit_reviewer_not_overwritten(self) -> None:
-        entry_id = self._propose()
-        original = kb_tools._human_gate_active
-        kb_tools._human_gate_active = lambda: True
-        try:
-            kb_tools.kb_promote.invoke(
-                {"entry_id": entry_id, "reason": "专家审核", "reviewer": "Dr. Sun"}
-            )
-        finally:
-            kb_tools._human_gate_active = original
-        entry = kb_tools._get_store().get_entry(entry_id)
-        self.assertEqual(entry["provenance"].get("reviewer"), "Dr. Sun")
-
 
 if __name__ == "__main__":
     unittest.main()

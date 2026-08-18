@@ -33,12 +33,13 @@ dependencies = [
     "python-dotenv>=1.0",
     "langgraph-cli[inmem]>=0.4",
     "langgraph-checkpoint-sqlite>=3.0",
-    "httpx>=0.28",
+    "httpx[socks]>=0.28",
     "jsonschema>=4.10",
     "psutil>=6.0",
     "filelock>=3.16",
     "lazy-loader>=0.5",
     "markdownify>=1.2",
+    "pypdf>=5.0",
     "nest-asyncio>=1.6",
     "tzlocal>=5.0",
     "langchain-mcp-adapters>=0.2",
@@ -122,7 +123,7 @@ build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
 where = [".", "src"]
-include = ["jw*", "research_review*"]
+include = ["jw*", "research_review*", "research_quality*"]
 
 [tool.setuptools.package-data]
 jw = [

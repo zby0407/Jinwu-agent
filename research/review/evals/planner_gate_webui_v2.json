@@ -1,0 +1,21 @@
+{
+  "schema_version": "research-review-visible-suite-v2",
+  "suite_id": "planner-webui-gate-v2",
+  "visibility": "checked_in_visible",
+  "cases": [
+    {
+      "id": "PLANNER-GATE",
+      "category": "planner_reliability",
+      "prompt": "请针对太阳活动周前兆预测做一遍完整研究。基于现有 SILSO 黑子数与 MWO/WSO 极区磁场数据，比较多种前兆指标（极区场强、黑子数、地磁 aa 指数），设计留一活动周交叉验证的预测方案，明确数据来源、评估规则、报告结构与停止条件，提出可检验假设并完成实验，最后整理成完整报告。",
+      "input_files": [],
+      "review_mode": "two_pass",
+      "reviewer_model": {
+        "provider": "custom-openai",
+        "model": "qwen3.8-max"
+      },
+      "expected_outcome": "planning_frozen",
+      "repetitions": 3,
+      "requires_authoritative_solar_data": true
+    }
+  ]
+}

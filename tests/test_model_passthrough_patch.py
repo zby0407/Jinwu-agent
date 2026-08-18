@@ -507,3 +507,198 @@ class TestPreserveExistingConfig:
         assert merged["config"] == {
             "configurable": {"model": "gpt-5", "model_provider": "openai"}
         }
+
+
+# =============================================================================
+# 8. Per-agent model overrides resolve via assistant_id
+# =============================================================================
+
+
+def _stub_cfg_with_overrides(
+    model: str = "qwen3.7-plus",
+    provider: str = "dashscope",
+    agent_model_overrides: str = "",
+):
+    return SimpleNamespace(
+        model=model,
+        provider=provider,
+        agent_model_overrides=agent_model_overrides,
+    )
+
+
+class TestResolveAgentModel:
+    """``_resolve_agent_model`` maps sub-agent name → (model, provider)."""
+
+    def test_empty_override_falls_back_to_global(self):
+        cfg = _stub_cfg_with_overrides()
+        assert patches_mod._resolve_agent_model(cfg, "solar-planner") == (
+            "qwen3.7-plus",
+            "dashscope",
+        )
+
+    def test_hit_inherits_global_provider_when_unspecified(self):
+        cfg = _stub_cfg_with_overrides(
+            agent_model_overrides="solar-planner:qwen3.8-max"
+        )
+        assert patches_mod._resolve_agent_model(cfg, "solar-planner") == (
+            "qwen3.8-max",
+            "dashscope",
+        )
+
+    def test_hit_uses_explicit_provider(self):
+        cfg = _stub_cfg_with_overrides(
+            agent_model_overrides="solar-planner:qwen3.8-max:dashscope-code"
+        )
+        assert patches_mod._resolve_agent_model(cfg, "solar-planner") == (
+            "qwen3.8-max",
+            "dashscope-code",
+        )
+
+    def test_unlisted_agent_falls_back_to_global(self):
+        cfg = _stub_cfg_with_overrides(
+            agent_model_overrides="solar-planner:qwen3.8-max"
+        )
+        assert patches_mod._resolve_agent_model(cfg, "solar-data") == (
+            "qwen3.7-plus",
+            "dashscope",
+        )
+
+    def test_multiple_entries(self):
+        cfg = _stub_cfg_with_overrides(
+            agent_model_overrides="solar-planner:qwen3.8-max, solar-data:qwen-plus"
+        )
+        assert patches_mod._resolve_agent_model(cfg, "solar-data") == (
+            "qwen-plus",
+            "dashscope",
+        )
+
+    def test_no_agent_name_returns_global(self):
+        cfg = _stub_cfg_with_overrides(
+            agent_model_overrides="solar-planner:qwen3.8-max"
+        )
+        assert patches_mod._resolve_agent_model(cfg, None) == (
+            "qwen3.7-plus",
+            "dashscope",
+        )
+
+    def test_malformed_tokens_ignored(self):
+        cfg = _stub_cfg_with_overrides(
+            agent_model_overrides="garbage,solar-planner:qwen3.8-max"
+        )
+        assert patches_mod._resolve_agent_model(cfg, "solar-planner") == (
+            "qwen3.8-max",
+            "dashscope",
+        )
+
+
+class TestPerAgentInjection:
+    """``_merge_runs_config_kwargs`` injects the per-agent model via assistant_id."""
+
+    def test_listed_agent_gets_override(self):
+        with patch(
+            "jw.agent._ensure_config",
+            return_value=_stub_cfg_with_overrides(
+                agent_model_overrides="solar-planner:qwen3.8-max"
+            ),
+        ):
+            merged = patches_mod._merge_runs_config_kwargs(
+                {"thread_id": "t1", "assistant_id": "solar-planner"}
+            )
+        assert merged["config"]["configurable"]["model"] == "qwen3.8-max"
+        assert merged["config"]["configurable"]["model_provider"] == "dashscope"
+
+    def test_unlisted_agent_gets_global(self):
+        with patch(
+            "jw.agent._ensure_config",
+            return_value=_stub_cfg_with_overrides(
+                agent_model_overrides="solar-planner:qwen3.8-max"
+            ),
+        ):
+            merged = patches_mod._merge_runs_config_kwargs(
+                {"thread_id": "t1", "assistant_id": "solar-data"}
+            )
+        assert merged["config"]["configurable"]["model"] == "qwen3.7-plus"
+
+    def test_missing_assistant_id_gets_global(self):
+        with patch(
+            "jw.agent._ensure_config",
+            return_value=_stub_cfg_with_overrides(
+                agent_model_overrides="solar-planner:qwen3.8-max"
+            ),
+        ):
+            merged = patches_mod._merge_runs_config_kwargs({"thread_id": "t1"})
+        assert merged["config"]["configurable"]["model"] == "qwen3.7-plus"
+
+
+# =============================================================================
+# Sync (in-process) sub-agent model pinning
+# =============================================================================
+
+
+def _model_name(instance) -> str:
+    """Best-effort model id from a constructed chat model."""
+    for attr in ("model", "model_name", "model_id"):
+        v = getattr(instance, attr, None)
+        if isinstance(v, str) and v:
+            return v
+    return repr(instance)
+
+
+class TestSyncAgentModelOverrides:
+    """``_apply_agent_model_overrides`` pins a chat model on sync sub-agent specs."""
+
+    def _import(self):
+        from jw.agent import _apply_agent_model_overrides
+
+        return _apply_agent_model_overrides
+
+    def test_override_hit_sets_chat_model(self):
+        cfg = _stub_cfg_with_overrides(
+            agent_model_overrides="solar-planner:qwen3.8-max"
+        )
+        subs = [{"name": "solar-planner", "description": "d"}]
+        # get_chat_model requires a provider key to instantiate; a placeholder
+        # suffices (no network call is made during construction).
+        with patch.dict("os.environ", {"DASHSCOPE_API_KEY": "test-placeholder"}):
+            self._import()(subs, cfg=cfg)
+        assert "model" in subs[0]
+        assert "qwen3.8" in _model_name(subs[0]["model"])
+
+    def test_unlisted_agent_untouched(self):
+        cfg = _stub_cfg_with_overrides(
+            agent_model_overrides="solar-planner:qwen3.8-max"
+        )
+        subs = [{"name": "solar-data", "description": "d"}]
+        self._import()(subs, cfg=cfg)
+        assert "model" not in subs[0]
+
+    def test_empty_override_touches_nothing(self):
+        cfg = _stub_cfg_with_overrides()
+        subs = [{"name": "solar-planner", "description": "d"}]
+        self._import()(subs, cfg=cfg)
+        assert "model" not in subs[0]
+
+    def test_override_equal_to_global_skipped(self):
+        cfg = _stub_cfg_with_overrides(
+            agent_model_overrides="solar-planner:qwen3.7-plus"
+        )
+        subs = [{"name": "solar-planner", "description": "d"}]
+        self._import()(subs, cfg=cfg)
+        assert "model" not in subs[0]
+
+    def test_async_spec_skipped(self):
+        cfg = _stub_cfg_with_overrides(
+            agent_model_overrides="solar-planner:qwen3.8-max"
+        )
+        subs = [{"name": "solar-planner", "graph_id": "solar-planner"}]
+        self._import()(subs, cfg=cfg)
+        assert "model" not in subs[0]
+
+    def test_already_pinned_spec_skipped(self):
+        cfg = _stub_cfg_with_overrides(
+            agent_model_overrides="solar-planner:qwen3.8-max"
+        )
+        sentinel = object()
+        subs = [{"name": "solar-planner", "model": sentinel}]
+        self._import()(subs, cfg=cfg)
+        assert subs[0]["model"] is sentinel

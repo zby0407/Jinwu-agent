@@ -1,37 +1,25 @@
 "use client";
 
-import { AlertTriangle, ChevronDown, UserRoundCheck } from "lucide-react";
+import { AlertTriangle, ChevronDown } from "lucide-react";
 import {
   describeResearchTerminal,
   parseResearchTerminalMessage,
 } from "@/lib/researchReviewTerminal";
-import { cn } from "@/lib/utils";
 
 export function ResearchTerminalNotice({ content }: { content: string }) {
   const terminal = parseResearchTerminalMessage(content);
   if (!terminal) return null;
   const copy = describeResearchTerminal(terminal);
-  const isHumanReview = copy.tone === "human_review";
-  const Icon = isHumanReview ? UserRoundCheck : AlertTriangle;
+  const Icon = AlertTriangle;
 
   return (
     <section
       aria-label={copy.title}
-      className={cn(
-        "mt-4 rounded-lg border p-4",
-        isHumanReview
-          ? "border-amber-500/35 bg-amber-500/10"
-          : "border-destructive/35 bg-destructive/10"
-      )}
+      className="mt-4 rounded-lg border border-destructive/35 bg-destructive/10 p-4"
     >
       <div className="flex items-start gap-3">
         <Icon
-          className={cn(
-            "mt-0.5 size-5 shrink-0",
-            isHumanReview
-              ? "text-amber-700 dark:text-amber-300"
-              : "text-destructive"
-          )}
+          className="mt-0.5 size-5 shrink-0 text-destructive"
           aria-hidden="true"
         />
         <div className="min-w-0">

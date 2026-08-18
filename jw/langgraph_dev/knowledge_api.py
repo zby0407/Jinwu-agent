@@ -92,8 +92,7 @@ def _empty_overview() -> dict[str, Any]:
         "literature_baseline_sources": 0,
         "literature_task_bundles": 0,
         "literature_impacts": 0,
-        "pending_wiki_patches": 0,
-        "pending_reviews": 0,
+        "wiki_patch_proposals": 0,
         "usage_reads": 0,
         "by_type": {},
         "by_status": {},
@@ -473,14 +472,10 @@ def _fetch_overview() -> dict[str, Any]:
         overview["literature_impacts"] = int(
             conn.execute("SELECT COUNT(*) FROM lit_entry_impacts").fetchone()[0]
         )
-        overview["pending_wiki_patches"] = int(
+        overview["wiki_patch_proposals"] = int(
             conn.execute(
-                "SELECT COUNT(*) FROM wiki_candidate_patches WHERE status = 'pending'"
-            ).fetchone()[0]
-        )
-        overview["pending_reviews"] = int(
-            conn.execute(
-                "SELECT COUNT(*) FROM review_queue WHERE status = 'pending'"
+                "SELECT COUNT(*) FROM wiki_candidate_patches "
+                "WHERE status = 'proposal_only'"
             ).fetchone()[0]
         )
         overview["usage_reads"] = int(
@@ -963,32 +958,6 @@ def _fetch_graph(limit: int) -> dict[str, Any]:
         conn.close()
 
 
-def _fetch_review_queue(status: str) -> list[dict[str, Any]]:
-    conn = _connect_ro()
-    if conn is None:
-        return []
-    try:
-        if status and status != "all":
-            rows = conn.execute(
-                "SELECT * FROM review_queue WHERE status = ? ORDER BY id DESC",
-                (status,),
-            ).fetchall()
-        else:
-            rows = conn.execute(
-                "SELECT * FROM review_queue ORDER BY id DESC"
-            ).fetchall()
-        items: list[dict[str, Any]] = []
-        for row in rows:
-            item = dict(row)
-            item["payload"] = _parse_json(item.get("payload"), {})
-            items.append(item)
-        return items
-    except sqlite3.Error:
-        return []
-    finally:
-        conn.close()
-
-
 def _fetch_literature_deltas(
     event_type: str,
     feed_id: str,
@@ -1304,14 +1273,6 @@ async def get_graph(request: Request) -> JSONResponse:
     return _json(await asyncio.to_thread(_fetch_graph, limit))
 
 
-async def list_review_queue(request: Request) -> JSONResponse:
-    """Return the review and revalidation queue."""
-
-    status = request.query_params.get("status", "pending").strip() or "pending"
-    items = await asyncio.to_thread(_fetch_review_queue, status)
-    return _json(items)
-
-
 async def list_usage(request: Request) -> JSONResponse:
     """Return the Wiki usage provenance log."""
 
@@ -1337,6 +1298,5 @@ KB_ROUTES = [
     Route("/api/kb/sources", list_sources, methods=["GET"]),
     Route("/api/kb/sources/{source_id:path}", get_source, methods=["GET"]),
     Route("/api/kb/graph", get_graph, methods=["GET"]),
-    Route("/api/kb/review_queue", list_review_queue, methods=["GET"]),
     Route("/api/kb/usage", list_usage, methods=["GET"]),
 ]

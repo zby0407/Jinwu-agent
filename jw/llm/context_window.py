@@ -20,6 +20,12 @@ _KNOWN_MODEL_CONTEXT_WINDOWS: dict[str, int] = {
     # Qwen 3.7 closed-source tiers — Max flagship and Plus (1M).
     "qwen3.7-max": 1_000_000,
     "qwen3.7-plus": 1_000_000,
+    # Qwen 3.8 closed-source tiers — Max flagship and Plus (1M).
+    "qwen3.8-max": 1_000_000,
+    "qwen3.8-plus": 1_000_000,
+    # Kimi for Coding exposes the K3 coding model with a 1M context window.
+    "kimi-for-coding": 1_000_000,
+    "kimi-k3": 1_000_000,
     # xAI Grok — per-model windows (build-0.1: 256K, 4.5: 500K).
     "grok-build-0.1": 256_000,
     "grok-4.5": 500_000,

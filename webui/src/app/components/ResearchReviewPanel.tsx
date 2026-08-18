@@ -6,7 +6,6 @@ import {
   CircleDashed,
   ShieldAlert,
   ShieldCheck,
-  UserRoundCheck,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { describeResearchTerminal } from "@/lib/researchReviewTerminal";
@@ -32,6 +31,7 @@ type ReviewStatus = {
   active: boolean;
   status?: string;
   currentStage?: string;
+  nextAction?: string;
   revisionPolicy?: string;
   actionInvocations?: number;
   maxActionInvocations?: number;
@@ -39,17 +39,15 @@ type ReviewStatus = {
   maxReviewInvocations?: number;
   stages?: ReviewStage[];
   terminal?: {
-    status: "blocked" | "human_review";
+    status: "blocked";
     reasonCode: string;
     stage: string;
     producer?: string;
     failureCount?: number;
     summary?: string;
-    recovery:
-      | "new_task_after_fix"
-      | "configure_auxiliary_reviewer"
-      | "human_review";
+    recovery: "new_task_after_fix";
   };
+  updatedAt?: string;
 };
 
 const LABELS: Record<string, string> = {
@@ -62,11 +60,21 @@ const LABELS: Record<string, string> = {
   final_release: "发布审查",
 };
 
+const NEXT_ACTION_LABELS: Record<string, string> = {
+  produce_stage_artifact: "生成当前阶段产物",
+  review_stage_artifact: "核查当前阶段证据",
+  revise_stage_artifact: "按审查意见返修",
+  advance_research_graph: "进入下一研究阶段",
+  continue_current_stage: "继续当前研究阶段",
+  deliver_release: "交付已审查研究包",
+  report_blocker: "报告阻塞原因和可恢复路径",
+};
+
 function statusTone(status: string): string {
   if (status === "accepted" || status === "accepted_with_limits") {
     return "border-[var(--color-success)]/35 bg-[var(--color-success)]/10 text-[var(--color-success)]";
   }
-  if (status === "blocked" || status === "human_review") {
+  if (status === "blocked") {
     return "border-destructive/35 bg-destructive/10 text-destructive";
   }
   if (status === "revise") {
@@ -124,7 +132,7 @@ export function ResearchReviewPanel({
   );
   if (!data?.active) return null;
 
-  const terminal = data.status === "blocked" || data.status === "human_review";
+  const terminal = data.status === "blocked";
   const ready = data.status === "release_ready" || data.status === "released";
   const HeaderIcon = terminal
     ? ShieldAlert
@@ -161,15 +169,6 @@ export function ResearchReviewPanel({
             {data.maxReviewInvocations ?? 0} 次审查
           </span>
         </div>
-        {data.status === "human_review" && (
-          <span className="flex items-center gap-1 text-xs font-medium text-destructive">
-            <UserRoundCheck
-              className="size-3.5"
-              aria-hidden="true"
-            />
-            需要人工复核
-          </span>
-        )}
       </div>
 
       <div className="mt-3 flex flex-wrap gap-1.5">
@@ -201,14 +200,22 @@ export function ResearchReviewPanel({
         ))}
       </div>
 
+      <div className="mt-3 rounded-md border border-border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
+        <span className="font-medium text-foreground">当前阶段：</span>
+        {LABELS[data.currentStage ?? ""] ?? data.currentStage ?? "准备中"}
+        <span
+          className="mx-2"
+          aria-hidden="true"
+        >
+          ·
+        </span>
+        <span className="font-medium text-foreground">下一步：</span>
+        {NEXT_ACTION_LABELS[data.nextAction ?? ""] ?? "读取运行状态"}
+      </div>
+
       {terminalCopy && (
         <div
-          className={cn(
-            "mt-3 rounded-md border px-3 py-2",
-            terminalCopy.tone === "human_review"
-              ? "border-amber-500/35 bg-amber-500/10"
-              : "border-destructive/35 bg-destructive/10"
-          )}
+          className="mt-3 rounded-md border border-destructive/35 bg-destructive/10 px-3 py-2"
         >
           <p className="text-xs font-semibold text-foreground">
             {terminalCopy.title}
