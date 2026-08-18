@@ -27,7 +27,7 @@ async function listDir(
     `/api/workspace?${new URLSearchParams({ path, threadId })}`
   );
   const body = await res.json().catch(() => null);
-  if (!res.ok) throw new Error(body?.error || "无法列出工作区内容。" );
+  if (!res.ok) throw new Error(body?.error || "无法列出工作区内容。");
   return (body?.entries ?? []) as WorkspaceEntry[];
 }
 
@@ -39,7 +39,7 @@ async function listAll(threadId: string): Promise<{
     `/api/workspace?${new URLSearchParams({ recursive: "1", threadId })}`
   );
   const body = await res.json().catch(() => null);
-  if (!res.ok) throw new Error(body?.error || "无法加载工作区。" );
+  if (!res.ok) throw new Error(body?.error || "无法加载工作区。");
   return {
     entries: (body?.entries ?? []) as WorkspaceEntry[],
     truncated: !!body?.truncated,
@@ -145,6 +145,7 @@ type ViewMode = "tree" | "type";
 
 export function WorkspacePanel() {
   const [threadId] = useQueryState("threadId");
+  const [workspacePath, setWorkspacePath] = useQueryState("workspacePath");
   const [view, setView] = useState<ViewMode>("tree");
 
   // --- Tree view state (listing cache keyed by dir path; "" = root) ---
@@ -165,10 +166,11 @@ export function WorkspacePanel() {
     path: string;
     size: number;
   } | null>(null);
+  const [highlightedPath, setHighlightedPath] = useState<string | null>(null);
 
   const loadDir = useCallback(
     async (path: string) => {
-      if (!threadId) throw new Error("请先开始或打开一个研究会话。" );
+      if (!threadId) throw new Error("请先开始或打开一个研究会话。");
       setLoading((prev) => new Set(prev).add(path));
       try {
         const entries = await listDir(path, threadId);
@@ -177,7 +179,7 @@ export function WorkspacePanel() {
         return entries;
       } catch (err) {
         if (path === "") {
-          setError(err instanceof Error ? err.message : "加载失败。" );
+          setError(err instanceof Error ? err.message : "加载失败。");
         }
         throw err;
       } finally {
@@ -193,7 +195,7 @@ export function WorkspacePanel() {
 
   const loadAll = useCallback(async () => {
     if (!threadId) {
-      setError("请先开始或打开一个研究会话。" );
+      setError("请先开始或打开一个研究会话。");
       return;
     }
     setTypeLoading(true);
@@ -203,7 +205,7 @@ export function WorkspacePanel() {
       setTruncated(truncated);
       setError(null);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "加载失败。" );
+      setError(err instanceof Error ? err.message : "加载失败。");
     } finally {
       setTypeLoading(false);
     }
@@ -217,7 +219,7 @@ export function WorkspacePanel() {
     setAllFiles(null);
     setSelected(null);
     if (!threadId) {
-      setError("请先开始或打开一个研究会话。" );
+      setError("请先开始或打开一个研究会话。");
       setRootLoading(false);
       return;
     }
@@ -232,6 +234,48 @@ export function WorkspacePanel() {
     if (view === "type" && allFiles === null && !typeLoading) void loadAll();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [view]);
+
+  // The artifacts panel can deep-link to a file in the workspace. Switch to
+  // tree view, load and expand every ancestor, then open the existing viewer.
+  useEffect(() => {
+    if (!workspacePath || !threadId) return;
+    let cancelled = false;
+    const reveal = async () => {
+      const normalized = workspacePath
+        .replaceAll("\\", "/")
+        .replace(/^\/+/, "");
+      const parts = normalized.split("/").filter(Boolean);
+      if (parts.length === 0) return;
+      const ancestors = parts
+        .slice(0, -1)
+        .map((_, index) => parts.slice(0, index + 1).join("/"));
+      setView("tree");
+      setExpanded(new Set(ancestors));
+      await Promise.allSettled(["", ...ancestors].map((path) => loadDir(path)));
+      if (cancelled) return;
+      const parent = ancestors.at(-1) ?? "";
+      const entry = (await listDir(parent, threadId)).find(
+        (candidate) =>
+          candidate.path === normalized && candidate.type === "file"
+      );
+      if (entry) {
+        setHighlightedPath(entry.path);
+        window.setTimeout(() => {
+          document
+            .querySelector<HTMLElement>(
+              `[data-workspace-path="${CSS.escape(entry.path)}"]`
+            )
+            ?.scrollIntoView({ behavior: "smooth", block: "center" });
+        }, 50);
+        window.setTimeout(() => setHighlightedPath(null), 2200);
+      }
+      await setWorkspacePath(null);
+    };
+    void reveal();
+    return () => {
+      cancelled = true;
+    };
+  }, [workspacePath, threadId, loadDir, setWorkspacePath]);
 
   const refresh = useCallback(async () => {
     setError(null);
@@ -294,12 +338,17 @@ export function WorkspacePanel() {
         <div key={entry.path}>
           <button
             type="button"
+            data-workspace-path={entry.path}
             onClick={() =>
               entry.type === "dir"
                 ? toggleDir(entry.path)
                 : setSelected({ path: entry.path, size: entry.size })
             }
-            className="flex w-full items-center gap-1.5 rounded-md py-1 pr-2 text-left text-sm text-foreground transition-colors hover:bg-muted"
+            className={cn(
+              "flex w-full items-center gap-1.5 rounded-md py-1 pr-2 text-left text-sm text-foreground transition-colors hover:bg-muted",
+              highlightedPath === entry.path &&
+                "bg-[var(--brand)]/15 ring-[var(--brand)]/70 ring-1 ring-inset"
+            )}
             style={{ paddingLeft: `${depth * 14 + 4}px` }}
             title={entry.name}
           >

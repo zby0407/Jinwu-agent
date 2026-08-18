@@ -68,23 +68,28 @@ const BRANCH_HISTORY_LIMIT = 10;
  * branch-metadata render unnecessarily expensive. The backend keeps the full
  * checkpoint; this projection only trims the browser-side copy.
  */
-function projectWebUiState(values: StateType): StateType {
+function projectWebUiState(values: StateType | null | undefined): StateType {
+  // A thread created by the upload flow exists before its first checkpoint, so
+  // LangGraph legitimately returns `values: null` despite the SDK's generic
+  // type. Treat that shell as an empty chat state. Throwing here leaves the
+  // progressive loader's `isLoading` flag stuck and the transcript hidden even
+  // after a run has started.
+  const source = values ?? ({} as Partial<StateType>);
   return {
-    messages: Array.isArray(values.messages) ? values.messages : [],
-    todos: Array.isArray(values.todos) ? values.todos : [],
-    files:
-      values.files && typeof values.files === "object" ? values.files : {},
-    ...(values.email !== undefined ? { email: values.email } : {}),
-    ...(values.async_tasks !== undefined
-      ? { async_tasks: values.async_tasks }
+    messages: Array.isArray(source.messages) ? source.messages : [],
+    todos: Array.isArray(source.todos) ? source.todos : [],
+    files: source.files && typeof source.files === "object" ? source.files : {},
+    ...(source.email !== undefined ? { email: source.email } : {}),
+    ...(source.async_tasks !== undefined
+      ? { async_tasks: source.async_tasks }
       : {}),
-    ...(values._summarization_event !== undefined
-      ? { _summarization_event: values._summarization_event }
+    ...(source._summarization_event !== undefined
+      ? { _summarization_event: source._summarization_event }
       : {}),
-    ...(values.__interrupt__ !== undefined
-      ? { __interrupt__: values.__interrupt__ }
+    ...(source.__interrupt__ !== undefined
+      ? { __interrupt__: source.__interrupt__ }
       : {}),
-    ...(values.ui !== undefined ? { ui: values.ui } : {}),
+    ...(source.ui !== undefined ? { ui: source.ui } : {}),
   };
 }
 
@@ -172,14 +177,15 @@ function useProgressiveThreadHistory(
       setError(undefined);
       setIsLoading(true);
 
-      if (initialRecord?.thread_id === targetThreadId) {
-        // The existence preflight has already downloaded the latest values.
-        // Publishing them here avoids a second, slower checkpoint read before
-        // the transcript becomes visible.
-        setData([threadRecordSnapshot(initialRecord)]);
-      }
-
       try {
+        if (initialRecord?.thread_id === targetThreadId) {
+          // The existence preflight has already downloaded the latest values.
+          // Publishing them here avoids a second, slower checkpoint read before
+          // the transcript becomes visible. Keep this inside the guarded block
+          // so even a malformed shell can never strand the loading flag.
+          setData([threadRecordSnapshot(initialRecord)]);
+        }
+
         const latest = projectThreadState(
           await client.threads.getState<StateType>(targetThreadId)
         );
@@ -380,7 +386,10 @@ function hasHttpStatus(error: unknown, status: number): boolean {
     error?: unknown;
   };
   if (value.status === status) return true;
-  if (typeof value.message === "string" && hasHttpStatus(value.message, status)) {
+  if (
+    typeof value.message === "string" &&
+    hasHttpStatus(value.message, status)
+  ) {
     return true;
   }
   return value.error !== error && hasHttpStatus(value.error, status);
@@ -521,12 +530,7 @@ export function useChat({
       return;
     }
     toast.error(formatStreamError(progressiveThread.error));
-  }, [
-    progressiveThread.error,
-    recoverMissingThread,
-    streamThreadId,
-    thread,
-  ]);
+  }, [progressiveThread.error, recoverMissingThread, streamThreadId, thread]);
 
   const stream = useStream<StateType>({
     assistantId: activeAssistant?.assistant_id || "",
@@ -636,9 +640,9 @@ export function useChat({
   // the persisted checkpoint still has work in `next`. Mirror that server fact
   // so a refresh cannot unlock the composer while the original run is active.
   const [serverPending, setServerPending] = useState(false);
-  const [stopState, setStopState] = useState<
-    "idle" | "stopping" | "stopped"
-  >("idle");
+  const [stopState, setStopState] = useState<"idle" | "stopping" | "stopped">(
+    "idle"
+  );
   const stopRequestedRef = useRef(false);
   const recoveryRunRef = useRef(0);
   // Recovery polling is only for a live run whose SSE tail may have been
@@ -700,9 +704,7 @@ export function useChat({
       setModelOverrideState({
         model: r.model,
         model_provider:
-          typeof r.model_provider === "string"
-            ? r.model_provider
-            : undefined,
+          typeof r.model_provider === "string" ? r.model_provider : undefined,
       });
     } else {
       setModelOverrideState(null);
@@ -1095,7 +1097,7 @@ export function useChat({
           (message) => message.id === messageId
         );
         if (targetIndex < 0) {
-      throw new Error("此回答已不在当前活动分支中。" );
+          throw new Error("此回答已不在当前活动分支中。");
         }
         let turnHumanIndex = -1;
         for (let index = targetIndex - 1; index >= 0; index -= 1) {
@@ -1115,7 +1117,7 @@ export function useChat({
             ? messages[turnFirstAssistantIndex].id
             : messageId;
         if (!turnAnchorId) {
-      throw new Error("找不到此回答轮次的起点。" );
+          throw new Error("找不到此回答轮次的起点。");
         }
         const optimisticMessages =
           turnFirstAssistantIndex >= 0
@@ -1128,16 +1130,16 @@ export function useChat({
         const history = await client.threads.getHistory<StateType>(threadId, {
           limit: 100,
         });
-        const firstSeenState = [...history].reverse().find((state) =>
-          (state.values.messages ?? []).some(
-            (message) => message.id === turnAnchorId
-          )
-        );
+        const firstSeenState = [...history]
+          .reverse()
+          .find((state) =>
+            (state.values.messages ?? []).some(
+              (message) => message.id === turnAnchorId
+            )
+          );
         const checkpoint = firstSeenState?.parent_checkpoint;
         if (!checkpoint) {
-          throw new Error(
-        "此回答之前的检查点已不可用。"
-          );
+          throw new Error("此回答之前的检查点已不可用。");
         }
 
         const resetResponse = await fetch("/api/regenerate", {
@@ -1152,7 +1154,7 @@ export function useChat({
           throw new Error(
             typeof payload?.error === "string"
               ? payload.error
-          : "无法清除已生成的产物。"
+              : "无法清除已生成的产物。"
           );
         }
 
@@ -1181,7 +1183,8 @@ export function useChat({
         );
       });
       onHistoryRevalidate?.();
-    }, [
+    },
+    [
       threadId,
       stream,
       serverPending,
@@ -1195,12 +1198,7 @@ export function useChat({
   const editMessage = useCallback(
     (messageId: string, content: string) => {
       const editedContent = content.trim();
-      if (
-        !threadId ||
-        !editedContent ||
-        stream.isLoading ||
-        serverPending
-      ) {
+      if (!threadId || !editedContent || stream.isLoading || serverPending) {
         return;
       }
       setFetchedInterrupt(undefined);
@@ -1219,10 +1217,13 @@ export function useChat({
           (message) => message.id === messageId && message.type === "human"
         );
         if (targetIndex < 0) {
-      throw new Error("此消息已不在当前活动分支中。" );
+          throw new Error("此消息已不在当前活动分支中。");
         }
         const targetMessage = messages[targetIndex];
-        if (extractStringFromMessageContent(targetMessage).trim() === editedContent) {
+        if (
+          extractStringFromMessageContent(targetMessage).trim() ===
+          editedContent
+        ) {
           setServerPending(false);
           return;
         }
@@ -1230,16 +1231,16 @@ export function useChat({
         const history = await client.threads.getHistory<StateType>(threadId, {
           limit: 100,
         });
-        const firstSeenState = [...history].reverse().find((state) =>
-          (state.values.messages ?? []).some(
-            (message) => message.id === messageId
-          )
-        );
+        const firstSeenState = [...history]
+          .reverse()
+          .find((state) =>
+            (state.values.messages ?? []).some(
+              (message) => message.id === messageId
+            )
+          );
         const checkpoint = firstSeenState?.parent_checkpoint;
         if (!checkpoint) {
-          throw new Error(
-        "此消息之前的检查点已不可用。"
-          );
+          throw new Error("此消息之前的检查点已不可用。");
         }
 
         const editedMessage: Message = {
@@ -1388,7 +1389,9 @@ export function useChat({
             client.runs.list(threadId, { status: "running", limit: 10 }),
             client.runs.list(threadId, { status: "pending", limit: 10 }),
           ]);
-          runIds = [...new Set([...running, ...pending].map((run) => run.run_id))];
+          runIds = [
+            ...new Set([...running, ...pending].map((run) => run.run_id)),
+          ];
         }
         await Promise.allSettled(
           runIds.map((runId) =>

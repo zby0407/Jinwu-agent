@@ -9,6 +9,9 @@ import {
   Save,
   Trash2,
   Eye,
+  Clipboard,
+  ExternalLink,
+  RefreshCw,
 } from "lucide-react";
 import {
   Dialog,
@@ -24,6 +27,7 @@ import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import { oneDark } from "react-syntax-highlighter/dist/esm/styles/prism";
 import { MarkdownContent } from "@/app/components/MarkdownContent";
 import { useQueryState } from "nuqs";
+import { toast } from "sonner";
 
 const LANGUAGE_MAP: Record<string, string> = {
   js: "javascript",
@@ -108,11 +112,14 @@ export const WorkspaceFileDialog = React.memo<{
   onClose: () => void;
   /** Called after a successful save or delete so the listing can refresh. */
   onChanged?: () => void;
-}>(({ path, size, onClose, onChanged }) => {
+  /** Artifact previews are immutable: hide edit/delete controls. */
+  readOnly?: boolean;
+}>(({ path, size, onClose, onChanged, readOnly = false }) => {
   const [threadId] = useQueryState("threadId");
   const [content, setContent] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [reloadKey, setReloadKey] = useState(0);
 
   // Edit / save / delete state.
   const [editing, setEditing] = useState(false);
@@ -143,7 +150,7 @@ export const WorkspaceFileDialog = React.memo<{
   const kind = kindOf(ext);
   const tooBigForText =
     kind === "text" && size != null && size > MAX_INLINE_TEXT_BYTES;
-  const editable = kind === "text" && !tooBigForText;
+  const editable = !readOnly && kind === "text" && !tooBigForText;
 
   useEffect(() => {
     if (!path || kind !== "text" || tooBigForText) {
@@ -167,7 +174,7 @@ export const WorkspaceFileDialog = React.memo<{
         if (!cancelled) setContent(text);
       })
       .catch((err) => {
-        if (!cancelled) setError(err.message ?? "加载文件失败。" );
+        if (!cancelled) setError(err.message ?? "加载文件失败。");
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
@@ -175,7 +182,7 @@ export const WorkspaceFileDialog = React.memo<{
     return () => {
       cancelled = true;
     };
-  }, [path, kind, tooBigForText, threadId]);
+  }, [path, kind, tooBigForText, threadId, reloadKey]);
 
   if (!path) return null;
 
@@ -212,14 +219,14 @@ export const WorkspaceFileDialog = React.memo<{
         body: JSON.stringify({ content: draft }),
       });
       const data = await res.json().catch(() => null);
-      if (!res.ok) throw new Error(data?.error || "保存失败。" );
+      if (!res.ok) throw new Error(data?.error || "保存失败。");
       if (!mountedRef.current) return;
       setContent(draft);
       setEditing(false);
       onChanged?.();
     } catch (e) {
       if (mountedRef.current) {
-      setActionError(e instanceof Error ? e.message : "保存失败。" );
+        setActionError(e instanceof Error ? e.message : "保存失败。");
       }
     } finally {
       if (mountedRef.current) setSaving(false);
@@ -235,7 +242,7 @@ export const WorkspaceFileDialog = React.memo<{
       });
       if (!res.ok) {
         const data = await res.json().catch(() => null);
-        throw new Error(data?.error || "删除失败。" );
+        throw new Error(data?.error || "删除失败。");
       }
       onChanged?.();
       onClose();
@@ -244,7 +251,7 @@ export const WorkspaceFileDialog = React.memo<{
         // Close the confirm dialog so the error (rendered in the main dialog)
         // isn't hidden behind the confirm overlay.
         setDeleteOpen(false);
-      setActionError(e instanceof Error ? e.message : "删除失败。" );
+        setActionError(e instanceof Error ? e.message : "删除失败。");
       }
     } finally {
       if (mountedRef.current) setDeleting(false);
@@ -258,6 +265,15 @@ export const WorkspaceFileDialog = React.memo<{
     if (action === "cancel-edit") setEditing(false);
   };
 
+  const copyPath = async () => {
+    try {
+      await navigator.clipboard.writeText(`/${path}`);
+      toast.success("已复制文件路径");
+    } catch {
+      toast.error("无法复制路径");
+    }
+  };
+
   return (
     <>
       <Dialog
@@ -268,7 +284,7 @@ export const WorkspaceFileDialog = React.memo<{
       >
         <DialogContent
           aria-describedby={undefined}
-          className="flex h-[80vh] max-h-[80vh] min-w-[60vw] flex-col p-6"
+          className="flex h-[88vh] max-h-[88vh] w-[94vw] max-w-[1200px] flex-col p-4 sm:p-6"
         >
           <DialogTitle className="sr-only">{path}</DialogTitle>
           <div className="mb-4 flex items-center justify-between gap-3 border-b border-border pb-4">
@@ -359,28 +375,69 @@ export const WorkspaceFileDialog = React.memo<{
                       下载
                     </a>
                   </Button>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="h-8 px-2 text-muted-foreground hover:text-destructive"
-                    onClick={() => setDeleteOpen(true)}
-                    disabled={deleting}
-                    aria-label="删除文件"
-                    title="删除文件"
-                  >
-                    {deleting ? (
-                      <Loader2
-                        size={16}
-                        className="animate-spin"
-                        aria-hidden="true"
-                      />
-                    ) : (
-                      <Trash2
-                        size={16}
-                        aria-hidden="true"
-                      />
-                    )}
-                  </Button>
+                  {readOnly && (
+                    <>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-8 px-2"
+                        onClick={() => void copyPath()}
+                        title="复制路径"
+                      >
+                        <Clipboard
+                          size={16}
+                          className="mr-1"
+                          aria-hidden="true"
+                        />
+                        复制路径
+                      </Button>
+                      {(kind === "pdf" || kind === "image") && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-8 px-2"
+                          asChild
+                        >
+                          <a
+                            href={workspaceFileUrl(path, false, threadId)}
+                            target="_blank"
+                            rel="noreferrer"
+                          >
+                            <ExternalLink
+                              size={16}
+                              className="mr-1"
+                              aria-hidden="true"
+                            />
+                            原文件
+                          </a>
+                        </Button>
+                      )}
+                    </>
+                  )}
+                  {!readOnly && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-8 px-2 text-muted-foreground hover:text-destructive"
+                      onClick={() => setDeleteOpen(true)}
+                      disabled={deleting}
+                      aria-label="删除文件"
+                      title="删除文件"
+                    >
+                      {deleting ? (
+                        <Loader2
+                          size={16}
+                          className="animate-spin"
+                          aria-hidden="true"
+                        />
+                      ) : (
+                        <Trash2
+                          size={16}
+                          aria-hidden="true"
+                        />
+                      )}
+                    </Button>
+                  )}
                 </>
               )}
             </div>
@@ -454,8 +511,20 @@ export const WorkspaceFileDialog = React.memo<{
                 />
               </div>
             ) : error ? (
-              <div className="flex h-full items-center justify-center p-12">
+              <div className="flex h-full flex-col items-center justify-center gap-3 p-12">
                 <p className="text-sm text-destructive">{error}</p>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setReloadKey((value) => value + 1)}
+                >
+                  <RefreshCw
+                    size={16}
+                    className="mr-1"
+                    aria-hidden="true"
+                  />
+                  重试
+                </Button>
               </div>
             ) : (
               <ScrollArea className="h-full rounded-md bg-[var(--color-surface)]">
@@ -483,9 +552,7 @@ export const WorkspaceFileDialog = React.memo<{
                     )
                   ) : (
                     <div className="flex items-center justify-center p-12">
-                      <p className="text-sm text-muted-foreground">
-                        文件为空
-                      </p>
+                      <p className="text-sm text-muted-foreground">文件为空</p>
                     </div>
                   )}
                 </div>
@@ -504,9 +571,7 @@ export const WorkspaceFileDialog = React.memo<{
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle>放弃未保存的更改？</DialogTitle>
-            <DialogDescription>
-              对“{name}”的编辑尚未保存。
-            </DialogDescription>
+            <DialogDescription>对“{name}”的编辑尚未保存。</DialogDescription>
           </DialogHeader>
           <DialogFooter>
             <Button
