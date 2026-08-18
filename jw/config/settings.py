@@ -143,6 +143,7 @@ class JWConfig:
         model: Default model name (short name or full ID).
         auxiliary_provider: Provider for auxiliary_model (empty = use main provider).
         auxiliary_model: Model for memory workers + tool selector + scheduler (empty = use main model).
+        dashscope_base_url: Optional OpenAI-compatible DashScope endpoint override.
         default_mode: Default workspace mode ('daemon' or 'run').
         default_workdir: Default workspace directory (empty = use current working directory).
         show_thinking: Whether to show thinking panels in CLI.
@@ -164,6 +165,7 @@ class JWConfig:
     zhipu_api_key: str = ""
     volcengine_api_key: str = ""
     dashscope_api_key: str = ""
+    dashscope_base_url: str = ""
     moonshot_api_key: str = ""
     kimi_api_key: str = ""
     custom_openai_api_key: str = ""
@@ -783,6 +785,7 @@ _ENV_MAPPINGS = {
     "zhipu_api_key": "ZHIPU_API_KEY",
     "volcengine_api_key": "VOLCENGINE_API_KEY",
     "dashscope_api_key": "DASHSCOPE_API_KEY",
+    "dashscope_base_url": "DASHSCOPE_BASE_URL",
     "moonshot_api_key": "MOONSHOT_API_KEY",
     "kimi_api_key": "KIMI_API_KEY",
     "custom_openai_api_key": "CUSTOM_OPENAI_API_KEY",
@@ -913,6 +916,8 @@ def apply_config_to_env(config: JWConfig) -> None:
         os.environ["VOLCENGINE_API_KEY"] = config.volcengine_api_key
     if config.dashscope_api_key and not os.environ.get("DASHSCOPE_API_KEY"):
         os.environ["DASHSCOPE_API_KEY"] = config.dashscope_api_key
+    if config.dashscope_base_url and not os.environ.get("DASHSCOPE_BASE_URL"):
+        os.environ["DASHSCOPE_BASE_URL"] = config.dashscope_base_url
     if config.moonshot_api_key and not os.environ.get("MOONSHOT_API_KEY"):
         os.environ["MOONSHOT_API_KEY"] = config.moonshot_api_key
     if config.kimi_api_key and not os.environ.get("KIMI_API_KEY"):

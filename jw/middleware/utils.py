@@ -48,7 +48,9 @@ def disable_thinking(model: BaseChatModel) -> BaseChatModel:
         or getattr(model, "base_url", None)
         or ""
     ).casefold()
-    dashscope_hosted = "dashscope.aliyuncs.com" in base_url
+    dashscope_hosted = any(
+        host in base_url for host in ("dashscope.aliyuncs.com", "maas.aliyuncs.com")
+    )
     if model_name.startswith(("qwen", "qwq")) or dashscope_hosted:
         extra_body = dict(getattr(model, "extra_body", None) or {})
         # Do not leave mutually inconsistent thinking controls attached to a

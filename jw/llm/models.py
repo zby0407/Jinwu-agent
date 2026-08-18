@@ -570,6 +570,12 @@ def get_chat_model(
                     "OpenAI-compatible API endpoint URL (e.g. https://api.openai.com/v1)."
                 )
             base_url = base_url.rstrip("/")
+        elif provider == "dashscope":
+            base_url = (
+                os.environ.get("DASHSCOPE_BASE_URL", "").strip()
+                or base_url_default
+            )
+            base_url = base_url.rstrip("/")
         else:
             base_url = base_url_default
         if base_url:

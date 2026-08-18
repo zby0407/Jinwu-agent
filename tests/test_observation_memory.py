@@ -2397,7 +2397,9 @@ def test_structured_dashscope_auxiliary_worker_disables_thinking(monkeypatch, tm
             self.reasoning = None
             self.model_kwargs = {}
             self.extra_body = None
-            self.openai_api_base = "https://dashscope.aliyuncs.com/compatible-mode/v1"
+            self.openai_api_base = (
+                "https://token-plan.cn-beijing.maas.aliyuncs.com/compatible-mode/v1"
+            )
 
         def model_copy(self, *, update):
             assert update == {"extra_body": {"enable_thinking": False}}

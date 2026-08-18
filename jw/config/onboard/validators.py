@@ -6,6 +6,8 @@
 
 from __future__ import annotations
 
+import os
+
 from prompt_toolkit.validation import ValidationError, Validator
 
 
@@ -395,7 +397,10 @@ def validate_volcengine_key(api_key: str) -> tuple[bool, str]:
         return False, f"Error: {e}"
 
 
-def validate_dashscope_key(api_key: str) -> tuple[bool, str]:
+def validate_dashscope_key(
+    api_key: str,
+    base_url: str | None = None,
+) -> tuple[bool, str]:
     """Validate a DashScope API key by making a test request.
 
     Returns:
@@ -409,7 +414,8 @@ def validate_dashscope_key(api_key: str) -> tuple[bool, str]:
 
         client = openai.OpenAI(
             api_key=api_key,
-            base_url="https://dashscope.aliyuncs.com/compatible-mode/v1",
+            base_url=(base_url or os.environ.get("DASHSCOPE_BASE_URL", "")).strip()
+            or "https://dashscope.aliyuncs.com/compatible-mode/v1",
         )
         client.models.list()
         return True, "Valid"

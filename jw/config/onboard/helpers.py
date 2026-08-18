@@ -93,7 +93,10 @@ def _provider_key_info(config: JWConfig, provider: str):
         "dashscope": (
             "DashScope",
             config.dashscope_api_key or os.environ.get("DASHSCOPE_API_KEY", ""),
-            validate_dashscope_key,
+            lambda key: validate_dashscope_key(
+                key,
+                base_url=config.dashscope_base_url,
+            ),
         ),
         "dashscope-code": (
             "DashScope Coding Plan",

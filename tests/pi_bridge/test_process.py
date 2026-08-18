@@ -154,6 +154,7 @@ class TestPiProcessManager:
         monkeypatch.setenv("DASHSCOPE_API_KEY", "from-env")
         cfg = self._make_cfg()
         cfg.dashscope_api_key = "from-config"
+        cfg.dashscope_base_url = "https://proxy.example/v1"
         cfg.openai_api_key = "openai-key"
         cfg.google_api_key = "google-key"
         cfg.dangerous_mode = False
@@ -161,6 +162,7 @@ class TestPiProcessManager:
         mgr = PiProcessManager(cfg, pi_cli=Path("/fake/pi.js"), session_dir=tmp_path)
         env = mgr._build_env()
         assert env["DASHSCOPE_API_KEY"] == "from-env"  # existing env preserved
+        assert env["DASHSCOPE_BASE_URL"] == "https://proxy.example/v1"
         assert env["OPENAI_API_KEY"] == "openai-key"
         assert env["GEMINI_API_KEY"] == "google-key"
 

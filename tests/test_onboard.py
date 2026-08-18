@@ -88,6 +88,35 @@ class TestConstants:
         assert CONFIRM_STYLE is not WIZARD_STYLE
 
 
+class TestDashScopeValidationEndpoint:
+    @patch("openai.OpenAI")
+    def test_uses_configured_base_url(self, mock_openai, monkeypatch):
+        from jw.config.onboard.validators import validate_dashscope_key
+
+        monkeypatch.setenv("DASHSCOPE_BASE_URL", "https://proxy.example/v1")
+
+        assert validate_dashscope_key("test-key") == (True, "Valid")
+        mock_openai.assert_called_once_with(
+            api_key="test-key",
+            base_url="https://proxy.example/v1",
+        )
+        mock_openai.return_value.models.list.assert_called_once_with()
+
+    def test_provider_validator_uses_saved_base_url(self):
+        from jw.config.onboard.helpers import _provider_key_info
+
+        config = JWConfig(dashscope_base_url="https://saved.example/v1")
+        _, _, validate = _provider_key_info(config, "dashscope")
+
+        with patch("openai.OpenAI") as mock_openai:
+            assert validate("test-key") == (True, "Valid")
+
+        mock_openai.assert_called_once_with(
+            api_key="test-key",
+            base_url="https://saved.example/v1",
+        )
+
+
 class TestSharedConstantsAlignment:
     """Drift guard: the canonical valid-value sets in
     ``JW.config.onboard.constants`` must match the actual
