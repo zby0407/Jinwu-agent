@@ -18,10 +18,10 @@ solar-knowledge 子 Agent 的四条流程；条目写作、蒸馏、冲突、晋
 ## 硬规则速览
 
 - R1 单一可复用入口：跨任务 grounding 只能给 kb id；任务文献包证据不得跨任务复用。
-- R2 候选先行：一切新知识一律 `status=candidate` 入库，晋升只走审核门。
+- R2 候选先行：一切新知识一律 `status=candidate` 入库，只有跨运行复现可晋升。
 - R4 溯源完整：`kb_read` 自动写 provenance_log；每轮研究结束产出使用清单。
 - R5 冲突显性化：与 canonical 矛盾时不覆盖，报冲突并回喂规划。
-- 你没有 `kb_promote` / `kb_deprecate` / `kb_review_decide`——晋升与废弃决定权在审核门（人）。
+- 你没有 `kb_promote` / `kb_deprecate`；知识不足或冲突时保持 candidate 或 grounding blocked。
 
 ## 流程 1：检索应答
 
@@ -78,13 +78,12 @@ solar-knowledge 子 Agent 的四条流程；条目写作、蒸馏、冲突、晋
 1. 先读目标条目，再用 `lit_impact_record` 登记 supports/contradicts/qualifies/extends、
    affected_fields、scope 和 ≤40 词逐字引文；此步不改 Wiki。
 2. 确需改字段时用 `lit_patch_propose` 生成绑定目标 `base_version` 的候选补丁。
-3. 补丁只有经 `kb_review_decide` 人审后才能应用；如果目标版本已变化，补丁标为 stale，
-   必须重新评估，不做自动合并。
-4. 撤稿事件保留原来源和影响链，自动生成 `literature_retraction` 复核项；禁止静默删除。
+3. 补丁仅保存为 `proposal_only`，不自动应用；如果目标版本已变化，重新生成提案，不做自动合并。
+4. 撤稿事件保留原来源和影响链，并直接阻断受影响条目的 grounding；禁止静默删除。
 
 运行产出路径：实验 finalize 会自动把 findings/反例/失败经验写回为 candidate
 （source_type=historical_run, confidence=low）。你的职责是用 `kb_search(status="candidate")`
-定期盘点这些候选，达到晋升条件时整理依据交审核队列，而不是自己晋升。
+定期盘点这些候选；达到跨运行复现条件后由确定性晋升门处理。
 
 手工编辑回导：`kb_import(path)` 校验并回写 `knowledge_base/<type>/<id>.md`（版本 +1）。
 
@@ -93,16 +92,12 @@ solar-knowledge 子 Agent 的四条流程；条目写作、蒸馏、冲突、晋
 可被 /schedule 定期触发。用 `kb_search` 结构化过滤盘点：
 
 - 长期未引用的 canonical（provenance_log 无近期 read）→ 建议复核 valid_range 是否过期。
-- 孤证 candidate（创建 >N 天、无新证据、未晋升）→ 建议补证据或交人决定是否废弃。
+- 孤证 candidate（创建 >N 天、无新证据、未晋升）→ 建议补证据，证据不足时继续保留 candidate。
 - valid_range 明显过期的条目 → 生成维护建议清单给人。
-- `kb_review_queue(kind="revalidate")` 中的旧文献蒸馏 → 逐项核对问题/focus/来源/主张；
-  审核前这些条目被 grounding 门禁隔离，不能作为假设或实验依据。复核通过只解除隔离；
-  旧 DOI 自动晋升条目已降回 candidate，仍须另走晋升门。
-- `kb_review_queue(kind="wiki_patch")` 中的文献候选补丁 → 核对逐字引文、影响关系、字段范围
-  和 base_version；批准只应用该补丁，拒绝保留审计记录。
-- `kb_review_queue(kind="literature_retraction")` → 查看受影响条目和影响 id，确认需要重写、
-  降级或补充来源的范围；不得把“来源撤稿”机械等同于整条 Wiki 自动废弃。
-- 巡检只出建议，不自动改状态；所有状态变更都走审核门。
+- 旧文献蒸馏缺少 task-bound relevance 时保持 grounding blocked，须重新摄取有效来源。
+- `proposal_only` 文献补丁只用于提示应重新蒸馏哪些字段，不直接改写 Wiki。
+- 撤稿来源对应的影响记录与条目保持 grounding blocked，直到新证据通过正常摄取路径形成新版本。
+- 巡检只报告证据缺口，不生成等待批准的状态。
 
 ## 流程 4：知识使用报告
 
@@ -114,4 +109,4 @@ solar-knowledge 子 Agent 的四条流程；条目写作、蒸馏、冲突、晋
 - `references/entry-writing.md` — 条目写作规范（七类条目的 content 字段与质量线）
 - `references/distillation.md` — 蒸馏规范（quote 契约、字段取舍、预算）
 - `references/conflict-handling.md` — 冲突处理（R5 落地）
-- `references/promotion-criteria.md` — 晋升标准（跨运行复现或具名专家人审；DOI 不是晋升证据）
+- `references/promotion-criteria.md` — 晋升标准（跨运行复现；DOI 不是晋升证据）

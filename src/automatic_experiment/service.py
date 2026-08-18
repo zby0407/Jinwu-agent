@@ -2922,9 +2922,7 @@ def _knowledge_writeback(root: Path, state: dict[str, Any]) -> dict[str, Any]:
     try:
         from knowledge_base import service as kb_service
         from knowledge_base.store import KnowledgeStore
-    except Exception:  # noqa: BLE001
-        return {"status": "skipped", "entry_ids": [], "reason": "knowledge_base 不可用"}
-    try:
+
         run_id = str(state["run_id"])
         record = (
             read_json(root / "record.json")
@@ -2972,7 +2970,12 @@ def _knowledge_writeback(root: Path, state: dict[str, Any]) -> dict[str, Any]:
         finally:
             store.close()
     except Exception as exc:  # noqa: BLE001
-        return {"status": "failed", "entry_ids": [], "reason": str(exc)[:300]}
+        return {
+            "status": "failed",
+            "entry_ids": [],
+            "reason": "knowledge_base_writeback_failed",
+            "error_type": type(exc).__name__,
+        }
 
 
 def finalize(run_id: str) -> dict[str, Any]:

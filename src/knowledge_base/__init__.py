@@ -41,8 +41,6 @@ from .service import (
     propose,
     propose_literature_patch,
     read,
-    review_queue,
-    review_decide,
     search,
     usage_log,
 )
@@ -75,8 +73,6 @@ __all__ = [
     "read",
     "read_literature_task_bundle",
     "record_literature_entry_impact",
-    "review_queue",
-    "review_decide",
     "search",
     "search_literature",
     "usage_log",

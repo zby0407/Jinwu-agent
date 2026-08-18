@@ -62,7 +62,7 @@
       "id": "FR-H10",
       "category": "insufficient_evidence",
       "prompt": "只有三个完整太阳活动周的直接极区磁场配对，但月度记录很多。请判断现有证据能否支持稳定的普适预测关系。",
-      "required_stressors": ["independent_sample_count", "overconfidence", "human_review_boundary"]
+      "required_stressors": ["independent_sample_count", "overconfidence", "evidence_limit_preservation"]
     },
     {
       "id": "FR-H11",

@@ -328,44 +328,10 @@ class TestLiteratureIncrementApi(HttpApiTestCase):
         ).json()
         self.assertEqual(impacts[0]["id"], impact["id"])
         self.assertEqual(impacts[0]["affected_fields"], ["definition"])
-        patches = self.client.get("/api/kb/wiki/patches?status=pending").json()
+        patches = self.client.get(
+            "/api/kb/wiki/patches?status=proposal_only"
+        ).json()
         self.assertEqual(patches[0]["patch_id"], patch["patch_id"])
-        self.assertEqual(patches[0]["review_queue_id"], patch["review_queue_id"])
-
-
-class TestReviewQueueApi(HttpApiTestCase):
-    def test_pending_queue_items(self):
-        entry = self._propose()
-        self.store.add_review_item(
-            kind="promote",
-            entry_id=entry["id"],
-            payload={"reason": "跨运行复现", "supporting_run_ids": ["run-1"]},
-        )
-        resp = self.client.get("/api/kb/review_queue?status=pending")
-        self.assertEqual(resp.status_code, 200)
-        items = resp.json()
-        self.assertEqual(len(items), 1)
-        item = items[0]
-        self.assertEqual(item["kind"], "promote")
-        self.assertEqual(item["entry_id"], entry["id"])
-        self.assertEqual(item["status"], "pending")
-        self.assertIsInstance(item["payload"], dict)
-        self.assertEqual(item["payload"]["reason"], "跨运行复现")
-
-    def test_status_filter_excludes_decided(self):
-        entry = self._propose()
-        queue_id = self.store.add_review_item(
-            kind="promote", entry_id=entry["id"], payload={"reason": "r"}
-        )
-        self.store.decide_review_item(
-            queue_id, status="approved", reviewer="human", note="ok"
-        )
-        self.assertEqual(self.client.get("/api/kb/review_queue").json(), [])
-        decided = self.client.get("/api/kb/review_queue?status=approved").json()
-        self.assertEqual(len(decided), 1)
-        self.assertEqual(decided[0]["reviewer"], "human")
-        all_items = self.client.get("/api/kb/review_queue?status=all").json()
-        self.assertEqual(len(all_items), 1)
 
 
 class TestUsageApi(HttpApiTestCase):
@@ -394,6 +360,11 @@ class TestUsageApi(HttpApiTestCase):
         self.assertEqual(recent[0]["run_id"], "run-2")
 
 
+class TestRemovedApprovalApi(HttpApiTestCase):
+    def test_legacy_approval_queue_endpoint_is_not_registered(self):
+        self.assertEqual(self.client.get("/api/kb/review_queue").status_code, 404)
+
+
 class TestMissingDatabase(unittest.TestCase):
     """db 不存在：列表端点返回空数组，详情返回 404 JSON，都不 500。"""
 
@@ -410,7 +381,6 @@ class TestMissingDatabase(unittest.TestCase):
                 "/api/kb/literature/bundles",
                 "/api/kb/literature/impacts",
                 "/api/kb/wiki/patches",
-                "/api/kb/review_queue",
                 "/api/kb/usage",
             ):
                 resp = client.get(path)

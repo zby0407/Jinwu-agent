@@ -1,4 +1,4 @@
-"""Prompt templates for the JW experimental agent.
+"""Prompt templates for the JW research agent.
 
 Layout
 ------
@@ -21,6 +21,8 @@ Style notes
 2. Cross-references: functional only, not decorative.
 3. Skill internals belong in ``SKILL.md`` — keep here only *which* skill, *when*.
 """
+
+from .agent_harness import AUTONOMY_CONTRACT, render_capability_summary
 
 # =============================================================================
 # Identity
@@ -112,15 +114,15 @@ _EXPERIMENT_WORKFLOW_EXECUTION = """## Step 2: Plan (Recommended Structure)
   - `success_criteria.md` for success signals
 
 ## Step 3: Execute & Debug
-Before any code delegation, you MUST complete the Code Generation Mode Selection below.
+Before any code delegation, choose the implementation strategy below.
 
-### Code Generation Mode Selection
-Before delegating code tasks to code-agent, ask the user which code generation mode they prefer. Do not skip this step or assume a default silently.
-
-- **Lite** (default): Delegate to code-agent normally via the `task` tool.
-- **More Effort**: Check whether the `experiment-iterative-coder` skill is installed.
-  - If NOT installed → STOP. Do NOT fall back to Lite silently. Inform the user and suggest installing it, or choosing Lite mode. Then re-select.
-  - If installed → delegate to code-agent with the `experiment-iterative-coder` skill.
+### Internal Implementation Strategy
+Choose the smallest sufficient implementation path yourself. Use normal
+code-agent delegation by default. Use an installed iterative-coding skill when
+the requested result genuinely benefits from it. Ask the user only when the
+choice materially changes authorized cost, runtime, or the requested output.
+If an optional skill is unavailable, continue with the normal path unless the
+user explicitly required that skill.
 
 ### Task Delegation
 - Delegate tasks to sub-agents using the `task` tool:
@@ -387,10 +389,10 @@ that artifact and source receipts, and persists ReviewVerdictV2 without editing
 the producer output. Only the Supervisor routes each issue back to its declared
 owner. A new artifact hash invalidates the prior approval, and changed upstream
 hashes force downstream refresh. Never claim an independent or heterogeneous
-review passed unless a separate hash-matching receipt exists. Budget exhaustion,
-repeated no-progress, missing indispensable evidence, or an unavailable required
-independent review must remain blocked or require human review; they never imply
-acceptance.
+review passed unless a separate hash-matching receipt exists. Such a receipt is
+optional provenance, not a workflow gate. Budget exhaustion, repeated
+no-progress, or missing indispensable evidence must remain blocked; they never
+imply acceptance.
 
 The final visible answer for `full_research` is not a concatenation of specialist
 messages. First synthesize one coherent draft from accepted claims only, include
@@ -514,12 +516,14 @@ def get_system_prompt(
     Sections are concatenated in this order:
 
     1. :data:`JW_IDENTITY`
-    2. :data:`EXPERIMENT_WORKFLOW`
-    3. :data:`REPORT_TEMPLATE`
-    4. :data:`WRITING_GUIDELINES`
-    5. :data:`SHELL_GUIDELINES` (or :data:`SHELL_GUIDELINES_DANGEROUS`)
-    6. :data:`DELEGATION_STRATEGY`
-    7. :data:`ASYNC_NOTIFICATIONS`
+    2. :data:`AUTONOMY_CONTRACT` and the capability summary
+    3. :data:`TASK_WORKSPACE_POLICY`
+    4. :data:`EXPERIMENT_WORKFLOW`
+    5. :data:`REPORT_TEMPLATE`
+    6. :data:`WRITING_GUIDELINES`
+    7. :data:`SHELL_GUIDELINES` (or :data:`SHELL_GUIDELINES_DANGEROUS`)
+    8. :data:`DELEGATION_STRATEGY`
+    9. :data:`ASYNC_NOTIFICATIONS`
 
     Runtime context is injected per-turn by
     :class:`JW.middleware.RuntimeContextMiddleware`, so dates and
@@ -543,6 +547,8 @@ def get_system_prompt(
     )
     sections = [
         JW_IDENTITY,
+        AUTONOMY_CONTRACT,
+        render_capability_summary(),
         TASK_WORKSPACE_POLICY,
         EXPERIMENT_WORKFLOW,
         REPORT_TEMPLATE,

@@ -312,7 +312,7 @@ def test_canonical_wiki_binding_persists_mechanism_receipt(monkeypatch) -> None:
         "status": "canonical",
         "valid_range": "solar cycles with comparable polar-field measurements",
         "related_ids": [],
-        "provenance": {"human_reviewed": True},
+        "provenance": {"supporting_run_ids": ["run-a", "run-b"]},
         "version": 3,
     }
     monkeypatch.setattr(
@@ -346,7 +346,7 @@ def test_canonical_wiki_binding_persists_mechanism_receipt(monkeypatch) -> None:
     assert bound["material_id"] == entry["id"]
     assert '"status":"canonical"' in bound["excerpt"]
     assert "provenance_sha256" in bound["excerpt"]
-    assert "human_reviewed" in bound["excerpt"]
+    assert "supporting_run_ids" in bound["excerpt"]
     assert '"kb_read_receipt"' in bound["excerpt"]
     assert outcome["kb_read_receipt"]["log_id"] == 17
 
@@ -531,6 +531,72 @@ def test_hypothesis_literature_bundle_uses_exact_bound_question(
         warning["code"] == "literature_pass_missing"
         for warning in after["soft_warnings"]
     )
+
+
+def test_novelty_bundle_deduplicates_families_and_preserves_coverage_gap(
+    monkeypatch,
+) -> None:
+    thread_id = "hypothesis-novelty-bundle"
+    question = "Compare polar-field transport with a measurement null for the next solar cycle."
+    config = _config(thread_id)
+    hypothesis_tools._STATES.pop(thread_id, None)
+    hypothesis_tools.scientific_hypothesis_bind_request.invoke(
+        {"request_input": question},
+        config=config,
+    )
+    axes = [
+        "polar field transport mechanism 极区场输运机制",
+        "polar field observable cycle amplitude 极区场与活动周振幅",
+        "measurement drift statistical null 测量漂移统计零假设",
+    ]
+
+    def fake_build(
+        store,
+        research_question,
+        focus,
+        *,
+        feed_ids,
+        limit,
+        run_id,
+    ):
+        index = axes.index(focus)
+        sources = [
+            {
+                "source_id": f"source-{index}-{offset}",
+                "family_id": "shared-family"
+                if offset == 0
+                else f"family-{index}-{offset}",
+                "title": f"Nearest art {index}-{offset}",
+                "abstract": "A cached abstract.",
+            }
+            for offset in range(3)
+        ]
+        return {
+            "status": "ok",
+            "bundle_id": f"bundle-{index}",
+            "sources": sources,
+        }
+
+    monkeypatch.setattr(knowledge_tools, "_get_store", lambda: object())
+    monkeypatch.setattr(
+        knowledge_tools.literature,
+        "build_literature_task_bundle",
+        fake_build,
+    )
+    outcome = json.loads(
+        hypothesis_tools.scientific_hypothesis_build_novelty_bundle.invoke(
+            {"query_axes": axes, "per_axis_limit": 3},
+            config=config,
+        )
+    )
+
+    assert outcome["schema_version"] == "scientific-hypothesis-novelty-bundle-v1"
+    assert outcome["status"] == "coverage_gap"
+    assert outcome["searched_family_count"] == 7
+    assert len(outcome["axis_results"]) == 3
+    state = hypothesis_tools._STATES[thread_id]
+    assert state.novelty_bundle_attempted is True
+    assert state.novelty_bundle_ids == ["bundle-0", "bundle-1", "bundle-2"]
 
 
 def test_draft_update_accepts_common_structured_payload_wrappers() -> None:
@@ -980,7 +1046,7 @@ def test_stable_wiki_data_and_method_entries_can_be_bound_as_limits(
         "status": "canonical",
         "valid_range": "the documented data product and evaluation design",
         "related_ids": [],
-        "provenance": {"human_reviewed": True},
+        "provenance": {"supporting_run_ids": ["run-a", "run-b"]},
         "version": 2,
     }
     monkeypatch.setattr(

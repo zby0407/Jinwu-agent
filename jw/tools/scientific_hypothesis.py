@@ -18,6 +18,7 @@ import sys
 import tempfile
 from copy import deepcopy
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from pathlib import Path
 from threading import RLock
 from typing import Any
@@ -111,6 +112,7 @@ REQUIRED_CANDIDATE_FIELDS = {
     "confidence",
     "evidence_update",
     "prior_version_id",
+    "scientific_quality",
 }
 WIKI_GROUNDING_TYPES = {
     "concept",
@@ -232,6 +234,8 @@ class _HypothesisState:
     persistence_warning: str | None = None
     literature_bundle_attempted: bool = False
     literature_bundle_id: str | None = None
+    novelty_bundle_attempted: bool = False
+    novelty_bundle_ids: list[str] = field(default_factory=list)
     _persistence_lock: Any = field(
         default_factory=RLock,
         repr=False,
@@ -275,6 +279,8 @@ def _working_state_payload(state: _HypothesisState) -> dict[str, Any]:
         "same_validation_error_count": state.same_validation_error_count,
         "literature_bundle_attempted": state.literature_bundle_attempted,
         "literature_bundle_id": state.literature_bundle_id,
+        "novelty_bundle_attempted": state.novelty_bundle_attempted,
+        "novelty_bundle_ids": list(state.novelty_bundle_ids),
     }
 
 
@@ -1369,6 +1375,12 @@ def _load_persisted_state(path: Path) -> _HypothesisState:
     stored_bundle_id = raw.get("literature_bundle_id")
     if isinstance(stored_bundle_id, str) and stored_bundle_id:
         state.literature_bundle_id = stored_bundle_id
+    state.novelty_bundle_attempted = bool(raw.get("novelty_bundle_attempted", False))
+    stored_novelty_ids = raw.get("novelty_bundle_ids")
+    if isinstance(stored_novelty_ids, list):
+        state.novelty_bundle_ids = [
+            str(item) for item in stored_novelty_ids if isinstance(item, str) and item
+        ][:5]
 
     checkpoint = raw.get("checkpoint")
     if isinstance(checkpoint, dict):
@@ -1877,6 +1889,124 @@ def scientific_hypothesis_build_literature_bundle(
         return _ok(result)
     except Exception as exc:
         return _needs_revision(exc)
+
+
+@tool(parse_docstring=True)
+def scientific_hypothesis_build_novelty_bundle(
+    query_axes: list[str],
+    per_axis_limit: int = 4,
+    config: RunnableConfig = None,
+) -> str:
+    """Build a cached nearest-prior-art bundle over independent query axes.
+
+    This tool is for originality assessment after scientific candidates exist;
+    it is not a long-tail generator and never turns mechanism distance into a
+    novelty verdict. It searches only the project literature cache and returns
+    an explicit coverage gap when the cache is insufficient. At least three
+    axes are required: core mechanism, mechanism-observable combination, and
+    strongest rival or measurement/statistical null.
+
+    Args:
+        query_axes: Three to five concrete bilingual nearest-prior-art queries.
+        per_axis_limit: Cached sources per axis, from one to five.
+
+    Returns:
+        JSON with deduplicated literature families, per-axis coverage, search
+        cutoff, and gaps. Priority claims are never emitted by this tool.
+    """
+    state: _HypothesisState | None = None
+    try:
+        from jw.tools.knowledge_base import _get_store, _run_context
+        from knowledge_base import literature
+
+        state = _state(config)
+        request = _require_active_request(state)
+        if not isinstance(query_axes, list) or not 3 <= len(query_axes) <= 5:
+            raise ValueError("query_axes 必须包含 3-5 条独立检索轴")
+        axes = [" ".join(str(axis or "").split()) for axis in query_axes]
+        if any(len(axis) < 12 or len(axis) > 500 for axis in axes):
+            raise ValueError("每条 query axis 必须是 12-500 字符的具体双语检索说明")
+        if len({axis.casefold() for axis in axes}) != len(axes):
+            raise ValueError("query_axes 不能重复")
+        selected_limit = max(1, min(int(per_axis_limit or 4), 5))
+        store = _get_store()
+        _, run_id = _run_context(config)
+        per_axis: list[dict[str, Any]] = []
+        families: dict[str, dict[str, Any]] = {}
+        bundle_ids: list[str] = []
+        for axis in axes:
+            result = literature.build_literature_task_bundle(
+                store,
+                request["research_question"],
+                axis,
+                feed_ids=[],
+                limit=selected_limit,
+                run_id=run_id,
+            )
+            bundle_id = str(result.get("bundle_id") or "")
+            if bundle_id:
+                bundle_ids.append(bundle_id)
+            source_keys: list[str] = []
+            for source in result.get("sources", []):
+                if not isinstance(source, dict):
+                    continue
+                key = str(source.get("family_id") or source.get("source_id") or "")
+                if not key:
+                    continue
+                source_keys.append(key)
+                existing = families.get(key)
+                if existing is None:
+                    existing = deepcopy(source)
+                    existing["matched_query_axes"] = []
+                    families[key] = existing
+                if axis not in existing["matched_query_axes"]:
+                    existing["matched_query_axes"].append(axis)
+            per_axis.append(
+                {
+                    "query_axis": axis,
+                    "bundle_id": bundle_id or None,
+                    "source_families": source_keys,
+                    "status": result.get("status", "evidence_gap"),
+                }
+            )
+        deduplicated = list(families.values())[:12]
+        gaps = [
+            f"No cached nearest prior art matched query axis: {row['query_axis']}"
+            for row in per_axis
+            if not row["source_families"]
+        ]
+        if len(deduplicated) < 8:
+            gaps.append(
+                f"Only {len(deduplicated)} deduplicated literature families were covered; target is 8-12."
+            )
+        state.literature_bundle_attempted = True
+        state.novelty_bundle_attempted = True
+        state.novelty_bundle_ids = list(dict.fromkeys(bundle_ids))[:5]
+        state_path = _persist_state(config, state)
+        return _ok(
+            {
+                "schema_version": "scientific-hypothesis-novelty-bundle-v1",
+                "status": "coverage_ready" if not gaps else "coverage_gap",
+                "research_question": request["research_question"],
+                "query_axes": axes,
+                "searched_family_count": len(deduplicated),
+                "source_families": deduplicated,
+                "axis_results": per_axis,
+                "search_cutoff": datetime.now(UTC).isoformat(),
+                "coverage_gaps": gaps,
+                "notice": (
+                    "This bundle supports nearest-prior-art comparison only. "
+                    "It cannot establish priority, importance, or a first claim; "
+                    "those claims must be omitted from the automatic result."
+                ),
+                "state_persistence": "workspace"
+                if state_path is not None
+                else "memory_only",
+                "persistence_warning": state.persistence_warning,
+            }
+        )
+    except Exception as exc:
+        return _needs_revision(exc, state=state)
 
 
 @tool(parse_docstring=True)
@@ -2641,6 +2771,7 @@ SCIENTIFIC_HYPOTHESIS_TOOLS = [
     scientific_hypothesis_bind_evidence,
     scientific_hypothesis_bind_wiki_evidence,
     scientific_hypothesis_build_literature_bundle,
+    scientific_hypothesis_build_novelty_bundle,
     scientific_hypothesis_bind_literature_evidence,
     scientific_hypothesis_update_draft,
     scientific_hypothesis_get_draft,

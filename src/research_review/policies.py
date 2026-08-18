@@ -5,9 +5,17 @@ from __future__ import annotations
 from copy import deepcopy
 from typing import Any
 
-POLICY_VERSION = "evidence-policy-v2.8"
+POLICY_VERSION = "evidence-policy-v2.9"
 
 _RULES: tuple[dict[str, Any], ...] = (
+    {
+        "rule_id": "WORKFLOW_STATUS_NOT_SCIENTIFIC",
+        "layer": "producer_hard",
+        "stages": ["hypothesis", "integration", "final_release"],
+        "default_severity": "critical",
+        "executor": "deterministic_and_reviewer",
+        "description": "Blocked or clarification-only workflow status is never projected as a scientific mechanism or release claim.",
+    },
     {
         "rule_id": "SCHEMA_VALID",
         "layer": "producer_hard",
@@ -78,6 +86,30 @@ _RULES: tuple[dict[str, Any], ...] = (
         "description": "Material claims point to inspected source excerpts, data receipts, or real measurements.",
     },
     {
+        "rule_id": "EVIDENCE_MATRIX_COMPLETE",
+        "layer": "shared_semantic",
+        "stages": [
+            "planning",
+            "data",
+            "hypothesis",
+            "experiment_design",
+            "experiment_result",
+            "integration",
+            "final_release",
+        ],
+        "default_severity": "major",
+        "executor": "reviewer_and_contract",
+        "description": "Every reviewed load-bearing claim records evidence role, source class, directness, scope match, independence group, exact locator, entailment, and conclusion cap.",
+    },
+    {
+        "rule_id": "EVIDENCE_INDEPENDENCE_AND_DIRECTNESS",
+        "layer": "shared_semantic",
+        "stages": ["hypothesis", "experiment_result", "integration", "final_release"],
+        "default_severity": "major",
+        "executor": "reviewer",
+        "description": "Repeated papers, shared datasets, and one model family do not masquerade as independent direct evidence; abstract-only context caps claim strength.",
+    },
+    {
         "rule_id": "CLAIM_EVIDENCE_ENTAILMENT",
         "layer": "shared_semantic",
         "stages": ["hypothesis", "experiment_result", "integration", "final_release"],
@@ -111,7 +143,13 @@ _RULES: tuple[dict[str, Any], ...] = (
     {
         "rule_id": "TEMPORAL_CAUSAL_ORDER",
         "layer": "shared_semantic",
-        "stages": ["hypothesis", "experiment_design", "experiment_result", "integration", "final_release"],
+        "stages": [
+            "hypothesis",
+            "experiment_design",
+            "experiment_result",
+            "integration",
+            "final_release",
+        ],
         "default_severity": "major",
         "executor": "producer_preflight_and_reviewer",
         "description": "Every proposed cause precedes its outcome on the declared solar-cycle timeline; predictors, descendants, and next-cycle effects are not reversed into contemporaneous causes.",
@@ -119,7 +157,12 @@ _RULES: tuple[dict[str, Any], ...] = (
     {
         "rule_id": "SOLAR_DYNAMO_REGIME_BOUNDARY",
         "layer": "reviewer_semantic",
-        "stages": ["hypothesis", "experiment_design", "experiment_result", "integration"],
+        "stages": [
+            "hypothesis",
+            "experiment_design",
+            "experiment_result",
+            "integration",
+        ],
         "default_severity": "major",
         "executor": "reviewer",
         "description": "Surface versus subsurface transport, dynamo-model regime, transport-effect sign, and precursor-versus-dominance claims remain explicitly separated and evidence bounded.",
@@ -153,6 +196,20 @@ _RULES: tuple[dict[str, Any], ...] = (
         "default_severity": "major",
         "executor": "producer_preflight_and_reviewer",
         "description": "Predictive claims use time-valid baselines, rolling or external validation, uncertainty, and calibration appropriate to the question.",
+    },
+    {
+        "rule_id": "ANALYSIS_CLAIM_CONTRACT_VALID",
+        "layer": "shared_semantic",
+        "stages": [
+            "planning",
+            "hypothesis",
+            "experiment_design",
+            "experiment_result",
+            "integration",
+        ],
+        "default_severity": "major",
+        "executor": "producer_and_reviewer",
+        "description": "Estimand, independent sample unit/count, cutoff, information set, primary analysis, baseline, validation, decision rule, uncertainty, sensitivity, influence, and outcome branches are explicit and mutually consistent.",
     },
     {
         "rule_id": "EXPERIMENT_EXECUTION_REPRODUCIBLE",
@@ -216,12 +273,20 @@ _RULES: tuple[dict[str, Any], ...] = (
         "description": "Every material final passage is semantically entailed by accepted claims; synthesis adds no unsupported number, cause, novelty, or forecast wording.",
     },
     {
-        "rule_id": "NOVELTY_AND_PUBLICATION_ADJUDICATION",
-        "layer": "human_only",
+        "rule_id": "PRIORITY_AND_SIGNIFICANCE_CLAIMS_PROHIBITED",
+        "layer": "reviewer_semantic",
         "stages": ["integration", "final_release"],
         "default_severity": "critical",
-        "executor": "heterogeneous_or_human",
-        "description": "Novelty priority, major significance, ethics, and top-journal competitiveness require independent adjudication.",
+        "executor": "solar-evidence",
+        "description": "The automated release must omit priority, first-discovery, major-significance, and journal-competitiveness claims.",
+    },
+    {
+        "rule_id": "NOVELTY_TRACEABLE",
+        "layer": "reviewer_semantic",
+        "stages": ["hypothesis", "integration", "final_release"],
+        "default_severity": "major",
+        "executor": "solar-evidence",
+        "description": "Novelty distance is separated from priority: potentially_novel is only a traceable candidate label and never a priority or first-discovery claim.",
     },
 )
 

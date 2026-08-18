@@ -131,6 +131,42 @@ def make_candidate(cid="cand_dynamo", statement="第24周极小期延长源于�
         "confidence": {"level": "low", "basis": "目前没有直接证据，只是机制设想"},
         "evidence_update": None,
         "prior_version_id": None,
+        "scientific_quality": {
+            "contribution_type": "not_assessed",
+            "novelty_status": "novelty_not_assessed",
+            "novelty_delta": "尚未完成与最近既有工作的逐项差异核验",
+            "nearest_prior_art": [],
+            "query_axes": [],
+            "searched_family_count": 0,
+            "search_cutoff": None,
+            "coverage_gaps": ["尚未完成 nearest-prior-art 检索"],
+            "causal_chain": {
+                "cause": "发电机效率变化",
+                "mediator": "极区磁场反转进程",
+                "observable": "极区磁通衰减速率",
+                "cycle_index": "第24周过程与第25周对照，不跨写为同周振幅因果",
+            },
+            "identifiability": {
+                "association_only": "同口径差异只能支持关联性解释",
+                "mechanism_support_requires": "需要能区分发电机变化与测量口径变化的独立观测",
+            },
+            "evidence_confidence_caps": {
+                "supporting": "exploratory",
+                "opposing": "exploratory",
+                "limiting": "exploratory",
+                "unknown": "exploratory",
+            },
+            "outcome_branches": [
+                {
+                    "outcome": "同口径后差异保留",
+                    "claim_update": "仅提高为受证据约束的候选",
+                },
+                {
+                    "outcome": "同口径后差异消失",
+                    "claim_update": "降低发电机解释并支持测量解释",
+                },
+            ],
+        },
     }
 
 

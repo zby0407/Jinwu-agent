@@ -32,7 +32,6 @@ import re
 from typing import Any
 
 SCHEMA_VERSION = "knowledge-entry-v1"
-REVIEW_DECISION_VERSION = "knowledge-review-decision-v1"
 
 ENTRY_TYPES = {
     "concept",
@@ -54,9 +53,6 @@ SOURCE_TYPES = {
 CONFIDENCE_LEVELS = {"high", "medium", "low"}
 STATUSES = {"candidate", "canonical", "deprecated", "superseded"}
 
-REVIEW_KINDS = {"promote", "conflict", "deprecate", "revalidate"}
-REVIEW_STATUSES = {"pending", "approved", "rejected", "auto_approved"}
-REVIEW_DECISIONS = {"approved", "rejected"}
 
 # Legal lifecycle transitions (R2: everything starts as candidate; the
 # promotion gate is the only way into canonical; canonical can never go
@@ -391,36 +387,6 @@ def check_status_transition(from_status: str, to_status: str) -> None:
         )
 
 
-def validate_review_decision(decision: dict[str, Any]) -> dict[str, Any]:
-    """Validate a review-queue decision payload (kb_review_decide contract)."""
-
-    if not isinstance(decision, dict):
-        _fail(
-            "review decision must be an object",
-            error_code="decision_not_object",
-            field_path="",
-            suggestion="提供 {queue_id, decision, note?, reviewer?} 对象。",
-        )
-    queue_id = decision.get("queue_id")
-    if not isinstance(queue_id, int) or isinstance(queue_id, bool) or queue_id < 1:
-        _fail(
-            "queue_id must be a positive integer",
-            error_code="queue_id_invalid",
-            field_path="queue_id",
-            suggestion="queue_id 取自 kb_conflicts / kb_promote 返回的审核队列 id。",
-        )
-    value = decision.get("decision", "")
-    if value not in REVIEW_DECISIONS:
-        _fail(
-            f"unknown review decision: {value!r}",
-            error_code="unknown_review_decision",
-            field_path="decision",
-            suggestion=f"decision 必须是 {sorted(REVIEW_DECISIONS)} 之一。",
-        )
-    return decision
-
-
-# ----------------------------------------------------------------------
 # literature distill anti-hallucination contract (plan §5.3)
 # ----------------------------------------------------------------------
 DISTILL_VERSION = "literature-distill-v1"

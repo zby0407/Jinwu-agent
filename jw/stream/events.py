@@ -17,12 +17,8 @@ from langgraph.graph import END
 from langgraph.types import Command, Interrupt
 
 from ..memory.worker_activity import clear_completed_memory_activity_counts
+from ..pi_bridge.graph import PiAgentGraph
 from .emitter import StreamEventEmitter
-
-try:
-    from ..pi_bridge.graph import PiAgentGraph
-except Exception:
-    PiAgentGraph = None  # type: ignore[misc,assignment]
 from .summarization import (
     _extract_summary_message_text,
     _find_summarization_event_payload,
@@ -831,7 +827,7 @@ async def stream_agent_events(
     # -----------------------------------------------------------------
     # pi Agent bridge path: avoid LangGraph v3 event machinery entirely
     # -----------------------------------------------------------------
-    if PiAgentGraph is not None and isinstance(agent, PiAgentGraph):
+    if isinstance(agent, PiAgentGraph):
         try:
             async for event in agent.astream_events(
                 await build_agent_stream_input(message, media=media),
