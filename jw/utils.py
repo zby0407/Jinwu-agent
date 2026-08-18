@@ -6,6 +6,7 @@ notebooks, and lightweight configuration loaders used by the agent runtime.
 
 import json
 import logging
+import os
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
@@ -109,6 +110,31 @@ def show_prompt(prompt_text: str, title: str = "Prompt", border_style: str = "bl
             padding=(1, 2),
         )
     )
+
+
+_EVIDENCE_REVIEW_MODE_ENV = "JW_EVIDENCE_REVIEW_MODE"
+
+# Stage-2 active-falsification block, appended to the solar-evidence system
+# prompt only when JW_EVIDENCE_REVIEW_MODE=two_pass.  Kept as one block of
+# prose (not per-line edits) so the reviewer reads it as a single contract.
+_EVIDENCE_TWO_PASS_PROMPT = """
+
+This review runs in two_pass mode: after the closed pass above, run one bounded active-falsification pass before submitting your verdict. In the closed pass, assess every material claim only against the producer's own inspected evidence and the local knowledge base. Then, for each load-bearing claim — one whose disposition could change the routing decision — actively try to refute it. First consult the task-local literature cache via kb_query/kb_read (at most 5 distinct sources). Only if that cache leaves a decisive gap may you issue at most 2 public web lookups (tavily_search), reading at most 5 returned pages total. Treat web output as leads to adjudicate, never as authoritative support by itself; a failed search, an empty cache, or a truncated page is not evidence and must not, on its own, block or revise the artifact — record it as an explicit uncertainty instead. Do not let the falsification pass manufacture new numbers, dates, or sources; every quantitative claim you cite must come from an inspected source.
+
+Before calling evidence_review_submit_verdict, call evidence_review_record_assessment exactly once with assessment_review_mode=two_pass and one entry per reviewed claim: its disposition (supported, limited_support, opposed, contradicted, or undecided), the supporting and opposing evidence you actually inspected, a concise rationale, the key remaining uncertainty, your confidence, and the single most discriminating next test. The assessment is a sidecar for later analysis; it does not change routing and does not replace the verdict.
+
+Stay non-defensive: a negative, null, or insufficient-evidence result is a valid outcome when the design and execution are valid. Do not escalate a minor defect to major, do not demand a rerun merely to reach significance, and do not convert an irreducible disclosed limitation into a revision request — carry it forward with accept_with_limits. Block or revise only for defects that affect scientific truth, scope of applicability, method validity, or release risk.
+"""
+
+_EVIDENCE_CLOSED_ASSESSMENT_PROMPT = """
+
+Before calling evidence_review_submit_verdict, call evidence_review_record_assessment exactly once with assessment_review_mode=closed and one entry per reviewed claim: its disposition (supported, limited_support, opposed, contradicted, or undecided), the supporting and opposing evidence you actually inspected, a concise rationale, the key remaining uncertainty, your confidence, and the single most discriminating next test. The assessment is a sidecar for later analysis; it does not change routing and does not replace the verdict.
+"""
+
+
+def _evidence_review_mode() -> str:
+    mode = os.environ.get(_EVIDENCE_REVIEW_MODE_ENV, "two_pass").strip().lower()
+    return mode if mode in {"closed", "two_pass"} else "two_pass"
 
 
 def load_subagents(
@@ -236,6 +262,22 @@ def load_subagents(
     subagents: list[dict[str, Any]] = []
 
     def _build_one(name: str, spec: dict[str, Any]) -> dict[str, Any]:
+        if name == "solar-evidence":
+            # Two-pass Evidence review is assembled here so the same yaml stays
+            # the single source of the closed-pass contract; the env selects
+            # whether the active-falsification stage and web-search are added.
+            spec = dict(spec)
+            mode = _evidence_review_mode()
+            base_prompt = spec.get("system_prompt", "")
+            if mode == "two_pass":
+                spec["system_prompt"] = base_prompt + _EVIDENCE_TWO_PASS_PROMPT
+                bundles = list(spec.get("tool_bundles", []))
+                if "web-search" not in bundles:
+                    bundles.append("web-search")
+                spec["tool_bundles"] = bundles
+            else:
+                spec["system_prompt"] = base_prompt + _EVIDENCE_CLOSED_ASSESSMENT_PROMPT
+
         subagent: dict[str, Any] = {
             "name": name,
             "description": spec.get("description", ""),

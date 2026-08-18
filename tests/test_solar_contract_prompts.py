@@ -68,6 +68,7 @@ def test_evidence_agent_is_read_only_and_uses_typed_review_tools():
     review_tools = {tool.name for tool in get_tool_bundles()["research-review"]}
     for name in (
         "evidence_review_open_context",
+        "evidence_review_record_assessment",
         "evidence_review_submit_verdict",
         "evidence_review_get_status",
     ):
@@ -185,6 +186,11 @@ def test_hypothesis_agent_reads_wiki_before_generating_candidates():
         "评分、排序、rubric、search-region、Pareto 与选择轨迹只属于内部工作状态" in text
     )
     assert "原始评分结构仍留在内部状态" in text
+
+
+def test_planner_agent_budget_covers_incremental_freeze():
+    text = _read("jw/subagents/solar/solar_planner.yaml")
+    assert "model_call_limit: 48" in text
 
 
 def test_parent_does_not_rewrite_hypothesis_specialist_state():

@@ -1,0 +1,767 @@
+{
+  "schema_version": "webui-eval-summary-v1",
+  "runs": 36,
+  "expected_runs": 36,
+  "case_table": [
+    {
+      "case_id": "FR-H01",
+      "review_mode": "two_pass",
+      "runs": 1,
+      "expected_outcomes": [
+        "temporal_causal_revision"
+      ],
+      "observed_outcomes": {
+        "runtime_error": 1
+      },
+      "reviewer_families": [
+        "kimi"
+      ],
+      "assessment_coverage": true,
+      "provider_or_runtime_400": 0,
+      "illegal_routes": 0,
+      "p95_latency_seconds": 754.445,
+      "mean_observed_tokens": 23006.0
+    },
+    {
+      "case_id": "FR-H02",
+      "review_mode": "two_pass",
+      "runs": 1,
+      "expected_outcomes": [
+        "mechanism_scope_limited"
+      ],
+      "observed_outcomes": {
+        "runtime_error": 1
+      },
+      "reviewer_families": [
+        "kimi"
+      ],
+      "assessment_coverage": true,
+      "provider_or_runtime_400": 0,
+      "illegal_routes": 0,
+      "p95_latency_seconds": 781.516,
+      "mean_observed_tokens": 0.0
+    },
+    {
+      "case_id": "FR-H03",
+      "review_mode": "two_pass",
+      "runs": 1,
+      "expected_outcomes": [
+        "future_information_rejected"
+      ],
+      "observed_outcomes": {
+        "runtime_error": 1
+      },
+      "reviewer_families": [
+        "kimi"
+      ],
+      "assessment_coverage": true,
+      "provider_or_runtime_400": 0,
+      "illegal_routes": 0,
+      "p95_latency_seconds": 39.015,
+      "mean_observed_tokens": 0.0
+    },
+    {
+      "case_id": "FR-H04",
+      "review_mode": "two_pass",
+      "runs": 1,
+      "expected_outcomes": [
+        "event_semantics_revision"
+      ],
+      "observed_outcomes": {
+        "runtime_error": 1
+      },
+      "reviewer_families": [
+        "kimi"
+      ],
+      "assessment_coverage": true,
+      "provider_or_runtime_400": 0,
+      "illegal_routes": 0,
+      "p95_latency_seconds": 38.329,
+      "mean_observed_tokens": 0.0
+    },
+    {
+      "case_id": "FR-H05",
+      "review_mode": "two_pass",
+      "runs": 1,
+      "expected_outcomes": [
+        "candidate_failed_backtest"
+      ],
+      "observed_outcomes": {
+        "runtime_error": 1
+      },
+      "reviewer_families": [
+        "kimi"
+      ],
+      "assessment_coverage": true,
+      "provider_or_runtime_400": 0,
+      "illegal_routes": 0,
+      "p95_latency_seconds": 37.825,
+      "mean_observed_tokens": 0.0
+    },
+    {
+      "case_id": "FR-H06",
+      "review_mode": "two_pass",
+      "runs": 1,
+      "expected_outcomes": [
+        "invalid_backtest_revision"
+      ],
+      "observed_outcomes": {
+        "runtime_error": 1
+      },
+      "reviewer_families": [
+        "kimi"
+      ],
+      "assessment_coverage": true,
+      "provider_or_runtime_400": 0,
+      "illegal_routes": 0,
+      "p95_latency_seconds": 230.493,
+      "mean_observed_tokens": 22814.0
+    },
+    {
+      "case_id": "FR-H07",
+      "review_mode": "two_pass",
+      "runs": 1,
+      "expected_outcomes": [
+        "data_semantics_blocked"
+      ],
+      "observed_outcomes": {
+        "completed_without_answer": 1
+      },
+      "reviewer_families": [
+        "kimi"
+      ],
+      "assessment_coverage": true,
+      "provider_or_runtime_400": 0,
+      "illegal_routes": 0,
+      "p95_latency_seconds": 3.788,
+      "mean_observed_tokens": 0.0
+    },
+    {
+      "case_id": "FR-H08",
+      "review_mode": "two_pass",
+      "runs": 1,
+      "expected_outcomes": [
+        "cross_catalog_scope_limited"
+      ],
+      "observed_outcomes": {
+        "runtime_error": 1
+      },
+      "reviewer_families": [
+        "kimi"
+      ],
+      "assessment_coverage": true,
+      "provider_or_runtime_400": 0,
+      "illegal_routes": 0,
+      "p95_latency_seconds": 226.692,
+      "mean_observed_tokens": 0.0
+    },
+    {
+      "case_id": "FR-H09",
+      "review_mode": "two_pass",
+      "runs": 1,
+      "expected_outcomes": [
+        "null_result_with_uncertainty"
+      ],
+      "observed_outcomes": {
+        "runtime_error": 1
+      },
+      "reviewer_families": [
+        "kimi"
+      ],
+      "assessment_coverage": true,
+      "provider_or_runtime_400": 0,
+      "illegal_routes": 0,
+      "p95_latency_seconds": 38.044,
+      "mean_observed_tokens": 0.0
+    },
+    {
+      "case_id": "FR-H10",
+      "review_mode": "two_pass",
+      "runs": 1,
+      "expected_outcomes": [
+        "insufficient_evidence"
+      ],
+      "observed_outcomes": {
+        "completed_without_answer": 1
+      },
+      "reviewer_families": [
+        "kimi"
+      ],
+      "assessment_coverage": true,
+      "provider_or_runtime_400": 0,
+      "illegal_routes": 0,
+      "p95_latency_seconds": 3.904,
+      "mean_observed_tokens": 0.0
+    },
+    {
+      "case_id": "FR-H11",
+      "review_mode": "two_pass",
+      "runs": 1,
+      "expected_outcomes": [
+        "cross_stage_revision"
+      ],
+      "observed_outcomes": {
+        "runtime_error": 1
+      },
+      "reviewer_families": [
+        "kimi"
+      ],
+      "assessment_coverage": true,
+      "provider_or_runtime_400": 0,
+      "illegal_routes": 0,
+      "p95_latency_seconds": 37.86,
+      "mean_observed_tokens": 0.0
+    },
+    {
+      "case_id": "FR-H12",
+      "review_mode": "two_pass",
+      "runs": 1,
+      "expected_outcomes": [
+        "final_release_blocked"
+      ],
+      "observed_outcomes": {
+        "runtime_error": 1
+      },
+      "reviewer_families": [
+        "kimi"
+      ],
+      "assessment_coverage": true,
+      "provider_or_runtime_400": 0,
+      "illegal_routes": 0,
+      "p95_latency_seconds": 3117.612,
+      "mean_observed_tokens": 26758.0
+    },
+    {
+      "case_id": "SC26-B01",
+      "review_mode": "closed",
+      "runs": 1,
+      "expected_outcomes": [
+        "deterministic_fact"
+      ],
+      "observed_outcomes": {
+        "completed_with_answer": 1
+      },
+      "reviewer_families": [
+        "kimi"
+      ],
+      "assessment_coverage": false,
+      "provider_or_runtime_400": 0,
+      "illegal_routes": 0,
+      "p95_latency_seconds": 363.651,
+      "mean_observed_tokens": 47175.0
+    },
+    {
+      "case_id": "SC26-B01",
+      "review_mode": "two_pass",
+      "runs": 3,
+      "expected_outcomes": [
+        "deterministic_fact"
+      ],
+      "observed_outcomes": {
+        "completed_with_answer": 3
+      },
+      "reviewer_families": [
+        "kimi"
+      ],
+      "assessment_coverage": false,
+      "provider_or_runtime_400": 0,
+      "illegal_routes": 0,
+      "p95_latency_seconds": 317.799,
+      "mean_observed_tokens": 8465.666666666666
+    },
+    {
+      "case_id": "SC26-B02",
+      "review_mode": "closed",
+      "runs": 1,
+      "expected_outcomes": [
+        "supported_not_causal"
+      ],
+      "observed_outcomes": {
+        "completed_with_answer": 1
+      },
+      "reviewer_families": [
+        "kimi"
+      ],
+      "assessment_coverage": false,
+      "provider_or_runtime_400": 0,
+      "illegal_routes": 0,
+      "p95_latency_seconds": 300.92,
+      "mean_observed_tokens": 23978.0
+    },
+    {
+      "case_id": "SC26-B02",
+      "review_mode": "two_pass",
+      "runs": 3,
+      "expected_outcomes": [
+        "supported_not_causal"
+      ],
+      "observed_outcomes": {
+        "completed_with_answer": 3
+      },
+      "reviewer_families": [
+        "kimi"
+      ],
+      "assessment_coverage": false,
+      "provider_or_runtime_400": 0,
+      "illegal_routes": 0,
+      "p95_latency_seconds": 577.278,
+      "mean_observed_tokens": 17994.333333333332
+    },
+    {
+      "case_id": "SC26-B03",
+      "review_mode": "closed",
+      "runs": 1,
+      "expected_outcomes": [
+        "measurement_drift_preferred"
+      ],
+      "observed_outcomes": {
+        "completed_with_answer": 1
+      },
+      "reviewer_families": [
+        "kimi"
+      ],
+      "assessment_coverage": true,
+      "provider_or_runtime_400": 0,
+      "illegal_routes": 0,
+      "p95_latency_seconds": 1496.41,
+      "mean_observed_tokens": 0.0
+    },
+    {
+      "case_id": "SC26-B03",
+      "review_mode": "two_pass",
+      "runs": 3,
+      "expected_outcomes": [
+        "measurement_drift_preferred"
+      ],
+      "observed_outcomes": {
+        "completed_with_answer": 2,
+        "runtime_error": 1
+      },
+      "reviewer_families": [
+        "kimi"
+      ],
+      "assessment_coverage": true,
+      "provider_or_runtime_400": 0,
+      "illegal_routes": 0,
+      "p95_latency_seconds": 1029.169,
+      "mean_observed_tokens": 0.0
+    },
+    {
+      "case_id": "SC26-B04",
+      "review_mode": "closed",
+      "runs": 1,
+      "expected_outcomes": [
+        "candidate_failed_backtest"
+      ],
+      "observed_outcomes": {
+        "completed_with_answer": 1
+      },
+      "reviewer_families": [
+        "kimi"
+      ],
+      "assessment_coverage": true,
+      "provider_or_runtime_400": 0,
+      "illegal_routes": 0,
+      "p95_latency_seconds": 1534.781,
+      "mean_observed_tokens": 33351.0
+    },
+    {
+      "case_id": "SC26-B04",
+      "review_mode": "two_pass",
+      "runs": 3,
+      "expected_outcomes": [
+        "candidate_failed_backtest"
+      ],
+      "observed_outcomes": {
+        "completed_with_answer": 3
+      },
+      "reviewer_families": [
+        "kimi"
+      ],
+      "assessment_coverage": true,
+      "provider_or_runtime_400": 0,
+      "illegal_routes": 0,
+      "p95_latency_seconds": 1425.442,
+      "mean_observed_tokens": 38917.666666666664
+    },
+    {
+      "case_id": "SC26-B05",
+      "review_mode": "closed",
+      "runs": 1,
+      "expected_outcomes": [
+        "insufficient_evidence"
+      ],
+      "observed_outcomes": {
+        "runtime_error": 1
+      },
+      "reviewer_families": [
+        "kimi"
+      ],
+      "assessment_coverage": true,
+      "provider_or_runtime_400": 0,
+      "illegal_routes": 0,
+      "p95_latency_seconds": 2161.584,
+      "mean_observed_tokens": 135448.0
+    },
+    {
+      "case_id": "SC26-B05",
+      "review_mode": "two_pass",
+      "runs": 3,
+      "expected_outcomes": [
+        "insufficient_evidence"
+      ],
+      "observed_outcomes": {
+        "completed_with_answer": 3
+      },
+      "reviewer_families": [
+        "kimi"
+      ],
+      "assessment_coverage": true,
+      "provider_or_runtime_400": 0,
+      "illegal_routes": 0,
+      "p95_latency_seconds": 3944.035,
+      "mean_observed_tokens": 76026.0
+    },
+    {
+      "case_id": "SC26-B06",
+      "review_mode": "closed",
+      "runs": 1,
+      "expected_outcomes": [
+        "do_not_launch"
+      ],
+      "observed_outcomes": {
+        "completed_with_answer": 1
+      },
+      "reviewer_families": [
+        "kimi"
+      ],
+      "assessment_coverage": true,
+      "provider_or_runtime_400": 0,
+      "illegal_routes": 0,
+      "p95_latency_seconds": 913.12,
+      "mean_observed_tokens": 42309.0
+    },
+    {
+      "case_id": "SC26-B06",
+      "review_mode": "two_pass",
+      "runs": 3,
+      "expected_outcomes": [
+        "do_not_launch"
+      ],
+      "observed_outcomes": {
+        "completed_with_answer": 2,
+        "runtime_error": 1
+      },
+      "reviewer_families": [
+        "kimi"
+      ],
+      "assessment_coverage": true,
+      "provider_or_runtime_400": 0,
+      "illegal_routes": 0,
+      "p95_latency_seconds": 4681.315,
+      "mean_observed_tokens": 33788.0
+    }
+  ],
+  "mode_metrics": {
+    "closed": {
+      "runs": 6,
+      "p95_latency_seconds": 2161.584,
+      "mean_observed_tokens": 47043.5
+    },
+    "two_pass": {
+      "runs": 30,
+      "p95_latency_seconds": 3944.035,
+      "mean_observed_tokens": 19938.433333333334
+    }
+  },
+  "core_stability": {
+    "SC26-B01": {
+      "runs": 3,
+      "stable": true
+    },
+    "SC26-B02": {
+      "runs": 3,
+      "stable": true
+    },
+    "SC26-B03": {
+      "runs": 3,
+      "stable": false
+    },
+    "SC26-B04": {
+      "runs": 3,
+      "stable": false
+    },
+    "SC26-B05": {
+      "runs": 3,
+      "stable": false
+    },
+    "SC26-B06": {
+      "runs": 3,
+      "stable": false
+    }
+  },
+  "serial_core_comparison": {
+    "closed_runs": 6,
+    "two_pass_runs": 6,
+    "p95_latency_ratio": 2.165687292281956,
+    "mean_observed_token_ratio": 0.9217497280885422
+  },
+  "engineering_gates": {
+    "run_count": true,
+    "provider_or_runtime_400_zero": true,
+    "illegal_route_zero": true,
+    "assessment_coverage": false,
+    "core_signature_stability": false,
+    "p95_latency_ratio_at_most_2": false,
+    "observed_token_ratio_at_most_2": true
+  },
+  "failures": {
+    "noncompleted_runs": [
+      "formal.closed.SC26-B05.r1",
+      "formal.two_pass.FR-H01.r1",
+      "formal.two_pass.FR-H02.r1",
+      "formal.two_pass.FR-H03.r1",
+      "formal.two_pass.FR-H04.r1",
+      "formal.two_pass.FR-H05.r1",
+      "formal.two_pass.FR-H06.r1",
+      "formal.two_pass.FR-H07.r1",
+      "formal.two_pass.FR-H08.r1",
+      "formal.two_pass.FR-H09.r1",
+      "formal.two_pass.FR-H10.r1",
+      "formal.two_pass.FR-H11.r1",
+      "formal.two_pass.FR-H12.r1",
+      "formal.two_pass.SC26-B03.r3",
+      "formal.two_pass.SC26-B06.r3"
+    ],
+    "provider_or_runtime_400": [],
+    "illegal_routes": [],
+    "missing_assessments": [
+      "formal.closed.SC26-B01.r1",
+      "formal.closed.SC26-B02.r1",
+      "formal.two_pass.SC26-B01.r1",
+      "formal.two_pass.SC26-B01.r2",
+      "formal.two_pass.SC26-B01.r3",
+      "formal.two_pass.SC26-B02.r1",
+      "formal.two_pass.SC26-B02.r2",
+      "formal.two_pass.SC26-B02.r3"
+    ],
+    "index": [
+      {
+        "directory": "formal.closed.SC26-B01.r1",
+        "case_id": "SC26-B01",
+        "review_mode": "closed",
+        "reasons": [
+          "assessment_contract"
+        ],
+        "error_summary": null
+      },
+      {
+        "directory": "formal.closed.SC26-B02.r1",
+        "case_id": "SC26-B02",
+        "review_mode": "closed",
+        "reasons": [
+          "assessment_contract"
+        ],
+        "error_summary": null
+      },
+      {
+        "directory": "formal.closed.SC26-B05.r1",
+        "case_id": "SC26-B05",
+        "review_mode": "closed",
+        "reasons": [
+          "runtime_error"
+        ],
+        "error_summary": "RemoteProtocolError\nAn internal error occurred\nRemoteProtocolError('peer closed connection without sending complete message body (incomplete chunked read)')"
+      },
+      {
+        "directory": "formal.two_pass.FR-H01.r1",
+        "case_id": "FR-H01",
+        "review_mode": "two_pass",
+        "reasons": [
+          "runtime_error"
+        ],
+        "error_summary": "APIConnectionError\nAn internal error occurred\nAPIConnectionError('Connection error.')"
+      },
+      {
+        "directory": "formal.two_pass.FR-H02.r1",
+        "case_id": "FR-H02",
+        "review_mode": "two_pass",
+        "reasons": [
+          "runtime_error"
+        ],
+        "error_summary": "APIConnectionError\nAn internal error occurred\nAPIConnectionError('Connection error.')"
+      },
+      {
+        "directory": "formal.two_pass.FR-H03.r1",
+        "case_id": "FR-H03",
+        "review_mode": "two_pass",
+        "reasons": [
+          "runtime_error"
+        ],
+        "error_summary": "APIConnectionError\nAn internal error occurred\nAPIConnectionError('Connection error.')"
+      },
+      {
+        "directory": "formal.two_pass.FR-H04.r1",
+        "case_id": "FR-H04",
+        "review_mode": "two_pass",
+        "reasons": [
+          "runtime_error"
+        ],
+        "error_summary": "APIConnectionError\nAn internal error occurred\nAPIConnectionError('Connection error.')"
+      },
+      {
+        "directory": "formal.two_pass.FR-H05.r1",
+        "case_id": "FR-H05",
+        "review_mode": "two_pass",
+        "reasons": [
+          "runtime_error"
+        ],
+        "error_summary": "APIConnectionError\nAn internal error occurred\nAPIConnectionError('Connection error.')"
+      },
+      {
+        "directory": "formal.two_pass.FR-H06.r1",
+        "case_id": "FR-H06",
+        "review_mode": "two_pass",
+        "reasons": [
+          "runtime_error"
+        ],
+        "error_summary": "APIConnectionError\nAn internal error occurred\nAPIConnectionError('Connection error.')"
+      },
+      {
+        "directory": "formal.two_pass.FR-H07.r1",
+        "case_id": "FR-H07",
+        "review_mode": "two_pass",
+        "reasons": [
+          "completed_without_answer"
+        ],
+        "error_summary": null
+      },
+      {
+        "directory": "formal.two_pass.FR-H08.r1",
+        "case_id": "FR-H08",
+        "review_mode": "two_pass",
+        "reasons": [
+          "runtime_error"
+        ],
+        "error_summary": "APIConnectionError\nAn internal error occurred\nAPIConnectionError('Connection error.')"
+      },
+      {
+        "directory": "formal.two_pass.FR-H09.r1",
+        "case_id": "FR-H09",
+        "review_mode": "two_pass",
+        "reasons": [
+          "runtime_error"
+        ],
+        "error_summary": "APIConnectionError\nAn internal error occurred\nAPIConnectionError('Connection error.')"
+      },
+      {
+        "directory": "formal.two_pass.FR-H10.r1",
+        "case_id": "FR-H10",
+        "review_mode": "two_pass",
+        "reasons": [
+          "completed_without_answer"
+        ],
+        "error_summary": null
+      },
+      {
+        "directory": "formal.two_pass.FR-H11.r1",
+        "case_id": "FR-H11",
+        "review_mode": "two_pass",
+        "reasons": [
+          "runtime_error"
+        ],
+        "error_summary": "APIConnectionError\nAn internal error occurred\nAPIConnectionError('Connection error.')"
+      },
+      {
+        "directory": "formal.two_pass.FR-H12.r1",
+        "case_id": "FR-H12",
+        "review_mode": "two_pass",
+        "reasons": [
+          "runtime_error"
+        ],
+        "error_summary": "ReadError\nAn internal error occurred\nReadError('')"
+      },
+      {
+        "directory": "formal.two_pass.SC26-B01.r1",
+        "case_id": "SC26-B01",
+        "review_mode": "two_pass",
+        "reasons": [
+          "assessment_contract"
+        ],
+        "error_summary": null
+      },
+      {
+        "directory": "formal.two_pass.SC26-B01.r2",
+        "case_id": "SC26-B01",
+        "review_mode": "two_pass",
+        "reasons": [
+          "assessment_contract"
+        ],
+        "error_summary": null
+      },
+      {
+        "directory": "formal.two_pass.SC26-B01.r3",
+        "case_id": "SC26-B01",
+        "review_mode": "two_pass",
+        "reasons": [
+          "assessment_contract"
+        ],
+        "error_summary": null
+      },
+      {
+        "directory": "formal.two_pass.SC26-B02.r1",
+        "case_id": "SC26-B02",
+        "review_mode": "two_pass",
+        "reasons": [
+          "assessment_contract"
+        ],
+        "error_summary": null
+      },
+      {
+        "directory": "formal.two_pass.SC26-B02.r2",
+        "case_id": "SC26-B02",
+        "review_mode": "two_pass",
+        "reasons": [
+          "assessment_contract"
+        ],
+        "error_summary": null
+      },
+      {
+        "directory": "formal.two_pass.SC26-B02.r3",
+        "case_id": "SC26-B02",
+        "review_mode": "two_pass",
+        "reasons": [
+          "assessment_contract"
+        ],
+        "error_summary": null
+      },
+      {
+        "directory": "formal.two_pass.SC26-B03.r3",
+        "case_id": "SC26-B03",
+        "review_mode": "two_pass",
+        "reasons": [
+          "runtime_error"
+        ],
+        "error_summary": "RemoteProtocolError\nAn internal error occurred\nRemoteProtocolError('peer closed connection without sending complete message body (incomplete chunked read)')"
+      },
+      {
+        "directory": "formal.two_pass.SC26-B06.r3",
+        "case_id": "SC26-B06",
+        "review_mode": "two_pass",
+        "reasons": [
+          "runtime_error"
+        ],
+        "error_summary": "APIConnectionError\nAn internal error occurred\nAPIConnectionError('Connection error.')"
+      }
+    ]
+  },
+  "scientific_adjudication": {
+    "status": "pending_independent_labels",
+    "not_inferred_by_harness": [
+      "critical_false_release",
+      "major_recall",
+      "clean_case_false_block_or_revise",
+      "blind_score_gain"
+    ]
+  }
+}

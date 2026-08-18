@@ -287,6 +287,8 @@ _MODEL_ENTRIES: list[tuple[str, str, str]] = [
     ("doubao-1.5-pro", "doubao-1.5-pro-256k", "volcengine"),
     ("doubao-1.5-thinking-pro", "doubao-1.5-thinking-pro", "volcengine"),
     # DashScope Coding Plan (阿里云代码计划 — subscription sk-sp-* endpoint)
+    ("qwen3.8-max", "qwen3.8-max", "dashscope-code"),
+    ("qwen3.8-plus", "qwen3.8-plus", "dashscope-code"),
     ("qwen3.7-max", "qwen3.7-max", "dashscope-code"),
     ("qwen3.7-plus", "qwen3.7-plus", "dashscope-code"),
     ("qwen3.6-max", "qwen3.6-max-preview", "dashscope-code"),
@@ -297,6 +299,8 @@ _MODEL_ENTRIES: list[tuple[str, str, str]] = [
     ("qwen3-max", "qwen3-max", "dashscope-code"),
     ("qwen3.5-plus", "qwen3.5-plus", "dashscope-code"),
     # DashScope (阿里云 — Qwen models, default for simple lookups)
+    ("qwen3.8-max", "qwen3.8-max", "dashscope"),
+    ("qwen3.8-plus", "qwen3.8-plus", "dashscope"),
     ("qwen3.7-max", "qwen3.7-max", "dashscope"),
     ("qwen3.7-plus", "qwen3.7-plus", "dashscope"),
     ("qwen3.6-max", "qwen3.6-max-preview", "dashscope"),
@@ -323,6 +327,9 @@ _MODEL_ENTRIES: list[tuple[str, str, str]] = [
     ("moonshot-v1-8k", "moonshot-v1-8k", "moonshot"),
     # Kimi Coding Plan (Anthropic-compatible)
     ("kimi-for-coding", "kimi-for-coding", "kimi-coding"),
+    # Product-policy alias: Kimi K3 is served by Kimi for Coding rather than
+    # the general Moonshot OpenAI-compatible endpoint in this deployment.
+    ("kimi-k3", "kimi-for-coding", "kimi-coding"),
 ]
 
 # Public dict for simple lookups (last entry wins for duplicate names).
@@ -573,6 +580,11 @@ def get_chat_model(
                 f"{provider!r}; refusing to fall through to the OpenAI "
                 "adapter's misleading OPENAI_API_KEY error."
             )
+        elif provider in {"deepseek", "moonshot"}:
+            raise ValueError(
+                f"{api_key_env} is required for provider {provider!r}; refusing "
+                "to fall through to OPENAI_API_KEY."
+            )
         # SiliconFlow: disable thinking — LangChain drops reasoning_content
         # from history, causing error 20015 on multi-turn requests.
         if provider == "siliconflow":
@@ -622,6 +634,11 @@ def get_chat_model(
         api_key = os.environ.get(api_key_env, "")
         if api_key:
             kwargs["api_key"] = api_key
+        elif provider == "kimi-coding":
+            raise ValueError(
+                "KIMI_API_KEY is required for provider 'kimi-coding'; refusing "
+                "to fall through to ANTHROPIC_API_KEY."
+            )
         # Kimi Coding Plan requires claude-code User-Agent header
         if provider == "kimi-coding":
             kwargs.setdefault("default_headers", {})["User-Agent"] = "claude-code/0.1.0"

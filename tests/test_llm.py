@@ -626,6 +626,43 @@ class TestThirdPartyRouting:
         assert call_kwargs["api_key"] == "ve-key-123"
 
     @patch("jw.llm.models.init_chat_model")
+    def test_kimi_k3_routes_through_kimi_for_coding(self, mock_init, monkeypatch):
+        """The K3 policy alias uses Kimi Coding's Anthropic-compatible API."""
+        mock_init.return_value = "mock_model"
+        monkeypatch.setenv("KIMI_API_KEY", "kimi-test-key")
+
+        get_chat_model("kimi-k3", provider="kimi-coding")
+
+        call_kwargs = mock_init.call_args[1]
+        assert call_kwargs["model"] == "kimi-for-coding"
+        assert call_kwargs["model_provider"] == "anthropic"
+        assert call_kwargs["base_url"] == "https://api.kimi.com/coding/"
+        assert call_kwargs["api_key"] == "kimi-test-key"
+        assert call_kwargs["default_headers"]["User-Agent"] == "claude-code/0.1.0"
+
+    @patch("jw.llm.models.init_chat_model")
+    def test_kimi_coding_missing_key_does_not_use_anthropic_key(
+        self, mock_init, monkeypatch
+    ):
+        monkeypatch.delenv("KIMI_API_KEY", raising=False)
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "wrong-family-key")
+
+        with pytest.raises(ValueError, match="KIMI_API_KEY is required"):
+            get_chat_model("kimi-k3", provider="kimi-coding")
+
+        mock_init.assert_not_called()
+
+    @patch("jw.llm.models.init_chat_model")
+    def test_deepseek_missing_key_does_not_use_openai_key(self, mock_init, monkeypatch):
+        monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
+        monkeypatch.setenv("OPENAI_API_KEY", "wrong-family-key")
+
+        with pytest.raises(ValueError, match="DEEPSEEK_API_KEY is required"):
+            get_chat_model("deepseek-v4-pro", provider="deepseek")
+
+        mock_init.assert_not_called()
+
+    @patch("jw.llm.models.init_chat_model")
     def test_dashscope_routes_through_openai(self, mock_init, monkeypatch):
         """DashScope provider should route through OpenAI with correct base_url."""
         mock_init.return_value = "mock_model"

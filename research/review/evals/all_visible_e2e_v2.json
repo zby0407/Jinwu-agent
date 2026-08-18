@@ -1,0 +1,101 @@
+{
+  "schema_version": "research-review-visible-suite-v2",
+  "suite_id": "research-review-visible-18-v2",
+  "visibility": "checked_in_visible",
+  "source_suites": [
+    "sc26_core_e2e_v1.json",
+    "full_research_heldout_v1.json"
+  ],
+  "defaults": {
+    "review_mode": "two_pass",
+    "reviewer_model": {
+      "provider": "kimi-coding",
+      "model": "kimi-k3"
+    },
+    "input_files": [],
+    "repetitions": 1
+  },
+  "case_overrides": {
+    "SC26-B01": {
+      "expected_outcome": "deterministic_fact",
+      "repetitions": 3,
+      "requires_authoritative_solar_data": true
+    },
+    "SC26-B02": {
+      "expected_outcome": "supported_not_causal",
+      "repetitions": 3,
+      "requires_authoritative_solar_data": true
+    },
+    "SC26-B03": {
+      "expected_outcome": "measurement_drift_preferred",
+      "repetitions": 3,
+      "requires_authoritative_solar_data": true
+    },
+    "SC26-B04": {
+      "expected_outcome": "candidate_failed_backtest",
+      "repetitions": 3,
+      "requires_authoritative_solar_data": true
+    },
+    "SC26-B05": {
+      "expected_outcome": "insufficient_evidence",
+      "repetitions": 3,
+      "requires_authoritative_solar_data": true
+    },
+    "SC26-B06": {
+      "expected_outcome": "do_not_launch",
+      "repetitions": 3,
+      "requires_authoritative_solar_data": true
+    },
+    "FR-H01": {
+      "expected_outcome": "temporal_causal_revision",
+      "input_files": ["fr_h_artifacts/FR-H01_report.md"]
+    },
+    "FR-H02": {
+      "expected_outcome": "mechanism_scope_limited",
+      "input_files": ["fr_h_artifacts/FR-H02_report.md"]
+    },
+    "FR-H03": {
+      "expected_outcome": "future_information_rejected",
+      "input_files": ["fr_h_artifacts/FR-H03_report.md"]
+    },
+    "FR-H04": {
+      "expected_outcome": "event_semantics_revision",
+      "input_files": ["fr_h_artifacts/FR-H04_report.md"]
+    },
+    "FR-H05": {
+      "expected_outcome": "candidate_failed_backtest",
+      "input_files": ["fr_h_artifacts/FR-H05_report.md"]
+    },
+    "FR-H06": {
+      "expected_outcome": "invalid_backtest_revision",
+      "input_files": ["fr_h_artifacts/FR-H06_report.md"]
+    },
+    "FR-H07": {
+      "expected_outcome": "data_semantics_blocked",
+      "input_files": ["fr_h_artifacts/FR-H07_report.md"]
+    },
+    "FR-H08": {
+      "expected_outcome": "cross_catalog_scope_limited",
+      "input_files": ["fr_h_artifacts/FR-H08_report.md"]
+    },
+    "FR-H09": {
+      "expected_outcome": "null_result_with_uncertainty",
+      "input_files": ["fr_h_artifacts/FR-H09_report.md"]
+    },
+    "FR-H10": {
+      "expected_outcome": "insufficient_evidence",
+      "input_files": [
+        "fr_h_artifacts/FR-H10_report.md",
+        "fr_h_artifacts/FR-H10_wso_polar_field_monthly.csv"
+      ]
+    },
+    "FR-H11": {
+      "expected_outcome": "cross_stage_revision",
+      "input_files": ["fr_h_artifacts/FR-H11_bundle.md"]
+    },
+    "FR-H12": {
+      "expected_outcome": "final_release_blocked",
+      "input_files": ["fr_h_artifacts/FR-H12_bundle.md"]
+    }
+  }
+}

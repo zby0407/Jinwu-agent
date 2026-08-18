@@ -611,6 +611,37 @@ def _maybe_swap_async_subagents(
     return out
 
 
+def _apply_agent_model_overrides(subs: list, *, cfg=None) -> list:
+    """Pin a per-agent chat model on sync (in-process) sub-agent specs.
+
+    Async sub-agents resolve their model remotely per run (see
+    ``_maybe_swap_async_subagents`` + ``ConfigurableModelMiddleware``); sync
+    ones compile a graph in-process whose model falls back to the main
+    agent's when the spec carries no ``model``. When
+    ``cfg.agent_model_overrides`` names a sync sub-agent, build its chat
+    model via jw's own routing (``get_chat_model``) and set it on the spec so
+    deepagents compiles that sub-agent against the pinned model.
+
+    Mutates ``subs`` in place and returns it. Only fires on an override hit
+    whose model differs from the global — an empty/unmatched override string
+    leaves every spec untouched, so behaviour is identical to single-model.
+    """
+    cfg = cfg if cfg is not None else _ensure_config()
+    global_model = getattr(cfg, "model", None)
+    for s in subs:
+        if not isinstance(s, dict) or "graph_id" in s or "model" in s:
+            continue  # async / compiled / already pinned
+        from .llm.patches import _resolve_agent_model
+
+        model, provider = _resolve_agent_model(cfg, s.get("name"))
+        if not model or model == global_model:
+            continue
+        from .llm import get_chat_model
+
+        s["model"] = get_chat_model(model=model, provider=provider)
+    return subs
+
+
 def _build_base_kwargs(
     base_backend, base_middleware, *, cfg=None, chat_model=None, workspace_dir=None
 ):
@@ -636,6 +667,7 @@ def _build_base_kwargs(
         subs, workspace_dir=workspace_dir, cfg=cfg, chat_model=chat_model
     )
     subs = _maybe_swap_async_subagents(subs, base_middleware, cfg=cfg)
+    subs = _apply_agent_model_overrides(subs, cfg=cfg)
     return {
         "name": "JW",
         "model": chat_model if chat_model is not None else _ensure_chat_model(),
@@ -718,6 +750,7 @@ def load_mcp_and_build_kwargs(
     # Swap selected sub-agents to AsyncSubAgent (must happen AFTER MCP injection
     # since async sub-agents are remote graphs that load their own tools).
     subs = _maybe_swap_async_subagents(subs, base_middleware, cfg=cfg)
+    subs = _apply_agent_model_overrides(subs, cfg=cfg)
 
     return {
         "name": "JW",

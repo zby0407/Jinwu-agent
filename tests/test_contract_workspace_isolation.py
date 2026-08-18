@@ -120,6 +120,31 @@ def test_planner_contract_state_and_freeze_root_are_task_scoped(
     }
 
 
+def test_planner_brief_uses_exact_task_bound_question(
+    tmp_path: Path, monkeypatch
+) -> None:
+    binding, config = _task_config(tmp_path, monkeypatch, "planner-bound-brief")
+    task_path = Path(binding.workspace) / "task.json"
+    task = json.loads(task_path.read_text(encoding="utf-8"))
+    task["research_question"] = QUESTION_A
+    task_path.write_text(json.dumps(task, ensure_ascii=False), encoding="utf-8")
+
+    result = json.loads(
+        planner_tools.research_planner_get_brief.invoke(
+            {"request_input": f"{QUESTION_A} {QUESTION_A}"}, config=config
+        )
+    )
+
+    assert result["canonical_request_reused"] is True
+    assert result["brief"]["request"]["research_question"] == QUESTION_A
+    state = json.loads(
+        (Path(binding.workspace) / "planner" / "working_state.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert state["request"]["research_question"] == QUESTION_A
+
+
 def test_solar_data_context_blocks_guessed_paths_and_is_idempotent(
     tmp_path: Path, monkeypatch
 ) -> None:
@@ -556,6 +581,37 @@ def test_planner_evaluation_rule_error_explains_criterion_basis_exclusivity() ->
     )
 
 
+def test_planner_required_dataset_rejects_selected_source_without_string_id() -> None:
+    invalid = [
+        {
+            "id": "ds1",
+            "source_kind": "selected",
+            "selected_source_id": None,
+            "name": "Selected dataset",
+            "purpose": "Supply the requested observations.",
+            "required_variables": ["time", "value"],
+            "time_coverage_needed": "Cover the study interval.",
+            "cadence_needed": "Monthly",
+            "quality_requirements": ["Document missing values."],
+            "version_requirement": "Use the registered version.",
+            "unit_requirements": ["Document units."],
+            "revision_requirements": ["Record source revisions."],
+            "license_requirements": ["Record the source license."],
+            "acquisition_status": "selected",
+        }
+    ]
+
+    with pytest.raises(
+        ValueError, match="section schema validation failed"
+    ) as exc_info:
+        planner_tools._validate_section("required_datasets", invalid)
+
+    assert (
+        "required_datasets.0.selected_source_id: selected data requires a non-empty "
+        "string request data-source id"
+    ) in str(exc_info.value)
+
+
 def test_planner_feedback_policy_migration_unlocks_old_stop_without_losing_history(
     tmp_path: Path, monkeypatch
 ) -> None:
@@ -787,6 +843,15 @@ def test_planner_shadow_revision_deduplicates_and_stops_repeated_schema_failure(
     assert first["new_version_written"] is True
     assert repeated["status"] == "revision_section_already_staged"
     assert repeated["new_version_written"] is False
+    # A staged candidate must surface the commit checkpoint so the middleware can
+    # pin the forced commit tool_choice on the next model call (the local-commit
+    # synthesize edge). This is the contract the qwen_compat deterministic pin
+    # relies on; the unit test mocks it, so assert it against the real tool here.
+    for staged in (first, repeated):
+        checkpoint = staged["draft_checkpoint"]
+        assert checkpoint["next_action"] == "commit_revision_candidate"
+        assert checkpoint["revision_candidate"]["staged_sections"] == ["scope"]
+
     candidate_versions = list(
         (
             Path(binding.workspace)
@@ -822,6 +887,69 @@ def test_planner_shadow_revision_deduplicates_and_stops_repeated_schema_failure(
     assert stopped["consecutive_same_error"] == 2
     assert stopped["must_stop"] is True
     assert (Path(binding.workspace) / stopped["failure_receipt_path"]).is_file()
+
+
+def test_planner_shadow_candidate_requests_next_dependent_section(
+    tmp_path: Path, monkeypatch
+) -> None:
+    binding, config = _task_config(tmp_path, monkeypatch, "planner-shadow-multisection")
+    response, sha = _complete_valid_planner(config)
+    state = planner_tools._lookup_draft(
+        planner_tools._lookup_request(sha, config), config
+    )
+    state["sections"]["research_subquestions"].append(
+        {
+            "id": "Q2",
+            "question": "第二个相互依赖的研究问题是什么？",
+            "purpose": "验证跨区段候选修复。",
+            "depends_on": ["Q1"],
+            "completion_evidence": "Q2 被状态图和研究路线共同覆盖。",
+        }
+    )
+    state["validated_response"] = None
+    state["validated_response_sha256"] = None
+    planner_tools._persist_draft(state, config)
+
+    repaired_map = deepcopy(response["plan_content"]["research_state_map"])
+    repaired_map["items"][0]["subquestion_ids"].append("Q2")
+    staged = json.loads(
+        planner_tools.research_planner_stage_revision_section.invoke(
+            {
+                "section_name": "research_state_map",
+                "section_json": json.dumps(repaired_map, ensure_ascii=False),
+                "request_sha256": sha,
+            },
+            config=config,
+        )
+    )
+    assert staged["status"] == "revision_section_staged"
+
+    preview = json.loads(
+        planner_tools.research_planner_commit_revision_candidate.invoke(
+            {"request_sha256": sha}, config=config
+        )
+    )
+    assert preview["status"] == "revision_candidate_incomplete"
+    assert preview["next_action"] == "stage_revision_section"
+    assert preview["active_draft_unchanged"] is True
+    assert "Q2" in preview["remaining_error"]
+    assert preview["draft_checkpoint"]["revision_candidate"]["staged_sections"] == [
+        "research_state_map"
+    ]
+    assert not list(
+        (
+            Path(binding.workspace)
+            / "planner"
+            / "drafts"
+            / sha
+            / "failures"
+            / "revision_patch"
+        ).glob("f*.json")
+    )
+    resumed = json.loads(
+        planner_tools.research_planner_get_brief.invoke({}, config=config)
+    )
+    assert "exactly one additional affected section" in resumed["brief"]["instruction"]
 
 
 def test_planner_atomic_revision_patch_rejects_regression_and_accepts_improvement(
@@ -970,6 +1098,277 @@ def test_planner_atomic_revision_patch_rejects_regression_and_accepts_improvemen
     assert accepted["shadow_candidate_committed"] is True
     assert accepted["baseline_error_count"] >= 1
     assert accepted["remaining_error_count"] == 0
+    frozen = json.loads(
+        planner_tools.research_planner_freeze_plan.invoke(
+            {"request_sha256": sha}, config=config
+        )
+    )
+    assert frozen["status"] == "frozen_and_valid"
+    assert (Path(binding.workspace) / frozen["research_plan_path"]).is_file()
+
+
+def test_planner_revision_compares_shared_normalization_on_both_sides(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """A shared mechanical cleanup must not make a semantic repair look worse."""
+
+    _binding, config = _task_config(
+        tmp_path, monkeypatch, "planner-shared-normalization"
+    )
+    root = Path(__file__).resolve().parents[1]
+    response = json.loads(
+        (root / "research/planner/examples/definition_audit_response.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    brief = json.loads(
+        planner_tools.research_planner_get_brief.invoke(
+            {"request_input": response["research_question"]}, config=config
+        )
+    )
+    sha = brief["request_sha256"]
+    for section_name in planner_tools._PLAN_SECTION_ORDER:
+        section = deepcopy(response["plan_content"][section_name])
+        if section_name == "research_state_map":
+            section["items"][0]["item_kind"] = "supported_finding"
+        elif section_name == "evaluation_rules":
+            section[0]["criterion_basis"] = {
+                "kind": "request_based",
+                "basis_text": "This sentence is absent from the canonical request.",
+                "evidence_source_ids": [],
+                "artifact_ids": [],
+            }
+        outcome = json.loads(
+            planner_tools.research_planner_update_draft.invoke(
+                {
+                    "section_name": section_name,
+                    "section_json": json.dumps(section),
+                    "request_sha256": sha,
+                },
+                config=config,
+            )
+        )
+        assert outcome["status"] == "draft_section_persisted"
+
+    staged = json.loads(
+        planner_tools.research_planner_stage_revision_section.invoke(
+            {
+                "section_name": "research_state_map",
+                "section_json": json.dumps(
+                    response["plan_content"]["research_state_map"]
+                ),
+                "request_sha256": sha,
+            },
+            config=config,
+        )
+    )
+    assert staged["status"] == "revision_section_staged"
+
+    accepted = json.loads(
+        planner_tools.research_planner_commit_revision_candidate.invoke(
+            {"request_sha256": sha}, config=config
+        )
+    )
+    assert accepted["status"] == "revision_patch_persisted"
+    assert accepted["shadow_candidate_committed"] is True
+    assert accepted["baseline_error_count"] == 2
+    assert accepted["remaining_error_count"] == 1
+    assert accepted["draft_checkpoint"]["next_action"] == "validate_draft"
+
+
+def test_planner_non_improving_candidate_returns_to_section_staging(
+    tmp_path: Path, monkeypatch
+) -> None:
+    binding, config = _task_config(
+        tmp_path, monkeypatch, "planner-non-improving-candidate"
+    )
+    root = Path(__file__).resolve().parents[1]
+    response = json.loads(
+        (root / "research/planner/examples/definition_audit_response.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    brief = json.loads(
+        planner_tools.research_planner_get_brief.invoke(
+            {"request_input": response["research_question"]}, config=config
+        )
+    )
+    sha = brief["request_sha256"]
+    for section_name in planner_tools._PLAN_SECTION_ORDER:
+        section = deepcopy(response["plan_content"][section_name])
+        if section_name == "evaluation_rules":
+            section[0]["criterion_basis"] = {
+                "kind": "request_based",
+                "basis_text": "This sentence is absent from the canonical request.",
+                "evidence_source_ids": [],
+                "artifact_ids": [],
+            }
+        outcome = json.loads(
+            planner_tools.research_planner_update_draft.invoke(
+                {
+                    "section_name": section_name,
+                    "section_json": json.dumps(section),
+                    "request_sha256": sha,
+                },
+                config=config,
+            )
+        )
+        assert outcome["status"] == "draft_section_persisted"
+
+    changed_scope = deepcopy(response["plan_content"]["scope"])
+    changed_scope["objective"] += " Unrelated rewrite."
+    staged = json.loads(
+        planner_tools.research_planner_stage_revision_section.invoke(
+            {
+                "section_name": "scope",
+                "section_json": json.dumps(changed_scope),
+                "request_sha256": sha,
+            },
+            config=config,
+        )
+    )
+    assert staged["status"] == "revision_section_staged"
+
+    rejected = json.loads(
+        planner_tools.research_planner_commit_revision_candidate.invoke(
+            {"request_sha256": sha}, config=config
+        )
+    )
+    assert rejected["status"] == "revision_candidate_incomplete"
+    assert rejected["next_action"] == "stage_revision_section"
+    assert rejected["draft_checkpoint"]["next_action"] == "stage_revision_section"
+    assert rejected["baseline_error_count"] == rejected["remaining_error_count"]
+    assert rejected["must_stop"] is False
+    assert "demoted evaluation_rules[0]" in rejected["remaining_error"]
+    assert rejected["affected_sections"] == ["evaluation_rules"]
+    state = planner_tools._lookup_draft(
+        planner_tools._lookup_request(sha, config), config
+    )
+    assert state["revision_patch_failures"] == {}
+    assert not list(
+        (
+            Path(binding.workspace)
+            / "planner"
+            / "drafts"
+            / sha
+            / "failures"
+            / "revision_patch"
+        ).glob("f*.json")
+    )
+
+    repeated = json.loads(
+        planner_tools.research_planner_commit_revision_candidate.invoke(
+            {"request_sha256": sha}, config=config
+        )
+    )
+    assert repeated["status"] == "revision_candidate_incomplete"
+    assert repeated["must_stop"] is False
+    assert state["revision_patch_failures"] == {}
+
+
+def test_planner_equal_count_different_error_stays_shadow_then_commits_zero(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """Sequential staging must not charge active failures before improvement."""
+
+    binding, config = _task_config(
+        tmp_path, monkeypatch, "planner-shadow-equal-count-different-error"
+    )
+    root = Path(__file__).resolve().parents[1]
+    response = json.loads(
+        (root / "research/planner/examples/definition_audit_response.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    brief = json.loads(
+        planner_tools.research_planner_get_brief.invoke(
+            {"request_input": response["research_question"]}, config=config
+        )
+    )
+    sha = brief["request_sha256"]
+    for section_name in planner_tools._PLAN_SECTION_ORDER:
+        section = deepcopy(response["plan_content"][section_name])
+        if section_name == "evaluation_rules":
+            section[0]["criterion_basis"] = {
+                "kind": "request_based",
+                "basis_text": "This sentence is absent from the canonical request.",
+                "evidence_source_ids": [],
+                "artifact_ids": [],
+            }
+        outcome = json.loads(
+            planner_tools.research_planner_update_draft.invoke(
+                {
+                    "section_name": section_name,
+                    "section_json": json.dumps(section),
+                    "request_sha256": sha,
+                },
+                config=config,
+            )
+        )
+        assert outcome["status"] == "draft_section_persisted"
+
+    invalid_outline = deepcopy(response["plan_content"]["report_outline"])
+    invalid_outline[0]["source_step_ids"] = ["missing-step"]
+    for section_name, section in (
+        ("evaluation_rules", response["plan_content"]["evaluation_rules"]),
+        ("report_outline", invalid_outline),
+    ):
+        staged = json.loads(
+            planner_tools.research_planner_stage_revision_section.invoke(
+                {
+                    "section_name": section_name,
+                    "section_json": json.dumps(section),
+                    "request_sha256": sha,
+                },
+                config=config,
+            )
+        )
+        assert staged["status"] == "revision_section_staged"
+
+    unchanged_count = json.loads(
+        planner_tools.research_planner_commit_revision_candidate.invoke(
+            {"request_sha256": sha}, config=config
+        )
+    )
+    assert unchanged_count["status"] == "revision_candidate_incomplete"
+    assert unchanged_count["baseline_error_count"] == 1
+    assert unchanged_count["remaining_error_count"] == 1
+    assert unchanged_count["affected_sections"] == ["report_outline"]
+    assert "missing-step" in unchanged_count["remaining_error"]
+    assert unchanged_count["active_draft_unchanged"] is True
+
+    unstaged = json.loads(
+        planner_tools.research_planner_stage_revision_section.invoke(
+            {
+                "section_name": "report_outline",
+                "section_json": json.dumps(response["plan_content"]["report_outline"]),
+                "request_sha256": sha,
+            },
+            config=config,
+        )
+    )
+    assert unstaged["status"] == "revision_section_matches_active"
+    committed = json.loads(
+        planner_tools.research_planner_commit_revision_candidate.invoke(
+            {"request_sha256": sha}, config=config
+        )
+    )
+    assert committed["status"] == "plan_ready"
+    assert committed["remaining_error_count"] == 0
+    state = planner_tools._lookup_draft(
+        planner_tools._lookup_request(sha, config), config
+    )
+    assert state["revision_patch_failures"] == {}
+    assert not list(
+        (
+            Path(binding.workspace)
+            / "planner"
+            / "drafts"
+            / sha
+            / "failures"
+            / "revision_patch"
+        ).glob("f*.json")
+    )
 
 
 def test_hypothesis_state_and_freeze_root_are_task_scoped(
@@ -1044,3 +1443,472 @@ def test_automatic_experiment_run_is_created_inside_task_workspace(
         else set()
     )
     assert after == before
+
+
+def _run3_route_payload(route_steps, stop_rules):
+    """Build a (response, request) pair whose route mirrors a multi-step empirical plan.
+
+    The shape follows the run3 draft (rs_data -> rs_hyp -> rs_ed), letting the
+    regression tests pin the route outcome/transition contract directly against
+    ``validate_planner_response`` without a full draft lifecycle.
+    """
+
+    root = Path(__file__).resolve().parents[1]
+    response = json.loads(
+        (root / "research/planner/examples/definition_audit_response.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    request = json.loads(
+        (root / "research/planner/examples/definition_audit_request.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    response = deepcopy(response)
+    response["response_kind"] = "plan_ready"
+    response["plan_content"]["research_route"] = route_steps
+    response["plan_content"]["stop_rules"] = stop_rules
+    # keep example reference integrity: state-map / report-outline point at the
+    # terminal route step instead of the replaced single "R1".
+    last_step = route_steps[-1]["id"]
+    for item in response["plan_content"]["research_state_map"]["items"]:
+        item["resolution_step_ids"] = [last_step]
+    all_steps = [step["id"] for step in route_steps]
+    for section in response["plan_content"]["report_outline"]:
+        section["source_step_ids"] = all_steps
+    for rule in response["plan_content"]["evaluation_rules"]:
+        rule["target_step_ids"] = all_steps
+    policy = response["plan_content"]["iteration_policy"]
+    policy["global_visit_limit"] = max(
+        int(policy.get("global_visit_limit", 1)), len(route_steps)
+    )
+    if policy.get("review_step_ids"):
+        policy["review_step_ids"] = all_steps
+    # route steps produce art_<step_id>; register them so reference integrity holds.
+    response["plan_content"]["research_artifacts"] = [
+        {
+            "id": f"art_{step['id']}",
+            "name": f"artifact {step['id']}",
+            "artifact_kind": "intermediate_result",
+            "purpose": f"carries the output of {step['id']}",
+            "source_kind": "planned_output",
+            "producer_step_id": step["id"],
+            "subquestion_ids": ["Q1"],
+            "content_requirements": [f"content required from {step['id']}"],
+        }
+        for step in route_steps
+    ]
+    return response, request
+
+
+def _route_step(step_id, stage, prereq, consumes, transitions, *, join="all", visit=1):
+    outcomes = sorted({t["on"] for t in transitions})
+    outcome_rules = [
+        {
+            "outcome": name,
+            "criteria": [f"criteria for {step_id} {name}"],
+            "evidence_required": [f"evidence for {step_id} {name}"],
+        }
+        for name in outcomes
+    ]
+    if "completed" not in outcomes:
+        outcome_rules.append(
+            {
+                "outcome": "completed",
+                "criteria": [f"criteria for {step_id} completed"],
+                "evidence_required": [f"evidence for {step_id} completed"],
+            }
+        )
+    return {
+        "id": step_id,
+        "stage": stage,
+        "objective": f"objective for {step_id}",
+        "necessity": f"necessity for {step_id}",
+        "method_outline": f"method for {step_id}",
+        "iteration": 1,
+        "join_policy": join,
+        "visit_limit": visit,
+        "prerequisite_step_ids": prereq,
+        "subquestion_ids": ["Q1"],
+        "required_dataset_ids": [],
+        "consumes_artifact_ids": consumes,
+        "produces_artifact_ids": [f"art_{step_id}"],
+        "capability_needs": [],
+        "evaluation_rule_ids": ["E1"],
+        "outcome_rules": outcome_rules,
+        "transitions": transitions,
+    }
+
+
+def _stop_rule(rule_id, terminal):
+    return {
+        "id": rule_id,
+        "terminal_status": terminal,
+        "condition_kind": "goal_satisfied"
+        if terminal == "plan_complete"
+        else "partial_result_ready",
+        "condition": f"stop when {terminal}",
+        "required_evidence": [f"evidence for {terminal}"],
+        "report_section_ids": ["P1"],
+    }
+
+
+def test_planner_route_rejects_non_completed_transition_into_completion_dependent_target() -> (
+    None
+):
+    """run3 regression: rs_hyp/rs_res used inconclusive -> completion-required target.
+
+    rs_ed depends on rs_hyp completing (it consumes rs_hyp's artifact), so an
+    ``inconclusive`` (or any non-completed) outcome may not transition into it.
+    The message must name the source step, the outcome, the target, and a fix
+    direction so the planner repairs once instead of guessing fields.
+    """
+
+    from research_planner.contracts import validate_planner_response
+
+    steps = [
+        _route_step(
+            "rs_data",
+            "data",
+            [],
+            [],
+            [
+                {"on": "completed", "target_step_id": "rs_hyp"},
+                {"on": "input_missing", "terminal_status": "needs_input"},
+            ],
+        ),
+        _route_step(
+            "rs_hyp",
+            "hypothesis_generation",
+            ["rs_data"],
+            ["art_rs_data"],
+            [
+                {"on": "completed", "target_step_id": "rs_ed"},
+                {"on": "inconclusive", "target_step_id": "rs_ed"},
+            ],
+        ),
+        _route_step(
+            "rs_ed",
+            "experiment_design",
+            ["rs_hyp"],
+            ["art_rs_hyp"],
+            [
+                {"on": "completed", "terminal_status": "plan_complete"},
+                {"on": "method_invalid", "terminal_status": "no_viable_route"},
+            ],
+        ),
+    ]
+    payload, request = _run3_route_payload(
+        steps,
+        [
+            _stop_rule("sr1", "plan_complete"),
+            _stop_rule("sr2", "no_viable_route"),
+            _stop_rule("sr3", "needs_input"),
+        ],
+    )
+    with pytest.raises(Exception) as excinfo:
+        validate_planner_response(payload, request)
+    message = str(excinfo.value)
+    # pin the precise source/outcome/target localization
+    assert "rs_hyp" in message
+    assert "inconclusive" in message
+    assert "rs_ed" in message
+    # and an actionable fix direction (not just "cannot transition")
+    assert "completed" in message
+    lowered = message.lower()
+    assert any(
+        token in lowered
+        for token in (
+            "terminal",
+            "rework",
+            "revision",
+            "alternative",
+            "self-correction",
+            "stop_rules",
+        )
+    )
+
+
+def test_planner_route_accepts_terminal_revision_and_self_correction_transitions() -> (
+    None
+):
+    """run3 legal counterpart: non-completed outcomes go to terminal or rework.
+
+    completed -> completion-dependent downstream; inconclusive -> terminal;
+    method_invalid -> rework (a self-correction cycle back to the source step)
+    with self_correction enabled and visit_limit >= 2. All must validate.
+    """
+
+    from research_planner.contracts import validate_planner_response
+
+    steps = [
+        _route_step(
+            "rs_data",
+            "data",
+            [],
+            [],
+            [
+                {"on": "completed", "target_step_id": "rs_hyp"},
+                {"on": "input_missing", "terminal_status": "needs_input"},
+            ],
+        ),
+        _route_step(
+            "rs_hyp",
+            "hypothesis_generation",
+            ["rs_data"],
+            ["art_rs_data"],
+            [
+                {"on": "completed", "target_step_id": "rs_ed"},
+                {"on": "inconclusive", "terminal_status": "partial_result"},
+            ],
+            visit=2,
+        ),
+        _route_step(
+            "rs_ed",
+            "experiment_design",
+            ["rs_hyp"],
+            ["art_rs_hyp"],
+            [
+                {"on": "completed", "terminal_status": "plan_complete"},
+                {"on": "method_invalid", "target_step_id": "rs_hyp"},
+            ],
+            visit=2,
+        ),
+    ]
+    payload, request = _run3_route_payload(
+        steps,
+        [
+            _stop_rule("sr1", "plan_complete"),
+            _stop_rule("sr2", "partial_result"),
+            _stop_rule("sr3", "needs_input"),
+        ],
+    )
+    payload["plan_content"]["iteration_policy"]["revision_triggers"] = [
+        "method_invalid"
+    ]
+    validated = validate_planner_response(payload, request)
+    assert validated["response_kind"] == "plan_ready"
+
+
+def test_planner_stop_rules_must_cover_every_used_terminal_status() -> None:
+    """run3 first failure: a used terminal status has no stop_rules entry."""
+
+    from research_planner.contracts import validate_planner_response
+
+    steps = [
+        _route_step(
+            "rs_data",
+            "data",
+            [],
+            [],
+            [
+                {"on": "completed", "target_step_id": "rs_hyp"},
+                {"on": "input_missing", "terminal_status": "needs_input"},
+            ],
+        ),
+        _route_step(
+            "rs_hyp",
+            "hypothesis_generation",
+            ["rs_data"],
+            ["art_rs_data"],
+            [
+                {"on": "completed", "terminal_status": "plan_complete"},
+                {"on": "inconclusive", "terminal_status": "partial_result"},
+            ],
+        ),
+    ]
+    # needs_input is used by rs_data but no stop_rule covers it.
+    payload, request = _run3_route_payload(
+        steps, [_stop_rule("sr1", "plan_complete"), _stop_rule("sr2", "partial_result")]
+    )
+    payload["plan_content"]["iteration_policy"]["budget_response"] = "partial_result"
+    with pytest.raises(Exception) as excinfo:
+        validate_planner_response(payload, request)
+    message = str(excinfo.value)
+    assert "needs_input" in message
+
+
+def test_planner_route_rejects_cyclic_step_with_visit_limit_below_two() -> None:
+    """run1 freeze blocker: a back-edge makes a step cyclic, so visit_limit must be >= 2.
+
+    rs_ed.method_invalid -> rs_hyp is a rework cycle, so rs_hyp sits on a control
+    cycle. Leaving rs_hyp at visit_limit=1 must be rejected deterministically at
+    validate/freeze time with a message naming the cyclic step; bumping
+    rs_hyp.visit_limit to 2 must validate.
+    """
+
+    from research_planner.contracts import validate_planner_response
+
+    def _steps(hyp_visit):
+        return [
+            _route_step(
+                "rs_data",
+                "data",
+                [],
+                [],
+                [
+                    {"on": "completed", "target_step_id": "rs_hyp"},
+                    {"on": "input_missing", "terminal_status": "needs_input"},
+                ],
+            ),
+            _route_step(
+                "rs_hyp",
+                "hypothesis_generation",
+                ["rs_data"],
+                ["art_rs_data"],
+                [
+                    {"on": "completed", "target_step_id": "rs_ed"},
+                    {"on": "inconclusive", "terminal_status": "partial_result"},
+                ],
+                visit=hyp_visit,
+            ),
+            _route_step(
+                "rs_ed",
+                "experiment_design",
+                ["rs_hyp"],
+                ["art_rs_hyp"],
+                [
+                    {"on": "completed", "terminal_status": "plan_complete"},
+                    {"on": "method_invalid", "target_step_id": "rs_hyp"},
+                ],
+                visit=2,
+            ),
+        ]
+
+    stop_rules = [
+        _stop_rule("sr1", "plan_complete"),
+        _stop_rule("sr2", "partial_result"),
+        _stop_rule("sr3", "needs_input"),
+    ]
+
+    bad_payload, request = _run3_route_payload(_steps(hyp_visit=1), stop_rules)
+    with pytest.raises(Exception) as excinfo:
+        validate_planner_response(bad_payload, request)
+    message = str(excinfo.value)
+    assert "rs_hyp" in message
+    assert "visit_limit" in message
+
+    good_payload, request = _run3_route_payload(_steps(hyp_visit=2), stop_rules)
+    validated = validate_planner_response(good_payload, request)
+    assert validated["response_kind"] == "plan_ready"
+
+
+def test_preflight_normalization_repairs_cyclic_visit_limit() -> None:
+    """Gate run_04d regression: a model draft wrote a rework cycle with the
+    back-edge target left at visit_limit=1. Deterministic validation used to
+    reject the whole route at freeze time; normalization now lifts the cyclic
+    step to visit_limit=2 so the draft freezes on the first pass.
+    """
+
+    from research_planner.harness import preflight_planner_response
+
+    steps = [
+        _route_step(
+            "rs_data",
+            "data",
+            [],
+            [],
+            [
+                {"on": "completed", "target_step_id": "rs_hyp"},
+                {"on": "input_missing", "terminal_status": "needs_input"},
+            ],
+        ),
+        _route_step(
+            "rs_hyp",
+            "hypothesis_generation",
+            ["rs_data"],
+            ["art_rs_data"],
+            [
+                {"on": "completed", "target_step_id": "rs_ed"},
+                {"on": "inconclusive", "terminal_status": "partial_result"},
+            ],
+            visit=1,
+        ),
+        _route_step(
+            "rs_ed",
+            "experiment_design",
+            ["rs_hyp"],
+            ["art_rs_hyp"],
+            [
+                {"on": "completed", "terminal_status": "plan_complete"},
+                {"on": "method_invalid", "target_step_id": "rs_hyp"},
+            ],
+            visit=1,
+        ),
+    ]
+    stop_rules = [
+        _stop_rule("sr1", "plan_complete"),
+        _stop_rule("sr2", "partial_result"),
+        _stop_rule("sr3", "needs_input"),
+    ]
+    response, request = _run3_route_payload(steps, stop_rules)
+    # every step on the rs_hyp<->rs_ed cycle was written at visit_limit=1
+    result = preflight_planner_response(request, response)
+    assert result["status"] == "plan_ready"
+
+
+def test_preflight_normalization_demotes_claim_located_without_locator() -> None:
+    """Gate run_0fe regression: a model draft marked an evidence source
+    claim_located but gave a locator with no page/section/line/figure/table
+    reference. Validation rejected it; normalization now demotes the source to
+    reference_resolved when nothing claim-strength depends on it.
+    """
+
+    from research_planner.contracts import validate_planner_response
+    from research_planner.harness import preflight_planner_response
+
+    steps = [
+        _route_step(
+            "rs_data",
+            "data",
+            [],
+            [],
+            [
+                {"on": "completed", "terminal_status": "plan_complete"},
+                {"on": "input_missing", "terminal_status": "needs_input"},
+            ],
+        ),
+    ]
+    stop_rules = [
+        _stop_rule("sr1", "plan_complete"),
+        _stop_rule("sr2", "needs_input"),
+        _stop_rule("sr3", "partial_result"),
+    ]
+
+    def _with_source(locator):
+        response, request = _run3_route_payload(steps, stop_rules)
+        response["plan_content"]["evidence_sources"] = [
+            {
+                "id": "ES1",
+                "citation": "task spec",
+                "locator": locator,
+                "source_kind": "user_provided",
+                "verification_level": "claim_located",
+                "role": "states the planning requirement",
+                "state_item_ids": ["S1"],
+                "subquestion_ids": ["Q1"],
+                "limitations": "no independent corroboration",
+            }
+        ]
+        # evidence traceability is bidirectional: S1 must reference ES1 back.
+        for item in response["plan_content"]["research_state_map"]["items"]:
+            if item.get("id") == "S1":
+                item["evidence_source_ids"] = ["ES1"]
+        return response, request
+
+    # a locator without a structural hint is demoted and the plan freezes
+    response, request = _with_source("任务正文相关段落")
+    result = preflight_planner_response(request, response)
+    assert result["status"] == "plan_ready"
+
+    # a locator carrying a section/table hint stays claim_located and freezes
+    response, request = _with_source("第 3 节 表 2")
+    result = preflight_planner_response(request, response)
+    assert result["status"] == "plan_ready"
+
+    # sanity: the raw validator still rejects the original defect, proving the
+    # repair happens in normalization rather than by loosening the contract
+    response, request = _with_source("任务正文相关段落")
+    with pytest.raises(Exception) as excinfo:
+        validate_planner_response(response, request)
+    assert "locator" in str(excinfo.value)

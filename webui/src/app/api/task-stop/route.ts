@@ -72,7 +72,7 @@ export async function POST(request: NextRequest) {
     const body = (await request.json()) as { threadId?: unknown };
     if (typeof body.threadId !== "string" || !body.threadId.trim()) {
       return NextResponse.json(
-      { error: "必须提供 threadId。" },
+        { error: "必须提供 threadId。" },
         { status: 400 }
       );
     }
@@ -93,9 +93,10 @@ export async function POST(request: NextRequest) {
       "utf-8"
     );
 
-    const runsRoot = await safeResolve(workspace, "experiment/runs");
     let entries: string[] = [];
+    let runsRoot: string;
     try {
+      runsRoot = await safeResolve(workspace, "experiment/runs");
       entries = await fs.readdir(runsRoot);
     } catch {
       return NextResponse.json({ status: "cancelled", experimentsStopped: 0 });
@@ -116,7 +117,7 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     return NextResponse.json(
       {
-      error: error instanceof Error ? error.message : "无法停止任务。",
+        error: error instanceof Error ? error.message : "无法停止任务。",
       },
       { status: 500 }
     );

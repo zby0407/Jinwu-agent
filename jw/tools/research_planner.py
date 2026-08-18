@@ -39,6 +39,7 @@ from research_planner.contracts import (  # noqa: E402
     validate_planner_request,
 )
 from research_planner.harness import (  # noqa: E402
+    _normalize_model_response,
     build_natural_planner_request,
     build_planning_brief,
     freeze_research_plan,
@@ -98,6 +99,18 @@ def _utc_now() -> str:
 
 def _working_state_path(config: RunnableConfig | None) -> Path:
     return workspace_root_from_config(config) / _WORKING_STATE_RELATIVE_PATH
+
+
+def _task_bound_research_question(config: RunnableConfig | None) -> str:
+    """Return the immutable user question recorded for this task, if present."""
+
+    path = workspace_root_from_config(config) / "task.json"
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return ""
+    question = payload.get("research_question") if isinstance(payload, dict) else None
+    return question.strip() if isinstance(question, str) else ""
 
 
 def _draft_archive_root(request_sha256: str, config: RunnableConfig | None) -> Path:
@@ -461,7 +474,7 @@ def _draft_checkpoint(state: dict[str, Any]) -> dict[str, Any]:
     state_map = sections.get("research_state_map", {})
     pending_revision = state.get("pending_evidence_revision")
     if isinstance(candidate, dict) and candidate.get("sections"):
-        next_action = "commit_revision_candidate"
+        next_action = str(candidate.get("next_action") or "commit_revision_candidate")
     elif missing:
         next_action = f"update_draft:{missing[0]}"
     elif isinstance(pending_revision, dict):
@@ -489,6 +502,8 @@ def _draft_checkpoint(state: dict[str, Any]) -> dict[str, Any]:
                 for name in _PLAN_SECTION_ORDER
                 if name in candidate.get("sections", {})
             ],
+            "remaining_error": candidate.get("remaining_error"),
+            "affected_sections": candidate.get("affected_sections", []),
         }
         if isinstance(candidate, dict)
         else None,
@@ -613,10 +628,42 @@ def _resolve_pending_evidence_revision(
 
 _CRITERION_KIND_ALIASES = {
     "exact_user_requirement": "request_based",
+    "user_requirement": "request_based",
     "planned_data": "data_based",
     "qualitative_check": "qualitative",
+    "quantitative_check": "data_based",
 }
 _CRITERION_KINDS = {"source_based", "data_based", "request_based", "qualitative"}
+
+_VERIFICATION_LEVEL_ALIASES = {
+    "source_discovery": "unverified",
+    "discovered": "unverified",
+    "metadata_only": "unverified",
+    "reference_located": "reference_resolved",
+    "citation_resolved": "reference_resolved",
+    "claim_extracted": "claim_located",
+    "data_inspected": "dataset_inspected",
+    "inspected": "dataset_inspected",
+}
+
+
+def _sanitize_evidence_sources(value: Any) -> Any:
+    """Deterministically normalize mechanical verification_level aliases.
+
+    Choosing the exact enum token for ``verification_level`` is pure syntax, not
+    scientific judgement, so coerce known aliases before schema validation
+    instead of spending model turns on them.
+    """
+
+    if not isinstance(value, list):
+        return value
+    for item in value:
+        if not isinstance(item, dict):
+            continue
+        level = item.get("verification_level")
+        if isinstance(level, str) and level in _VERIFICATION_LEVEL_ALIASES:
+            item["verification_level"] = _VERIFICATION_LEVEL_ALIASES[level]
+    return value
 
 
 def _sanitize_evaluation_rules(value: Any) -> Any:
@@ -662,16 +709,29 @@ def _validate_section(section_name: str, value: Any) -> None:
         _PLAN_SECTION_VALIDATORS[section_name].iter_errors(value),
         key=lambda error: list(error.absolute_path),
     )
-    if not errors:
-        return
     details: list[str] = []
+    if section_name == "required_datasets" and isinstance(value, list):
+        for index, item in enumerate(value[:20]):
+            if not isinstance(item, dict):
+                continue
+            source_kind = item.get("source_kind")
+            selected_source_id = item.get("selected_source_id")
+            if source_kind == "selected" and (
+                not isinstance(selected_source_id, str)
+                or not selected_source_id.strip()
+            ):
+                details.append(
+                    f"required_datasets.{index}.selected_source_id: selected data "
+                    "requires a non-empty string request data-source id"
+                )
+            elif source_kind == "proposed" and selected_source_id is not None:
+                details.append(
+                    f"required_datasets.{index}.selected_source_id: proposed data "
+                    "requires null"
+                )
     if section_name == "evaluation_rules" and isinstance(value, list):
-        aliases = {
-            "exact_user_requirement": "request_based",
-            "planned_data": "data_based",
-            "qualitative_check": "qualitative",
-        }
-        allowed = {"source_based", "data_based", "request_based", "qualitative"}
+        aliases = _CRITERION_KIND_ALIASES
+        allowed = _CRITERION_KINDS
         for index, item in enumerate(value[:20]):
             if not isinstance(item, dict):
                 continue
@@ -726,6 +786,8 @@ def _validate_section(section_name: str, value: Any) -> None:
     for error in errors[:8]:
         location = ".".join(str(part) for part in error.absolute_path) or "<root>"
         details.append(f"{section_name}.{location}: {error.message}")
+    if not details:
+        return
     raise ValueError("section schema validation failed: " + " | ".join(details))
 
 
@@ -742,20 +804,104 @@ def _preflight_error_count(error: str) -> int:
 def _preflight_sections(
     request: dict[str, Any], sections: dict[str, Any]
 ) -> tuple[dict[str, Any] | None, str, int]:
+    response = _draft_response(request, sections)
+    normalized, normalization_notes = _normalize_model_response(request, response)
+    normalization_error = ""
+    if normalization_notes:
+        normalization_error = "Mechanical normalization still required:\n" + "\n".join(
+            f"- {note}" for note in normalization_notes
+        )
     try:
         result = preflight_planner_response(
             request,
-            _draft_response(request, sections),
+            normalized,
             include_validated_response=True,
         )
         if result.get("status") == "plan_ready":
-            return result, "", 0
+            result["mechanical_normalization_count"] = len(normalization_notes)
+            result["mechanical_normalization_notes"] = normalization_notes
+            return result, normalization_error, len(normalization_notes)
         error = str(
             result.get("error") or "planner preflight did not become plan_ready"
         )
     except Exception as exc:
         error = str(exc)
-    return None, error, _preflight_error_count(error)
+    semantic_error_count = _preflight_error_count(error)
+    if normalization_error:
+        error = error + "\n" + normalization_error
+    return None, error, semantic_error_count + len(normalization_notes)
+
+
+_REVISION_ERROR_SECTION_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
+    (re.compile(r"(?:plan_content\.)?scope(?:\b|\[|\.)"), "scope"),
+    (
+        re.compile(
+            r"(?:plan_content\.)?research_subquestions(?:\b|\[|\.)|subquestion\b"
+        ),
+        "research_subquestions",
+    ),
+    (
+        re.compile(
+            r"(?:plan_content\.)?research_state_map(?:\b|\[|\.)|research state item\b"
+        ),
+        "research_state_map",
+    ),
+    (
+        re.compile(
+            r"(?:plan_content\.)?evidence_sources(?:\b|\[|\.)|evidence source\b"
+        ),
+        "evidence_sources",
+    ),
+    (
+        re.compile(
+            r"(?:plan_content\.)?required_datasets(?:\b|\[|\.)|required dataset\b"
+        ),
+        "required_datasets",
+    ),
+    (
+        re.compile(
+            r"(?:plan_content\.)?research_artifacts(?:\b|\[|\.)|research artifact\b"
+        ),
+        "research_artifacts",
+    ),
+    (
+        re.compile(r"(?:plan_content\.)?research_route(?:\b|\[|\.)|route step\b"),
+        "research_route",
+    ),
+    (
+        re.compile(
+            r"(?:plan_content\.)?evaluation_rules(?:\b|\[|\.)|evaluation rule\b"
+        ),
+        "evaluation_rules",
+    ),
+    (
+        re.compile(r"(?:plan_content\.)?report_outline(?:\b|\[|\.)|report section\b"),
+        "report_outline",
+    ),
+    (
+        re.compile(r"(?:plan_content\.)?iteration_policy(?:\b|\[|\.)"),
+        "iteration_policy",
+    ),
+    (
+        re.compile(r"(?:plan_content\.)?stop_rules(?:\b|\[|\.)|stop rule\b"),
+        "stop_rules",
+    ),
+)
+
+
+def _localize_revision_error(error: str) -> tuple[str, list[str]]:
+    """Keep only actionable error lines and name the plan sections they touch."""
+
+    lines = [line.strip() for line in error.splitlines() if line.strip()]
+    actionable = [line for line in lines if line.startswith("-")]
+    localized = "\n".join(actionable or lines[:8])
+    lowered = localized.lower()
+    affected = [
+        section_name
+        for pattern, section_name in _REVISION_ERROR_SECTION_PATTERNS
+        if pattern.search(lowered)
+    ]
+    return localized[:8000], affected
 
 
 def _bind_request(request: dict[str, Any], config: RunnableConfig | None) -> str:
@@ -834,6 +980,7 @@ def research_planner_get_brief(
         JSON string containing the planning brief and ``request_sha256``.
     """
     try:
+        input_requested: dict[str, Any] | None = None
         if not request_input:
             requested = _lookup_request("", config)
         elif request_input.startswith("@"):
@@ -842,9 +989,13 @@ def research_planner_get_brief(
             payload = json.loads(path.read_text(encoding="utf-8"))
             requested = validate_planner_request(payload)
         else:
-            requested = build_natural_planner_request(request_input)
+            input_requested = build_natural_planner_request(request_input)
+            bound_question = _task_bound_research_question(config)
+            requested = build_natural_planner_request(
+                bound_question or input_requested["research_question"]
+            )
 
-        input_request_sha256 = canonical_json_sha256(requested)
+        input_request_sha256 = canonical_json_sha256(input_requested or requested)
         draft_state = _load_or_initialize_draft(requested, config)
         request = draft_state["request"]
         brief = build_planning_brief(request)
@@ -870,13 +1021,29 @@ def research_planner_get_brief(
                 "not validate or reread the active draft first. A rejected commit "
                 "will return the candidate-level errors needed for further staging."
             )
+        elif checkpoint["next_action"] == "stage_revision_section":
+            brief["instruction"] = (
+                "The shadow candidate fixed one defect but exposed a dependent "
+                "cross-section defect. Keep the active draft unchanged. Inspect "
+                "draft_checkpoint.revision_candidate.remaining_error, call "
+                "research_planner_stage_revision_section for exactly one additional "
+                "affected section, then call research_planner_commit_revision_candidate "
+                "again. Do not invent missing scientific content."
+            )
         elif checkpoint["next_action"] == "repair_evidence_revision":
             brief["instruction"] = (
                 "Evidence rejected the hash-bound active plan. The old validated "
                 "response has been invalidated. Inspect only the sections named by "
                 "draft_checkpoint.pending_evidence_revision, stage changed values "
-                "in the shadow candidate, and atomically commit once. Do not freeze "
-                "or return the prior plan."
+                "in the shadow candidate, and atomically commit once. If more than "
+                "one section must change, or any issue is critical, "
+                "research_planner_apply_revision_patch is forbidden: stage each "
+                "changed section with research_planner_stage_revision_section and "
+                "finish with a single research_planner_commit_revision_candidate. "
+                "When a verification-level or evidence-source issue is flagged, "
+                "re-bind those exact evidence_source_ids in the repaired section "
+                "rather than weakening the criterion to a basis that needs no "
+                "binding. Do not freeze or return the prior plan."
             )
         brief["draft_protocol"] = {
             "schema_version": "research-planner-draft-protocol-v1",
@@ -1156,6 +1323,8 @@ def research_planner_update_draft(
         value = json.loads(section_json)
         if section_name == "evaluation_rules":
             value = _sanitize_evaluation_rules(value)
+        elif section_name == "evidence_sources":
+            value = _sanitize_evidence_sources(value)
         _validate_section(section_name, value)
         receipt = _persist_section_version(state, section_name, value, config)
         sections[section_name] = value
@@ -1256,7 +1425,7 @@ def research_planner_apply_revision_patch(
                 "section is identical to the active draft"
             )
 
-        baseline_result, _baseline_error, baseline_count = _preflight_sections(
+        _baseline_result, _baseline_error, baseline_count = _preflight_sections(
             request, state["sections"]
         )
         candidate_sections = deepcopy(state["sections"])
@@ -1264,13 +1433,26 @@ def research_planner_apply_revision_patch(
         candidate_result, candidate_error, candidate_count = _preflight_sections(
             request, candidate_sections
         )
-        if candidate_count != 0 and (
-            baseline_result is not None or candidate_count >= baseline_count
-        ):
+        pending_evidence_revision = isinstance(
+            state.get("pending_evidence_revision"), dict
+        )
+        patch_not_improved = (
+            candidate_result is None or candidate_count > baseline_count
+            if pending_evidence_revision
+            else candidate_count >= baseline_count
+        )
+        if patch_not_improved:
             raise ValueError(
                 "revision patch rejected without mutation: full-plan error count "
                 f"would change from {baseline_count} to {candidate_count}; "
-                "the count must strictly decrease. Candidate errors: " + candidate_error
+                + (
+                    "an Evidence-requested revision may keep a clean deterministic "
+                    "count but cannot introduce a new defect. "
+                    if pending_evidence_revision
+                    else "the count must strictly decrease. "
+                )
+                + "Candidate errors: "
+                + candidate_error
             )
 
         receipts: dict[str, Any] = {}
@@ -1290,7 +1472,7 @@ def research_planner_apply_revision_patch(
         sha = canonical_json_sha256(request)
         with _STATE_LOCK:
             _VALIDATED_RESPONSES.pop((context, sha), None)
-        if candidate_result is not None:
+        if candidate_result is not None and candidate_count == 0:
             validated = candidate_result.get("_validated_response")
             if isinstance(validated, dict):
                 state["validated_response"] = validated
@@ -1402,6 +1584,7 @@ def research_planner_stage_revision_section(
                     "section_receipt": candidate["receipts"].get(section_name),
                     "active_draft_unchanged": True,
                     "new_version_written": False,
+                    "draft_checkpoint": _draft_checkpoint(state),
                 }
             )
         if state["sections"].get(section_name) == value:
@@ -1421,6 +1604,7 @@ def research_planner_stage_revision_section(
                     ],
                     "active_draft_unchanged": True,
                     "new_version_written": False,
+                    "draft_checkpoint": _draft_checkpoint(state),
                 }
             )
         candidate_dir = (
@@ -1460,6 +1644,9 @@ def research_planner_stage_revision_section(
             "section_sha256": receipt["section_sha256"],
         }
         candidate["updated_at"] = _utc_now()
+        candidate["next_action"] = "commit_revision_candidate"
+        candidate.pop("remaining_error", None)
+        candidate.pop("affected_sections", None)
         state["revision_candidate"] = candidate
         state.get("section_failures", {}).pop(section_name, None)
         _persist_draft(state, config)
@@ -1475,6 +1662,7 @@ def research_planner_stage_revision_section(
                 "section_receipt": candidate["receipts"][section_name],
                 "active_draft_unchanged": True,
                 "new_version_written": True,
+                "draft_checkpoint": _draft_checkpoint(state),
             }
         )
     except Exception as exc:
@@ -1532,6 +1720,49 @@ def research_planner_commit_revision_candidate(
             raise RuntimeError(
                 "active draft changed after staging; discard the stale candidate and restage"
             )
+        _baseline_result, baseline_error, baseline_count = _preflight_sections(
+            request, state["sections"]
+        )
+        preview_sections = deepcopy(state["sections"])
+        preview_sections.update(deepcopy(candidate["sections"]))
+        _candidate_result, candidate_error, candidate_count = _preflight_sections(
+            request, preview_sections
+        )
+        if candidate_count > 0 and candidate_count >= baseline_count:
+            remaining_error, affected_sections = _localize_revision_error(
+                candidate_error or baseline_error
+            )
+            candidate["next_action"] = "stage_revision_section"
+            candidate["remaining_error"] = remaining_error
+            candidate["affected_sections"] = affected_sections
+            candidate["updated_at"] = _utc_now()
+            state["revision_candidate"] = candidate
+            _persist_draft(state, config)
+            return _ok(
+                {
+                    "status": "revision_candidate_incomplete",
+                    "error_code": "PLANNER_REVISION_CANDIDATE_NEEDS_SECTION",
+                    "next_action": "stage_revision_section",
+                    "staged_sections": [
+                        name
+                        for name in _PLAN_SECTION_ORDER
+                        if name in candidate["sections"]
+                    ],
+                    "baseline_error_count": baseline_count,
+                    "remaining_error_count": candidate_count,
+                    "remaining_error": remaining_error,
+                    "affected_sections": affected_sections,
+                    "active_draft_unchanged": True,
+                    "shadow_candidate_committed": False,
+                    "must_stop": False,
+                    "instruction": (
+                        "Inspect only the reported affected sections. Stage one "
+                        "complete replacement section at a time, then commit the "
+                        "same shadow candidate again. Do not invent missing content."
+                    ),
+                    "draft_checkpoint": _draft_checkpoint(state),
+                }
+            )
         raw = research_planner_apply_revision_patch.func(
             changes_json=json.dumps(candidate["sections"], ensure_ascii=False),
             request_sha256=request_sha256,
@@ -1543,6 +1774,31 @@ def research_planner_commit_revision_candidate(
             refreshed["revision_candidate"] = None
             _persist_draft(refreshed, config)
             result["shadow_candidate_committed"] = True
+            result["draft_checkpoint"] = _draft_checkpoint(refreshed)
+        elif (
+            result.get("error_code") == "PLANNER_REVISION_NOT_IMPROVED"
+            and result.get("must_stop") is not True
+        ):
+            refreshed = _lookup_draft(request, config)
+            refreshed_candidate = refreshed.get("revision_candidate")
+            if isinstance(refreshed_candidate, dict):
+                refreshed_candidate["next_action"] = "stage_revision_section"
+                refreshed_candidate["remaining_error"] = (
+                    candidate_error or baseline_error or str(result.get("error") or "")
+                )
+                refreshed_candidate["updated_at"] = _utc_now()
+                refreshed["revision_candidate"] = refreshed_candidate
+                _persist_draft(refreshed, config)
+            result["next_action"] = "stage_revision_section"
+            result["remaining_error"] = (
+                candidate_error or baseline_error or str(result.get("error") or "")
+            )
+            result["draft_checkpoint"] = _draft_checkpoint(refreshed)
+            result["shadow_candidate_committed"] = False
+            result["instruction"] = (
+                "Stage exactly one additional affected section, then commit the "
+                "same shadow candidate again."
+            )
         else:
             result["shadow_candidate_committed"] = False
             result["instruction"] = (
@@ -1749,10 +2005,38 @@ def research_planner_freeze_plan(
             if isinstance(persisted, dict):
                 validated_response = persisted
         if not validated_response:
-            raise RuntimeError(
-                "No validated plan-ready response found. Call "
-                "research_planner_validate_draft or research_planner_validate_plan first."
+            # The sub-agent may finish writing every section and call freeze
+            # without an explicit validate_draft step.  A complete draft is
+            # enough to attempt validation here so a single missed step does
+            # not discard a finished draft.
+            state = _lookup_draft(request, config)
+            checkpoint = _draft_checkpoint(state)
+            if checkpoint["missing_sections"]:
+                raise RuntimeError(
+                    "No validated plan-ready response found and the draft is "
+                    "incomplete; missing sections: "
+                    + ", ".join(checkpoint["missing_sections"])
+                )
+            response_payload = _draft_response(request, state["sections"])
+            result = preflight_planner_response(
+                request, response_payload, include_validated_response=True
             )
+            if (
+                result.get("status") != "plan_ready"
+                or "_validated_response" not in result
+            ):
+                raise RuntimeError(
+                    "planner deterministic validation did not pass: "
+                    + str(result.get("error") or result.get("status"))
+                )
+            validated_response = result["_validated_response"]
+            with _STATE_LOCK:
+                _VALIDATED_RESPONSES[(context, sha)] = validated_response
+            state["validated_response"] = validated_response
+            state["validated_response_sha256"] = canonical_json_sha256(
+                validated_response
+            )
+            _persist_draft(state, config)
         workspace_root = workspace_root_from_config(config)
         result = freeze_research_plan(
             request,

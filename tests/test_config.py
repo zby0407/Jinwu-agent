@@ -836,6 +836,35 @@ class TestAuxiliaryModelConfig:
         assert config.auxiliary_provider == "openai"
 
 
+class TestIndependentReviewModelConfig:
+    """Independent scientific review must not reuse the auxiliary selector."""
+
+    def test_defaults_empty(self):
+        cfg = JWConfig()
+        assert cfg.independent_review_model == ""
+        assert cfg.independent_review_provider == ""
+
+    def test_save_and_load_round_trip(self, temp_config_dir, clean_env):
+        save_config(
+            JWConfig(
+                independent_review_model="deepseek-v4-pro",
+                independent_review_provider="deepseek",
+            )
+        )
+        loaded = load_config()
+        assert loaded.independent_review_model == "deepseek-v4-pro"
+        assert loaded.independent_review_provider == "deepseek"
+
+    def test_env_overrides_file(self, temp_config_dir, monkeypatch):
+        save_config(JWConfig(independent_review_model="review-model-a"))
+        monkeypatch.setenv("JW_INDEPENDENT_REVIEW_MODEL", "deepseek-v4-pro")
+        monkeypatch.setenv("JW_INDEPENDENT_REVIEW_PROVIDER", "deepseek")
+
+        config = get_effective_config()
+        assert config.independent_review_model == "deepseek-v4-pro"
+        assert config.independent_review_provider == "deepseek"
+
+
 def test_scheduler_config_defaults_and_env(monkeypatch):
     from jw.config.settings import JWConfig, get_effective_config
 

@@ -26,6 +26,7 @@ from .contracts import (
     RESPONSE_VERSION,
     ContractError,
     canonical_json_sha256,
+    format_illegal_transition_message,
     validate_planner_request,
     validate_planner_response,
     validate_research_plan,
@@ -455,6 +456,7 @@ def _compact_response_contract() -> dict[str, Any]:
             "Copy task_name and research_question exactly from the canonical request.",
             "All ids must start with a letter and all references must resolve.",
             "Every evidence source and linked state item must reference each other in both directions.",
+            "Every research_state_map item must reference at least one subquestion, and every subquestion id must be referenced by at least one state item (use an evidence_gap or assumption item when a subquestion yields no finding).",
             "Each route step must include completed plus at least one non-completed outcome; transitions must cover exactly those outcomes.",
             "Each planned_output artifact has exactly one matching producer step; input artifacts have a null producer_step_id.",
             "Subquestion and artifact dependency graphs are acyclic; conditional revisits are bounded.",
@@ -565,6 +567,7 @@ def build_planning_brief(request_payload: dict[str, Any]) -> dict[str, Any]:
             "A proposed dataset must be missing or needs_confirmation.",
             "A request may contain zero data sources.",
             "Every supported_finding must cite evidence; hypotheses and gaps must not be presented as findings.",
+            "Do not write a fixed numeric magnitude (a hard cutoff such as '场强>5 G', '黑子数≥80', 'aa<15', or any 数字+以上/以下) into a hypothesis, state item, or route-step completion criteria unless it is grounded in claim-located evidence or copied from an exact user requirement; otherwise phrase it as an open directional relation (e.g. 'stronger polar field → smaller next cycle') or make the threshold an output the route will calibrate.",
             "A resolved DOI, URL, or bibliography record is only source discovery; supported content requires a claim-level locator or applicable dataset inspection.",
             "Every route step must list the datasets it directly uses, and every required dataset must be used by at least one step.",
             "Every evaluation rule must state whether its basis comes from located evidence, planned data, an exact user requirement, or a qualitative check without a fixed numeric cutoff.",
@@ -973,8 +976,7 @@ def collect_planner_route_semantic_errors(response_payload: object) -> list[str]
                 continue
             if requires_completed(target, step_id):
                 errors.append(
-                    f"route step {step_id} outcome {outcome} cannot transition to {target}; "
-                    "the target requires this step to complete"
+                    format_illegal_transition_message(step_id, outcome, target)
                 )
     return errors
 
@@ -1261,6 +1263,67 @@ def collect_planner_scientific_semantic_errors(
     return list(dict.fromkeys(errors))
 
 
+def _control_cycle_steps(route: object) -> set[str]:
+    """Return route step ids that sit on a control-flow transition cycle.
+
+    Mirrors the validator's control graph (``on`` -> ``target_step_id`` edges)
+    so normalization can lift visit_limit on exactly the steps the validator
+    would otherwise reject with 'cyclic route step <id> requires visit_limit >= 2'.
+    """
+
+    if not isinstance(route, list):
+        return set()
+    graph: dict[str, set[str]] = {}
+    for step in route:
+        if not isinstance(step, dict) or not isinstance(step.get("id"), str):
+            continue
+        targets: set[str] = set()
+        for transition in step.get("transitions") or []:
+            if isinstance(transition, dict):
+                target = transition.get("target_step_id")
+                if isinstance(target, str):
+                    targets.add(target)
+        graph[step["id"]] = targets
+
+    index = 0
+    indices: dict[str, int] = {}
+    lowlinks: dict[str, int] = {}
+    stack: list[str] = []
+    on_stack: set[str] = set()
+    cyclic: set[str] = set()
+
+    def strongconnect(node: str) -> None:
+        nonlocal index
+        indices[node] = index
+        lowlinks[node] = index
+        index += 1
+        stack.append(node)
+        on_stack.add(node)
+        for target in graph.get(node, ()):
+            if target not in graph:
+                continue
+            if target not in indices:
+                strongconnect(target)
+                lowlinks[node] = min(lowlinks[node], lowlinks[target])
+            elif target in on_stack:
+                lowlinks[node] = min(lowlinks[node], indices[target])
+        if lowlinks[node] == indices[node]:
+            component: list[str] = []
+            while True:
+                member = stack.pop()
+                on_stack.remove(member)
+                component.append(member)
+                if member == node:
+                    break
+            if len(component) > 1 or component[0] in graph.get(component[0], ()):
+                cyclic.update(component)
+
+    for node in graph:
+        if node not in indices:
+            strongconnect(node)
+    return cyclic
+
+
 def _normalize_model_response(
     request: dict[str, Any], response_payload: dict[str, Any]
 ) -> tuple[dict[str, Any], list[str]]:
@@ -1428,6 +1491,38 @@ def _normalize_model_response(
                         f"normalized evaluation_rules[{index}].criterion_basis.kind "
                         f"from qualitative to {inferred_kind} based on its sole reference family"
                     )
+                # request_based requires basis_text to be copied verbatim from the
+                # canonical request. A model that paraphrases a criterion (rather
+                # than quoting it) deadlocks against that verbatim check: the
+                # wording simply is not in the request, so no revision can ever
+                # satisfy it. When the cited text is absent AND the rule carries
+                # no hard numeric cutoff, demote to qualitative (an inferred,
+                # non-grounded criterion) — content-preserving, and the only
+                # honest label for a paraphrased rule. A rule WITH a numeric
+                # cutoff is left untouched: demoting it would trade the basis
+                # error for a numeric-cutoff error, and it genuinely needs a
+                # grounded (source/data/request) basis the model must supply.
+                if basis.get("kind") == "request_based":
+                    basis_text = basis.get("basis_text")
+                    request_text = json.dumps(request, ensure_ascii=False, sort_keys=True)
+                    if isinstance(basis_text, str) and basis_text not in request_text:
+                        check = item.get("check")
+                        interpretation = item.get("interpretation")
+                        has_numeric = (
+                            isinstance(check, str)
+                            and HARD_NUMERIC_CUTOFF.search(check) is not None
+                        ) or (
+                            isinstance(interpretation, str)
+                            and HARD_NUMERIC_CUTOFF.search(interpretation) is not None
+                        )
+                        if not has_numeric:
+                            basis["kind"] = "qualitative"
+                            notes.append(
+                                f"demoted evaluation_rules[{index}].criterion_basis.kind "
+                                "from request_based to qualitative: cited basis_text is "
+                                "absent from the canonical request and the rule has no "
+                                "numeric cutoff"
+                            )
         for index, item in enumerate(object_list(content.get("report_outline"))):
             normalize_list(
                 item, "source_step_ids", f"report_outline[{index}].source_step_ids"
@@ -1443,6 +1538,63 @@ def _normalize_model_response(
             )
             normalize_list(
                 item, "report_section_ids", f"stop_rules[{index}].report_section_ids"
+            )
+
+        # Write-time route invariants, enforced mechanically so a model-written
+        # draft cannot reach validation with these objective defects. Both are
+        # deterministic repairs the validator would otherwise reject outright.
+        if request.get("self_correction_enabled"):
+            for step_id in _control_cycle_steps(content.get("research_route")):
+                for index, step in enumerate(object_list(content.get("research_route"))):
+                    if isinstance(step, dict) and step.get("id") == step_id:
+                        limit = step.get("visit_limit")
+                        if not isinstance(limit, int) or limit < 2:
+                            step["visit_limit"] = 2
+                            notes.append(
+                                f"raised research_route[{index}].visit_limit to 2 "
+                                f"because step {step_id} sits on a control cycle"
+                            )
+        # claim_located without a page/section/line/figure/table locator is an
+        # objective defect. Demote to reference_resolved, but only when no
+        # supported/partially_supported state item or numeric testable
+        # hypothesis relies on that source being claim-strength — demoting one
+        # of those would just trade the locator error for a state-item error.
+        state_map = content.get("research_state_map")
+        state_items = (
+            state_map.get("items", []) if isinstance(state_map, dict) else []
+        )
+        needs_claim_strength: set[str] = set()
+        for item in state_items:
+            if not isinstance(item, dict):
+                continue
+            supported = item.get("status") in {"supported", "partially_supported"}
+            statement = item.get("statement")
+            numeric_hypothesis = (
+                item.get("item_kind") == "testable_hypothesis"
+                and isinstance(statement, str)
+                and HARD_NUMERIC_CUTOFF.search(statement) is not None
+            )
+            if supported or numeric_hypothesis:
+                for source_id in item.get("evidence_source_ids") or []:
+                    if isinstance(source_id, str):
+                        needs_claim_strength.add(source_id)
+        for index, source in enumerate(object_list(content.get("evidence_sources"))):
+            if not isinstance(source, dict):
+                continue
+            if source.get("verification_level") != "claim_located":
+                continue
+            locator = source.get("locator")
+            has_hint = isinstance(locator, str) and CLAIM_LOCATOR_HINT.search(locator)
+            if has_hint:
+                continue
+            source_id = source.get("id")
+            if isinstance(source_id, str) and source_id in needs_claim_strength:
+                continue
+            source["verification_level"] = "reference_resolved"
+            notes.append(
+                f"demoted evidence_sources[{index}] ({source_id}) from claim_located "
+                "to reference_resolved: locator lacks a page-, section-, paragraph-, "
+                "line-, figure-, or table-level reference"
             )
     return response, notes
 
