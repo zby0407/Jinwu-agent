@@ -1,12 +1,15 @@
 from __future__ import annotations
 
+import csv
 import hashlib
 import json
-import math
 import multiprocessing
 import sys
+import time
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
+from threading import Barrier, Lock
 from types import SimpleNamespace
 
 import pytest
@@ -16,7 +19,10 @@ from langgraph.types import Command
 from jw import paths
 from jw.middleware.research_review_orchestration import (
     ResearchReviewOrchestrationMiddleware,
-    _cycle26_readiness_from_paths,
+    _CANONICAL_CHECKPOINT_DIRECTIVE,
+    _ensure_solar_cycle_pair_analysis_table,
+    _persist_solar_cycle_pair_analysis_table,
+    _solar_cycle_pair_analysis_from_path,
     _upstream_context,
     _write_hypothesis_request,
 )
@@ -30,7 +36,7 @@ from jw.tools.research_review import (
     evidence_review_submit_verdict,
 )
 from jw.tools.solar_feature import _task_chat_session
-from jw.workspaces import ensure_thread_workspace
+from jw.workspaces import ensure_thread_workspace, register_project_data_file
 from research_review.adapters import adapt_v1_producer_output
 from research_review.contracts import (
     POLICY_VERSION,
@@ -42,6 +48,7 @@ from research_review.contracts import (
     validate_revision_capsule,
 )
 from research_review.policies import policy_registry
+from scientific_hypothesis import TAIL_REVIEW_VERSION, candidate_pool_sha256
 
 
 def _checkpoint_from_process(
@@ -196,6 +203,8 @@ def test_review_context_omits_long_producer_report_but_keeps_hash_and_sources(
     assert projection["artifact_sha256"] == artifact["artifact_sha256"]
     assert projection["evidence_refs"] == ["work/scientific_hypothesis_state.json"]
     assert projection["producer_result_omitted_chars"] == len(long_report.strip())
+    assert "canonical JSON" in projection["inspection_instruction"]
+    assert "raw file bytes" in projection["inspection_instruction"]
     assert "producer_result" not in projection
     assert "REDUNDANT-PRODUCER-REPORT" not in encoded
     assert len(encoded) < 20_000
@@ -303,6 +312,248 @@ def test_hypothesis_request_declares_accepted_data_as_verified_material(
     assert "已生成周期 15 至 24" in material["content_notes"]
     assert "不能把特征表直接解释为预测技能" in material["content_notes"]
     assert "not predictive skill or a causal mechanism" in material["content_notes"]
+
+
+def test_post_experiment_hypothesis_request_binds_verified_result_and_prior(
+    tmp_path: Path,
+) -> None:
+    store = ResearchReviewStore(tmp_path, "post-experiment-request")
+    (tmp_path / "task.json").write_text(
+        json.dumps(
+            {"research_question": "周期长度是否调节前兆场与下一周期振幅的关系？"}
+        ),
+        encoding="utf-8",
+    )
+    for stage, producer, content in (
+        ("planning", "solar-planner", "建立逐周期交互分析与证据核验计划。"),
+        ("data", "solar-data", "已生成逐周期特征表。"),
+        ("hypothesis", "solar-hypothesis", "周期较长时负交互更强。"),
+        ("experiment_design", "solar-experiment", "检验交互项和样本外误差。"),
+    ):
+        store.checkpoint_producer_result(
+            stage=stage, producer=producer, content=content
+        )
+        _accept(store, stage)
+
+    run_root = tmp_path / "experiment" / "runs" / "run-1"
+    run_root.mkdir(parents=True)
+    record = {
+        "schema_version": "automatic-experiment-record-v1",
+        "outcome": "high_uncertainty",
+        "outcome_reason": "交互项区间覆盖零且留一周期后符号不稳定。",
+        "task": "比较有无交互项的周期级预测模型",
+        "worker_result": {
+            "execution_completed": True,
+            "measurements": [
+                {
+                    "name": "interaction_coefficient",
+                    "value": -0.42,
+                    "unit": "standardized",
+                    "role": "primary",
+                    "source_artifact": "summary.json",
+                },
+                {
+                    "name": "interaction_interval_low",
+                    "value": -1.10,
+                    "unit": "standardized",
+                    "role": "secondary",
+                    "source_artifact": "summary.json",
+                },
+                {
+                    "name": "interaction_interval_high",
+                    "value": 0.31,
+                    "unit": "standardized",
+                    "role": "secondary",
+                    "source_artifact": "summary.json",
+                },
+            ],
+            "result_items": [],
+            "scientific_payload": {
+                "primary_estimand": "standardized interaction coefficient",
+                "estimate": -0.42,
+                "interval": [-1.10, 0.31],
+                "equivalence_bounds": None,
+                "sensitivity": "leave-one-cycle sign instability",
+                "uncertainty_reasons": ["Only nine independent cycle pairs."],
+            },
+        },
+        "scientific_assessment": {
+            "proposed_outcome": "high_uncertainty",
+            "uncertainty_reasons": ["区间覆盖零。", "留一周期后符号不稳定。"],
+        },
+    }
+    (run_root / "record.json").write_text(
+        json.dumps(record, ensure_ascii=False), encoding="utf-8"
+    )
+    (run_root / "entry_result.json").write_text("{}", encoding="utf-8")
+    (run_root / "report.md").write_text("# 真实实验报告\n", encoding="utf-8")
+    store.checkpoint_producer_result(
+        stage="experiment_result",
+        producer="solar-experiment",
+        content="experiment/runs/run-1/record.json",
+    )
+    _accept(store, "experiment_result")
+
+    relative = _write_hypothesis_request(store)
+    request = json.loads((tmp_path / relative).read_text(encoding="utf-8"))
+
+    assert len(request["prior_hypotheses"]) == 1
+    assert request["prior_hypotheses"][0]["statement"] == "周期较长时负交互更强。"
+    experiment = next(
+        item
+        for item in request["upstream_materials"]
+        if item["material_kind"] == "experiment_result"
+    )
+    assert experiment["experiment_summary"]["outcome"] == "uncertain"
+    assert experiment["experiment_summary"]["execution_completed"] is True
+    assert experiment["experiment_summary"]["metrics"][0]["name"] == (
+        "interaction_coefficient"
+    )
+    assert "区间覆盖零" in experiment["experiment_summary"]["uncertainty_notes"]
+
+
+def test_experiment_adapter_projects_verified_measurements_into_claim() -> None:
+    source_ref = "experiment/runs/run-1/record.json"
+    adapted = adapt_v1_producer_output(
+        stage="experiment_result",
+        version=1,
+        phase="experiment_result",
+        text=source_ref,
+        evidence_refs=[source_ref],
+        canonical_documents=[
+            {
+                "source_ref": source_ref,
+                "payload": {
+                    "schema_version": "automatic-experiment-record-v1",
+                    "outcome": "high_uncertainty",
+                    "outcome_reason": "区间覆盖零。",
+                    "task": "通用交互分析",
+                    "worker_result": {
+                        "execution_completed": True,
+                        "measurements": [
+                            {
+                                "name": "interaction_coefficient",
+                                "value": -0.42,
+                                "unit": "standardized",
+                                "role": "primary",
+                                "source_artifact": "summary.json",
+                            }
+                        ],
+                        "result_items": [],
+                        "scientific_payload": {
+                            "primary_estimand": "interaction coefficient",
+                            "estimate": -0.42,
+                            "interval": [-1.1, 0.31],
+                            "equivalence_bounds": None,
+                            "sensitivity": None,
+                            "uncertainty_reasons": ["small independent sample"],
+                        },
+                    },
+                    "scientific_assessment": {
+                        "proposed_outcome": "high_uncertainty",
+                        "uncertainty_reasons": ["区间覆盖零。"],
+                    },
+                },
+            }
+        ],
+    )
+
+    claim = adapted["claims"][0]
+    assert "interaction_coefficient=-0.42 standardized" in claim["text"]
+    assert claim["supporting_evidence"] == [source_ref]
+    assert adapted["payload"]["experiment_result_summary"]["outcome"] == "uncertain"
+
+
+@pytest.mark.parametrize(
+    "diagnostic_items",
+    [
+        [
+            ("primary_interval_low", -0.8),
+            ("primary_interval_high", 0.2),
+            ("out_of_sample_complete", True),
+        ],
+        [
+            ("candidate_mae", 10.0),
+            ("baseline_mae", 11.0),
+            ("candidate_rmse", 15.0),
+            ("baseline_rmse", 14.0),
+            ("out_of_sample_complete", True),
+        ],
+        [
+            ("out_of_sample_complete", True),
+            ("influential_unit_changes_conclusion", True),
+        ],
+        [("out_of_sample_complete", False)],
+    ],
+)
+def test_experiment_adapter_recomputes_uncertain_relation_from_diagnostics(
+    diagnostic_items: list[tuple[str, object]],
+) -> None:
+    source_ref = "experiment/runs/run-1/record.json"
+    result_items = [
+        {
+            "id": "hypothesis_relation",
+            "display_name": "Hypothesis relation",
+            "value_kind": "text",
+            "value": "supports",
+            "unit": "category",
+            "role": "primary",
+            "source_artifact": "summary.json",
+        },
+        *[
+            {
+                "id": name,
+                "display_name": name,
+                "value_kind": ("boolean" if isinstance(value, bool) else "number"),
+                "value": value,
+                "unit": "diagnostic",
+                "role": "diagnostic",
+                "source_artifact": "summary.json",
+            }
+            for name, value in diagnostic_items
+        ],
+    ]
+    adapted = adapt_v1_producer_output(
+        stage="experiment_result",
+        version=1,
+        phase="experiment_result",
+        text=source_ref,
+        evidence_refs=[source_ref],
+        canonical_documents=[
+            {
+                "source_ref": source_ref,
+                "payload": {
+                    "schema_version": "automatic-experiment-record-v1",
+                    "outcome": "completed_interpretable",
+                    "outcome_reason": "模型比较已完成。",
+                    "task": "通用预测假设检验",
+                    "worker_result": {
+                        "execution_completed": True,
+                        "measurements": [],
+                        "result_items": result_items,
+                        "scientific_payload": {
+                            "primary_estimand": "registered effect",
+                            "estimate": 0.1,
+                            "interval": None,
+                            "equivalence_bounds": None,
+                            "sensitivity": None,
+                            "uncertainty_reasons": [],
+                        },
+                    },
+                    "scientific_assessment": {
+                        "proposed_outcome": "completed_interpretable",
+                        "uncertainty_reasons": [],
+                    },
+                },
+            }
+        ],
+    )
+
+    metrics = {
+        item["name"]: item["value_text"]
+        for item in adapted["payload"]["experiment_result_summary"]["metrics"]
+    }
+    assert metrics["hypothesis_relation"] == "uncertain"
 
 
 def test_policy_registry_severity_is_a_deterministic_floor(tmp_path: Path) -> None:
@@ -468,6 +719,986 @@ def test_data_input_missing_cannot_be_model_accepted(tmp_path: Path) -> None:
         issue["rule_id"] == "REQUIRED_DATA_INPUT_UNAVAILABLE"
         for issue in verdict["issues"]
     )
+
+
+def _write_authoritative_data_context(
+    root: Path,
+    task_id: str,
+    *,
+    missing_required_dataset_ids: list[str],
+    must_stop: bool,
+) -> Path:
+    question = (
+        "Can polar fields in cycles 14-23 predict amplitudes for "
+        "the following cycles 15-24?"
+    )
+    task_path = root / "task.json"
+    task_path.write_text(
+        json.dumps({"thread_id": task_id, "research_question": question}),
+        encoding="utf-8",
+    )
+    manifest_path = root / "input_manifest.json"
+    required_dataset_ids = [
+        "silso-monthly-total-v2",
+        "mwo-wso-polar-field-v2",
+    ]
+    input_rows: list[dict[str, object]] = []
+    for index, dataset_id in enumerate(required_dataset_ids, start=1):
+        if dataset_id in missing_required_dataset_ids:
+            continue
+        input_path = root / "inputs" / f"dataset-{index}.csv"
+        input_path.parent.mkdir(parents=True, exist_ok=True)
+        input_path.write_text(f"dataset_id,value\n{dataset_id},1\n", encoding="utf-8")
+        raw = input_path.read_bytes()
+        input_rows.append(
+            {
+                "path": input_path.relative_to(root).as_posix(),
+                "sha256": hashlib.sha256(raw).hexdigest(),
+                "bytes": len(raw),
+                "role": "user_input",
+                "source_group": "inputs",
+                "dataset_id": dataset_id,
+            }
+        )
+    manifest_path.write_text(
+        json.dumps(
+            {
+                "schema_version": "task-input-manifest-v1",
+                "thread_id": task_id,
+                "inputs": input_rows,
+                "project_inputs": [],
+            }
+        ),
+        encoding="utf-8",
+    )
+    plan_ref = "planner/runs/current/research_plan.json"
+    plan_path = root / plan_ref
+    plan_path.parent.mkdir(parents=True, exist_ok=True)
+    route_steps = [
+        {
+            "id": "R1",
+            "stage": "data",
+            "objective": "Build cycle pairs 14->15 through 23->24.",
+        },
+        {
+            "id": "R2",
+            "stage": "hypothesis",
+            "objective": "Generate a testable hypothesis.",
+        },
+        {
+            "id": "R3",
+            "stage": "experiment_design",
+            "objective": "Specify the experiment.",
+        },
+        {"id": "R4", "stage": "experiment_result", "objective": "Run the experiment."},
+        {
+            "id": "R5",
+            "stage": "hypothesis_update",
+            "objective": "Update the hypothesis.",
+        },
+    ]
+    plan_path.write_text(
+        json.dumps(
+            {
+                "schema_version": "research-plan-v1",
+                "research_question": question,
+                "research_route": route_steps,
+                "required_datasets": [
+                    {
+                        "id": dataset_id,
+                        "selected_source_id": dataset_id,
+                        "purpose": "Authoritative test input.",
+                    }
+                    for dataset_id in required_dataset_ids
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    data_steps = [step for step in route_steps if step["stage"] == "data"]
+    store = ResearchReviewStore(root, task_id)
+    planning = store.checkpoint_producer_result(
+        stage="planning",
+        producer="solar-planner",
+        content="Accepted canonical planning route.",
+    )
+    planning_verdict = store.submit_verdict(
+        mode="planning",
+        decision="accept",
+        issues=[],
+        accepted_claims=[claim["claim_id"] for claim in planning["claims"]],
+    )
+    body = {
+        "schema_version": "solar-data-context-v1",
+        "context_mode": "full_research",
+        "task_id": task_id,
+        "analysis_protocol": "solar_polar_precursor_v1",
+        "required_data_product": "solar_polar_precursor_table_v1",
+        "required_dataset_ids": required_dataset_ids,
+        "missing_required_dataset_ids": missing_required_dataset_ids,
+        "eligible_inputs": input_rows,
+        "status": (
+            "input_missing"
+            if missing_required_dataset_ids or must_stop
+            else "inputs_available"
+        ),
+        "must_stop": must_stop,
+        "task_sha256": hashlib.sha256(task_path.read_bytes()).hexdigest(),
+        "research_question_sha256": hashlib.sha256(
+            question.encode("utf-8")
+        ).hexdigest(),
+        "input_manifest_sha256": hashlib.sha256(manifest_path.read_bytes()).hexdigest(),
+        "plan_source_ref": plan_ref,
+        "plan_sha256": hashlib.sha256(plan_path.read_bytes()).hexdigest(),
+        "planning_artifact_ref": store.artifact_ref(planning),
+        "planning_verdict_ref": {
+            "review_id": planning_verdict["review_id"],
+            "verdict_sha256": planning_verdict["verdict_sha256"],
+        },
+        "data_steps": data_steps,
+    }
+    context_sha256 = canonical_json_sha256(body)
+    receipt = (
+        root / "receipts" / "datasets" / f"data-context-{context_sha256[:16]}.json"
+    )
+    receipt.parent.mkdir(parents=True, exist_ok=True)
+    receipt.write_text(
+        json.dumps({**body, "context_sha256": context_sha256}), encoding="utf-8"
+    )
+    return receipt
+
+
+def _write_strict_full_data_context(
+    root: Path, task_id: str
+) -> tuple[Path, ResearchReviewStore, dict[str, object], dict[str, object]]:
+    """Create one accepted-Planning/full-Data context for authority regressions."""
+
+    from jw.research_protocols import (
+        SOLAR_POLAR_PRECURSOR_PROTOCOL,
+        required_data_product_for_protocol,
+        required_dataset_ids_for_protocol,
+    )
+
+    question = (
+        "Can polar fields predict the next solar cycle amplitude from the "
+        "following cycles?"
+    )
+    task_path = root / "task.json"
+    task_path.write_text(
+        json.dumps({"thread_id": task_id, "research_question": question}),
+        encoding="utf-8",
+    )
+    input_rows: list[dict[str, object]] = []
+    dataset_ids = required_dataset_ids_for_protocol(SOLAR_POLAR_PRECURSOR_PROTOCOL)
+    for index, dataset_id in enumerate(dataset_ids, start=1):
+        relative = f"inputs/dataset-{index}.csv"
+        path = root / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(f"dataset_id,value\n{dataset_id},1\n", encoding="utf-8")
+        raw = path.read_bytes()
+        input_rows.append(
+            {
+                "path": relative,
+                "sha256": hashlib.sha256(raw).hexdigest(),
+                "bytes": len(raw),
+                "role": "user_input",
+                "source_group": "inputs",
+                "dataset_id": dataset_id,
+            }
+        )
+    manifest_path = root / "input_manifest.json"
+    manifest = {
+        "schema_version": "task-input-manifest-v1",
+        "thread_id": task_id,
+        "inputs": input_rows,
+        "project_inputs": [],
+    }
+    manifest_path.write_text(json.dumps(manifest, sort_keys=True), encoding="utf-8")
+
+    plan_ref = "planner/runs/current/research_plan.json"
+    plan_path = root / plan_ref
+    plan_path.parent.mkdir(parents=True, exist_ok=True)
+    data_steps = [
+        {
+            "id": "R1",
+            "stage": "data",
+            "objective": "Construct the task-bound precursor table.",
+        },
+        {"id": "R2", "stage": "hypothesis_generation", "objective": "Form hypotheses."},
+        {"id": "R3", "stage": "experiment_design", "objective": "Design the test."},
+        {"id": "R4", "stage": "experiment_result", "objective": "Run the test."},
+        {"id": "R5", "stage": "hypothesis_update", "objective": "Update hypotheses."},
+    ]
+    plan = {
+        "schema_version": "research-plan-v1",
+        "research_question": question,
+        "research_route": data_steps,
+        "required_datasets": [],
+    }
+    plan_path.write_text(json.dumps(plan, sort_keys=True), encoding="utf-8")
+
+    store = ResearchReviewStore(root, task_id)
+    planning = store.checkpoint_producer_result(
+        stage="planning",
+        producer="solar-planner",
+        content="Accepted task-bound planning artifact.",
+    )
+    planning_verdict = store.submit_verdict(
+        mode="planning",
+        decision="accept",
+        issues=[],
+        accepted_claims=[planning["claims"][0]["claim_id"]],
+    )
+    protocol = SOLAR_POLAR_PRECURSOR_PROTOCOL
+    required_ids = list(dataset_ids)
+    body: dict[str, object] = {
+        "schema_version": "solar-data-context-v1",
+        "context_mode": "full_research",
+        "task_id": task_id,
+        "analysis_protocol": protocol,
+        "required_data_product": required_data_product_for_protocol(protocol),
+        "planning_artifact_ref": store.artifact_ref(planning),
+        "planning_verdict_ref": {
+            "review_id": planning_verdict["review_id"],
+            "verdict_sha256": planning_verdict["verdict_sha256"],
+        },
+        "plan_source_ref": plan_ref,
+        "plan_sha256": hashlib.sha256(plan_path.read_bytes()).hexdigest(),
+        "task_sha256": hashlib.sha256(task_path.read_bytes()).hexdigest(),
+        "research_question_sha256": hashlib.sha256(question.encode()).hexdigest(),
+        "input_manifest_sha256": hashlib.sha256(manifest_path.read_bytes()).hexdigest(),
+        "required_datasets": [],
+        "required_dataset_ids": required_ids,
+        "missing_required_dataset_ids": [],
+        "data_steps": [data_steps[0]],
+        "planned_outputs": [],
+        "eligible_inputs": input_rows,
+        "status": "inputs_available",
+        "must_stop": False,
+    }
+    context_sha256 = canonical_json_sha256(body)
+    receipt = (
+        root / "receipts" / "datasets" / f"data-context-{context_sha256[:16]}.json"
+    )
+    receipt.parent.mkdir(parents=True, exist_ok=True)
+    receipt.write_text(
+        json.dumps(
+            {
+                **body,
+                "context_sha256": context_sha256,
+                "created_at": "2026-01-01T00:00:00Z",
+            },
+            sort_keys=True,
+        ),
+        encoding="utf-8",
+    )
+    return receipt, store, planning, planning_verdict
+
+
+def test_full_context_rebuilds_eligible_inputs_from_current_manifest(
+    tmp_path: Path,
+) -> None:
+    task_id = "manifest-authority-regression"
+    receipt, store, _planning, _verdict = _write_strict_full_data_context(
+        tmp_path, task_id
+    )
+    payload = json.loads(receipt.read_text(encoding="utf-8"))
+    ref = receipt.relative_to(tmp_path).as_posix()
+    assert store._data_context_is_authoritative(ref, payload, phase="data")
+
+    forged = dict(payload)
+    forged["eligible_inputs"] = [dict(item) for item in payload["eligible_inputs"]]
+    forged["eligible_inputs"][0]["sha256"] = "f" * 64
+    forged_body = {
+        key: value
+        for key, value in forged.items()
+        if key not in {"context_sha256", "created_at"}
+    }
+    forged_sha256 = canonical_json_sha256(forged_body)
+    forged_ref = f"receipts/datasets/data-context-{forged_sha256[:16]}.json"
+    forged_path = tmp_path / forged_ref
+    forged_path.write_text(
+        json.dumps({**forged_body, "context_sha256": forged_sha256}, sort_keys=True),
+        encoding="utf-8",
+    )
+
+    assert not store._data_context_is_authoritative(
+        forged_ref,
+        json.loads(forged_path.read_text(encoding="utf-8")),
+        phase="data",
+    )
+
+
+def test_full_context_rebuilds_registered_project_inputs_from_virtual_paths(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Review authority must resolve the same /project/data paths as the tools."""
+
+    registry = tmp_path / "bindings"
+    base = tmp_path / "workspace"
+    source = tmp_path / "solar.csv"
+    source.write_text("cycle,value\n24,115\n", encoding="utf-8")
+    monkeypatch.setenv("JW_WORKSPACE_BINDINGS_DIR", str(registry))
+
+    register_project_data_file(
+        base,
+        source,
+        "solar/precursor.csv",
+        dataset_id="solar-precursor-v1",
+        provenance={"source_url": "https://example.test/solar"},
+    )
+    binding = ensure_thread_workspace(
+        "project-input-authority", base, project_id="default"
+    )
+    store = ResearchReviewStore(Path(binding.workspace), binding.thread_id)
+    path_type = type(Path())
+    original_is_absolute = path_type.is_absolute
+
+    def windows_like_is_absolute(path: Path) -> bool:
+        if path.as_posix().startswith("/project/data/"):
+            return False
+        return original_is_absolute(path)
+
+    monkeypatch.setattr(path_type, "is_absolute", windows_like_is_absolute)
+
+    records = store._current_manifest_input_records()
+
+    assert records == [
+        {
+            "path": "/project/data/solar/precursor.csv",
+            "sha256": hashlib.sha256(source.read_bytes()).hexdigest(),
+            "bytes": source.stat().st_size,
+            "role": "primary_data",
+            "source_group": "project_inputs",
+            "dataset_id": "solar-precursor-v1",
+            "provenance_ref": "/project/data/solar/precursor.csv.provenance.json",
+        }
+    ]
+
+
+def test_full_context_rejects_unregistered_project_input_file(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A shared file must also be present in the project data registry."""
+
+    registry = tmp_path / "bindings"
+    base = tmp_path / "workspace"
+    source = tmp_path / "registered.csv"
+    source.write_text("cycle,value\n24,115\n", encoding="utf-8")
+    monkeypatch.setenv("JW_WORKSPACE_BINDINGS_DIR", str(registry))
+    register_project_data_file(
+        base,
+        source,
+        "solar/registered.csv",
+        dataset_id="registered",
+        provenance={},
+    )
+    binding = ensure_thread_workspace(
+        "unregistered-project-input", base, project_id="default"
+    )
+
+    unregistered = Path(binding.project_shared) / "data/solar/unregistered.csv"
+    unregistered.write_text("cycle,value\n25,120\n", encoding="utf-8")
+    manifest_path = Path(binding.workspace) / "input_manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    raw = unregistered.read_bytes()
+    manifest["project_inputs"].append(
+        {
+            "path": "/project/data/solar/unregistered.csv",
+            "sha256": hashlib.sha256(raw).hexdigest(),
+            "bytes": len(raw),
+            "role": "primary_data",
+        }
+    )
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+    store = ResearchReviewStore(Path(binding.workspace), binding.thread_id)
+
+    assert store._current_manifest_input_records() is None
+
+
+def test_full_context_binds_current_accepted_planning_artifact_and_verdict(
+    tmp_path: Path,
+) -> None:
+    task_id = "planning-binding-regression"
+    receipt, store, planning, verdict = _write_strict_full_data_context(
+        tmp_path, task_id
+    )
+    payload = json.loads(receipt.read_text(encoding="utf-8"))
+
+    forged = dict(payload)
+    forged["planning_artifact_ref"] = {
+        **store.artifact_ref(planning),
+        "artifact_sha256": "0" * 64,
+    }
+    forged["planning_verdict_ref"] = {
+        "review_id": verdict["review_id"],
+        "verdict_sha256": "0" * 64,
+    }
+    forged_body = {
+        key: value
+        for key, value in forged.items()
+        if key not in {"context_sha256", "created_at"}
+    }
+    forged_sha256 = canonical_json_sha256(forged_body)
+    forged_ref = f"receipts/datasets/data-context-{forged_sha256[:16]}.json"
+    forged_path = tmp_path / forged_ref
+    forged_path.write_text(
+        json.dumps({**forged_body, "context_sha256": forged_sha256}, sort_keys=True),
+        encoding="utf-8",
+    )
+
+    assert not store._data_context_is_authoritative(
+        forged_ref,
+        json.loads(forged_path.read_text(encoding="utf-8")),
+        phase="data",
+    )
+
+
+@pytest.mark.parametrize("field", ["path", "bytes", "dataset_id"])
+def test_full_context_rejects_manifest_record_field_forgery(
+    tmp_path: Path, field: str
+) -> None:
+    task_id = f"manifest-field-{field}"
+    receipt, store, _planning, _verdict = _write_strict_full_data_context(
+        tmp_path, task_id
+    )
+    payload = json.loads(receipt.read_text(encoding="utf-8"))
+    forged = dict(payload)
+    forged["eligible_inputs"] = [dict(item) for item in payload["eligible_inputs"]]
+    if field == "path":
+        forged["eligible_inputs"][0][field] = "inputs/foreign.csv"
+    elif field == "bytes":
+        forged["eligible_inputs"][0][field] += 1
+    else:
+        forged["eligible_inputs"][0][field] = "forged-dataset"
+    forged_body = {
+        key: value
+        for key, value in forged.items()
+        if key not in {"context_sha256", "created_at"}
+    }
+    forged_sha256 = canonical_json_sha256(forged_body)
+    forged_ref = f"receipts/datasets/data-context-{forged_sha256[:16]}.json"
+    forged_path = tmp_path / forged_ref
+    forged_path.write_text(
+        json.dumps({**forged_body, "context_sha256": forged_sha256}, sort_keys=True),
+        encoding="utf-8",
+    )
+
+    assert not store._data_context_is_authoritative(
+        forged_ref,
+        json.loads(forged_path.read_text(encoding="utf-8")),
+        phase="data",
+    )
+
+
+def test_full_context_plan_protocol_conflict_is_planning_owned_revise(
+    tmp_path: Path,
+) -> None:
+    from jw.research_protocols import (
+        SOLAR_POLAR_PRECURSOR_PROTOCOL,
+        required_data_product_for_protocol,
+    )
+
+    task_id = "planning-protocol-conflict"
+    question = (
+        "Can polar fields predict the next solar cycle amplitude from the "
+        "following cycles?"
+    )
+    task_path = tmp_path / "task.json"
+    task_path.write_text(
+        json.dumps({"thread_id": task_id, "research_question": question}),
+        encoding="utf-8",
+    )
+    input_path = tmp_path / "inputs" / "dataset-1.csv"
+    input_path.parent.mkdir(parents=True, exist_ok=True)
+    input_path.write_text("dataset_id,value\nforeign-dataset-v1,1\n", encoding="utf-8")
+    raw_input = input_path.read_bytes()
+    input_rows = [
+        {
+            "path": "inputs/dataset-1.csv",
+            "sha256": hashlib.sha256(raw_input).hexdigest(),
+            "bytes": len(raw_input),
+            "role": "user_input",
+            "source_group": "inputs",
+            "dataset_id": "foreign-dataset-v1",
+        }
+    ]
+    manifest_path = tmp_path / "input_manifest.json"
+    manifest_path.write_text(
+        json.dumps(
+            {
+                "schema_version": "task-input-manifest-v1",
+                "thread_id": task_id,
+                "inputs": input_rows,
+                "project_inputs": [],
+            }
+        ),
+        encoding="utf-8",
+    )
+    plan_ref = "planner/runs/current/research_plan.json"
+    plan_path = tmp_path / plan_ref
+    plan_path.parent.mkdir(parents=True, exist_ok=True)
+    plan = {
+        "schema_version": "research-plan-v1",
+        "research_question": question,
+        "research_route": [
+            {
+                "id": "R1",
+                "stage": "data",
+                "objective": "Construct the task-bound precursor table.",
+            },
+            {
+                "id": "R2",
+                "stage": "hypothesis",
+                "objective": "Generate a testable hypothesis.",
+            },
+            {
+                "id": "R3",
+                "stage": "experiment_design",
+                "objective": "Specify the experiment.",
+            },
+            {
+                "id": "R4",
+                "stage": "experiment_result",
+                "objective": "Run the experiment.",
+            },
+            {
+                "id": "R5",
+                "stage": "hypothesis_update",
+                "objective": "Update the hypothesis.",
+            },
+        ],
+        "required_datasets": [
+            {
+                "id": "D1",
+                "selected_source_id": "foreign-dataset-v1",
+                "purpose": "Conflict with the active protocol mapping.",
+            }
+        ],
+    }
+    plan_path.write_text(json.dumps(plan, sort_keys=True), encoding="utf-8")
+
+    store = ResearchReviewStore(tmp_path, task_id)
+    planning = store.checkpoint_producer_result(
+        stage="planning",
+        producer="solar-planner",
+        content="Accepted task-bound planning artifact.",
+    )
+    planning_verdict = store.submit_verdict(
+        mode="planning",
+        decision="accept",
+        issues=[],
+        accepted_claims=[planning["claims"][0]["claim_id"]],
+    )
+    body: dict[str, object] = {
+        "schema_version": "solar-data-context-v1",
+        "context_mode": "full_research",
+        "task_id": task_id,
+        "analysis_protocol": SOLAR_POLAR_PRECURSOR_PROTOCOL,
+        "required_data_product": required_data_product_for_protocol(
+            SOLAR_POLAR_PRECURSOR_PROTOCOL
+        ),
+        "planning_artifact_ref": store.artifact_ref(planning),
+        "planning_verdict_ref": {
+            "review_id": planning_verdict["review_id"],
+            "verdict_sha256": planning_verdict["verdict_sha256"],
+        },
+        "plan_source_ref": plan_ref,
+        "plan_sha256": hashlib.sha256(plan_path.read_bytes()).hexdigest(),
+        "task_sha256": hashlib.sha256(task_path.read_bytes()).hexdigest(),
+        "research_question_sha256": hashlib.sha256(question.encode()).hexdigest(),
+        "input_manifest_sha256": hashlib.sha256(manifest_path.read_bytes()).hexdigest(),
+        "required_datasets": plan["required_datasets"],
+        "required_dataset_ids": ["foreign-dataset-v1"],
+        "missing_required_dataset_ids": [],
+        "data_steps": [plan["research_route"][0]],
+        "planned_outputs": [],
+        "eligible_inputs": input_rows,
+        "status": "inputs_available",
+        "must_stop": False,
+    }
+    context_sha256 = canonical_json_sha256(body)
+    receipt = (
+        tmp_path / "receipts" / "datasets" / f"data-context-{context_sha256[:16]}.json"
+    )
+    receipt.parent.mkdir(parents=True, exist_ok=True)
+    receipt.write_text(
+        json.dumps(
+            {
+                **body,
+                "context_sha256": context_sha256,
+                "created_at": "2026-08-17T00:00:00Z",
+            },
+            sort_keys=True,
+        ),
+        encoding="utf-8",
+    )
+
+    store.checkpoint_producer_result(
+        stage="data",
+        producer="solar-data",
+        content="Conflict data checkpoint.",
+        phase="data",
+    )
+
+    verdict = store.persist_deterministic_preflight_verdict("data")
+
+    assert verdict is not None
+    assert verdict["decision"] == "revise"
+    assert verdict["issues"][0]["owner"] == "solar-planner"
+    assert verdict["issues"][0]["rule_id"] == "PLAN_DATASET_PROTOCOL_CONFLICT"
+    assert store.persist_deterministic_preflight_verdict("data") is None
+    assert store.load_state()["stage_status"]["data"] == "revise"
+
+
+def test_data_checkpoint_does_not_treat_task_input_or_harness_trace_as_output(
+    tmp_path: Path,
+) -> None:
+    task_id = "data-output-boundary"
+    question = "A bounded Data request"
+    task_path = tmp_path / "task.json"
+    task_path.write_text(
+        json.dumps({"thread_id": task_id, "research_question": question}),
+        encoding="utf-8",
+    )
+    input_path = tmp_path / "inputs" / "user.csv"
+    input_path.parent.mkdir(parents=True, exist_ok=True)
+    input_path.write_text("value\n1\n", encoding="utf-8")
+    raw_input = input_path.read_bytes()
+    manifest_path = tmp_path / "input_manifest.json"
+    manifest_path.write_text(
+        json.dumps(
+            {
+                "schema_version": "task-input-manifest-v1",
+                "thread_id": task_id,
+                "inputs": [
+                    {
+                        "path": "inputs/user.csv",
+                        "sha256": hashlib.sha256(raw_input).hexdigest(),
+                        "bytes": len(raw_input),
+                        "role": "user_input",
+                    }
+                ],
+                "project_inputs": [],
+            }
+        ),
+        encoding="utf-8",
+    )
+    context_body = {
+        "schema_version": "solar-data-context-v1",
+        "context_mode": "bounded_data",
+        "task_id": task_id,
+        "analysis_protocol": "none",
+        "required_data_product": "generic_data_product_v1",
+        "task_sha256": hashlib.sha256(task_path.read_bytes()).hexdigest(),
+        "research_question_sha256": hashlib.sha256(question.encode()).hexdigest(),
+        "input_manifest_sha256": hashlib.sha256(manifest_path.read_bytes()).hexdigest(),
+        "required_dataset_ids": [],
+        "missing_required_dataset_ids": [],
+        "eligible_inputs": [],
+        "status": "inputs_available",
+        "must_stop": False,
+        "data_steps": [],
+    }
+    context_sha256 = canonical_json_sha256(context_body)
+    context_path = (
+        tmp_path / "receipts" / "datasets" / f"data-context-{context_sha256[:16]}.json"
+    )
+    context_path.parent.mkdir(parents=True, exist_ok=True)
+    context_path.write_text(
+        json.dumps({**context_body, "context_sha256": context_sha256}),
+        encoding="utf-8",
+    )
+    trace = tmp_path / "research_review" / "harness" / task_id / "run" / "trace.json"
+    trace.parent.mkdir(parents=True, exist_ok=True)
+    trace.write_text("{}", encoding="utf-8")
+
+    store = ResearchReviewStore(tmp_path, task_id)
+    with pytest.raises(RuntimeError, match="canonical|artifact|Data"):
+        store.checkpoint_producer_result(
+            stage="data",
+            producer="solar-data",
+            content="Only the task input and Harness trace are present.",
+            phase="bounded_data",
+            require_canonical_source=True,
+        )
+
+
+@pytest.mark.parametrize(
+    ("field", "forged_value"),
+    [
+        ("analysis_protocol", "silso_cycle_reproduction_v1"),
+        ("required_data_product", "silso_cycle_extrema_v1"),
+        ("required_dataset_ids", ["forged-dataset-v1"]),
+    ],
+)
+def test_full_research_context_semantics_are_recomputed_from_plan_and_protocol(
+    tmp_path: Path,
+    field: str,
+    forged_value: object,
+) -> None:
+    task_id = "forged-data-context-semantics"
+    original = _write_authoritative_data_context(
+        tmp_path,
+        task_id,
+        missing_required_dataset_ids=[],
+        must_stop=False,
+    )
+    store = ResearchReviewStore(tmp_path, task_id)
+    original_payload = json.loads(original.read_text(encoding="utf-8"))
+    assert store._data_context_is_authoritative(
+        original.relative_to(tmp_path).as_posix(), original_payload, phase="data"
+    )
+
+    forged_body = {
+        key: value for key, value in original_payload.items() if key != "context_sha256"
+    }
+    forged_body[field] = forged_value
+    forged_sha256 = canonical_json_sha256(forged_body)
+    forged = (
+        tmp_path / "receipts" / "datasets" / f"data-context-{forged_sha256[:16]}.json"
+    )
+    forged.write_text(
+        json.dumps({**forged_body, "context_sha256": forged_sha256}),
+        encoding="utf-8",
+    )
+
+    assert not store._data_context_is_authoritative(
+        forged.relative_to(tmp_path).as_posix(),
+        json.loads(forged.read_text(encoding="utf-8")),
+        phase="data",
+    )
+
+
+def _required_data_unavailable_issue(claim_ref: str) -> dict[str, object]:
+    rule_id = "REQUIRED_DATA_INPUT_UNAVAILABLE"
+    owner = "main"
+    return {
+        "issue_id": "reviewer-required-input-unavailable",
+        "rule_id": rule_id,
+        "severity": "critical",
+        "claim_ref": claim_ref,
+        "evidence_refs": [],
+        "owner": owner,
+        "message": "Cycles 25 and 26 were not supplied.",
+        "required_action": "Supply cycles outside the accepted 15-24 target scope.",
+        "acceptance_test": "Cycles 25 and 26 are present.",
+        "fingerprint": issue_fingerprint(rule_id, claim_ref, owner),
+    }
+
+
+def test_reviewer_cannot_turn_available_data_context_into_permanent_block(
+    tmp_path: Path,
+) -> None:
+    task_id = "reviewer-data-scope-recovery"
+    store = ResearchReviewStore(tmp_path, task_id)
+    planning = store.checkpoint_producer_result(
+        stage="planning",
+        producer="solar-planner",
+        content=(
+            "Accepted scope predicts cycles 15-24 from predictor cycles 14-23; "
+            "cycle 25 is outside scope."
+        ),
+    )
+    store.submit_verdict(
+        mode="planning",
+        decision="accept",
+        issues=[],
+        accepted_claims=[planning["claims"][0]["claim_id"]],
+    )
+    context = _write_authoritative_data_context(
+        tmp_path,
+        task_id,
+        missing_required_dataset_ids=[],
+        must_stop=False,
+    )
+    artifact = store.checkpoint_producer_result(
+        stage="data",
+        producer="solar-data",
+        content=f"Let me inspect things first. {context.relative_to(tmp_path).as_posix()}",
+        phase="bounded_data",
+    )
+
+    verdict = store.submit_verdict(
+        mode="data",
+        decision="block",
+        issues=[_required_data_unavailable_issue(artifact["claims"][0]["claim_id"])],
+        blocked_claims=[artifact["claims"][0]["claim_id"]],
+    )
+
+    assert verdict["decision"] == "revise"
+    assert verdict["next_owner"] == "solar-data"
+    assert verdict["issues"][0]["rule_id"] == "DATA_SEMANTICS_BOUND"
+    assert verdict["issues"][0]["owner"] == "solar-data"
+    assert verdict["issues"][0]["fingerprint"] == issue_fingerprint(
+        "DATA_SEMANTICS_BOUND",
+        verdict["issues"][0]["claim_ref"],
+        "solar-data",
+    )
+    assert store.load_state()["status"] == "active"
+    action = store.next_action()
+    assert action["kind"] == "producer"
+    assert action["stage"] == "data"
+    assert action["producer"] == "solar-data"
+    assert "revision" in action["phase"]
+
+
+def test_recovered_data_input_issue_clears_acceptance_and_blocked_claim_sets(
+    tmp_path: Path,
+) -> None:
+    task_id = "reviewer-data-claim-set-recovery"
+    context = _write_authoritative_data_context(
+        tmp_path,
+        task_id,
+        missing_required_dataset_ids=[],
+        must_stop=False,
+    )
+    store = ResearchReviewStore(tmp_path, task_id)
+    artifact = store.checkpoint_producer_result(
+        stage="data",
+        producer="solar-data",
+        content=context.relative_to(tmp_path).as_posix(),
+        phase="bounded_data",
+    )
+    claim_id = artifact["claims"][0]["claim_id"]
+
+    verdict = store.submit_verdict(
+        mode="data",
+        decision="accept",
+        issues=[_required_data_unavailable_issue(claim_id)],
+        accepted_claims=[claim_id],
+    )
+
+    assert verdict["decision"] == "revise"
+    assert verdict["accepted_claims"] == []
+    assert verdict["blocked_claims"] == []
+    capsule = store.revision_capsule(verdict["review_id"], "solar-data")
+    assert claim_id not in capsule["do_not_reopen_claims"]
+
+
+def test_recovered_data_input_issue_does_not_downgrade_another_real_block(
+    tmp_path: Path,
+) -> None:
+    task_id = "reviewer-data-mixed-block"
+    context = _write_authoritative_data_context(
+        tmp_path,
+        task_id,
+        missing_required_dataset_ids=[],
+        must_stop=False,
+    )
+    store = ResearchReviewStore(tmp_path, task_id)
+    artifact = store.checkpoint_producer_result(
+        stage="data",
+        producer="solar-data",
+        content=context.relative_to(tmp_path).as_posix(),
+        phase="bounded_data",
+    )
+    claim_id = artifact["claims"][0]["claim_id"]
+    real_issue = _issue("solar-data")
+    real_issue["claim_ref"] = claim_id
+    real_issue["fingerprint"] = issue_fingerprint(
+        str(real_issue["rule_id"]), claim_id, "solar-data"
+    )
+
+    verdict = store.submit_verdict(
+        mode="data",
+        decision="block",
+        issues=[_required_data_unavailable_issue(claim_id), real_issue],
+        blocked_claims=[claim_id],
+    )
+
+    assert verdict["decision"] == "block"
+    assert verdict["next_owner"] is None
+    assert {issue["rule_id"] for issue in verdict["issues"]} >= {
+        "DATA_SEMANTICS_BOUND",
+        "UNSUPPORTED_CLAIM",
+    }
+
+
+@pytest.mark.parametrize(
+    ("missing_required_dataset_ids", "must_stop"),
+    [
+        (["mwo-wso-polar-field-v2"], True),
+        (["silso-monthly-total-v2", "mwo-wso-polar-field-v2"], True),
+    ],
+)
+def test_authoritative_missing_or_must_stop_remains_permanent_data_block(
+    tmp_path: Path,
+    missing_required_dataset_ids: list[str],
+    must_stop: bool,
+) -> None:
+    task_id = "authoritative-data-stop"
+    context = _write_authoritative_data_context(
+        tmp_path,
+        task_id,
+        missing_required_dataset_ids=missing_required_dataset_ids,
+        must_stop=must_stop,
+    )
+    store = ResearchReviewStore(tmp_path, task_id)
+    artifact = store.checkpoint_producer_result(
+        stage="data",
+        producer="solar-data",
+        content=context.relative_to(tmp_path).as_posix(),
+        phase="bounded_data",
+    )
+
+    verdict = store.submit_verdict(
+        mode="data",
+        decision="block",
+        issues=[_required_data_unavailable_issue(artifact["claims"][0]["claim_id"])],
+        blocked_claims=[artifact["claims"][0]["claim_id"]],
+    )
+
+    assert verdict["decision"] == "block"
+    assert verdict["next_owner"] is None
+    assert store.load_state()["status"] == "blocked"
+
+
+@pytest.mark.parametrize("include_forged_context", [False, True])
+def test_non_authoritative_or_missing_context_cannot_create_permanent_input_block(
+    tmp_path: Path, include_forged_context: bool
+) -> None:
+    task_id = f"non-authoritative-context-{include_forged_context}"
+    content = "Data output needs revision."
+    if include_forged_context:
+        context = tmp_path / "receipts/datasets/data-context-forged.json"
+        context.parent.mkdir(parents=True, exist_ok=True)
+        context.write_text(
+            json.dumps(
+                {
+                    "schema_version": "solar-data-context-v1",
+                    "context_mode": "full_research",
+                    "task_id": task_id,
+                    "status": "input_missing",
+                    "must_stop": True,
+                    "required_dataset_ids": ["required-solar-v1"],
+                    "missing_required_dataset_ids": ["required-solar-v1"],
+                    "eligible_inputs": [],
+                    "context_sha256": "0" * 64,
+                    "task_sha256": "1" * 64,
+                    "research_question_sha256": "2" * 64,
+                    "input_manifest_sha256": "3" * 64,
+                }
+            ),
+            encoding="utf-8",
+        )
+        content = context.relative_to(tmp_path).as_posix()
+    store = ResearchReviewStore(tmp_path, task_id)
+    artifact = store.checkpoint_producer_result(
+        stage="data", producer="solar-data", content=content, phase="bounded_data"
+    )
+
+    verdict = store.submit_verdict(
+        mode="data",
+        decision="block",
+        issues=[_required_data_unavailable_issue(artifact["claims"][0]["claim_id"])],
+        blocked_claims=[artifact["claims"][0]["claim_id"]],
+    )
+
+    assert verdict["decision"] == "revise"
+    assert verdict["issues"][0]["rule_id"] == "DATA_SEMANTICS_BOUND"
+    assert store.load_state()["status"] == "active"
 
 
 def _write_curated_data_context(tmp_path: Path, task_id: str) -> Path:
@@ -672,7 +1903,266 @@ def test_data_canonical_readiness_requires_output_when_inputs_exist(
     output = tmp_path / "outputs" / "cycle_summary.csv"
     output.parent.mkdir(parents=True)
     output.write_text("cycle,maximum\n21,232.9\n", encoding="utf-8")
-    assert store._canonical_stage_ready("data", [context, output]) is True
+    assert store._canonical_stage_ready("data", [context, output]) is False
+
+
+def test_full_hypothesis_rejects_uncheckpointed_working_draft(
+    tmp_path: Path,
+) -> None:
+    """A mutable Hypothesis draft is not the full-research stage artifact."""
+
+    workspace = tmp_path / "workspace"
+    state_path = workspace / "work" / "scientific_hypothesis_state.json"
+    state_path.parent.mkdir(parents=True)
+    state_path.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "evidence_register": [],
+                "checkpoint": None,
+                "checkpoint_sha256": None,
+                "checkpoint_evidence_sha256": None,
+                "latest_draft": {
+                    "schema_version": "scientific-hypothesis-response-v1",
+                    "response_kind": "hypotheses_ready",
+                    "candidates": [
+                        {
+                            "id": "H1",
+                            "statement": "A reviewable but still mutable hypothesis.",
+                        }
+                    ],
+                },
+                "tail_review": None,
+            }
+        ),
+        encoding="utf-8",
+    )
+    store = ResearchReviewStore(workspace, "full-hypothesis-draft")
+
+    assert (
+        store._canonical_stage_ready("hypothesis", [state_path], phase="hypothesis")
+        is False
+    )
+
+
+def _current_full_hypothesis_state() -> dict[str, object]:
+    evidence_register = [
+        {
+            "evidence_id": "E1",
+            "role": "limits",
+            "excerpt": "The independent sample is small.",
+        }
+    ]
+    checkpoint = {
+        "schema_version": "scientific-hypothesis-response-v1",
+        "response_kind": "hypotheses_ready",
+        "candidates": [
+            {
+                "id": "H-reviewed",
+                "statement": "A reviewed, testable hypothesis.",
+            }
+        ],
+    }
+    checkpoint_sha256 = canonical_json_sha256(checkpoint)
+    evidence_sha256 = canonical_json_sha256({"evidence_register": evidence_register})
+    return {
+        "schema_version": 1,
+        "evidence_register": evidence_register,
+        "checkpoint": checkpoint,
+        "checkpoint_sha256": checkpoint_sha256,
+        "checkpoint_evidence_sha256": evidence_sha256,
+        "latest_draft": checkpoint,
+        "latest_draft_sha256": checkpoint_sha256,
+        "tail_review": {
+            "schema_version": TAIL_REVIEW_VERSION,
+            "evidence_sha256": evidence_sha256,
+            "selected_candidate_ids": ["H-reviewed"],
+            "selected_candidate_pool_sha256": candidate_pool_sha256(checkpoint),
+        },
+    }
+
+
+def test_full_hypothesis_accepts_current_checkpoint_and_tail_review(
+    tmp_path: Path,
+) -> None:
+    state_path = tmp_path / "work" / "scientific_hypothesis_state.json"
+    state_path.parent.mkdir(parents=True)
+    state_path.write_text(
+        json.dumps(_current_full_hypothesis_state()), encoding="utf-8"
+    )
+    store = ResearchReviewStore(tmp_path, "current-full-hypothesis")
+
+    assert store._canonical_stage_ready("hypothesis", [state_path], phase="hypothesis")
+
+
+@pytest.mark.parametrize(
+    "stale_field",
+    [
+        "checkpoint_sha256",
+        "checkpoint_evidence_sha256",
+        "latest_draft",
+        "latest_draft_sha256",
+        "tail_review",
+    ],
+)
+def test_full_hypothesis_rejects_stale_checkpoint_bindings(
+    tmp_path: Path, stale_field: str
+) -> None:
+    payload = _current_full_hypothesis_state()
+    if stale_field == "latest_draft":
+        payload[stale_field] = {
+            "response_kind": "hypotheses_ready",
+            "candidates": [{"id": "H-unreviewed", "statement": "A later draft."}],
+        }
+    elif stale_field == "tail_review":
+        payload[stale_field] = {
+            "schema_version": TAIL_REVIEW_VERSION,
+            "evidence_sha256": payload["checkpoint_evidence_sha256"],
+            "selected_candidate_ids": ["H-stale"],
+            "selected_candidate_pool_sha256": "0" * 64,
+        }
+    else:
+        payload[stale_field] = "0" * 64
+    state_path = tmp_path / "work" / "scientific_hypothesis_state.json"
+    state_path.parent.mkdir(parents=True)
+    state_path.write_text(json.dumps(payload), encoding="utf-8")
+    store = ResearchReviewStore(tmp_path, f"stale-{stale_field}")
+
+    assert (
+        store._canonical_stage_ready("hypothesis", [state_path], phase="hypothesis")
+        is False
+    )
+
+
+@pytest.mark.parametrize(
+    ("response_kind", "details_key"),
+    [
+        ("clarification_needed", "questions"),
+        ("hypothesis_blocked", "blockers"),
+    ],
+)
+def test_full_hypothesis_accepts_honest_non_scientific_terminal_state(
+    tmp_path: Path, response_kind: str, details_key: str
+) -> None:
+    terminal = {
+        "schema_version": "scientific-hypothesis-response-v1",
+        "response_kind": response_kind,
+        details_key: ["A required observation is unavailable."],
+    }
+    state_path = tmp_path / "work" / "scientific_hypothesis_state.json"
+    state_path.parent.mkdir(parents=True)
+    state_path.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "evidence_register": [],
+                "checkpoint": None,
+                "latest_draft": terminal,
+                "latest_draft_sha256": canonical_json_sha256(terminal),
+                "tail_review": None,
+            }
+        ),
+        encoding="utf-8",
+    )
+    store = ResearchReviewStore(tmp_path, f"terminal-{response_kind}")
+
+    assert store._canonical_stage_ready("hypothesis", [state_path], phase="hypothesis")
+
+
+def test_full_data_readiness_rejects_task_input_without_context(
+    tmp_path: Path,
+) -> None:
+    task_input = tmp_path / "inputs" / "accepted.csv"
+    task_input.parent.mkdir(parents=True)
+    task_input.write_text("cycle,value\n24,115\n", encoding="utf-8")
+    store = ResearchReviewStore(tmp_path, "full-data-task-input-only")
+
+    assert store._canonical_stage_ready("data", [task_input], phase="data") is False
+
+
+def test_full_data_readiness_rejects_harness_trace_without_context(
+    tmp_path: Path,
+) -> None:
+    trace = (
+        tmp_path
+        / "research_review"
+        / "harness"
+        / "full-data-harness-only"
+        / "run"
+        / "trace.json"
+    )
+    trace.parent.mkdir(parents=True)
+    trace.write_text('{"request_id":"response-only"}', encoding="utf-8")
+    store = ResearchReviewStore(tmp_path, "full-data-harness-only")
+
+    assert store._canonical_stage_ready("data", [trace], phase="data") is False
+
+
+def test_full_data_readiness_rejects_bounded_context_with_unreceipted_output(
+    tmp_path: Path,
+) -> None:
+    context = tmp_path / "receipts" / "datasets" / "data-context-bounded.json"
+    context.parent.mkdir(parents=True)
+    context.write_text(
+        json.dumps(
+            {
+                "schema_version": "solar-data-context-v1",
+                "context_mode": "bounded_data",
+                "task_id": "full-data-bounded-context",
+                "status": "inputs_available",
+                "eligible_inputs": [],
+            }
+        ),
+        encoding="utf-8",
+    )
+    output = tmp_path / "outputs" / "unreceipted.csv"
+    output.parent.mkdir(parents=True)
+    output.write_text("cycle,value\n24,115\n", encoding="utf-8")
+    store = ResearchReviewStore(tmp_path, "full-data-bounded-context")
+
+    assert (
+        store._canonical_stage_ready("data", [context, output], phase="data") is False
+    )
+
+
+def test_full_data_readiness_accepts_authoritative_context_and_receipted_output(
+    tmp_path: Path,
+) -> None:
+    task_id = "full-data-receipted-output"
+    context = _write_authoritative_data_context(
+        tmp_path,
+        task_id,
+        missing_required_dataset_ids=[],
+        must_stop=False,
+    )
+    output = tmp_path / "work" / "solar_data" / "cycle_summary.csv"
+    output.parent.mkdir(parents=True)
+    output.write_text("cycle,maximum\n24,115\n", encoding="utf-8")
+    receipt = tmp_path / "receipts" / "datasets" / "cycle-summary.json"
+    receipt.write_text(
+        json.dumps(
+            {
+                "schema_version": "solar-precursor-cycle-table-v2",
+                "receipt_type": "solar_precursor_cycle_table",
+                "status": "verified",
+                "producer": "solar-data",
+                "task_id": task_id,
+                "outputs": [
+                    {
+                        "path": output.relative_to(tmp_path).as_posix(),
+                        "sha256": hashlib.sha256(output.read_bytes()).hexdigest(),
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    store = ResearchReviewStore(tmp_path, task_id)
+
+    assert (
+        store._canonical_stage_ready("data", [context, receipt, output], phase="data")
+        is True
+    )
 
 
 def test_data_input_missing_context_is_a_complete_honest_artifact(
@@ -693,10 +2183,10 @@ def test_data_input_missing_context_is_a_complete_honest_artifact(
     )
     store = ResearchReviewStore(tmp_path, "canonical-input-missing")
 
-    assert store._canonical_stage_ready("data", [context]) is True
+    assert store._canonical_stage_ready("data", [context], phase="bounded_data") is True
 
 
-def test_data_partial_inputs_with_named_missing_products_is_honest_blocker(
+def test_unhashed_legacy_partial_input_context_is_not_canonical_blocker(
     tmp_path: Path,
 ) -> None:
     context = tmp_path / "receipts" / "datasets" / "data-context-missing-two.json"
@@ -725,7 +2215,144 @@ def test_data_partial_inputs_with_named_missing_products_is_honest_blocker(
     )
     store = ResearchReviewStore(tmp_path, "canonical-partial-input-missing")
 
-    assert store._canonical_stage_ready("data", [context]) is True
+    assert store._canonical_stage_ready("data", [context]) is False
+
+
+def test_forged_full_research_context_cannot_checkpoint_or_be_accepted(
+    tmp_path: Path,
+) -> None:
+    task_id = "forged-full-context-readiness"
+    context = tmp_path / "receipts/datasets/data-context-forged.json"
+    context.parent.mkdir(parents=True)
+    context.write_text(
+        json.dumps(
+            {
+                "schema_version": "solar-data-context-v1",
+                "context_mode": "full_research",
+                "task_id": task_id,
+                "status": "input_missing",
+                "must_stop": True,
+                "required_dataset_ids": ["required-solar-v1"],
+                "missing_required_dataset_ids": ["required-solar-v1"],
+                "eligible_inputs": [],
+                "context_sha256": "0" * 64,
+                "task_sha256": "1" * 64,
+                "research_question_sha256": "2" * 64,
+                "input_manifest_sha256": "3" * 64,
+            }
+        ),
+        encoding="utf-8",
+    )
+    store = ResearchReviewStore(tmp_path, task_id)
+
+    with pytest.raises(RuntimeError, match="complete task-local canonical"):
+        store.checkpoint_producer_result(
+            stage="data",
+            producer="solar-data",
+            content=context.relative_to(tmp_path).as_posix(),
+            phase="bounded_data",
+            require_canonical_source=True,
+        )
+
+    artifact = store.checkpoint_producer_result(
+        stage="data",
+        producer="solar-data",
+        content=context.relative_to(tmp_path).as_posix(),
+        phase="bounded_data",
+    )
+    verdict = store.submit_verdict(
+        mode="data",
+        decision="accept",
+        issues=[],
+        accepted_claims=[artifact["claims"][0]["claim_id"]],
+    )
+    assert verdict["decision"] == "revise"
+    assert any(
+        issue["rule_id"] == "DATA_SEMANTICS_BOUND" for issue in verdict["issues"]
+    )
+
+
+def test_legacy_bounded_context_cannot_replace_invalid_full_context(
+    tmp_path: Path,
+) -> None:
+    task_id = "legacy-context-full-research-crossing"
+    receipts = tmp_path / "receipts/datasets"
+    receipts.mkdir(parents=True)
+    legacy = receipts / "data-context-legacy.json"
+    legacy.write_text(
+        json.dumps(
+            {
+                "schema_version": "solar-data-context-v1",
+                "context_mode": "bounded_data",
+                "task_id": task_id,
+                "status": "input_missing",
+                "eligible_inputs": [],
+            }
+        ),
+        encoding="utf-8",
+    )
+    forged = receipts / "data-context-forged-full.json"
+    forged.write_text(
+        json.dumps(
+            {
+                "schema_version": "solar-data-context-v1",
+                "context_mode": "full_research",
+                "task_id": task_id,
+                "status": "input_missing",
+                "must_stop": True,
+                "required_dataset_ids": ["required-solar-v1"],
+                "missing_required_dataset_ids": ["required-solar-v1"],
+                "eligible_inputs": [],
+                "context_sha256": "0" * 64,
+                "task_sha256": "1" * 64,
+                "research_question_sha256": "2" * 64,
+                "input_manifest_sha256": "3" * 64,
+            }
+        ),
+        encoding="utf-8",
+    )
+    store = ResearchReviewStore(tmp_path, task_id)
+    planning = store.checkpoint_producer_result(
+        stage="planning",
+        producer="solar-planner",
+        content="Accepted full-research plan.",
+    )
+    store.submit_verdict(
+        mode="planning",
+        decision="accept",
+        issues=[],
+        accepted_claims=[planning["claims"][0]["claim_id"]],
+    )
+
+    with pytest.raises(RuntimeError, match="complete task-local canonical"):
+        store.checkpoint_producer_result(
+            stage="data",
+            producer="solar-data",
+            content="full-research Data result",
+            phase="data",
+            require_canonical_source=True,
+        )
+
+    artifact = store.checkpoint_producer_result(
+        stage="data",
+        producer="solar-data",
+        content="full-research Data result",
+        phase="data",
+    )
+    verdict = store.submit_verdict(
+        mode="data",
+        decision="block",
+        issues=[_required_data_unavailable_issue(artifact["claims"][0]["claim_id"])],
+        blocked_claims=[artifact["claims"][0]["claim_id"]],
+    )
+    assert verdict["decision"] == "revise"
+    assert all(
+        issue["rule_id"] != "REQUIRED_DATA_INPUT_UNAVAILABLE"
+        for issue in verdict["issues"]
+    )
+    assert any(
+        issue["rule_id"] == "DATA_SEMANTICS_BOUND" for issue in verdict["issues"]
+    )
 
 
 def test_curated_data_context_without_cycle_table_requires_revision(
@@ -782,6 +2409,67 @@ def test_curated_data_cycle_table_passes_deterministic_boundary(tmp_path: Path) 
                 "row_count": 10,
                 "cycle_numbers": list(range(15, 25)),
                 "outputs": [{"path": table_ref, "sha256": table_sha}],
+            }
+        ),
+        encoding="utf-8",
+    )
+    store = ResearchReviewStore(tmp_path, task_id)
+    store.checkpoint_producer_result(
+        stage="data",
+        producer="solar-data",
+        content=(
+            f"{context.relative_to(tmp_path).as_posix()} "
+            f"{receipt.relative_to(tmp_path).as_posix()} {table_ref}"
+        ),
+        phase="bounded_data",
+    )
+
+    assert store.persist_deterministic_preflight_verdict("data") is None
+
+
+def test_curated_v2_boundary_table_passes_deterministic_boundary(
+    tmp_path: Path,
+) -> None:
+    task_id = "curated-data-v2-complete"
+    context = _write_curated_data_context(tmp_path, task_id)
+    table_ref = "work/solar_data/solar_precursor_cycle_features.csv"
+    table = tmp_path / table_ref
+    table.parent.mkdir(parents=True)
+    _write_complete_boundary_cycle_table(table)
+    table_bytes = table.read_bytes()
+    receipt = tmp_path / "receipts" / "datasets" / "solar_precursor_cycle_table.json"
+    receipt.write_text(
+        json.dumps(
+            {
+                "schema_version": "solar-precursor-cycle-table-v2",
+                "receipt_type": "solar_precursor_cycle_table",
+                "status": "verified",
+                "producer": "solar-data",
+                "task_id": task_id,
+                "input_refs": [
+                    {"dataset_id": "silso-monthly-total-v2", "sha256": "a" * 64},
+                    {"dataset_id": "mwo-wso-polar-field-v2", "sha256": "b" * 64},
+                ],
+                "row_count": 11,
+                "cycle_numbers": list(range(14, 25)),
+                "analysis_cycle_numbers": list(range(15, 25)),
+                "boundary_cycle_numbers": [14],
+                "pair_coverage": {
+                    "requested_pairs": [
+                        f"{cycle}->{cycle + 1}" for cycle in range(14, 24)
+                    ],
+                    "available_pairs": [
+                        f"{cycle}->{cycle + 1}" for cycle in range(14, 24)
+                    ],
+                    "unavailable_pairs": [],
+                },
+                "outputs": [
+                    {
+                        "path": table_ref,
+                        "bytes": len(table_bytes),
+                        "sha256": hashlib.sha256(table_bytes).hexdigest(),
+                    }
+                ],
             }
         ),
         encoding="utf-8",
@@ -1207,6 +2895,25 @@ def test_each_producer_uses_an_explicit_conservative_v1_adapter(
     assert adapted["claims"][0]["confidence"] == "unknown"
 
 
+def test_checkpoint_ignores_truncated_directory_reference_from_ellipsis(
+    tmp_path: Path,
+) -> None:
+    store = ResearchReviewStore(tmp_path, "truncated-path-task")
+
+    artifact = store.checkpoint_producer_result(
+        stage="planning",
+        producer="solar-planner",
+        content=(
+            "The prior record was described as "
+            "planner/drafts/…/evidence_revisions/r0001.json, while the concrete "
+            "receipt remains receipts/source.json."
+        ),
+    )
+
+    assert "planner/drafts/" not in artifact["evidence_refs"]
+    assert "receipts/source.json" in artifact["evidence_refs"]
+
+
 def test_known_hypothesis_v1_state_adapts_candidates_as_separate_claims() -> None:
     source_ref = "work/scientific_hypothesis_state.json"
     adapted = adapt_v1_producer_output(
@@ -1256,6 +2963,60 @@ def test_known_hypothesis_v1_state_adapts_candidates_as_separate_claims() -> Non
     assert adapted["claims"][0]["limiting_evidence"] == []
     assert adapted["payload"]["result_status"] == "scientific_content"
     assert adapted["claims"][0]["confidence"] == "low"
+
+
+def test_hypothesis_adapter_prefers_checkpoint_over_newer_working_draft() -> None:
+    source_ref = "work/scientific_hypothesis_state.json"
+    checkpoint = {
+        "response_kind": "hypotheses_ready",
+        "candidates": [
+            {
+                "id": "H-reviewed",
+                "statement": "The independently reviewed hypothesis.",
+                "applicability": "The reviewed scope.",
+                "supporting_evidence": [],
+                "opposing_evidence": [],
+                "evidence_gaps": [],
+                "confidence": {"level": "low"},
+            }
+        ],
+    }
+    adapted = adapt_v1_producer_output(
+        stage="hypothesis",
+        version=1,
+        phase="hypothesis",
+        text="rendered hypothesis result",
+        evidence_refs=[source_ref],
+        canonical_documents=[
+            {
+                "source_ref": source_ref,
+                "payload": {
+                    "schema_version": 1,
+                    "evidence_register": [],
+                    "checkpoint": checkpoint,
+                    "latest_draft": {
+                        "response_kind": "hypotheses_ready",
+                        "candidates": [
+                            {
+                                "id": "H-unreviewed",
+                                "statement": "A later mutable draft.",
+                                "applicability": "An unreviewed scope.",
+                                "supporting_evidence": [],
+                                "opposing_evidence": [],
+                                "evidence_gaps": [],
+                                "confidence": {"level": "low"},
+                            }
+                        ],
+                    },
+                },
+            }
+        ],
+    )
+
+    assert [claim["claim_id"] for claim in adapted["claims"]] == [
+        "hypothesis-H-reviewed"
+    ]
+    assert adapted["claims"][0]["text"] == checkpoint["candidates"][0]["statement"]
 
 
 @pytest.mark.parametrize(
@@ -1589,6 +3350,71 @@ def test_experiment_result_is_bound_to_the_accepted_design_run(
         )
 
 
+def test_experiment_result_context_keeps_accepted_run_id_before_truncation(
+    tmp_path: Path,
+) -> None:
+    store = ResearchReviewStore(tmp_path, "experiment-run-context")
+    planning = store.checkpoint_producer_result(
+        stage="planning",
+        producer="solar-planner",
+        content="large accepted planning context\n" + ("x" * 40_000),
+    )
+    store.submit_verdict(
+        mode="planning",
+        decision="accept",
+        issues=[],
+        accepted_claims=[planning["claims"][0]["claim_id"]],
+    )
+    run_id = "question_9000493da665-20260815T204740Z-6ddfb5d7"
+    run_root = tmp_path / "experiment" / "runs" / run_id
+    run_root.mkdir(parents=True)
+    (run_root / "state.json").write_text("{}", encoding="utf-8")
+    (run_root / "design.json").write_text(
+        '{"schema_version":"automatic-experiment-design-v1"}', encoding="utf-8"
+    )
+    design = store.checkpoint_producer_result(
+        stage="experiment_design",
+        producer="solar-experiment",
+        content=f"run_id: `{run_id}`\nexperiment/runs/{run_id}/design.json",
+        phase="bounded_experiment_design",
+        require_canonical_source=True,
+    )
+    store.submit_verdict(
+        mode="experiment_design",
+        decision="accept",
+        issues=[],
+        accepted_claims=[design["claims"][0]["claim_id"]],
+    )
+
+    context = _upstream_context(store, "experiment_result")
+
+    assert f'"run_id": "{run_id}"' in context
+
+
+def test_experiment_result_directive_resumes_without_binding_a_new_run() -> None:
+    directive = _CANONICAL_CHECKPOINT_DIRECTIVE["experiment_result"]
+
+    assert "resume the exact accepted run_id" in directive
+    assert "automatic_experiment_bind_request" not in directive
+
+
+def test_experiment_result_directive_reads_worker_contract_before_prepare() -> None:
+    directive = _CANONICAL_CHECKPOINT_DIRECTIVE["experiment_result"]
+
+    assert "automatic_experiment_inspect_inputs" in directive
+    assert "required_worker_outputs" in directive
+    assert "before automatic_experiment_prepare_attempt" in directive.lower()
+    assert "from the prepare response" not in directive
+
+
+def test_full_hypothesis_directive_requires_current_review_and_checkpoint() -> None:
+    directive = _CANONICAL_CHECKPOINT_DIRECTIVE["hypothesis"]
+
+    assert "scientific_hypothesis_review_tail" in directive
+    assert "scientific_hypothesis_checkpoint_draft" in directive
+    assert "scientific_hypothesis_get_draft" in directive
+
+
 def test_adaptive_review_blocks_after_two_no_progress_repeats(tmp_path: Path) -> None:
     store = ResearchReviewStore(tmp_path, "task-1", no_progress_patience=2)
     for version in range(1, 4):
@@ -1788,7 +3614,7 @@ def test_integration_mechanism_claims_complete_after_evidence_review(
     assert store.next_action()["kind"] == "prepare_release"
 
 
-def test_final_release_requires_limits_and_returns_exact_accepted_text(
+def test_final_release_defers_semantic_report_review_to_evidence(
     tmp_path: Path,
 ) -> None:
     store = ResearchReviewStore(tmp_path, "task-1")
@@ -1821,56 +3647,144 @@ def test_final_release_requires_limits_and_returns_exact_accepted_text(
     )
 
     cited_claim_id = integration["claims"][0]["claim_id"]
-    with pytest.raises(ValueError, match="omits required carried limitations"):
-        store.prepare_release(
-            "A coherent report without its limitations.",
-            [
-                {
-                    "claim_id": cited_claim_id,
-                    "draft_excerpt": "A coherent report without its limitations.",
-                }
-            ],
-        )
-
     report = (
+        "# Result 2042\n\n首次提出一项原创机制。\n\n"
+        "An additional interpretation without a paragraph-level citation.\n\n"
+        "External replication remains unavailable."
+    )
+    release = store.prepare_release(
+        report,
+        [
+            {
+                "claim_id": cited_claim_id,
+                "draft_excerpt": "A semantic citation locator, not a verbatim quote.",
+            }
+        ],
+    )
+
+    assert release["payload"]["producer_result"] == report
+    assert release["limitations"] == ["No external replication is available."]
+    assert release["payload"]["claim_citations"] == [
+        {
+            "claim_id": cited_claim_id,
+            "draft_excerpt": "A semantic citation locator, not a verbatim quote.",
+        }
+    ]
+    action = store.next_action()
+    assert action["kind"] == "review"
+    assert action["review_mode"] == "final_release"
+
+    issue = _issue("main")
+    issue["claim_ref"] = release["claims"][0]["claim_id"]
+    issue["fingerprint"] = issue_fingerprint(
+        str(issue["rule_id"]), str(issue["claim_ref"]), "main"
+    )
+    store.submit_verdict(
+        mode="final_release",
+        decision="revise",
+        issues=[issue],
+        next_owner="main",
+    )
+    assert store.next_action()["kind"] == "prepare_release"
+
+    revised_report = (
         "# Result\n\nA coherent accepted synthesis.\n\n"
-        + "\n\n".join(integration["limitations"])
-        + "\n\nNo external replication is available."
+        "External replication remains unavailable."
     )
-    with pytest.raises(ValueError, match="numbers absent from cited accepted claims"):
-        store.prepare_release(
-            report + "\n\nThe projected value is 2042.",
-            [
-                {
-                    "claim_id": cited_claim_id,
-                    "draft_excerpt": "A coherent accepted synthesis.",
-                }
-            ],
-        )
-    with pytest.raises(ValueError, match="material blocks without claim_citations"):
-        store.prepare_release(
-            report + "\n\nAn additional uncited interpretation.",
-            [
-                {
-                    "claim_id": cited_claim_id,
-                    "draft_excerpt": "A coherent accepted synthesis.",
-                }
-            ],
-        )
-    novelty_report = report.replace(
-        "A coherent accepted synthesis.",
-        "首次提出一项原创机制。",
+    revised = store.prepare_release(
+        revised_report,
+        [
+            {
+                "claim_id": cited_claim_id,
+                "draft_excerpt": "A coherent accepted synthesis.",
+            }
+        ],
     )
-    with pytest.raises(ValueError, match="high-risk causal, novelty"):
-        store.prepare_release(
-            novelty_report,
-            [
-                {
-                    "claim_id": cited_claim_id,
-                    "draft_excerpt": "首次提出一项原创机制。",
-                }
-            ],
+    final_verdict = store.submit_verdict(
+        mode="final_release",
+        decision="accept",
+        issues=[],
+        accepted_claims=[revised["claims"][0]["claim_id"]],
+    )
+
+    assert final_verdict["decision"] == "accept"
+    assert store.next_action()["kind"] == "released"
+    assert store.accepted_release_markdown() == revised_report
+    assert store.load_state()["status"] == "release_ready"
+    store.mark_release_delivered()
+    delivered_state = store.load_state()
+    assert delivered_state["status"] == "released"
+    assert delivered_state["current_stage"] == "final_release"
+
+
+def test_final_release_uses_limits_curated_by_integration_review(
+    tmp_path: Path,
+) -> None:
+    store = ResearchReviewStore(tmp_path, "task-1")
+    producers = {
+        "planning": "solar-planner",
+        "data": "solar-data",
+        "hypothesis": "solar-hypothesis",
+        "experiment_design": "solar-experiment",
+        "experiment_result": "solar-experiment",
+    }
+    for stage, producer in producers.items():
+        store.checkpoint_producer_result(
+            stage=stage, producer=producer, content=f"{stage} result"
         )
+        _accept(store, stage)
+    store.checkpoint_producer_result(
+        stage="hypothesis",
+        producer="solar-hypothesis",
+        content="hypothesis updated from the observed result",
+        phase="hypothesis_update",
+    )
+    _accept(store, "hypothesis")
+    integration = store.ensure_integration_artifact()
+    integration = build_research_artifact(
+        artifact_id=integration["artifact_id"],
+        task_id=integration["task_id"],
+        stage="integration",
+        version=integration["version"],
+        producer="supervisor",
+        upstream_refs=integration["upstream_refs"],
+        claims=integration["claims"],
+        evidence_refs=integration["evidence_refs"],
+        limitations=["Internal receipt detail must stay out of the reader report."],
+        payload=integration["payload"],
+    )
+    integration_path = (
+        store.root
+        / "artifacts"
+        / integration["artifact_id"]
+        / f"v{integration['version']:04d}.json"
+    )
+    integration_path.write_text(
+        json.dumps(integration, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    accepted_claim_id = integration["claims"][0]["claim_id"]
+    store.submit_verdict(
+        mode="integration",
+        decision="accept_with_limits",
+        issues=[],
+        accepted_claims=[accepted_claim_id],
+        carry_forward_limits=["Reader-facing scientific limit."],
+    )
+
+    action = store.next_action()
+    assert action["kind"] == "prepare_release"
+    assert action["release_context"]["required_limits"] == [
+        "Reader-facing scientific limit."
+    ]
+    assert [claim["claim_id"] for claim in action["release_context"]["claims"]] == [
+        accepted_claim_id
+    ]
+
+    cited_claim_id = accepted_claim_id
+    report = (
+        "# Result\n\nA coherent accepted synthesis.\n\nReader-facing scientific limit."
+    )
     release = store.prepare_release(
         report,
         [
@@ -1880,16 +3794,9 @@ def test_final_release_requires_limits_and_returns_exact_accepted_text(
             }
         ],
     )
-    first_release_verdict = store.submit_verdict(
-        mode="final_release",
-        decision="accept",
-        issues=[],
-        accepted_claims=[release["claims"][0]["claim_id"]],
-    )
 
-    assert first_release_verdict["decision"] == "accept"
-    assert store.next_action()["kind"] == "released"
-    assert store.accepted_release_markdown() == report
+    assert release["limitations"] == ["Reader-facing scientific limit."]
+    assert "Internal receipt detail" not in release["payload"]["producer_result"]
 
 
 @dataclass
@@ -2261,7 +4168,435 @@ def test_data_dispatch_opens_and_injects_deterministic_context_once(
     assert "persist at least one additional task-local data artifact" in description
 
 
-def test_data_revision_returns_supervisor_readiness_receipt_without_reopening_context(
+def test_experiment_input_staging_failure_is_explicit(
+    tmp_path: Path, monkeypatch
+) -> None:
+    from jw.middleware import research_review_orchestration as orchestration
+
+    config = _config(tmp_path, monkeypatch, "experiment-staging-failure")
+    monkeypatch.setattr(
+        ResearchReviewStore,
+        "next_action",
+        lambda _self: {
+            "kind": "producer",
+            "stage": "experiment_design",
+            "producer": "solar-experiment",
+            "phase": "experiment_design",
+        },
+    )
+    monkeypatch.setattr(
+        orchestration,
+        "_stage_data_produced_inputs",
+        lambda _store: (_ for _ in ()).throw(RuntimeError("accepted CSV unreadable")),
+    )
+    request = _Request(
+        {
+            "name": "task",
+            "id": "call-experiment-design",
+            "args": {"subagent_type": "solar-experiment", "description": "design"},
+        },
+        {"research_route": {"mode": "full_research"}, "messages": []},
+        _Runtime(config),
+    )
+
+    _rewritten, action, terminal = ResearchReviewOrchestrationMiddleware()._prepare(
+        request
+    )
+
+    assert action is not None
+    assert terminal is not None
+    assert "experiment input staging failed" in str(terminal.content)
+    assert "accepted CSV unreadable" in str(terminal.content)
+
+
+def test_experiment_dispatch_persists_host_owned_research_scope(
+    tmp_path: Path, monkeypatch
+) -> None:
+    from jw.middleware import research_review_orchestration as orchestration
+
+    thread_id = "experiment-host-scope"
+    config = _config(tmp_path, monkeypatch, thread_id)
+    workspace = Path(ensure_thread_workspace(thread_id, tmp_path).workspace)
+    store = ResearchReviewStore(workspace, thread_id)
+    state = store.load_state()
+    state["current_stage"] = "experiment_design"
+    store._save_state(state)
+    monkeypatch.setattr(
+        ResearchReviewStore,
+        "next_action",
+        lambda _self: {
+            "kind": "producer",
+            "stage": "experiment_design",
+            "producer": "solar-experiment",
+            "phase": "experiment_design_revision_from_experiment_design",
+            "revision_review_id": "review-experiment-design-2",
+        },
+    )
+    accepted = [
+        {
+            "artifact_id": "hypothesis-artifact",
+            "version": 2,
+            "artifact_sha256": "b" * 64,
+            "stage": "hypothesis",
+            "payload": {},
+            "limitations": [],
+        },
+        {
+            "artifact_id": "data-artifact",
+            "version": 1,
+            "artifact_sha256": "a" * 64,
+            "stage": "data",
+            "payload": {},
+            "limitations": [],
+        },
+    ]
+    monkeypatch.setattr(
+        ResearchReviewStore,
+        "accepted_artifacts",
+        lambda _self: list(accepted),
+    )
+    monkeypatch.setattr(
+        ResearchReviewStore,
+        "revision_capsule",
+        lambda _self, review_id, producer: {
+            "review_id": review_id,
+            "producer": producer,
+        },
+    )
+    monkeypatch.setattr(
+        orchestration,
+        "_stage_data_produced_inputs",
+        lambda _store: ["inputs/data.csv"],
+    )
+    request = _Request(
+        {
+            "name": "task",
+            "id": "call-experiment-design-scope",
+            "args": {"subagent_type": "solar-experiment", "description": "design"},
+        },
+        {"research_route": {"mode": "full_research"}, "messages": []},
+        _Runtime(config),
+    )
+
+    _rewritten, action, terminal = ResearchReviewOrchestrationMiddleware()._prepare(
+        request
+    )
+
+    assert terminal is None
+    assert action is not None
+    scope = json.loads(
+        (workspace / "research_review" / "experiment_scope.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert scope == {
+        "schema_version": "research-experiment-scope-v1",
+        "task_id": thread_id,
+        "stage": "experiment_design",
+        "accepted_upstream_refs": [
+            {
+                "artifact_id": "data-artifact",
+                "version": 1,
+                "artifact_sha256": "a" * 64,
+                "stage": "data",
+            },
+            {
+                "artifact_id": "hypothesis-artifact",
+                "version": 2,
+                "artifact_sha256": "b" * 64,
+                "stage": "hypothesis",
+            },
+        ],
+        "revision_review_id": "review-experiment-design-2",
+        "design_validation_limit": 3,
+    }
+
+
+@pytest.mark.parametrize("existing_scope", [False, True])
+def test_experiment_scope_is_not_published_when_action_reservation_fails(
+    tmp_path: Path,
+    monkeypatch,
+    existing_scope: bool,
+) -> None:
+    from jw.middleware import research_review_orchestration as orchestration
+
+    thread_id = f"scope-reserve-failure-{existing_scope}"
+    config = _config(tmp_path, monkeypatch, thread_id)
+    workspace = Path(ensure_thread_workspace(thread_id, tmp_path).workspace)
+    store = ResearchReviewStore(workspace, thread_id)
+    state = store.load_state()
+    state["current_stage"] = "experiment_design"
+    store._save_state(state)
+    scope_path = workspace / "research_review" / "experiment_scope.json"
+    original = ""
+    if existing_scope:
+        original = '{"existing":"scope"}\n'
+        scope_path.write_text(original, encoding="utf-8")
+    monkeypatch.setattr(
+        ResearchReviewStore,
+        "next_action",
+        lambda _self: {
+            "kind": "producer",
+            "stage": "experiment_design",
+            "producer": "solar-experiment",
+            "phase": "experiment_design",
+        },
+    )
+    monkeypatch.setattr(
+        ResearchReviewStore,
+        "reserve_action",
+        lambda _self, _action: (_ for _ in ()).throw(
+            RuntimeError("reservation rejected")
+        ),
+    )
+    monkeypatch.setattr(
+        orchestration,
+        "_stage_data_produced_inputs",
+        lambda _store: ["inputs/data.csv"],
+    )
+    request = _Request(
+        {
+            "name": "task",
+            "id": "call-scope-reserve-failure",
+            "args": {"subagent_type": "solar-experiment", "description": "design"},
+        },
+        {"research_route": {"mode": "full_research"}, "messages": []},
+        _Runtime(config),
+    )
+
+    _rewritten, _action, terminal = ResearchReviewOrchestrationMiddleware()._prepare(
+        request
+    )
+
+    assert terminal is not None
+    assert "reservation rejected" in str(terminal.content)
+    assert scope_path.is_file() is existing_scope
+    if existing_scope:
+        assert scope_path.read_text(encoding="utf-8") == original
+
+
+def test_concurrent_experiment_scope_publish_uses_unique_atomic_temporary_files(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    from jw.middleware import research_review_orchestration as orchestration
+    from jw import research_review as review_store_module
+
+    root = tmp_path / "research_review"
+    store = SimpleNamespace(
+        root=root,
+        task_id="concurrent-scope-publish",
+        accepted_artifacts=lambda: [],
+    )
+    action = {
+        "stage": "experiment_design",
+        "revision_review_id": None,
+    }
+    start = Barrier(2)
+    replace_guard = Lock()
+    replace_active = False
+    original_replace = review_store_module.os.replace
+    replaced_sources: list[str] = []
+
+    def synchronized_replace(source: object, target: object) -> None:
+        nonlocal replace_active
+        source_path = Path(source)
+        if not (
+            source_path.name.startswith(".experiment_scope.json.")
+            and source_path.name.endswith(".tmp")
+        ):
+            original_replace(source, target)
+            return
+        with replace_guard:
+            if replace_active:
+                raise PermissionError(13, "Access is denied")
+            replace_active = True
+        try:
+            replaced_sources.append(source_path.name)
+            time.sleep(0.05)
+            original_replace(source, target)
+        finally:
+            with replace_guard:
+                replace_active = False
+
+    monkeypatch.setattr(review_store_module.os, "replace", synchronized_replace)
+
+    def publish(_index: int) -> Exception | None:
+        try:
+            start.wait(timeout=2)
+            orchestration._persist_experiment_scope(store, action)
+        except Exception as exc:
+            return exc
+        return None
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        errors = list(executor.map(publish, range(2)))
+
+    assert errors == [None, None]
+    scope = json.loads((root / "experiment_scope.json").read_text(encoding="utf-8"))
+    assert scope["task_id"] == "concurrent-scope-publish"
+    assert len(replaced_sources) == 2
+    assert len(set(replaced_sources)) == 2
+    assert not list(root.glob("*.tmp"))
+
+
+def test_polar_experiment_dispatch_injects_cycle_analysis_contract(
+    tmp_path: Path, monkeypatch
+) -> None:
+    from jw.middleware import research_review_orchestration as orchestration
+
+    config = _config(tmp_path, monkeypatch, "polar-experiment-contract")
+    monkeypatch.setattr(
+        ResearchReviewStore,
+        "next_action",
+        lambda _self: {
+            "kind": "producer",
+            "stage": "experiment_design",
+            "producer": "solar-experiment",
+            "phase": "experiment_design",
+        },
+    )
+    monkeypatch.setattr(
+        orchestration,
+        "_stage_data_produced_inputs",
+        lambda _store: ["inputs/cycle_features.csv", "inputs/_staged.json"],
+    )
+    request = _Request(
+        {
+            "name": "task",
+            "id": "call-polar-experiment",
+            "args": {"subagent_type": "solar-experiment", "description": "design"},
+        },
+        {
+            "research_route": {
+                "mode": "full_research",
+                "required_analysis_protocol": "solar_polar_precursor_v1",
+            },
+            "messages": [],
+        },
+        _Runtime(config),
+    )
+
+    rewritten, _action, terminal = ResearchReviewOrchestrationMiddleware()._prepare(
+        request
+    )
+
+    assert terminal is None
+    description = rewritten.tool_call["args"]["description"]
+    assert "cycle N" in description
+    assert "cycle N+1" in description
+    assert "rolling-origin" in description
+    assert "Do not preselect the interaction sign" in description
+
+
+def test_polar_experiment_dispatch_materializes_pair_table_before_staging(
+    tmp_path: Path, monkeypatch
+) -> None:
+    from jw.middleware import research_review_orchestration as orchestration
+
+    config = _config(tmp_path, monkeypatch, "polar-pair-preflight")
+    monkeypatch.setattr(
+        ResearchReviewStore,
+        "next_action",
+        lambda _self: {
+            "kind": "producer",
+            "stage": "experiment_design",
+            "producer": "solar-experiment",
+            "phase": "experiment_design",
+        },
+    )
+    calls: list[str] = []
+
+    def ensure_pair_table(received_config):
+        assert received_config is config
+        calls.append("pair_table")
+        receipt_ref = "receipts/datasets/solar_cycle_pair_analysis_table.json"
+        workspace = Path(
+            ensure_thread_workspace("polar-pair-preflight", tmp_path).workspace
+        )
+        receipt_path = workspace / receipt_ref
+        receipt_path.parent.mkdir(parents=True, exist_ok=True)
+        receipt_path.write_text(
+            json.dumps(
+                {
+                    "schema_version": "solar-cycle-pair-analysis-table-v2",
+                    "status": "verified",
+                    "analysis_status": "analysis_table_ready",
+                    "row_count": 10,
+                    "predictor_cycles": list(range(14, 24)),
+                    "target_cycles": list(range(15, 25)),
+                    "pair_coverage": {
+                        "requested_pairs": [
+                            f"{cycle}->{cycle + 1}" for cycle in range(14, 24)
+                        ],
+                        "available_pairs": [
+                            f"{cycle}->{cycle + 1}" for cycle in range(14, 24)
+                        ],
+                        "unavailable_pairs": [],
+                    },
+                    "sample_size": {
+                        "independent_sample_unit": "solar_cycle_pair",
+                        "independent_sample_count": 10,
+                        "n_eff_upper_bound": 10,
+                        "n_eff_status": "bounded_not_estimated",
+                    },
+                }
+            ),
+            encoding="utf-8",
+        )
+        return receipt_ref
+
+    def stage_inputs(_store):
+        assert calls == ["pair_table"]
+        calls.append("stage_inputs")
+        return [
+            "inputs/solar_cycle_pair_analysis_table.csv",
+            "inputs/solar_cycle_pair_analysis_table.json",
+            "inputs/_staged.json",
+        ]
+
+    monkeypatch.setattr(
+        orchestration,
+        "_ensure_solar_cycle_pair_analysis_table",
+        ensure_pair_table,
+    )
+    monkeypatch.setattr(orchestration, "_stage_data_produced_inputs", stage_inputs)
+    request = _Request(
+        {
+            "name": "task",
+            "id": "call-polar-pair-preflight",
+            "args": {"subagent_type": "solar-experiment", "description": "design"},
+        },
+        {
+            "research_route": {
+                "mode": "full_research",
+                "required_analysis_protocol": "solar_polar_precursor_v1",
+            },
+            "messages": [],
+        },
+        _Runtime(config),
+    )
+
+    rewritten, _action, terminal = ResearchReviewOrchestrationMiddleware()._prepare(
+        request
+    )
+
+    assert terminal is None
+    assert calls == ["pair_table", "stage_inputs"]
+    description = str(rewritten.tool_call["args"]["description"])
+    assert "inputs/solar_cycle_pair_analysis_table.csv" in description
+    assert (
+        'verified_cycle_pair_context={"schema_version": "solar-cycle-pair-analysis-table-v2"'
+        in description
+    )
+    assert '"row_count": 10' in description
+    assert '"predictor_cycles": [14, 15, 16, 17, 18, 19, 20, 21, 22, 23]' in description
+    assert '"target_cycles": [15, 16, 17, 18, 19, 20, 21, 22, 23, 24]' in description
+    assert '"n_eff_status": "bounded_not_estimated"' in description
+    assert "authoritative for sample mapping and row count" in description
+
+
+def test_data_revision_returns_supervisor_pair_table_without_reopening_context(
     tmp_path: Path, monkeypatch
 ) -> None:
     from jw.middleware import research_review_orchestration as orchestration
@@ -2292,7 +4627,7 @@ def test_data_revision_returns_supervisor_readiness_receipt_without_reopening_co
 
     def persist(received_config, data_context):
         persisted.append((received_config, dict(data_context)))
-        relative = Path("receipts/datasets/cycle26_launch_readiness.json")
+        relative = Path("receipts/datasets/solar_cycle_pair_analysis_table.json")
         workspace = Path(
             ensure_thread_workspace("data-readiness-dispatch", tmp_path).workspace
         )
@@ -2301,27 +4636,36 @@ def test_data_revision_returns_supervisor_readiness_receipt_without_reopening_co
         target.write_text(
             json.dumps(
                 {
-                    "observation_cutoff": "2026-06-30",
-                    "silso": {
-                        "last_observed_month_at_cutoff": "2026-05",
-                        "missing_months_through_cutoff": ["2026-06"],
-                        "cycle25_to_cycle26_minimum_confirmed": False,
+                    "schema_version": "solar-cycle-pair-analysis-table-v2",
+                    "status": "partial",
+                    "analysis_status": "analysis_table_incomplete",
+                    "row_count": 9,
+                    "predictor_cycles": list(range(15, 24)),
+                    "target_cycles": list(range(16, 25)),
+                    "output_ref": (
+                        "receipts/datasets/solar_cycle_pair_analysis_table.csv"
+                    ),
+                    "independent_sample_unit": "solar_cycle_pair",
+                    "pair_coverage": {
+                        "requested_pairs": [
+                            f"{cycle}->{cycle + 1}" for cycle in range(14, 24)
+                        ],
+                        "available_pairs": [
+                            f"{cycle}->{cycle + 1}" for cycle in range(15, 24)
+                        ],
+                        "unavailable_pairs": ["14->15"],
                     },
-                    "polar_field": {
-                        "cycle26_minimum_precursor_bindable": False,
-                    },
-                    "f107": {"status": "gap"},
-                    "historical_calibration": {"cycle_pair_count": 10},
-                    "trigger_status": {"cycle25_minimum_confirmed": False},
-                    "launch_readiness": "do_not_launch",
-                    "claim_limit": "readiness audit only",
+                    "observation_cutoff": "2026-08-15",
+                    "limitations": ["Nine cycle pairs are a small sample."],
                 }
             ),
             encoding="utf-8",
         )
         return relative.as_posix()
 
-    monkeypatch.setattr(orchestration, "_persist_cycle26_readiness_receipt", persist)
+    monkeypatch.setattr(
+        orchestration, "_persist_solar_cycle_pair_analysis_table", persist
+    )
     request = _Request(
         {
             "name": "task",
@@ -2345,14 +4689,17 @@ def test_data_revision_returns_supervisor_readiness_receipt_without_reopening_co
     assert action is not None
     assert terminal is None
     assert len(persisted) == 1
-    assert "Launch readiness: do_not_launch" in action["precomputed_producer_text"]
+    assert "Independent cycle-pair rows: 9" in action["precomputed_producer_text"]
+    assert "solar_cycle_pair_analysis_table.csv" in action["precomputed_producer_text"]
     description = rewritten.tool_call["args"]["description"]
-    assert "readiness_receipt_ref" in description
-    assert "cycle26_launch_readiness.json" in description
-    assert '"status": "launch_not_ready"' in description
-    assert '"must_stop": true' in description
+    assert "produced_data_receipt_ref" in description
+    assert "solar_cycle_pair_analysis_table.json" in description
+    assert '"status": "analysis_table_incomplete"' in description
+    assert '"status": "analysis_table_ready"' not in description
+    assert '"must_stop": false' in description
     assert (
-        "return its bounded status immediately without another tool call" in description
+        "return the receipt-bound analysis table without another tool call"
+        in description
     )
     assert "do not open or rediscover the context again" in description
 
@@ -3014,46 +5361,693 @@ def test_orchestration_never_checkpoints_model_call_limit_as_science(
     assert store.latest_artifact("data") is None
 
 
-def test_cycle26_readiness_receipt_preserves_missing_launch_inputs(
+def test_solar_cycle_pair_analysis_constructs_temporally_valid_cycle_rows(
     tmp_path: Path,
 ) -> None:
-    sunspot = tmp_path / "SN_m_tot_V2.0.txt"
-    rows: list[str] = []
-    ordinal = 0
-    for year in range(1990, 2027):
-        for month in range(1, 13):
-            if (year, month) > (2026, 5):
-                break
-            value = 60.0 - 50.0 * math.cos(2 * math.pi * ordinal / (11 * 12))
-            provisional = " *" if (year, month) >= (2026, 1) else ""
-            rows.append(
-                f"{year:04d} {month:02d} {year + (month - 0.5) / 12:.3f} "
-                f"{value:.1f} 1.0 30{provisional}"
-            )
-            ordinal += 1
-    sunspot.write_text("\n".join(rows) + "\n", encoding="ascii")
-    polar = tmp_path / "e_PField_MWO_WSO.csv"
-    polar.write_text(
-        "N MWO Date,N MWO PField,N MWO SEM,N WSO Date,N WSO PField,N WSO SEM,"
-        "S MWO Date,S MWO PField,S MWO SEM,S WSO Date,S WSO PField,S WSO SEM\n"
-        "2023.7,NaN,NaN,2023.7,0.15,0.1,2023.2,NaN,NaN,2023.1,-0.39,0.1\n",
+    source = tmp_path / "solar_precursor_cycle_features.csv"
+    source.write_text(
+        "cycle_number,minimum_date,maximum_date,peak_smoothed_sunspot_number,"
+        "peak_smoothed_sunspot_number_sigma,minimum_date_sensitivity_start,"
+        "minimum_date_sensitivity_end,minimum_date_sensitivity_span_months,"
+        "polar_field_proxy_gauss,polar_field_proxy_sem_gauss,"
+        "predictor_window_start_decimal_year,predictor_window_end_decimal_year,"
+        "north_measurement_date,north_source,south_measurement_date,south_source,"
+        "predictor_cutoff_decimal_year\n"
+        "15,1913-07,1917-08,175.666667,11.8,1912-01,1914-01,24,"
+        "1.226355,0.260832,1913.041667,1914.041667,1913.7,MWO,1913.2,MWO,1914.041667\n"
+        "16,1923-08,1928-04,130.229167,10.2,1922-09,1923-12,15,"
+        "2.09455,0.437951,1923.125,1924.125,1923.7,MWO,1923.2,MWO,1924.125\n"
+        "17,1933-09,1937-04,198.641667,12.6,1933-05,1934-05,12,"
+        "1.31318,0.277685,1933.208333,1934.208333,1933.7,MWO,1934.2,MWO,1934.208333\n",
         encoding="utf-8",
     )
 
-    receipt = _cycle26_readiness_from_paths(
-        sunspot,
-        polar,
-        {"row_count": 10, "cycle_numbers": list(range(15, 25))},
+    rows = _solar_cycle_pair_analysis_from_path(source)
+
+    assert len(rows) == 2
+    first = rows[0]
+    assert first["predictor_cycle_n"] == 15
+    assert first["target_cycle_n_plus_1"] == 16
+    assert first["cycle_length_months"] == 121
+    assert first["polar_field_at_ending_minimum_gauss"] == pytest.approx(2.09455)
+    assert first["next_cycle_amplitude"] == pytest.approx(130.229167)
+    assert first["next_cycle_amplitude_sigma"] == pytest.approx(10.2)
+    assert first["cycle_end_minimum_sensitivity_start"] == "1922-09"
+    assert first["cycle_end_minimum_sensitivity_end"] == "1923-12"
+    assert first["n_eff_upper_bound"] == 2
+    assert first["prediction_issue_date"] == "1924-02"
+    assert first["measurement_regime"] == "MWO_proxy"
+    assert first["independent_sample_unit"] == "solar_cycle_pair"
+    assert first["target_available_at_issue_time"] is False
+
+
+def _write_complete_boundary_cycle_table(
+    path: Path, *, include_uncertainty: bool = False
+) -> None:
+    minima = [
+        (14, "1902-01", ""),
+        (15, "1913-07", "1917-08"),
+        (16, "1923-08", "1928-04"),
+        (17, "1933-09", "1937-04"),
+        (18, "1944-02", "1947-05"),
+        (19, "1954-04", "1958-03"),
+        (20, "1964-10", "1968-11"),
+        (21, "1976-03", "1979-12"),
+        (22, "1986-09", "1989-11"),
+        (23, "1996-08", "2001-11"),
+        (24, "2008-12", "2014-04"),
+    ]
+    fieldnames = [
+        "row_role",
+        "cycle_number",
+        "minimum_date",
+        "minimum_smoothed_sunspot_number",
+        "maximum_date",
+        "peak_smoothed_sunspot_number",
+        "polar_field_proxy_gauss",
+        "polar_field_proxy_sem_gauss",
+        "north_measurement_date",
+        "north_source",
+        "south_measurement_date",
+        "south_source",
+        "predictor_cutoff_decimal_year",
+    ]
+    if include_uncertainty:
+        fieldnames.extend(
+            [
+                "peak_smoothed_sunspot_number_sigma",
+                "minimum_date_sensitivity_start",
+                "minimum_date_sensitivity_end",
+                "minimum_date_sensitivity_span_months",
+                "predictor_window_start_decimal_year",
+                "predictor_window_end_decimal_year",
+            ]
+        )
+    rows = []
+    for cycle, minimum, maximum in minima:
+        if cycle == 14:
+            rows.append(
+                {
+                    "row_role": "boundary",
+                    "cycle_number": cycle,
+                    "minimum_date": minimum,
+                    "maximum_date": "1906-02",
+                    "peak_smoothed_sunspot_number": 64.2,
+                    **(
+                        {"peak_smoothed_sunspot_number_sigma": 9.0}
+                        if include_uncertainty
+                        else {}
+                    ),
+                }
+            )
+            continue
+        year, month = (int(value) for value in minimum.split("-"))
+        center = year + (month - 0.5) / 12
+        cutoff = center + 0.5 if include_uncertainty else center
+        row = {
+            "row_role": "analysis",
+            "cycle_number": cycle,
+            "minimum_date": minimum,
+            "minimum_smoothed_sunspot_number": 1.0,
+            "maximum_date": maximum,
+            "peak_smoothed_sunspot_number": 100 + cycle,
+            "polar_field_proxy_gauss": f"{cycle / 10:.2f}",
+            "polar_field_proxy_sem_gauss": 0.1,
+            "north_measurement_date": f"{center - 0.1:.6f}",
+            "north_source": "MWO",
+            "south_measurement_date": f"{center - 0.05:.6f}",
+            "south_source": "MWO",
+            "predictor_cutoff_decimal_year": f"{cutoff:.6f}",
+        }
+        if include_uncertainty:
+            row.update(
+                {
+                    "peak_smoothed_sunspot_number_sigma": 10.0,
+                    "minimum_date_sensitivity_start": minimum,
+                    "minimum_date_sensitivity_end": minimum,
+                    "minimum_date_sensitivity_span_months": 0,
+                    "predictor_window_start_decimal_year": f"{center - 0.5:.6f}",
+                    "predictor_window_end_decimal_year": f"{center + 0.5:.6f}",
+                }
+            )
+        rows.append(row)
+    with path.open("w", encoding="utf-8", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=fieldnames)
+        writer.writeheader()
+        writer.writerows(rows)
+
+
+def test_solar_cycle_pair_analysis_covers_all_ten_requested_pairs(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "solar_precursor_cycle_features.csv"
+    _write_complete_boundary_cycle_table(source, include_uncertainty=True)
+
+    rows = _solar_cycle_pair_analysis_from_path(source)
+
+    assert [
+        (row["predictor_cycle_n"], row["target_cycle_n_plus_1"]) for row in rows
+    ] == [(cycle, cycle + 1) for cycle in range(14, 24)]
+    assert all(row["temporal_order_validated"] is True for row in rows)
+    assert all(row["target_availability_date"] for row in rows)
+    assert all(row["previous_cycle_amplitude"] is not None for row in rows)
+    assert rows[0]["previous_cycle_amplitude"] == pytest.approx(64.2)
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("north_measurement_date", "1901.0"),
+        ("south_measurement_date", "1914.0"),
+        ("predictor_cutoff_decimal_year", "1914.2"),
+        ("maximum_date", "1912-01"),
+    ],
+)
+def test_solar_cycle_pair_analysis_rejects_invalid_temporal_order(
+    tmp_path: Path, field: str, value: str
+) -> None:
+    source = tmp_path / "invalid_temporal_order.csv"
+    _write_complete_boundary_cycle_table(source)
+    rows = list(csv.DictReader(source.read_text(encoding="utf-8").splitlines()))[:2]
+    rows[1][field] = value
+    with source.open("w", encoding="utf-8", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=list(rows[0]))
+        writer.writeheader()
+        writer.writerows(rows)
+
+    with pytest.raises(ValueError, match="temporal order"):
+        _solar_cycle_pair_analysis_from_path(source)
+
+
+def test_solar_cycle_pair_analysis_persists_reviewable_receipt_and_csv(
+    tmp_path: Path, monkeypatch
+) -> None:
+    config = _config(tmp_path, monkeypatch, "cycle-pair-persistence")
+    workspace = Path(
+        ensure_thread_workspace("cycle-pair-persistence", tmp_path).workspace
+    )
+    source = workspace / "work/solar_data/solar_precursor_cycle_features.csv"
+    source.parent.mkdir(parents=True, exist_ok=True)
+    _write_complete_boundary_cycle_table(source, include_uncertainty=True)
+    precursor_receipt = workspace / "receipts/datasets/solar_precursor_cycle_table.json"
+    precursor_receipt.parent.mkdir(parents=True, exist_ok=True)
+    precursor_receipt.write_text(
+        json.dumps(
+            {
+                "schema_version": "solar-precursor-cycle-table-v2",
+                "receipt_type": "solar_precursor_cycle_table",
+                "status": "verified",
+                "producer": "solar-data",
+                "task_id": "cycle-pair-persistence",
+                "created_at": "2026-08-15T00:00:00+00:00",
+                "dataset_ids": [
+                    "silso-monthly-total-v2",
+                    "mwo-wso-polar-field-v2",
+                ],
+                "outputs": [
+                    {
+                        "path": "work/solar_data/solar_precursor_cycle_features.csv",
+                        "bytes": source.stat().st_size,
+                        "sha256": hashlib.sha256(source.read_bytes()).hexdigest(),
+                    }
+                ],
+                "limitations": ["MWO is a calibrated proxy."],
+            }
+        ),
+        encoding="utf-8",
     )
 
-    assert receipt["silso"]["last_observed_month_at_cutoff"] == "2026-05"
-    assert receipt["silso"]["missing_months_through_cutoff"] == ["2026-06"]
-    assert receipt["silso"]["cycle25_to_cycle26_minimum_confirmed"] is False
-    assert receipt["polar_field"]["cycle26_minimum_precursor_bindable"] is False
-    assert receipt["f107"]["status"] == "gap"
-    assert receipt["historical_calibration"]["cycle_pair_count"] == 10
-    assert receipt["trigger_status"]["historical_validation_completed"] is False
-    assert receipt["launch_readiness"] == "do_not_launch"
+    receipt_ref = _persist_solar_cycle_pair_analysis_table(config, {})
+
+    receipt = json.loads((workspace / receipt_ref).read_text(encoding="utf-8"))
+    table_output = receipt["outputs"][0]
+    table_path = workspace / table_output["path"]
+    table = table_path.read_text(encoding="utf-8")
+    assert receipt["schema_version"] == "solar-cycle-pair-analysis-table-v2"
+    assert receipt["receipt_type"] == "solar_cycle_pair_analysis_table"
+    assert receipt["producer"] == "solar-data"
+    assert receipt["task_id"] == "cycle-pair-persistence"
+    assert receipt["dataset_ids"] == [
+        "silso-monthly-total-v2",
+        "mwo-wso-polar-field-v2",
+    ]
+    assert receipt["row_count"] == 10
+    assert receipt["pair_coverage"]["requested_pairs"] == [
+        f"{cycle}->{cycle + 1}" for cycle in range(14, 24)
+    ]
+    assert (
+        receipt["pair_coverage"]["available_pairs"]
+        == receipt["pair_coverage"]["requested_pairs"]
+    )
+    assert receipt["pair_coverage"]["unavailable_pairs"] == []
+    assert receipt["column_schema"]
+    column_schema = {row["name"]: row for row in receipt["column_schema"]}
+    assert column_schema["previous_cycle_amplitude"]["type"] == "number"
+    assert column_schema["previous_cycle_amplitude_sigma"]["type"] == "number"
+    assert column_schema["previous_cycle_peak_date"]["type"] == "year_month"
+    assert receipt["units"]["cycle_length_months"] == "month"
+    assert (
+        receipt["units"]["previous_cycle_amplitude"] == "international_sunspot_number"
+    )
+    assert (
+        receipt["units"]["previous_cycle_amplitude_sigma"]
+        == "international_sunspot_number"
+    )
+    assert receipt["sign_convention"]
+    assert receipt["temporal_ordering_rule"]
+    assert receipt["sample_size"] == {
+        "independent_sample_unit": "solar_cycle_pair",
+        "independent_sample_count": 10,
+        "n_eff_upper_bound": 10,
+        "n_eff_status": "bounded_not_estimated",
+    }
+    assert set(receipt["uncertainty_fields"]["reported"]) >= {
+        "previous_cycle_amplitude_sigma",
+        "next_cycle_amplitude_sigma",
+        "cycle_end_minimum_sensitivity_start",
+        "cycle_end_minimum_sensitivity_end",
+    }
+    assert table_output["bytes"] == table_path.stat().st_size
+    assert table_output["sha256"] == hashlib.sha256(table_path.read_bytes()).hexdigest()
+    assert "cycle_length_months" in table
+    assert "n_eff_upper_bound" in table
+    assert "next_cycle_amplitude_sigma" in table
+    assert table.count("\n") == 11
+
+
+def test_pair_receipt_marks_unverified_measurement_dates_as_gap(
+    tmp_path: Path, monkeypatch
+) -> None:
+    task_id = "cycle-pair-missing-measurement-dates"
+    config = _config(tmp_path, monkeypatch, task_id)
+    workspace = Path(ensure_thread_workspace(task_id, tmp_path).workspace)
+    source = workspace / "work/solar_data/solar_precursor_cycle_features.csv"
+    source.parent.mkdir(parents=True, exist_ok=True)
+    _write_complete_boundary_cycle_table(source)
+    rows = list(csv.DictReader(source.read_text(encoding="utf-8").splitlines()))
+    for row in rows[1:]:
+        row["north_measurement_date"] = ""
+        row["south_measurement_date"] = ""
+    with source.open("w", encoding="utf-8", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=list(rows[0]))
+        writer.writeheader()
+        writer.writerows(rows)
+    source_bytes = source.read_bytes()
+    receipt = workspace / "receipts/datasets/solar_precursor_cycle_table.json"
+    receipt.parent.mkdir(parents=True, exist_ok=True)
+    receipt.write_text(
+        json.dumps(
+            {
+                "schema_version": "solar-precursor-cycle-table-v2",
+                "receipt_type": "solar_precursor_cycle_table",
+                "status": "verified",
+                "producer": "solar-data",
+                "task_id": task_id,
+                "dataset_ids": [
+                    "silso-monthly-total-v2",
+                    "mwo-wso-polar-field-v2",
+                ],
+                "outputs": [
+                    {
+                        "path": "work/solar_data/solar_precursor_cycle_features.csv",
+                        "bytes": len(source_bytes),
+                        "sha256": hashlib.sha256(source_bytes).hexdigest(),
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    receipt_ref = _persist_solar_cycle_pair_analysis_table(config, {})
+    payload = json.loads((workspace / receipt_ref).read_text(encoding="utf-8"))
+
+    assert payload["status"] == "partial"
+    assert payload["analysis_status"] == "analysis_table_incomplete"
+    assert any(
+        gap["code"] == "PREDICTOR_MEASUREMENT_DATES_NOT_VERIFIED"
+        for gap in payload["gaps"]
+    )
+    assert payload["pair_coverage"]["unavailable_pairs"] == []
+
+
+def test_legacy_v1_nine_pair_receipt_is_partial_and_cannot_enter_experiment(
+    tmp_path: Path, monkeypatch
+) -> None:
+    task_id = "legacy-v1-nine-pairs"
+    config = _config(tmp_path, monkeypatch, task_id)
+    workspace = Path(ensure_thread_workspace(task_id, tmp_path).workspace)
+    source = workspace / "work/solar_data/solar_precursor_cycle_features.csv"
+    source.parent.mkdir(parents=True, exist_ok=True)
+    _write_complete_boundary_cycle_table(source)
+    rows = list(csv.DictReader(source.read_text(encoding="utf-8").splitlines()))[1:]
+    with source.open("w", encoding="utf-8", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=list(rows[0]))
+        writer.writeheader()
+        writer.writerows(rows)
+    source_bytes = source.read_bytes()
+    receipt = workspace / "receipts/datasets/solar_precursor_cycle_table.json"
+    receipt.parent.mkdir(parents=True, exist_ok=True)
+    receipt.write_text(
+        json.dumps(
+            {
+                "schema_version": "solar-precursor-cycle-table-v1",
+                "receipt_type": "solar_precursor_cycle_table",
+                "status": "verified",
+                "producer": "solar-data",
+                "task_id": task_id,
+                "input_refs": [
+                    {"dataset_id": "silso-monthly-total-v2"},
+                    {"dataset_id": "mwo-wso-polar-field-v2"},
+                ],
+                "outputs": [
+                    {
+                        "path": "work/solar_data/solar_precursor_cycle_features.csv",
+                        "bytes": len(source_bytes),
+                        "sha256": hashlib.sha256(source_bytes).hexdigest(),
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    receipt_ref = _persist_solar_cycle_pair_analysis_table(config, {})
+    payload = json.loads((workspace / receipt_ref).read_text(encoding="utf-8"))
+
+    assert payload["status"] == "partial"
+    assert payload["analysis_status"] == "analysis_table_incomplete"
+    assert payload["dataset_ids"] == [
+        "silso-monthly-total-v2",
+        "mwo-wso-polar-field-v2",
+    ]
+    assert payload["pair_coverage"]["unavailable_pairs"] == ["14->15"]
+    with pytest.raises(RuntimeError, match="incomplete"):
+        _ensure_solar_cycle_pair_analysis_table(config)
+
+
+def test_partial_pair_output_enters_canonical_manifest_and_structured_claim(
+    tmp_path: Path, monkeypatch
+) -> None:
+    task_id = "partial-pair-canonical-review"
+    config = _config(tmp_path, monkeypatch, task_id)
+    workspace = Path(ensure_thread_workspace(task_id, tmp_path).workspace)
+    source = workspace / "work/solar_data/solar_precursor_cycle_features.csv"
+    source.parent.mkdir(parents=True, exist_ok=True)
+    _write_complete_boundary_cycle_table(source)
+    source_rows = list(csv.DictReader(source.read_text(encoding="utf-8").splitlines()))[
+        1:
+    ]
+    with source.open("w", encoding="utf-8", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=list(source_rows[0]))
+        writer.writeheader()
+        writer.writerows(source_rows)
+    source_bytes = source.read_bytes()
+    precursor_receipt = workspace / "receipts/datasets/solar_precursor_cycle_table.json"
+    precursor_receipt.parent.mkdir(parents=True, exist_ok=True)
+    precursor_receipt.write_text(
+        json.dumps(
+            {
+                "schema_version": "solar-precursor-cycle-table-v1",
+                "receipt_type": "solar_precursor_cycle_table",
+                "status": "verified",
+                "producer": "solar-data",
+                "task_id": task_id,
+                "input_refs": [
+                    {"dataset_id": "silso-monthly-total-v2"},
+                    {"dataset_id": "mwo-wso-polar-field-v2"},
+                ],
+                "outputs": [
+                    {
+                        "path": "work/solar_data/solar_precursor_cycle_features.csv",
+                        "bytes": len(source_bytes),
+                        "sha256": hashlib.sha256(source_bytes).hexdigest(),
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    pair_receipt_ref = _persist_solar_cycle_pair_analysis_table(config, {})
+    pair_receipt = json.loads(
+        (workspace / pair_receipt_ref).read_text(encoding="utf-8")
+    )
+    assert pair_receipt["status"] == "partial"
+
+    store = ResearchReviewStore(workspace, task_id)
+    artifact = store.checkpoint_producer_result(
+        stage="data",
+        producer="solar-data",
+        content="Let me inspect the output first.",
+        phase="bounded_data",
+        require_canonical_source=True,
+    )
+
+    pair_output = pair_receipt["outputs"][0]["path"]
+    manifest_refs = {
+        row["source_ref"] for row in artifact["payload"]["source_manifest"]
+    }
+    assert pair_output in manifest_refs
+    summary = artifact["payload"]["data_result_summary"]
+    assert summary["status"] == "partial"
+    assert any(
+        gap["code"] == "REQUESTED_CYCLE_PAIRS_UNAVAILABLE" for gap in summary["gaps"]
+    )
+    assert "Let me inspect" not in artifact["claims"][0]["text"]
+    with pytest.raises(RuntimeError, match="incomplete"):
+        _ensure_solar_cycle_pair_analysis_table(config)
+
+
+def test_stale_pair_output_is_regenerated_instead_of_reused(
+    tmp_path: Path, monkeypatch
+) -> None:
+    config = _config(tmp_path, monkeypatch, "cycle-pair-stale-output")
+    workspace = Path(
+        ensure_thread_workspace("cycle-pair-stale-output", tmp_path).workspace
+    )
+    source = workspace / "work/solar_data/solar_precursor_cycle_features.csv"
+    source.parent.mkdir(parents=True, exist_ok=True)
+    _write_complete_boundary_cycle_table(source)
+    precursor_receipt = workspace / "receipts/datasets/solar_precursor_cycle_table.json"
+    precursor_receipt.parent.mkdir(parents=True, exist_ok=True)
+    precursor_receipt.write_text(
+        json.dumps(
+            {
+                "schema_version": "solar-precursor-cycle-table-v2",
+                "receipt_type": "solar_precursor_cycle_table",
+                "status": "verified",
+                "producer": "solar-data",
+                "task_id": "cycle-pair-stale-output",
+                "dataset_ids": [
+                    "silso-monthly-total-v2",
+                    "mwo-wso-polar-field-v2",
+                ],
+                "outputs": [
+                    {
+                        "path": "work/solar_data/solar_precursor_cycle_features.csv",
+                        "bytes": source.stat().st_size,
+                        "sha256": hashlib.sha256(source.read_bytes()).hexdigest(),
+                    }
+                ],
+                "limitations": [],
+            }
+        ),
+        encoding="utf-8",
+    )
+    receipt_ref = _persist_solar_cycle_pair_analysis_table(config, {})
+    first_receipt = json.loads((workspace / receipt_ref).read_text(encoding="utf-8"))
+    output_path = workspace / first_receipt["outputs"][0]["path"]
+    output_path.write_text(
+        output_path.read_text(encoding="utf-8") + "STALE\n", encoding="utf-8"
+    )
+
+    reused_ref = _ensure_solar_cycle_pair_analysis_table(config)
+
+    assert reused_ref == receipt_ref
+    refreshed = json.loads((workspace / receipt_ref).read_text(encoding="utf-8"))
+    assert "STALE" not in output_path.read_text(encoding="utf-8")
+    assert (
+        refreshed["outputs"][0]["sha256"]
+        == hashlib.sha256(output_path.read_bytes()).hexdigest()
+    )
+
+
+def test_precursor_and_pair_receipts_project_structured_data_claim(
+    tmp_path: Path,
+) -> None:
+    precursor_ref = "receipts/datasets/solar_precursor_cycle_table.json"
+    pair_ref = "receipts/datasets/solar_cycle_pair_analysis_table.json"
+    precursor_output = "work/solar_data/solar_precursor_cycle_features.csv"
+    pair_output = "work/solar_data/solar_cycle_pair_analysis_table.csv"
+    common = {
+        "dataset_ids": [
+            "silso-monthly-total-v2",
+            "mwo-wso-polar-field-v2",
+        ],
+        "column_schema": [{"name": "cycle_number", "type": "integer"}],
+        "units": {"polar_field_proxy_gauss": "gauss"},
+        "sign_convention": {"polar_field_proxy_gauss": "unsigned magnitude"},
+        "temporal_ordering_rule": "predictor precedes target",
+        "uncertainty_fields": {"reported": ["polar_field_proxy_sem_gauss"]},
+        "gaps": [{"code": "TARGET_AMPLITUDE_UNCERTAINTY_NOT_COMPUTED"}],
+    }
+    documents = [
+        {
+            "source_ref": precursor_ref,
+            "payload": {
+                "schema_version": "solar-precursor-cycle-table-v2",
+                "receipt_type": "solar_precursor_cycle_table",
+                "status": "verified",
+                "producer": "solar-data",
+                "task_id": "structured-data-claim",
+                **common,
+                "row_count": 11,
+                "pair_coverage": {
+                    "requested_pairs": [
+                        f"{cycle}->{cycle + 1}" for cycle in range(14, 24)
+                    ],
+                    "available_pairs": [
+                        f"{cycle}->{cycle + 1}" for cycle in range(14, 24)
+                    ],
+                    "unavailable_pairs": [],
+                },
+                "outputs": [{"path": precursor_output, "sha256": "a" * 64}],
+            },
+        },
+        {
+            "source_ref": pair_ref,
+            "payload": {
+                "schema_version": "solar-cycle-pair-analysis-table-v2",
+                "receipt_type": "solar_cycle_pair_analysis_table",
+                "status": "verified",
+                "analysis_status": "analysis_table_ready",
+                "producer": "solar-data",
+                "task_id": "structured-data-claim",
+                **common,
+                "row_count": 10,
+                "pair_coverage": {
+                    "requested_pairs": [
+                        f"{cycle}->{cycle + 1}" for cycle in range(14, 24)
+                    ],
+                    "available_pairs": [
+                        f"{cycle}->{cycle + 1}" for cycle in range(14, 24)
+                    ],
+                    "unavailable_pairs": [],
+                },
+                "outputs": [{"path": pair_output, "sha256": "b" * 64}],
+            },
+        },
+    ]
+
+    adapted = adapt_v1_producer_output(
+        stage="data",
+        version=1,
+        phase="data",
+        text="Let me inspect the produced artifacts via shell.",
+        evidence_refs=[precursor_ref, pair_ref, precursor_output, pair_output],
+        canonical_documents=documents,
+        current_task_id="structured-data-claim",
+        source_manifest=[
+            {"source_ref": precursor_ref, "sha256": "c" * 64},
+            {"source_ref": pair_ref, "sha256": "d" * 64},
+            {"source_ref": precursor_output, "sha256": "a" * 64},
+            {"source_ref": pair_output, "sha256": "b" * 64},
+        ],
+    )
+
+    claim = adapted["claims"][0]
+    summary = json.loads(claim["text"])
+    assert "Let me inspect" not in claim["text"]
+    assert summary["dataset_ids"] == common["dataset_ids"]
+    assert summary["pair_coverage"]["available_pairs"] == [
+        f"{cycle}->{cycle + 1}" for cycle in range(14, 24)
+    ]
+    assert summary["row_count"] == 10
+    assert set(claim["supporting_evidence"]) >= {
+        precursor_ref,
+        pair_ref,
+        precursor_output,
+        pair_output,
+    }
+    assert adapted["payload"]["data_result_summary"] == summary
+
+
+def test_structured_data_projection_rejects_stale_pair_output_hash() -> None:
+    precursor_ref = "receipts/datasets/solar_precursor_cycle_table.json"
+    pair_ref = "receipts/datasets/solar_cycle_pair_analysis_table.json"
+    precursor_output = "work/solar_data/solar_precursor_cycle_features.csv"
+    pair_output = "work/solar_data/solar_cycle_pair_analysis_table.csv"
+    requested = [f"{cycle}->{cycle + 1}" for cycle in range(14, 24)]
+    common = {
+        "producer": "solar-data",
+        "task_id": "stale-structured-data",
+        "dataset_ids": [
+            "silso-monthly-total-v2",
+            "mwo-wso-polar-field-v2",
+        ],
+        "column_schema": [{"name": "cycle_number", "type": "integer"}],
+        "units": {"polar_field_proxy_gauss": "gauss"},
+        "sign_convention": {"polar_field_proxy_gauss": "unsigned magnitude"},
+        "temporal_ordering_rule": "predictor precedes target",
+        "uncertainty_fields": {"reported": ["polar_field_proxy_sem_gauss"]},
+        "gaps": [],
+    }
+    documents = [
+        {
+            "source_ref": precursor_ref,
+            "payload": {
+                "schema_version": "solar-precursor-cycle-table-v2",
+                "receipt_type": "solar_precursor_cycle_table",
+                "status": "verified",
+                **common,
+                "row_count": 11,
+                "pair_coverage": {
+                    "requested_pairs": requested,
+                    "available_pairs": requested,
+                    "unavailable_pairs": [],
+                },
+                "outputs": [{"path": precursor_output, "sha256": "a" * 64}],
+            },
+        },
+        {
+            "source_ref": pair_ref,
+            "payload": {
+                "schema_version": "solar-cycle-pair-analysis-table-v2",
+                "receipt_type": "solar_cycle_pair_analysis_table",
+                "status": "verified",
+                "analysis_status": "analysis_table_ready",
+                **common,
+                "row_count": 10,
+                "pair_coverage": {
+                    "requested_pairs": requested,
+                    "available_pairs": requested,
+                    "unavailable_pairs": [],
+                },
+                "outputs": [{"path": pair_output, "sha256": "b" * 64}],
+            },
+        },
+    ]
+
+    adapted = adapt_v1_producer_output(
+        stage="data",
+        version=1,
+        phase="data",
+        text="garbage producer narration",
+        evidence_refs=[precursor_ref, pair_ref, precursor_output, pair_output],
+        canonical_documents=documents,
+        current_task_id="stale-structured-data",
+        source_manifest=[
+            {"source_ref": precursor_ref, "sha256": "c" * 64},
+            {"source_ref": pair_ref, "sha256": "d" * 64},
+            {"source_ref": precursor_output, "sha256": "a" * 64},
+            {"source_ref": pair_output, "sha256": "e" * 64},
+        ],
+    )
+
+    summary = adapted["payload"]["data_result_summary"]
+    assert summary["row_count"] == 11
+    assert summary["source_receipt_refs"] == [precursor_ref]
+    assert pair_output not in adapted["claims"][0]["supporting_evidence"]
 
 
 def test_reviewer_cannot_pass_without_persisted_verdict(
@@ -3087,6 +6081,48 @@ def test_reviewer_cannot_pass_without_persisted_verdict(
 
     assert result.status == "error"
     assert "without persisting" in str(result.content)
+
+
+def test_reviewer_without_verdict_preserves_kimi_structured_failure_summary(
+    tmp_path: Path, monkeypatch
+) -> None:
+    config = _config(tmp_path, monkeypatch, "review-kimi-diagnostic-task")
+    binding = ensure_thread_workspace("review-kimi-diagnostic-task", tmp_path)
+    store = ResearchReviewStore(Path(binding.workspace), "review-kimi-diagnostic-task")
+    store.checkpoint_producer_result(
+        stage="planning", producer="solar-planner", content="plan"
+    )
+    request = _Request(
+        {
+            "name": "task",
+            "id": "call-evidence-kimi-diagnostic",
+            "args": {"subagent_type": "solar-evidence", "description": "review"},
+        },
+        {"research_route": {"mode": "full_research"}},
+        _Runtime(config),
+    )
+    capsule = (
+        "[KIMI EVIDENCE STRUCTURED SUBMIT FAILED]\n"
+        "event=kimi_evidence_structured_submit_failed\n"
+        "error_type=ValueError\n"
+        "parsed_present=false\n"
+        "raw_message_present=true\n"
+        "fingerprint=" + ("a" * 64)
+    )
+
+    result = ResearchReviewOrchestrationMiddleware().wrap_tool_call(
+        request,
+        lambda rewritten: ToolMessage(
+            content=capsule,
+            tool_call_id=rewritten.tool_call["id"],
+            name="task",
+        ),
+    )
+
+    assert result.status == "error"
+    assert "without persisting" in str(result.content)
+    assert "event=kimi_evidence_structured_submit_failed" in str(result.content)
+    assert "error_type=ValueError" in str(result.content)
 
 
 def test_review_delegation_discards_parent_copied_artifact_text(

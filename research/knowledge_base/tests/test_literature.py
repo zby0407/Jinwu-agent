@@ -1089,6 +1089,36 @@ class TestLiteratureDeltaAndTaskBundle(StoreTestCase):
         frozen = literature.read_literature_task_bundle(self.store, first["bundle_id"])
         self.assertEqual(frozen["sources"][0]["abstract"], original_abstract)
 
+    def test_task_bundle_can_require_a_compound_focus_anchor(self):
+        cache_openalex_source(self.store)
+        self.store.upsert_lit_source(
+            {
+                "source_id": "openalex:scattered-terms",
+                "title": "Statistical measurement study of a planetary field",
+                "authors": ["B. Author"],
+                "year": 2026,
+                "abstract": (
+                    "A polar atmospheric region is analysed under a changing "
+                    "measurement regime. The statistical null concerns a field "
+                    "observable, but not the solar precursor."
+                ),
+            }
+        )
+
+        bundle = literature.build_literature_task_bundle(
+            self.store,
+            "Does the polar field precursor predict solar cycle amplitude?",
+            "polar field measurement regime and statistical null",
+            ranking_focus="polar field measurement regime statistical null",
+            required_anchor_phrases=["polar field"],
+            limit=5,
+            run_id="run-compound-anchor",
+        )
+
+        self.assertEqual(bundle["source_count"], 1)
+        self.assertEqual(bundle["sources"][0]["source_id"], "openalex:W1234567")
+        self.assertIn("polar field", bundle["sources"][0]["matched_focus_phrases"])
+
 
 class TestGroundingWarnings(StoreTestCase):
     def test_valid_kb_id_passes(self):

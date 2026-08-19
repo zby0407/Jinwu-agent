@@ -3,7 +3,10 @@ from __future__ import annotations
 import json
 import tempfile
 import unittest
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from threading import Barrier, BrokenBarrierError, Event, Lock
+from unittest.mock import patch
 
 from automatic_experiment import service
 from automatic_experiment.contracts import default_request
@@ -18,6 +21,7 @@ from automatic_experiment.state import (
     load_state,
     read_json,
     runs_root,
+    save_state,
     task_workspace,
 )
 from automatic_experiment.verification import (
@@ -40,6 +44,28 @@ from tests.helpers import (
     request,
     response,
 )
+
+
+def research_scope(
+    *,
+    artifact_sha256: str = "a" * 64,
+    revision_review_id: str | None = None,
+) -> dict[str, object]:
+    return {
+        "schema_version": "research-experiment-scope-v1",
+        "task_id": "research-task-a",
+        "stage": "experiment_design",
+        "accepted_upstream_refs": [
+            {
+                "artifact_id": "hypothesis-artifact",
+                "version": 1,
+                "artifact_sha256": artifact_sha256,
+                "stage": "hypothesis",
+            }
+        ],
+        "revision_review_id": revision_review_id,
+        "design_validation_limit": 3,
+    }
 
 
 class ExecutionTests(unittest.TestCase):
@@ -301,19 +327,13 @@ class ExecutionTests(unittest.TestCase):
                 "expected_artifacts",
             },
         )
-        self.assertNotIn(
-            "clarification_required", guide["design"]["terminal_targets"]
-        )
-        self.assertIn(
-            "path", guide["design"]["object_shapes"]["artifact_plan_item"]
-        )
+        self.assertNotIn("clarification_required", guide["design"]["terminal_targets"])
+        self.assertIn("path", guide["design"]["object_shapes"]["artifact_plan_item"])
         self.assertIn(
             "bounded_pragmatic_choice",
             guide["design"]["object_shapes"]["method_decision_item"]["basis_kind"],
         )
-        self.assertIn(
-            "scientific_payload", guide["worker_result"]["item_shapes"]
-        )
+        self.assertIn("scientific_payload", guide["worker_result"]["item_shapes"])
         self.assertIn(
             "Do not create duplicate result_items or duplicate JSON keys",
             " ".join(guide["worker_result"]["rules"]),
@@ -328,6 +348,437 @@ class ExecutionTests(unittest.TestCase):
         self.assertIn("never duplicate the same fact", design_rules)
         self.assertIn("delta_formula", design_rules)
 
+    def test_research_scope_rejects_fresh_rebind_without_creating_a_run(self) -> None:
+        req = request("unit_research_scope_rebind")
+        scope = research_scope()
+        first = service.bind_request({"request": req}, research_scope=scope)
+        self.addCleanup(cleanup_run, first["run_id"])
+        before = {path.name for path in runs_root().iterdir()}
+
+        changed = request(
+            "unit_research_scope_rebind_changed",
+            task="Change the preregistered sample definition and analysis rule.",
+        )
+        with self.assertRaises(service.ServiceError) as raised:
+            service.bind_request({"request": changed}, research_scope=scope)
+
+        self.assertEqual(
+            raised.exception.error_code,
+            "RESEARCH_EXPERIMENT_SCOPE_ALREADY_BOUND",
+        )
+        self.assertEqual(raised.exception.run_id, first["run_id"])
+        self.assertEqual({path.name for path in runs_root().iterdir()}, before)
+
+    def test_concurrent_research_scope_bind_creates_exactly_one_run(self) -> None:
+        scope = research_scope()
+        workspace = runs_root().parents[1]
+        barrier = Barrier(2)
+        original_lookup = service._run_bound_to_research_scope
+
+        def synchronized_lookup(scope_identity: str) -> str | None:
+            result = original_lookup(scope_identity)
+            if result is None:
+                try:
+                    barrier.wait(timeout=0.5)
+                except BrokenBarrierError:
+                    pass
+            return result
+
+        def bind(task_name: str) -> tuple[str, object]:
+            try:
+                with task_workspace(workspace):
+                    return (
+                        "success",
+                        service.bind_request(
+                            {"request": request(task_name)}, research_scope=scope
+                        ),
+                    )
+            except service.ServiceError as exc:
+                return ("error", exc)
+
+        with patch.object(
+            service,
+            "_run_bound_to_research_scope",
+            synchronized_lookup,
+        ):
+            with ThreadPoolExecutor(max_workers=2) as executor:
+                outcomes = list(
+                    executor.map(
+                        bind,
+                        ("unit_scope_concurrent_a", "unit_scope_concurrent_b"),
+                    )
+                )
+
+        successes = [payload for kind, payload in outcomes if kind == "success"]
+        errors = [payload for kind, payload in outcomes if kind == "error"]
+        for payload in successes:
+            self.addCleanup(cleanup_run, payload["run_id"])
+        self.assertEqual(len(successes), 1, outcomes)
+        self.assertEqual(len(errors), 1, outcomes)
+        self.assertEqual(
+            errors[0].error_code,
+            "RESEARCH_EXPERIMENT_SCOPE_ALREADY_BOUND",
+        )
+        self.assertEqual(errors[0].run_id, successes[0]["run_id"])
+        identity = service.canonical_sha256(service._normalized_research_scope(scope))
+        bound_states = [
+            read_json(path)
+            for path in runs_root().glob("*/state.json")
+            if read_json(path).get("research_scope_identity") == identity
+        ]
+        self.assertEqual(len(bound_states), 1)
+
+    def test_new_research_upstream_or_formal_revision_allows_a_new_run(self) -> None:
+        req = request("unit_research_scope_revision")
+        first = service.bind_request({"request": req}, research_scope=research_scope())
+        second = service.bind_request(
+            {"request": req}, research_scope=research_scope(artifact_sha256="b" * 64)
+        )
+        third = service.bind_request(
+            {"request": req},
+            research_scope=research_scope(revision_review_id="review-design-revise-2"),
+        )
+        for run_id in (first["run_id"], second["run_id"], third["run_id"]):
+            self.addCleanup(cleanup_run, run_id)
+
+        self.assertEqual(len({first["run_id"], second["run_id"], third["run_id"]}), 3)
+
+    def test_unscoped_repeated_bind_remains_fresh(self) -> None:
+        req = request("unit_unscoped_repeated_bind")
+        first = service.bind_request({"request": req})
+        second = service.bind_request({"request": req})
+        self.addCleanup(cleanup_run, first["run_id"])
+        self.addCleanup(cleanup_run, second["run_id"])
+
+        self.assertNotEqual(first["run_id"], second["run_id"])
+
+    def test_research_design_invalid_paths_share_a_separate_three_call_budget(
+        self,
+    ) -> None:
+        req = request("unit_research_design_validation_budget")
+        bound = service.bind_request({"request": req}, research_scope=research_scope())
+        self.addCleanup(cleanup_run, bound["run_id"])
+        _root, initial = load_state(bound["run_id"])
+        initial_attempts = (
+            initial["attempt_count"],
+            initial["remaining_attempts"],
+        )
+
+        invalid_response = response(req)
+        invalid_response.pop("design_summary")
+        first = service.build_and_store_single_stage_design(
+            bound["run_id"], invalid_response, {}
+        )
+        self.assertEqual(first["status"], "design_invalid")
+        self.assertEqual(first["remaining"], 2)
+        self.assertFalse(first["must_stop"])
+
+        invalid_shape = design(req)
+        del invalid_shape["artifact_plan"][0]["path"]
+        second = service.validate_and_store_design(
+            bound["run_id"], response(req), invalid_shape
+        )
+        self.assertEqual(second["status"], "design_invalid")
+        self.assertEqual(second["remaining"], 1)
+        self.assertFalse(second["must_stop"])
+
+        invalid_semantics = design(req)
+        invalid_semantics["experiment_stages"][0]["transitions"]["completed"] = (
+            "unknown_stage"
+        )
+        third = service.validate_and_store_design(
+            bound["run_id"], response(req), invalid_semantics
+        )
+        self.assertEqual(third["status"], "design_invalid")
+        self.assertEqual(third["remaining"], 0)
+        self.assertTrue(third["must_stop"])
+
+        with (
+            patch.object(
+                service,
+                "validate_response",
+                side_effect=AssertionError("response validation must not run"),
+            ),
+            patch.object(
+                service,
+                "_design_schema_issues",
+                side_effect=AssertionError("shape validation must not run"),
+            ),
+            patch.object(
+                service,
+                "validate_design",
+                side_effect=AssertionError("semantic validation must not run"),
+            ),
+        ):
+            fourth = service.build_and_store_single_stage_design(
+                bound["run_id"], response(req), {}
+            )
+
+        self.assertEqual(fourth["status"], "budget_stopped")
+        self.assertEqual(fourth["remaining"], 0)
+        self.assertTrue(fourth["must_stop"])
+        _root, final = load_state(bound["run_id"])
+        self.assertEqual(
+            (final["attempt_count"], final["remaining_attempts"]),
+            initial_attempts,
+        )
+        self.assertEqual(
+            final["design_validation_budget"],
+            {"limit": 3, "used": 3, "remaining": 0},
+        )
+
+    def test_compact_and_dependency_design_failures_charge_research_budget(
+        self,
+    ) -> None:
+        req = request("unit_research_compact_failure_budget")
+        bound = service.bind_request({"request": req}, research_scope=research_scope())
+        self.addCleanup(cleanup_run, bound["run_id"])
+        malformed = {"measurements": ["not-an-object"]}
+
+        first = service.build_and_store_single_stage_design(
+            bound["run_id"], response(req), malformed
+        )
+        self.assertEqual(first["status"], "design_invalid")
+        self.assertEqual(first["remaining"], 2)
+
+        unreviewed = design(req)
+        unreviewed["experiment_stages"][0]["execution"]["dependencies"] = [
+            "unreviewed_dependency"
+        ]
+        second = service.validate_and_store_design(
+            bound["run_id"], response(req), unreviewed
+        )
+        self.assertEqual(second["status"], "design_invalid")
+        self.assertEqual(second["remaining"], 1)
+
+        third = service.build_and_store_single_stage_design(
+            bound["run_id"], response(req), malformed
+        )
+        self.assertEqual(third["status"], "design_invalid")
+        self.assertEqual(third["remaining"], 0)
+        self.assertTrue(third["must_stop"])
+
+        fourth = service.build_and_store_single_stage_design(
+            bound["run_id"], response(req), malformed
+        )
+        self.assertEqual(fourth["status"], "budget_stopped")
+        _root, state = load_state(bound["run_id"])
+        self.assertEqual(
+            state["design_validation_budget"],
+            {"limit": 3, "used": 3, "remaining": 0},
+        )
+
+    def test_compact_conversion_errors_charge_research_design_budget(self) -> None:
+        req = request("unit_research_compact_conversion_budget")
+        bound = service.bind_request({"request": req}, research_scope=research_scope())
+        self.addCleanup(cleanup_run, bound["run_id"])
+        invalid_seed = {"seed": "not-an-integer"}
+        invalid_alternatives = {"method_alternatives": 42}
+
+        first = service.build_and_store_single_stage_design(
+            bound["run_id"], response(req), invalid_seed
+        )
+        second = service.build_and_store_single_stage_design(
+            bound["run_id"], response(req), invalid_alternatives
+        )
+        third = service.build_and_store_single_stage_design(
+            bound["run_id"], response(req), invalid_seed
+        )
+        fourth = service.build_and_store_single_stage_design(
+            bound["run_id"], response(req), invalid_seed
+        )
+
+        self.assertEqual(
+            [first["status"], second["status"], third["status"]],
+            ["design_invalid"] * 3,
+        )
+        self.assertEqual([first["remaining"], second["remaining"]], [2, 1])
+        self.assertEqual(third["remaining"], 0)
+        self.assertTrue(third["must_stop"])
+        self.assertEqual(fourth["status"], "budget_stopped")
+        for result in (first, second, third):
+            self.assertEqual(result["issues"][0]["field_path"], "analysis")
+        _root, state = load_state(bound["run_id"])
+        self.assertEqual(
+            state["design_validation_budget"],
+            {"limit": 3, "used": 3, "remaining": 0},
+        )
+
+    def test_concurrent_compact_calls_share_last_validation_budget_slot(self) -> None:
+        req = request("unit_research_compact_budget_concurrent")
+        bound = service.bind_request({"request": req}, research_scope=research_scope())
+        self.addCleanup(cleanup_run, bound["run_id"])
+        malformed_row = {"measurements": ["not-an-object"]}
+        for _index in range(2):
+            result = service.build_and_store_single_stage_design(
+                bound["run_id"], response(req), malformed_row
+            )
+            self.assertEqual(result["status"], "design_invalid")
+        workspace = runs_root().parents[1]
+        invalid_seed = {"seed": "not-an-integer"}
+        barrier = Barrier(2)
+        counter_lock = Lock()
+        validation_calls = 0
+        expansion_calls = 0
+        original_validate_response = service.validate_response
+        original_expand = service._compact_single_stage_design
+
+        def counted_validate_response(
+            *args: object, **kwargs: object
+        ) -> dict[str, object]:
+            nonlocal validation_calls
+            with counter_lock:
+                validation_calls += 1
+            return original_validate_response(*args, **kwargs)
+
+        def synchronized_expand(*args: object, **kwargs: object) -> dict[str, object]:
+            nonlocal expansion_calls
+            with counter_lock:
+                expansion_calls += 1
+            try:
+                barrier.wait(timeout=0.5)
+            except BrokenBarrierError:
+                pass
+            return original_expand(*args, **kwargs)
+
+        def submit(_index: int) -> dict[str, object]:
+            with task_workspace(workspace):
+                return service.build_and_store_single_stage_design(
+                    bound["run_id"], response(req), invalid_seed
+                )
+
+        with (
+            patch.object(service, "validate_response", counted_validate_response),
+            patch.object(service, "_compact_single_stage_design", synchronized_expand),
+        ):
+            with ThreadPoolExecutor(max_workers=2) as executor:
+                results = list(executor.map(submit, range(2)))
+
+        by_status = {result["status"]: result for result in results}
+        self.assertEqual(set(by_status), {"design_invalid", "budget_stopped"})
+        self.assertEqual(by_status["design_invalid"]["remaining"], 0)
+        self.assertTrue(by_status["design_invalid"]["must_stop"])
+        self.assertEqual(validation_calls, 1)
+        self.assertEqual(expansion_calls, 1)
+
+    def test_concurrent_design_invalid_updates_do_not_lose_budget_count(self) -> None:
+        req = request("unit_research_design_budget_concurrent")
+        bound = service.bind_request({"request": req}, research_scope=research_scope())
+        self.addCleanup(cleanup_run, bound["run_id"])
+        workspace = runs_root().parents[1]
+        barrier = Barrier(2)
+
+        def synchronized_shape_issues(*_args: object) -> list[dict[str, str]]:
+            try:
+                barrier.wait(timeout=0.5)
+            except BrokenBarrierError:
+                pass
+            return [
+                {
+                    "field_path": "design.measurement_plan",
+                    "message": "concurrent invalid design",
+                    "suggestion": "repair the named field",
+                }
+            ]
+
+        def submit(_index: int) -> dict[str, object]:
+            with task_workspace(workspace):
+                return service.validate_and_store_design(
+                    bound["run_id"], response(req), design(req)
+                )
+
+        with patch.object(
+            service,
+            "_design_schema_issues",
+            synchronized_shape_issues,
+        ):
+            with ThreadPoolExecutor(max_workers=2) as executor:
+                results = list(executor.map(submit, range(2)))
+
+        self.assertEqual([row["status"] for row in results], ["design_invalid"] * 2)
+        _root, state = load_state(bound["run_id"])
+        self.assertEqual(
+            state["design_validation_budget"],
+            {"limit": 3, "used": 2, "remaining": 1},
+        )
+
+    def test_concurrent_valid_design_does_not_overwrite_invalid_budget_charge(
+        self,
+    ) -> None:
+        req = request("unit_research_design_valid_invalid_concurrent")
+        bound = service.bind_request({"request": req}, research_scope=research_scope())
+        self.addCleanup(cleanup_run, bound["run_id"])
+        workspace = runs_root().parents[1]
+        barrier = Barrier(2)
+        invalid_saved = Event()
+        invalid_validator_started = Event()
+        original_invalid_result = service._design_invalid_result
+
+        def synchronized_shape_issues(
+            candidate: dict[str, object], _request: dict[str, object]
+        ) -> list[dict[str, str]]:
+            if candidate["design_summary"] == "concurrent invalid design":
+                invalid_validator_started.set()
+            try:
+                barrier.wait(timeout=0.5)
+            except BrokenBarrierError:
+                pass
+            if candidate["design_summary"] == "concurrent invalid design":
+                return [
+                    {
+                        "field_path": "design.design_summary",
+                        "message": "concurrent invalid design",
+                        "suggestion": "repair the design summary",
+                    }
+                ]
+            invalid_saved.wait(timeout=1)
+            return []
+
+        def recording_invalid_result(
+            *args: object, **kwargs: object
+        ) -> dict[str, object]:
+            result = original_invalid_result(*args, **kwargs)
+            invalid_saved.set()
+            return result
+
+        invalid = design(req)
+        invalid["design_summary"] = "concurrent invalid design"
+
+        def submit(candidate: dict[str, object]) -> dict[str, object]:
+            if candidate["design_summary"] != "concurrent invalid design":
+                invalid_validator_started.wait(timeout=1)
+            with task_workspace(workspace):
+                return service.validate_and_store_design(
+                    bound["run_id"], response(req), candidate
+                )
+
+        with (
+            patch.object(
+                service,
+                "_design_schema_issues",
+                synchronized_shape_issues,
+            ),
+            patch.object(
+                service,
+                "_design_invalid_result",
+                recording_invalid_result,
+            ),
+        ):
+            with ThreadPoolExecutor(max_workers=2) as executor:
+                invalid_future = executor.submit(submit, invalid)
+                valid_future = executor.submit(submit, design(req))
+                results = [invalid_future.result(), valid_future.result()]
+
+        self.assertEqual(
+            {row["status"] for row in results},
+            {"design_invalid", "design_validated"},
+        )
+        _root, state = load_state(bound["run_id"])
+        self.assertEqual(
+            state["design_validation_budget"],
+            {"limit": 3, "used": 1, "remaining": 2},
+        )
+
     def test_design_shape_check_returns_all_visible_issues_at_once(self) -> None:
         req = request("unit_aggregate_design_shape_issues")
         bound = service.bind_request({"request": req})
@@ -340,9 +791,7 @@ class ExecutionTests(unittest.TestCase):
             "command": "python experiment.py",
             "timeout_seconds": 120,
         }
-        empty_stage = json.loads(
-            json.dumps(candidate["experiment_stages"][0])
-        )
+        empty_stage = json.loads(json.dumps(candidate["experiment_stages"][0]))
         empty_stage.update(
             {
                 "id": "stage_empty",
@@ -422,7 +871,7 @@ class ExecutionTests(unittest.TestCase):
             candidate,
         )
 
-        self.assertEqual(checked["status"], "design_validated")
+        self.assertEqual(checked["status"], "design_validated", checked)
         root = runs_root() / bound["run_id"]
         saved_response = read_json(root / "response.json")
         saved_design = read_json(root / "design.json")
@@ -435,6 +884,80 @@ class ExecutionTests(unittest.TestCase):
             "automatic-experiment-design-v1",
         )
         self.assertEqual(saved_design["task_name"], req["task_name"])
+
+    def test_compact_single_stage_design_is_compiled_and_persisted(self) -> None:
+        req = request(
+            "unit_compact_design",
+            task="估计给定周期级样本中的一个关系，并如实报告不确定性。",
+        )
+        bound = service.bind_request({"request": req})
+        self.addCleanup(cleanup_run, bound["run_id"])
+        compact = {
+            "design_summary": "估计周期级关系并报告不确定性。",
+            "primary_question": "当前周期级样本支持怎样的关系？",
+            "analysis_mode": "周期级小样本统计分析。",
+            "claim_scope": "结论仅适用于给定周期级样本。",
+            "method_outline": "拟合预先声明的关系并执行周期级不确定性分析。",
+            "measurements": [
+                {
+                    "name": "effect_estimate",
+                    "display_name": "关系估计值",
+                    "role": "primary",
+                    "unit": "",
+                    "scientific_meaning": "给定周期级样本中的关系方向和大小。",
+                }
+            ],
+            "results": [
+                {
+                    "id": "hypothesis_relation",
+                    "display_name": "假设与结果的关系",
+                    "value_kind": "category",
+                    "role": "primary",
+                    "unit": "",
+                    "scientific_meaning": "实际结果支持、反对或无法判定研究假设。",
+                }
+            ],
+            "artifacts": [
+                {
+                    "path": "analysis.json",
+                    "kind": "json",
+                    "description": "周期级分析结果。",
+                }
+            ],
+            "dependencies": ["numpy"],
+            "primary_estimand": "周期级关系估计值",
+            "threats_to_validity": ["独立样本数量有限。"],
+            "uncertainty_rule": "区间和敏感性不足时维持未决。",
+        }
+
+        candidate_response = response(req)
+        candidate_response["design_summary"] = "估计周期级关系并报告不确定性。"
+        checked = service.build_and_store_single_stage_design(
+            bound["run_id"], candidate_response, compact
+        )
+
+        self.assertEqual(checked["status"], "design_validated", checked)
+        saved = read_json(runs_root() / bound["run_id"] / "design.json")
+        self.assertEqual(len(saved["experiment_stages"]), 1)
+        self.assertEqual(saved["measurement_plan"][0]["name"], "effect_estimate")
+        self.assertEqual(saved["result_plan"][0]["id"], "hypothesis_relation")
+
+    def test_design_validation_stops_when_total_run_deadline_has_elapsed(self) -> None:
+        req = request("unit_design_deadline")
+        bound = service.bind_request({"request": req})
+        self.addCleanup(cleanup_run, bound["run_id"])
+        root, state = load_state(bound["run_id"])
+        state["created_at"] = "2000-01-01T00:00:00Z"
+        save_state(root, state)
+
+        checked = service.validate_and_store_design(
+            bound["run_id"], response(req), design(req)
+        )
+
+        self.assertEqual(checked["status"], "terminal")
+        self.assertEqual(checked["outcome"], "budget_stopped")
+        _, persisted = load_state(bound["run_id"])
+        self.assertEqual(persisted["outcome"], "budget_stopped")
 
     def test_response_contract_error_is_returned_as_a_design_issue(self) -> None:
         req = request("unit_response_issue")
@@ -485,9 +1008,7 @@ class ExecutionTests(unittest.TestCase):
         bound = service.bind_request({"request": req})
         self.addCleanup(cleanup_run, bound["run_id"])
         candidate = design(req)
-        candidate["experiment_stages"][0]["transitions"]["completed"] = (
-            "unknown_stage"
-        )
+        candidate["experiment_stages"][0]["transitions"]["completed"] = "unknown_stage"
 
         checked = service.validate_and_store_design(
             bound["run_id"], response(req), candidate
@@ -864,7 +1385,59 @@ class ExecutionTests(unittest.TestCase):
         self.assertEqual(stored_response["task"], req["task"])
         self.assertEqual(stored_response["normalized_task"], req["task"])
 
-    def test_research_report_localizes_upstream_roles_and_endpoint_semantics(self) -> None:
+    def test_reinspect_validated_run_returns_current_worker_contract(self) -> None:
+        req = request("unit_reinspect_worker_contract")
+        run_id = service.bind_request({"request": req})["run_id"]
+        self.addCleanup(cleanup_run, run_id)
+        service.inspect_inputs(run_id)
+        checked = service.validate_and_store_design(
+            run_id,
+            response(req),
+            design(req),
+        )
+
+        refreshed = service.inspect_inputs(run_id)
+
+        self.assertEqual(refreshed["status"], "already_snapshotted")
+        self.assertEqual(
+            refreshed["current_stage_id"],
+            checked["current_stage_id"],
+        )
+        self.assertEqual(
+            refreshed["required_worker_outputs"],
+            checked["required_worker_outputs"],
+        )
+        self.assertGreater(refreshed["remaining_run_seconds"], 0)
+
+    def test_prepare_budget_exhaustion_persists_terminal_report(self) -> None:
+        req = request("unit_prepare_budget_terminal")
+        run_id = service.bind_request({"request": req})["run_id"]
+        self.addCleanup(cleanup_run, run_id)
+        service.inspect_inputs(run_id)
+        service.validate_and_store_design(run_id, response(req), design(req))
+        root, state = load_state(run_id)
+        state["created_at"] = "2000-01-01T00:00:00Z"
+        state["execution_budget_reset_at"] = state["created_at"]
+        save_state(root, state)
+
+        with self.assertRaisesRegex(service.ServiceError, "预算已用尽"):
+            service.prepare(
+                run_id,
+                [{"path": "experiment.py", "content": SUCCESS_CODE}],
+                None,
+                "Initial reviewed implementation.",
+            )
+
+        _, stopped = load_state(run_id)
+        self.assertEqual(stopped["outcome"], "budget_stopped")
+        finalized = service.finalize(run_id)
+        self.assertEqual(finalized["outcome"], "budget_stopped")
+        self.assertTrue((root / "record.json").is_file())
+        self.assertTrue((root / "report.md").is_file())
+
+    def test_research_report_localizes_upstream_roles_and_endpoint_semantics(
+        self,
+    ) -> None:
         self.assertEqual(
             _input_role_label("upstream_research_plan"),
             "研究规划反馈",
@@ -919,7 +1492,9 @@ class ExecutionTests(unittest.TestCase):
             "任务定制分析",
         )
 
-    def test_attempt_audit_distinguishes_execution_from_verification_failure(self) -> None:
+    def test_attempt_audit_distinguishes_execution_from_verification_failure(
+        self,
+    ) -> None:
         lines = _attempt_lines(
             {
                 "design_sha256": "same-design",
@@ -979,10 +1554,16 @@ class ExecutionTests(unittest.TestCase):
         )
         candidate = design(req)
         candidate_response = response(req)
-        candidate_response["design_summary"] = "对已快照的示例表执行确定性总体均值计算。"
+        candidate_response["design_summary"] = (
+            "对已快照的示例表执行确定性总体均值计算。"
+        )
         candidate["design_summary"] = candidate_response["design_summary"]
-        candidate["research_frame"]["primary_question"] = "示例表全部 value 记录的算术平均值是多少？"
-        candidate["research_frame"]["claim_scope"] = "结果只描述当前已快照的四条演示记录。"
+        candidate["research_frame"]["primary_question"] = (
+            "示例表全部 value 记录的算术平均值是多少？"
+        )
+        candidate["research_frame"]["claim_scope"] = (
+            "结果只描述当前已快照的四条演示记录。"
+        )
         candidate["research_frame"]["input_evidence"][0].update(
             {
                 "role": "已核验的实验输入",
@@ -993,11 +1574,15 @@ class ExecutionTests(unittest.TestCase):
         candidate["research_frame"]["supported_questions"] = [
             "计算并核验当前记录的算术平均值。"
         ]
-        candidate["research_frame"]["assumptions"] = ["value 列中的数值均可解析且为有限值。"]
+        candidate["research_frame"]["assumptions"] = [
+            "value 列中的数值均可解析且为有限值。"
+        ]
         candidate["research_frame"]["threats_to_validity"] = [
             "演示记录数量很少，不能支持总体推断。"
         ]
-        candidate["research_frame"]["literature_basis"] = "该确定性演示计算不需要外部文献依据。"
+        candidate["research_frame"]["literature_basis"] = (
+            "该确定性演示计算不需要外部文献依据。"
+        )
         candidate["measurement_plan"][0].update(
             {
                 "display_name": "当前记录的算术平均值",
@@ -1017,7 +1602,9 @@ class ExecutionTests(unittest.TestCase):
             },
         ]
         candidate["criteria"][0]["statement"] = "报告算术平均值并完成预设计算端点。"
-        candidate["criteria"][0]["basis_text"] = "由实验工作器使用的固定数值重新计算结果。"
+        candidate["criteria"][0]["basis_text"] = (
+            "由实验工作器使用的固定数值重新计算结果。"
+        )
         candidate["interpretation_policy"] = {
             "primary_estimand": "当前四条记录的算术平均值",
             "null_rule": "没有区间及等效性或灵敏度依据时不作科学空结果声明。",
@@ -1113,7 +1700,9 @@ class ExecutionTests(unittest.TestCase):
             previews[0]["path"],
             "input_01/polar_overlap_features.csv",
         )
-        self.assertIn("2014-06,declining,0.40,1.36,suspect_geometry", previews[0]["content"])
+        self.assertIn(
+            "2014-06,declining,0.40,1.36,suspect_geometry", previews[0]["content"]
+        )
         self.assertIn("2025-07,maximum,2.30,3.14,ok", previews[0]["content"])
         self.assertFalse(previews[0]["truncated"])
 
@@ -1647,7 +2236,9 @@ class ExecutionTests(unittest.TestCase):
         }
         self.assertEqual(_comparison_consistency_errors(worker_result), [])
 
-    def test_paired_comparison_recomputation_rejects_wrong_scientific_target(self) -> None:
+    def test_paired_comparison_recomputation_rejects_wrong_scientific_target(
+        self,
+    ) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             run_root = Path(temporary)
             source_root = run_root / "inputs" / "paired_data"
@@ -1655,16 +2246,12 @@ class ExecutionTests(unittest.TestCase):
             source_root.mkdir(parents=True)
             output_root.mkdir()
             (source_root / "paired.csv").write_text(
-                "date,wso,hmi\n"
-                "a,1,2\n"
-                "b,2,4\n",
+                "date,wso,hmi\na,1,2\nb,2,4\n",
                 encoding="utf-8",
             )
             evidence = output_root / "rows.csv"
             evidence.write_text(
-                "date,target_hmi,raw_wso,calibrated_hmi\n"
-                "a,2,1,2.1\n"
-                "b,4,2,3.9\n",
+                "date,target_hmi,raw_wso,calibrated_hmi\na,2,1,2.1\nb,4,2,3.9\n",
                 encoding="utf-8",
             )
             design_payload = {
@@ -1723,16 +2310,12 @@ class ExecutionTests(unittest.TestCase):
             source_root.mkdir(parents=True)
             output_root.mkdir()
             (source_root / "paired.csv").write_text(
-                "date,wso,hmi\n"
-                "a,1,2\n"
-                "b,2,4\n",
+                "date,wso,hmi\na,1,2\nb,2,4\n",
                 encoding="utf-8",
             )
             evidence = output_root / "rows.csv"
             evidence.write_text(
-                "date,target_hmi,raw_wso,calibrated_hmi\n"
-                "a,2,1,2.1\n"
-                "b,4,2,3.9\n",
+                "date,target_hmi,raw_wso,calibrated_hmi\na,2,1,2.1\nb,4,2,3.9\n",
                 encoding="utf-8",
             )
             audit = {
@@ -1795,11 +2378,7 @@ class ExecutionTests(unittest.TestCase):
             source_root.mkdir(parents=True)
             output_root.mkdir()
             (source_root / "paired.csv").write_text(
-                "date,wso,hmi\n"
-                "r1,1,2\n"
-                "r2,2,4\n"
-                "l1,10,20\n"
-                "l2,20,40\n",
+                "date,wso,hmi\nr1,1,2\nr2,2,4\nl1,10,20\nl2,20,40\n",
                 encoding="utf-8",
             )
             evidence = output_root / "rows.csv"
@@ -1886,14 +2465,12 @@ class ExecutionTests(unittest.TestCase):
             source_root.mkdir(parents=True)
             output_root.mkdir()
             (source_root / "paired.csv").write_text(
-                "date,wso,hmi\n"
-                "a,1,2\n",
+                "date,wso,hmi\na,1,2\n",
                 encoding="utf-8",
             )
             evidence = output_root / "rows.csv"
             evidence.write_text(
-                "date,target_hmi,raw_wso,calibrated_hmi\n"
-                "a,2,1,\n",
+                "date,target_hmi,raw_wso,calibrated_hmi\na,2,1,\n",
                 encoding="utf-8",
             )
             audit = {
@@ -1941,9 +2518,7 @@ class ExecutionTests(unittest.TestCase):
             source_root.mkdir(parents=True)
             output_root.mkdir()
             (source_root / "paired.csv").write_text(
-                "date,wso,hmi\n"
-                "a,1,2\n"
-                "b,2,4\n",
+                "date,wso,hmi\na,1,2\nb,2,4\n",
                 encoding="utf-8",
             )
             evidence = output_root / "sensitivity.csv"
@@ -1996,11 +2571,15 @@ class ExecutionTests(unittest.TestCase):
             self.assertEqual(errors, [])
             self.assertEqual(trusted[0]["comparison_kind"], "candidate_vs_candidate")
             self.assertAlmostEqual(
-                trusted[0]["recomputed_measurements"]["sensitivity_excl_flag_holdout_mae"],
+                trusted[0]["recomputed_measurements"][
+                    "sensitivity_excl_flag_holdout_mae"
+                ],
                 0.1,
             )
             self.assertAlmostEqual(
-                trusted[0]["recomputed_measurements"]["sensitivity_incl_flag_holdout_mae"],
+                trusted[0]["recomputed_measurements"][
+                    "sensitivity_incl_flag_holdout_mae"
+                ],
                 0.2,
             )
 
@@ -2100,7 +2679,9 @@ class ExecutionTests(unittest.TestCase):
                 1.5,
             )
 
-    def test_paired_comparison_recomputation_flags_absent_row_filter_column(self) -> None:
+    def test_paired_comparison_recomputation_flags_absent_row_filter_column(
+        self,
+    ) -> None:
         # If the row_filter column is absent from the evidence artifact the
         # audit cannot be evaluated and must be reported.
         with tempfile.TemporaryDirectory() as temporary:
@@ -2110,14 +2691,12 @@ class ExecutionTests(unittest.TestCase):
             source_root.mkdir(parents=True)
             output_root.mkdir()
             (source_root / "paired.csv").write_text(
-                "date,wso,hmi\n"
-                "a,1,2\n",
+                "date,wso,hmi\na,1,2\n",
                 encoding="utf-8",
             )
             evidence = output_root / "rows.csv"
             evidence.write_text(
-                "date,target_hmi,raw_wso,calibrated_hmi\n"
-                "a,2,1,1.9\n",
+                "date,target_hmi,raw_wso,calibrated_hmi\na,2,1,1.9\n",
                 encoding="utf-8",
             )
             audit = {

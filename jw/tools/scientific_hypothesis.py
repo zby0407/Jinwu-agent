@@ -1901,10 +1901,12 @@ def scientific_hypothesis_build_novelty_bundle(
 
     This tool is for originality assessment after scientific candidates exist;
     it is not a long-tail generator and never turns mechanism distance into a
-    novelty verdict. It searches only the project literature cache and returns
-    an explicit coverage gap when the cache is insufficient. At least three
-    axes are required: core mechanism, mechanism-observable combination, and
-    strongest rival or measurement/statistical null.
+    novelty verdict. It performs one bounded search through the project's
+    restricted scholarly providers for each axis, refreshes the local cache,
+    and returns an explicit coverage gap when the resulting cache is
+    insufficient. At least three axes are required: core mechanism,
+    mechanism-observable combination, and strongest rival or
+    measurement/statistical null.
 
     Args:
         query_axes: Three to five concrete bilingual nearest-prior-art queries.
@@ -1928,20 +1930,56 @@ def scientific_hypothesis_build_novelty_bundle(
             raise ValueError("每条 query axis 必须是 12-500 字符的具体双语检索说明")
         if len({axis.casefold() for axis in axes}) != len(axes):
             raise ValueError("query_axes 不能重复")
+        compound_sets = [literature.compound_focus_phrases(axis) for axis in axes]
+        shared_compounds = sorted(set.intersection(*compound_sets))
+        if not shared_compounds:
+            raise ValueError(
+                "每条 query axis 必须保留同一个目标观测量及其英文复合词，"
+                "使不同机制、组合关系和零假设仍绑定同一研究对象。"
+            )
         selected_limit = max(1, min(int(per_axis_limit or 4), 5))
         store = _get_store()
         _, run_id = _run_context(config)
         per_axis: list[dict[str, Any]] = []
         families: dict[str, dict[str, Any]] = {}
         bundle_ids: list[str] = []
+        search_receipts: list[dict[str, Any]] = []
         for axis in axes:
+            search_result = literature.search_literature(
+                store,
+                axis,
+                source="all",
+                limit=max(8, selected_limit * 2),
+                sort="relevance",
+            )
+            search_receipts.append(
+                {
+                    "query_axis": axis,
+                    "status": search_result.get("status", "unavailable"),
+                    "providers_queried": search_result.get("providers_queried", []),
+                    "provider_diagnostics": search_result.get(
+                        "provider_diagnostics", []
+                    ),
+                    "matched_family_count": search_result.get("count", 0),
+                }
+            )
+            bound_focus = (
+                f"{request['research_question']}；nearest-prior-art query axis：{axis}"
+            )
+            if len(bound_focus) > 500:
+                raise ValueError(
+                    "研究问题与 query axis 合并后超过 500 字符；请缩短该检索轴，"
+                    "但保留其机制、观测量或零假设专名。"
+                )
             result = literature.build_literature_task_bundle(
                 store,
                 request["research_question"],
-                axis,
+                bound_focus,
                 feed_ids=[],
                 limit=selected_limit,
                 run_id=run_id,
+                ranking_focus=axis,
+                required_anchor_phrases=shared_compounds,
             )
             bundle_id = str(result.get("bundle_id") or "")
             if bundle_id:
@@ -1989,6 +2027,8 @@ def scientific_hypothesis_build_novelty_bundle(
                 "status": "coverage_ready" if not gaps else "coverage_gap",
                 "research_question": request["research_question"],
                 "query_axes": axes,
+                "shared_observable_anchors": shared_compounds,
+                "search_receipts": search_receipts,
                 "searched_family_count": len(deduplicated),
                 "source_families": deduplicated,
                 "axis_results": per_axis,

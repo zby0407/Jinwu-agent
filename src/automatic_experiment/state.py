@@ -6,12 +6,15 @@ import json
 import os
 import re
 import tempfile
+import threading
 import time
 from contextlib import contextmanager
 from contextvars import ContextVar
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterator
+
+from filelock import FileLock
 
 from research_layout import (
     PROJECT_ROOT as PROJECT_ROOT,
@@ -28,6 +31,9 @@ INPUTS_ROOT = contract_inputs_root("experiment")
 _TASK_WORKSPACE_ROOT: ContextVar[Path | None] = ContextVar(
     "automatic_experiment_task_workspace_root", default=None
 )
+_FILE_LOCKS: dict[str, threading.RLock] = {}
+_FILE_LOCKS_GUARD = threading.Lock()
+_FILE_LOCK_DEPTH = threading.local()
 SAFE_RUN_ID = re.compile(r"^[A-Za-z][A-Za-z0-9_-]{0,63}-\d{8}T\d{6}Z-[0-9a-f]{8}$")
 CHECKPOINTS = {
     "request_bound",
@@ -44,6 +50,38 @@ CHECKPOINTS = {
 
 class StateError(RuntimeError):
     """Invalid or inconsistent persisted run state."""
+
+
+def _thread_file_lock(path: Path) -> threading.RLock:
+    key = str(path.resolve())
+    with _FILE_LOCKS_GUARD:
+        return _FILE_LOCKS.setdefault(key, threading.RLock())
+
+
+@contextmanager
+def exclusive_file_lock(path: Path) -> Iterator[None]:
+    """Serialize one task-local transition across threads and processes."""
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    key = str(path.resolve())
+    depths = getattr(_FILE_LOCK_DEPTH, "depths", None)
+    if depths is None:
+        depths = {}
+        _FILE_LOCK_DEPTH.depths = depths
+    if depths.get(key, 0) > 0:
+        depths[key] += 1
+        try:
+            yield
+        finally:
+            depths[key] -= 1
+        return
+    with _thread_file_lock(path):
+        with FileLock(str(path)):
+            depths[key] = 1
+            try:
+                yield
+            finally:
+                depths.pop(key, None)
 
 
 @contextmanager

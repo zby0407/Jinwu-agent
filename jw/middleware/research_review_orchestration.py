@@ -5,12 +5,12 @@ from __future__ import annotations
 import asyncio
 import csv
 import hashlib
-import io
 import json
 import math
 import re
 import shutil
 from collections.abc import Awaitable, Callable, Mapping, Sequence
+from itertools import pairwise
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -20,7 +20,11 @@ from langgraph.types import Command
 
 from research_review.policies import policy_registry
 
-from ..research_review import ResearchReviewStore, store_from_config
+from ..research_review import (
+    ResearchReviewStore,
+    _atomic_write_json,
+    store_from_config,
+)
 
 if TYPE_CHECKING:
     from langchain.agents.middleware.types import ToolCallRequest
@@ -38,15 +42,21 @@ _BOUNDED_STAGE_BY_SPECIALIST_INTENT = {
 _CANONICAL_CHECKPOINT_DIRECTIVE = {
     "planning": (
         "This is an explicit publication request and requires a frozen "
-        "research-plan-v1 artifact. Call research_planner_get_brief, resume from "
-        "draft_checkpoint.next_section, persist exactly one ordered section per "
-        "research_planner_update_draft call for an incomplete initial draft. Once "
-        "all sections exist, use research_planner_apply_revision_patch for every "
-        "small cross-section repair. For a large repair, stage replacements with "
+        "research-plan-v1 artifact. Call research_planner_get_brief first. For a "
+        "fresh quantitative or observational plan, call "
+        "research_planner_create_empirical_plan once: supply the question-specific "
+        "scope, subquestions, evidence gaps, dataset needs, stage methods, and "
+        "evaluation focus; the host supplies only the standard reviewed route and "
+        "lifecycle fields. Use research_planner_submit_complete_draft only when the "
+        "task is not an empirical full-route study. Resume a previously interrupted "
+        "partial draft from draft_checkpoint.next_section with "
+        "research_planner_update_draft. Once all sections exist, use "
+        "research_planner_apply_revision_patch for every small cross-section repair. "
+        "For a large repair, stage replacements with "
         "research_planner_stage_revision_section and atomically finish with "
         "research_planner_commit_revision_candidate; never rewrite active complete "
-        "sections sequentially. Then call "
-        "research_planner_validate_draft, and after plan_ready call "
+        "sections sequentially. A successful compact or complete submission already "
+        "performed full validation; after plan_ready call "
         "research_planner_freeze_plan before returning. Missing data must be "
         "recorded as a gap or stop condition, never used to skip freezing. Return "
         "the real planner/runs/<run_id>/research_plan.json path. The first bound "
@@ -61,7 +71,7 @@ _CANONICAL_CHECKPOINT_DIRECTIVE = {
         "do not open or rediscover the context again. Use only the supplied "
         "deterministic_data_context eligible_inputs. If it reports "
         "input_missing/must_stop, return that hash-bound blocker immediately "
-        "without guessing paths. If readiness_receipt_ref is present, that "
+        "without guessing paths. If produced_data_receipt_ref is present, that "
         "Supervisor-derived receipt is the canonical bounded Data result: inspect "
         "its stated status and return the exact receipt path without making "
         "another tool call or inventing missing observations. Otherwise persist "
@@ -71,8 +81,13 @@ _CANONICAL_CHECKPOINT_DIRECTIVE = {
     ),
     "hypothesis": (
         "Persist the complete candidate set with scientific_hypothesis_update_draft "
-        "and finish with scientific_hypothesis_get_draft so "
-        "work/scientific_hypothesis_state.json is the canonical review source."
+        "and call scientific_hypothesis_get_draft to obtain the current candidate "
+        "pool and review guide. Then call scientific_hypothesis_review_tail and "
+        "repair any reported violation against the live draft. Only after that "
+        "review is current, call scientific_hypothesis_checkpoint_draft. Finish "
+        "with scientific_hypothesis_get_draft so the checkpoint, its evidence "
+        "binding, and the current tail review are persisted together in "
+        "work/scientific_hypothesis_state.json as the canonical review source."
     ),
     "experiment_design": (
         "Validate and persist automatic-experiment-design-v1 under the exact run; "
@@ -82,15 +97,29 @@ _CANONICAL_CHECKPOINT_DIRECTIVE = {
         "under receipts/datasets/), not to the planning artifact's originally "
         "declared source paths, which are provenance records rather than "
         "task-local readable inputs."
+        " When the design tests a registered hypothesis, predeclare a typed "
+        "result item named hypothesis_relation with one of supports, opposes, "
+        "null_result, or uncertain. Its decision rule must combine the planned "
+        "effect interval, genuine out-of-sample comparison, metric agreement, "
+        "influence analysis, and independent-sample adequacy."
+        " Predictive or interaction designs must also predeclare the applicable "
+        "diagnostics from primary_interval_low, primary_interval_high, "
+        "candidate_mae, baseline_mae, candidate_rmse, baseline_rmse, "
+        "out_of_sample_complete, leave_one_unit_direction_stable, "
+        "independent_sample_adequate, and influential_unit_changes_conclusion."
+        " After design_invalid, repair and resubmit under the same run_id; never "
+        "bind a fresh run to change the preregistered sample or analysis rules. "
+        "If the validation response says must_stop=true, stop immediately and "
+        "preserve the run."
     ),
     "experiment_result": (
         "Execute only the accepted design, verify the real result, and finalize the "
         "run. Return experiment/runs/<run_id>/record.json and report.md; a plan or "
         "unverified preview is not an experiment result.\n"
-        "BIND THE STAGED INPUTS FIRST: call automatic_experiment_bind_request with "
-        "exactly '@inputs/_staged.json' — this is the hash-bound sidecar that "
-        "declares every accepted data-artifact file. Do NOT omit input_refs, do "
-        "NOT re-extract paths from task prose. The sidecar is the sole authority.\n"
+        "For experiment_result, resume the exact accepted run_id supplied first in "
+        "accepted_upstream. Do not bind a new request or create a fresh run: the "
+        "accepted run already contains the reviewed "
+        "request, staged input snapshot, and design.\n"
         "The run wall budget is short and every rejected prepare_attempt burns it, so "
         "submit worker code that passes CodePolicy on the first attempt: define "
         "run_experiment(context) and return one automatic-experiment-worker-result-v1 "
@@ -106,9 +135,14 @@ _CANONICAL_CHECKPOINT_DIRECTIVE = {
         "null, no computed path). Call prepare_attempt once with files as a JSON "
         "object, then execute_attempt on the attempt id that prepare returned; do "
         "not re-prepare after a successful prepare, and do not call execute before a "
-        "prepare succeeds. Read the stage's required_worker_outputs block from the "
-        "prepare response and use its exact measurement names, result ids, and "
-        "artifact paths."
+        "prepare succeeds. Before automatic_experiment_prepare_attempt, call "
+        "automatic_experiment_inspect_inputs once for the accepted run and copy the "
+        "already-snapshotted response's required_worker_outputs exactly. Use its exact "
+        "measurement names, result ids, endpoint ids, artifact paths, and JSON "
+        "traceability keys; do not infer or rename them from prose."
+        " For a hypothesis test, return the predeclared hypothesis_relation "
+        "result item from the computed decision rule; never choose its value to "
+        "preserve the incoming hypothesis."
     ),
 }
 
@@ -154,6 +188,45 @@ def _tool_result_text(result: object) -> str:
     if message is not None:
         return _content_text(message.content)
     return ""
+
+
+def _kimi_evidence_failure_summary(text: str) -> str:
+    """Keep the fixed Kimi structured-submit capsule in a review failure record."""
+
+    lines = text.splitlines()
+    if not lines or lines[0].strip() != "[KIMI EVIDENCE STRUCTURED SUBMIT FAILED]":
+        return ""
+    expected = (
+        ("event", "kimi_evidence_structured_submit_failed"),
+        ("error_type", None),
+        ("parsed_present", None),
+        ("raw_message_present", None),
+        ("fingerprint", None),
+    )
+    values: list[str] = []
+    for index, (key, fixed_value) in enumerate(expected, start=1):
+        if index >= len(lines):
+            return ""
+        prefix = f"{key}="
+        value = lines[index].strip()
+        if not value.startswith(prefix):
+            return ""
+        payload = value.removeprefix(prefix)
+        if fixed_value is not None and payload != fixed_value:
+            return ""
+        if key == "error_type" and not re.fullmatch(
+            r"[A-Za-z_][A-Za-z0-9_.-]{0,120}", payload
+        ):
+            return ""
+        if key in {"parsed_present", "raw_message_present"} and payload not in {
+            "true",
+            "false",
+        }:
+            return ""
+        if key == "fingerprint" and not re.fullmatch(r"[0-9a-f]{64}", payload):
+            return ""
+        values.append(value)
+    return "\n".join(values)
 
 
 def _bound_research_question(store: ResearchReviewStore) -> str:
@@ -347,40 +420,106 @@ def _upstream_context(store: ResearchReviewStore, stage: str) -> str:
                 design_artifact = artifact
                 break
         if design_artifact is not None:
-            producer_result = (design_artifact.get("payload") or {}).get(
-                "producer_result", ""
-            )
-            if isinstance(producer_result, str):
-                for match in re.finditer(
-                    r"run_id[:\s]*`?question_([a-f0-9]+-[0-9]+T[0-9]+Z-[a-f0-9]+)`?",
-                    producer_result,
-                ):
-                    rows.append(
-                        {
-                            "artifact_id": "experiment_design-run-id",
-                            "stage": "experiment_design",
-                            "version": None,
-                            "artifact_sha256": None,
-                            "payload": {"run_id": match.group(0)},
-                            "limitations": [],
-                        }
-                    )
+            payload = design_artifact.get("payload") or {}
+            run_id = None
+            for source_ref in payload.get("canonical_source_refs") or []:
+                if not isinstance(source_ref, str):
+                    continue
+                match = re.fullmatch(
+                    r"experiment/runs/([^/]+)/design\.json", source_ref
+                )
+                if match is not None:
+                    run_id = match.group(1)
                     break
+            producer_result = payload.get("producer_result", "")
+            if run_id is None and isinstance(producer_result, str):
+                match = re.search(
+                    r"\b(question_[a-f0-9]+-[0-9]+T[0-9]+Z-[a-f0-9]+)\b",
+                    producer_result,
+                )
+                if match is not None:
+                    run_id = match.group(1)
+            if run_id is not None:
+                rows.insert(
+                    0,
+                    {
+                        "artifact_id": "experiment_design-run-id",
+                        "stage": "experiment_design",
+                        "version": design_artifact["version"],
+                        "artifact_sha256": design_artifact["artifact_sha256"],
+                        "payload": {"run_id": run_id},
+                        "limitations": [],
+                        "instruction": (
+                            "Resume this exact accepted run. Do not bind or create "
+                            "another experiment run."
+                        ),
+                    },
+                )
     encoded = json.dumps(rows, ensure_ascii=False)
     return encoded[:30_000]
 
 
+def _persist_experiment_scope(
+    store: ResearchReviewStore,
+    action: Mapping[str, Any],
+) -> dict[str, Any]:
+    stage = str(action["stage"])
+    upstream_stages = {
+        "experiment_design": {"planning", "data", "hypothesis"},
+        "experiment_result": {
+            "planning",
+            "data",
+            "hypothesis",
+            "experiment_design",
+        },
+    }[stage]
+    accepted_upstream_refs = [
+        {
+            "artifact_id": artifact["artifact_id"],
+            "version": artifact["version"],
+            "artifact_sha256": artifact["artifact_sha256"],
+            "stage": artifact["stage"],
+        }
+        for artifact in store.accepted_artifacts()
+        if artifact["stage"] in upstream_stages
+    ]
+    accepted_upstream_refs.sort(
+        key=lambda ref: (
+            ref["stage"],
+            ref["artifact_id"],
+            ref["version"],
+            ref["artifact_sha256"],
+        )
+    )
+    revision_review_id = action.get("revision_review_id")
+    scope = {
+        "schema_version": "research-experiment-scope-v1",
+        "task_id": store.task_id,
+        "stage": stage,
+        "accepted_upstream_refs": accepted_upstream_refs,
+        "revision_review_id": (
+            revision_review_id if isinstance(revision_review_id, str) else None
+        ),
+        "design_validation_limit": 3,
+    }
+    path = store.root / "experiment_scope.json"
+    _atomic_write_json(path, scope)
+    return scope
+
+
 def _write_hypothesis_request(store: ResearchReviewStore) -> str:
-    """Bind accepted Data output into the Hypothesis tool's native request."""
+    """Bind accepted Data, prior hypotheses, and verified experiment results."""
 
     question = _bound_research_question(store)
     if not question:
         raise RuntimeError("the task has no bound research question")
     materials: list[dict[str, Any]] = []
-    for artifact in store.accepted_artifacts():
-        if artifact["stage"] != "data":
+    accepted = store.accepted_artifacts()
+    for artifact in accepted:
+        if artifact["stage"] not in {"data", "experiment_result"}:
             continue
-        verdict = store.matching_verdict("data", [store.artifact_ref(artifact)])
+        stage = artifact["stage"]
+        verdict = store.matching_verdict(stage, [store.artifact_ref(artifact)])
         if verdict is None:
             continue
         claim_text = "\n\n".join(
@@ -396,11 +535,35 @@ def _write_hypothesis_request(store: ResearchReviewStore) -> str:
             )
             if str(value).strip()
         ]
-        notes = (
-            "Evidence review accepted this Data artifact's declared data and "
-            "provenance boundary. This establishes the inspected feature product, "
-            "not predictive skill or a causal mechanism.\n\n" + claim_text
-        )
+        if stage == "data":
+            notes = (
+                "Evidence review accepted this Data artifact's declared data and "
+                "provenance boundary. This establishes the inspected feature "
+                "product, not predictive skill or a causal mechanism.\n\n" + claim_text
+            )
+            material_kind = "data_feature"
+            summary = None
+        else:
+            notes = (
+                "Evidence review accepted the persisted experiment record within "
+                "its declared method and uncertainty boundary.\n\n" + claim_text
+            )
+            material_kind = "experiment_result"
+            summary = (artifact.get("payload") or {}).get("experiment_result_summary")
+            if not isinstance(summary, Mapping):
+                raise RuntimeError(
+                    "accepted experiment result has no projected verified summary"
+                )
+            summary = {
+                key: summary[key]
+                for key in (
+                    "execution_completed",
+                    "outcome",
+                    "metrics",
+                    "uncertainty_notes",
+                    "record_sha256",
+                )
+            }
         if limits:
             notes += "\n\nAccepted limitations:\n- " + "\n- ".join(limits)
         relative = (
@@ -412,19 +575,41 @@ def _write_hypothesis_request(store: ResearchReviewStore) -> str:
         materials.append(
             {
                 "id": f"accepted_{artifact['artifact_id'].replace('-', '_')}_v{artifact['version']}",
-                "material_kind": "data_feature",
+                "material_kind": material_kind,
                 "title": f"Accepted {artifact['artifact_id']} version {artifact['version']}",
                 "locator": relative.as_posix(),
                 "content_notes": notes[:8_000],
-                "experiment_summary": None,
+                "experiment_summary": summary,
             }
         )
+    priors: list[dict[str, Any]] = []
+    for artifact in accepted:
+        if artifact["stage"] != "hypothesis":
+            continue
+        for claim in artifact.get("claims") or []:
+            if not isinstance(claim, Mapping):
+                continue
+            claim_id = str(claim.get("claim_id") or "").strip()
+            statement = str(claim.get("text") or "").strip()
+            if not claim_id or not statement:
+                continue
+            priors.append(
+                {
+                    "id": claim_id,
+                    "statement": statement[:1_000],
+                    "version": artifact["version"],
+                    "notes": (
+                        f"Accepted confidence={claim.get('confidence', 'unknown')}; "
+                        f"scope={claim.get('scope', 'not recorded')}"
+                    )[:2_000],
+                }
+            )
     request = {
         "schema_version": "scientific-hypothesis-request-v1",
         "task_name": f"hypothesis_{store.task_id}",
         "research_question": question,
         "upstream_materials": materials,
-        "prior_hypotheses": [],
+        "prior_hypotheses": priors[:12],
         "max_candidates": 3,
     }
     from scientific_hypothesis.contracts import validate_hypothesis_request
@@ -470,6 +655,13 @@ def _stage_data_produced_inputs(store: ResearchReviewStore) -> list[str]:
             p = workspace / match.group(0)
             if p.is_file():
                 candidates.append(p)
+    for relative in (
+        "work/solar_data/solar_cycle_pair_analysis_table.csv",
+        "receipts/datasets/solar_cycle_pair_analysis_table.json",
+    ):
+        derived = workspace / relative
+        if derived.is_file():
+            candidates.append(derived)
     inputs_dir.mkdir(parents=True, exist_ok=True)
     for source in candidates:
         target = inputs_dir / source.name
@@ -694,198 +886,621 @@ def _open_data_context_preflight(
     return payload
 
 
-def _cycle26_readiness_from_paths(
-    sunspot_path: Path,
-    polar_path: Path,
-    precursor_receipt: Mapping[str, Any],
-) -> dict[str, Any]:
-    """Derive the launch-readiness facts that the historical table cannot hold."""
+_SOLAR_CYCLE_SOURCE_COLUMNS = {
+    "cycle_number",
+    "minimum_date",
+    "maximum_date",
+    "peak_smoothed_sunspot_number",
+    "polar_field_proxy_gauss",
+    "polar_field_proxy_sem_gauss",
+    "north_source",
+    "south_source",
+    "predictor_cutoff_decimal_year",
+}
 
-    import numpy as np
-    from scipy.signal import find_peaks
+_SOLAR_REQUESTED_PAIR_IDS = [f"{cycle}->{cycle + 1}" for cycle in range(14, 24)]
 
-    cutoff = (2026, 6)
-    monthly: list[tuple[int, int, float, bool]] = []
-    for line_number, raw in enumerate(
-        sunspot_path.read_text(encoding="ascii").splitlines(), start=1
-    ):
-        fields = raw.split()
-        if not fields:
-            continue
-        if len(fields) not in {6, 7}:
-            raise ValueError(f"invalid SILSO row {line_number}")
-        year, month = int(fields[0]), int(fields[1])
-        if (year, month) > cutoff:
-            continue
-        monthly.append((year, month, float(fields[3]), len(fields) == 7))
-    if not monthly:
-        raise RuntimeError("SILSO has no observations at or before the cutoff")
-    observed_keys = {(year, month) for year, month, _value, _flag in monthly}
-    missing_months: list[str] = []
-    year, month = monthly[0][0], monthly[0][1]
-    while (year, month) <= cutoff:
-        if (year, month) not in observed_keys:
-            missing_months.append(f"{year:04d}-{month:02d}")
-        month += 1
-        if month == 13:
-            year += 1
-            month = 1
 
-    values = np.asarray([value for _y, _m, value, _flag in monthly], dtype=float)
-    weights = np.ones(13, dtype=float)
-    weights[[0, -1]] = 0.5
-    weights /= 12.0
-    smoothed = np.convolve(values, weights, mode="same")
-    smoothed[:6] = np.nan
-    smoothed[-6:] = np.nan
-    search = np.asarray(
-        [
-            index
-            for index, (row_year, _month, _value, _flag) in enumerate(monthly)
-            if row_year >= 1895 and np.isfinite(smoothed[index])
-        ]
-    )
-    minima_offsets, _ = find_peaks(-smoothed[search], distance=8 * 12, prominence=5)
-    minima = search[minima_offsets]
-    if not len(minima):
-        raise RuntimeError("SILSO cutoff series has no confirmed cycle minimum")
-    latest_minimum = int(minima[-1])
-    peak = latest_minimum + int(np.nanargmax(smoothed[latest_minimum:]))
+def _solar_month_ordinal(value: str, field: str) -> int:
+    match = re.fullmatch(r"(\d{4})-(\d{2})", value.strip())
+    if match is None:
+        raise ValueError(f"{field} must use YYYY-MM")
+    year, month = int(match.group(1)), int(match.group(2))
+    if not 1 <= month <= 12:
+        raise ValueError(f"{field} has an invalid month")
+    return year * 12 + month - 1
 
-    material_lines = [
-        line
-        for line in polar_path.read_text(encoding="utf-8").splitlines()
-        if line.strip() and not line.startswith("#")
-    ]
-    reader = csv.DictReader(io.StringIO("\n".join(material_lines)))
-    latest_polar: dict[str, float | None] = {"north": None, "south": None}
-    for row in reader:
-        for hemisphere, prefix in (("north", "N"), ("south", "S")):
-            for source in ("MWO", "WSO"):
-                try:
-                    date = float(str(row.get(f"{prefix} {source} Date") or ""))
-                    field = float(str(row.get(f"{prefix} {source} PField") or ""))
-                except ValueError:
-                    continue
-                if not (math.isfinite(date) and math.isfinite(field)):
-                    continue
-                previous = latest_polar[hemisphere]
-                if previous is None or date > previous:
-                    latest_polar[hemisphere] = date
 
-    row_count = precursor_receipt.get("row_count")
-    cycle_numbers = precursor_receipt.get("cycle_numbers")
-    historical_pairs_verified = (
-        isinstance(row_count, int)
-        and isinstance(cycle_numbers, list)
-        and row_count == len(cycle_numbers)
-        and cycle_numbers == list(range(15, 25))
-    )
-    last_year, last_month, _last_value, _last_flag = monthly[-1]
-    min_year, min_month, _value, _flag = monthly[latest_minimum]
-    peak_year, peak_month, _value, _flag = monthly[peak]
-    return {
-        "schema_version": "cycle26-launch-readiness-v1",
-        "observation_cutoff": "2026-06-30",
-        "silso": {
-            "dataset_product": "SILSO monthly total sunspot number v2.0",
-            "unit": "monthly total sunspot number",
-            "last_observed_month_at_cutoff": f"{last_year:04d}-{last_month:02d}",
-            "missing_months_through_cutoff": missing_months,
-            "provisional_months": [
-                f"{y:04d}-{m:02d}" for y, m, _v, provisional in monthly if provisional
-            ],
-            "latest_confirmed_cycle_minimum": f"{min_year:04d}-{min_month:02d}",
-            "latest_confirmed_cycle_peak_to_date": f"{peak_year:04d}-{peak_month:02d}",
-            "cycle25_to_cycle26_minimum_confirmed": False,
-            "confirmation_rule": (
-                "centered 13-month tapered smoother; six later months are required"
-            ),
-        },
-        "polar_field": {
-            "dataset_product": "MWO facular proxy calibrated to WSO plus WSO polar field v2",
-            "unit": "gauss",
-            "latest_north_measurement_decimal_year": latest_polar["north"],
-            "latest_south_measurement_decimal_year": latest_polar["south"],
-            "cycle26_minimum_precursor_bindable": False,
-            "reason": (
-                "the cycle-25/26 minimum is not confirmed, so no measurement can "
-                "yet be bound to that future minimum under the frozen rule"
-            ),
-        },
-        "f107": {
-            "dataset_product": "F10.7 authoritative archive",
-            "status": "gap",
-            "reason": "no F10.7 dataset is registered in the task input manifest",
-        },
-        "historical_calibration": {
-            "verified": historical_pairs_verified,
-            "cycle_pair_count": row_count if historical_pairs_verified else None,
-            "cycle_numbers": cycle_numbers if historical_pairs_verified else [],
-            "independence_note": (
-                "cycle pairs are the sampling units; statistical independence is not inferred"
-            ),
-        },
-        "trigger_status": {
-            "complete_silso_through_cutoff": not missing_months,
-            "f107_bound": False,
-            "cycle25_minimum_confirmed": False,
-            "cycle26_polar_precursor_bound": False,
-            "historical_validation_completed": False,
-        },
-        "launch_readiness": "do_not_launch",
-        "claim_limit": (
-            "This is a readiness audit, not a Cycle 26 amplitude forecast or peak interval."
-        ),
+def _solar_month_from_ordinal(ordinal: int) -> str:
+    year, month_index = divmod(ordinal, 12)
+    return f"{year:04d}-{month_index + 1:02d}"
+
+
+def _solar_month_decimal(ordinal: int) -> float:
+    year, month_index = divmod(ordinal, 12)
+    return year + (month_index + 0.5) / 12.0
+
+
+def _finite_cycle_value(row: Mapping[str, str], field: str) -> float:
+    try:
+        value = float(row[field])
+    except (KeyError, TypeError, ValueError) as exc:
+        raise ValueError(f"{field} must be numeric") from exc
+    if not math.isfinite(value):
+        raise ValueError(f"{field} must be finite")
+    return value
+
+
+def _optional_finite_cycle_value(row: Mapping[str, str], field: str) -> float | None:
+    raw = str(row.get(field) or "").strip()
+    return _finite_cycle_value(row, field) if raw else None
+
+
+def _measurement_regime(row: Mapping[str, str]) -> str:
+    sources = {
+        str(row.get(field, "")).strip().upper()
+        for field in ("north_source", "south_source")
     }
+    if sources == {"MWO"}:
+        return "MWO_proxy"
+    if sources == {"WSO"}:
+        return "WSO_magnetograph"
+    return "mixed_or_unclassified"
 
 
-def _persist_cycle26_readiness_receipt(
+def _solar_cycle_pair_analysis_from_path(source_path: Path) -> list[dict[str, Any]]:
+    """Construct temporally ordered N-to-N+1 analysis rows from a cycle table."""
+
+    with source_path.open("r", encoding="utf-8", newline="") as handle:
+        reader = csv.DictReader(handle)
+        columns = set(reader.fieldnames or [])
+        missing = sorted(_SOLAR_CYCLE_SOURCE_COLUMNS - columns)
+        if missing:
+            raise ValueError(
+                "solar precursor cycle table lacks required columns: "
+                + ", ".join(missing)
+            )
+        source_rows = list(reader)
+    if len(source_rows) < 2:
+        raise ValueError("solar precursor cycle table needs at least two cycles")
+    try:
+        source_rows.sort(key=lambda row: int(row["cycle_number"]))
+    except (KeyError, TypeError, ValueError) as exc:
+        raise ValueError("cycle_number must be an integer") from exc
+    cycle_numbers = [int(row["cycle_number"]) for row in source_rows]
+    if len(set(cycle_numbers)) != len(cycle_numbers):
+        raise ValueError("cycle_number values must be unique")
+
+    pairs: list[dict[str, Any]] = []
+    for start, ending in pairwise(source_rows):
+        predictor_cycle = int(start["cycle_number"])
+        target_cycle = int(ending["cycle_number"])
+        if target_cycle != predictor_cycle + 1:
+            raise ValueError(
+                "solar precursor cycle table has a non-consecutive cycle boundary"
+            )
+        start_minimum = _solar_month_ordinal(start["minimum_date"], "minimum_date")
+        ending_minimum = _solar_month_ordinal(ending["minimum_date"], "minimum_date")
+        length_months = ending_minimum - start_minimum
+        if length_months <= 0:
+            raise ValueError("adjacent cycle minima must be strictly increasing")
+        start_minimum_decimal = _solar_month_decimal(start_minimum)
+        predictor_cutoff = _finite_cycle_value(ending, "predictor_cutoff_decimal_year")
+        north_raw = str(ending.get("north_measurement_date") or "").strip()
+        south_raw = str(ending.get("south_measurement_date") or "").strip()
+        measurement_dates_observed = bool(north_raw and south_raw)
+        north_measurement = (
+            _finite_cycle_value(ending, "north_measurement_date")
+            if north_raw
+            else predictor_cutoff
+        )
+        south_measurement = (
+            _finite_cycle_value(ending, "south_measurement_date")
+            if south_raw
+            else predictor_cutoff
+        )
+        peak_ordinal = _solar_month_ordinal(ending["maximum_date"], "maximum_date")
+        target_availability_ordinal = peak_ordinal + 6
+        issue_ordinal = ending_minimum + 6
+        issue_decimal = _solar_month_decimal(issue_ordinal)
+        if not (
+            start_minimum_decimal < north_measurement <= predictor_cutoff
+            and start_minimum_decimal < south_measurement <= predictor_cutoff
+            and predictor_cutoff <= issue_decimal + 1e-5
+            and ending_minimum < peak_ordinal
+        ):
+            raise ValueError("solar cycle pair violates the required temporal order")
+        sensitivity_start = str(
+            ending.get("minimum_date_sensitivity_start") or ""
+        ).strip()
+        sensitivity_end = str(ending.get("minimum_date_sensitivity_end") or "").strip()
+        sensitivity_span_raw = str(
+            ending.get("minimum_date_sensitivity_span_months") or ""
+        ).strip()
+        sensitivity_span: int | None = None
+        if sensitivity_start or sensitivity_end or sensitivity_span_raw:
+            if not (sensitivity_start and sensitivity_end and sensitivity_span_raw):
+                raise ValueError("minimum-date sensitivity fields must be complete")
+            sensitivity_start_ordinal = _solar_month_ordinal(
+                sensitivity_start, "minimum_date_sensitivity_start"
+            )
+            sensitivity_end_ordinal = _solar_month_ordinal(
+                sensitivity_end, "minimum_date_sensitivity_end"
+            )
+            sensitivity_span = int(sensitivity_span_raw)
+            if not (
+                sensitivity_start_ordinal <= ending_minimum <= sensitivity_end_ordinal
+                and sensitivity_span
+                == sensitivity_end_ordinal - sensitivity_start_ordinal
+            ):
+                raise ValueError("minimum-date sensitivity interval is inconsistent")
+        pairs.append(
+            {
+                "predictor_cycle_n": predictor_cycle,
+                "target_cycle_n_plus_1": target_cycle,
+                "cycle_start_minimum_date": start["minimum_date"],
+                "cycle_end_minimum_date": ending["minimum_date"],
+                "cycle_length_months": length_months,
+                "cycle_length_years": round(length_months / 12.0, 6),
+                "previous_cycle_amplitude": _optional_finite_cycle_value(
+                    start, "peak_smoothed_sunspot_number"
+                ),
+                "previous_cycle_amplitude_sigma": _optional_finite_cycle_value(
+                    start, "peak_smoothed_sunspot_number_sigma"
+                ),
+                "previous_cycle_peak_date": (
+                    str(start.get("maximum_date") or "").strip() or None
+                ),
+                "polar_field_at_ending_minimum_gauss": _finite_cycle_value(
+                    ending, "polar_field_proxy_gauss"
+                ),
+                "polar_field_sem_gauss": _finite_cycle_value(
+                    ending, "polar_field_proxy_sem_gauss"
+                ),
+                "polar_field_source_cycle_row": target_cycle,
+                "measurement_regime": _measurement_regime(ending),
+                "north_measurement_date": north_measurement,
+                "south_measurement_date": south_measurement,
+                "polar_field_predictor_cutoff_decimal_year": predictor_cutoff,
+                "polar_field_window_start_decimal_year": (
+                    _optional_finite_cycle_value(
+                        ending, "predictor_window_start_decimal_year"
+                    )
+                ),
+                "polar_field_window_end_decimal_year": (
+                    _optional_finite_cycle_value(
+                        ending, "predictor_window_end_decimal_year"
+                    )
+                ),
+                "prediction_issue_date": _solar_month_from_ordinal(issue_ordinal),
+                "minimum_confirmation_lag_months": 6,
+                "next_cycle_amplitude": _finite_cycle_value(
+                    ending, "peak_smoothed_sunspot_number"
+                ),
+                "next_cycle_amplitude_sigma": _optional_finite_cycle_value(
+                    ending, "peak_smoothed_sunspot_number_sigma"
+                ),
+                "next_cycle_peak_date": ending["maximum_date"],
+                "cycle_end_minimum_sensitivity_start": sensitivity_start or None,
+                "cycle_end_minimum_sensitivity_end": sensitivity_end or None,
+                "cycle_end_minimum_sensitivity_span_months": sensitivity_span,
+                "target_availability_date": _solar_month_from_ordinal(
+                    target_availability_ordinal
+                ),
+                "target_available_at_issue_time": (
+                    target_availability_ordinal <= issue_ordinal
+                ),
+                "measurement_dates_directly_observed": measurement_dates_observed,
+                "temporal_order_validated": measurement_dates_observed,
+                "independent_sample_unit": "solar_cycle_pair",
+                "rolling_origin_eligible": True,
+                "training_boundary_required": True,
+                "information_set": (
+                    "Adjacent minima and the declared ending-minimum polar window "
+                    "available by the issue cutoff only; the target-cycle peak is "
+                    "excluded at issue time."
+                ),
+            }
+        )
+    for row in pairs:
+        row["pair_sample_count"] = len(pairs)
+        row["n_eff_upper_bound"] = len(pairs)
+        row["n_eff_status"] = "bounded_not_estimated"
+    return pairs
+
+
+def _persist_solar_cycle_pair_analysis_table(
     config: object, data_context: Mapping[str, Any]
 ) -> str:
-    """Persist a stable cutoff/readiness ledger for the polar-precursor protocol."""
+    """Persist a self-describing historical cycle-pair table and receipt."""
 
-    from ..tools.solar_feature import _resolve_eligible_data_path
     from ..workspaces import binding_from_config
 
-    eligible = data_context.get("eligible_inputs")
-    if not isinstance(eligible, list):
-        raise RuntimeError("data context has no eligible inputs")
-    by_id = {
-        str(item.get("dataset_id")): item
-        for item in eligible
-        if isinstance(item, Mapping) and isinstance(item.get("path"), str)
-    }
-    sunspot_record = by_id.get("silso-monthly-total-v2")
-    polar_record = by_id.get("mwo-wso-polar-field-v2")
-    if sunspot_record is None or polar_record is None:
-        raise RuntimeError(
-            "cycle-26 readiness audit lacks the required registered inputs"
-        )
     binding = binding_from_config(config)  # type: ignore[arg-type]
     if binding is None:
-        raise RuntimeError("cycle-26 readiness audit has no task workspace binding")
+        raise RuntimeError("cycle-pair construction has no task workspace binding")
     root = Path(binding.workspace)
-    precursor_path = root / "receipts/datasets/solar_precursor_cycle_table.json"
-    if not precursor_path.is_file():
-        raise RuntimeError("historical precursor receipt is unavailable")
-    precursor = json.loads(precursor_path.read_text(encoding="utf-8"))
-    if not isinstance(precursor, Mapping):
-        raise RuntimeError("historical precursor receipt is not an object")
-    payload = _cycle26_readiness_from_paths(
-        _resolve_eligible_data_path(str(sunspot_record["path"]), config),
-        _resolve_eligible_data_path(str(polar_record["path"]), config),
-        precursor,
+    source_ref = Path("work/solar_data/solar_precursor_cycle_features.csv")
+    source_path = root / source_ref
+    precursor_receipt_path = root / "receipts/datasets/solar_precursor_cycle_table.json"
+    if not source_path.is_file() or not precursor_receipt_path.is_file():
+        raise RuntimeError(
+            "cycle-pair construction requires the precursor table and its receipt"
+        )
+    precursor_receipt = json.loads(precursor_receipt_path.read_text(encoding="utf-8"))
+    if (
+        not isinstance(precursor_receipt, Mapping)
+        or precursor_receipt.get("schema_version")
+        not in {
+            "solar-precursor-cycle-table-v1",
+            "solar-precursor-cycle-table-v2",
+        }
+        or precursor_receipt.get("status") != "verified"
+    ):
+        raise RuntimeError("solar precursor cycle receipt has an invalid schema")
+    if precursor_receipt.get("schema_version") == "solar-precursor-cycle-table-v2" and (
+        precursor_receipt.get("producer") != "solar-data"
+        or precursor_receipt.get("task_id") != binding.thread_id
+    ):
+        raise RuntimeError("solar precursor cycle receipt has an invalid task binding")
+    source_output = next(
+        (
+            item
+            for item in precursor_receipt.get("outputs", [])
+            if isinstance(item, Mapping) and item.get("path") == source_ref.as_posix()
+        ),
+        None,
     )
-    relative = Path("receipts/datasets/cycle26_launch_readiness.json")
-    destination = root / relative
+    source_bytes = source_path.read_bytes()
+    source_sha256 = hashlib.sha256(source_bytes).hexdigest()
+    if not (
+        isinstance(source_output, Mapping)
+        and source_output.get("sha256") == source_sha256
+        and source_output.get("bytes") == len(source_bytes)
+    ):
+        raise RuntimeError("solar precursor cycle table does not match its receipt")
+    rows = _solar_cycle_pair_analysis_from_path(source_path)
+    if not rows:
+        raise RuntimeError("solar precursor cycle table produced no adjacent pairs")
+
+    table_ref = Path("work/solar_data/solar_cycle_pair_analysis_table.csv")
+    table_path = root / table_ref
+    table_path.parent.mkdir(parents=True, exist_ok=True)
+    fieldnames = list(rows[0])
+    temporary_table = table_path.with_suffix(".csv.tmp")
+    with temporary_table.open("w", encoding="utf-8", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=fieldnames)
+        writer.writeheader()
+        writer.writerows(rows)
+    if table_path.is_file() and table_path.read_bytes() == temporary_table.read_bytes():
+        temporary_table.unlink()
+    else:
+        temporary_table.replace(table_path)
+
+    source_snapshot = str(
+        precursor_receipt.get("created_at")
+        or data_context.get("created_at")
+        or "not_recorded"
+    )
+    regimes = sorted({str(row["measurement_regime"]) for row in rows})
+    inherited_limits = precursor_receipt.get("limitations")
+    limitations = (
+        [str(item) for item in inherited_limits if isinstance(item, str)]
+        if isinstance(inherited_limits, list)
+        else []
+    )
+    small_sample_limit = (
+        f"Only {len(rows)} adjacent solar-cycle pairs are available; model "
+        "complexity and uncertainty must reflect this sample size."
+    )
+    if small_sample_limit not in limitations:
+        limitations.append(small_sample_limit)
+    available_pairs = [
+        f"{row['predictor_cycle_n']}->{row['target_cycle_n_plus_1']}" for row in rows
+    ]
+    unavailable_pairs = sorted(set(_SOLAR_REQUESTED_PAIR_IDS) - set(available_pairs))
+    inherited_gaps = precursor_receipt.get("gaps")
+    gaps = (
+        [dict(item) for item in inherited_gaps if isinstance(item, Mapping)]
+        if isinstance(inherited_gaps, list)
+        else []
+    )
+    if unavailable_pairs:
+        gaps.append(
+            {
+                "code": "REQUESTED_CYCLE_PAIRS_UNAVAILABLE",
+                "details": unavailable_pairs,
+            }
+        )
+    measurement_dates_verified = all(
+        row["measurement_dates_directly_observed"] is True for row in rows
+    )
+    if not measurement_dates_verified:
+        gaps.append(
+            {
+                "code": "PREDICTOR_MEASUREMENT_DATES_NOT_VERIFIED",
+                "status": "unavailable",
+                "details": (
+                    "At least one source row lacks direct north/south measurement "
+                    "dates; pair count alone cannot verify temporal ordering."
+                ),
+            }
+        )
+    field_types = {
+        "predictor_cycle_n": "integer",
+        "target_cycle_n_plus_1": "integer",
+        "cycle_start_minimum_date": "year_month",
+        "cycle_end_minimum_date": "year_month",
+        "cycle_length_months": "integer",
+        "cycle_length_years": "number",
+        "previous_cycle_amplitude": "number",
+        "previous_cycle_amplitude_sigma": "number",
+        "previous_cycle_peak_date": "year_month",
+        "polar_field_at_ending_minimum_gauss": "number",
+        "polar_field_sem_gauss": "number",
+        "polar_field_source_cycle_row": "integer",
+        "measurement_regime": "string",
+        "north_measurement_date": "decimal_year",
+        "south_measurement_date": "decimal_year",
+        "polar_field_predictor_cutoff_decimal_year": "decimal_year",
+        "polar_field_window_start_decimal_year": "decimal_year",
+        "polar_field_window_end_decimal_year": "decimal_year",
+        "prediction_issue_date": "year_month",
+        "minimum_confirmation_lag_months": "integer",
+        "next_cycle_amplitude": "number",
+        "next_cycle_amplitude_sigma": "number",
+        "next_cycle_peak_date": "year_month",
+        "cycle_end_minimum_sensitivity_start": "year_month",
+        "cycle_end_minimum_sensitivity_end": "year_month",
+        "cycle_end_minimum_sensitivity_span_months": "integer",
+        "target_availability_date": "year_month",
+        "target_available_at_issue_time": "boolean",
+        "measurement_dates_directly_observed": "boolean",
+        "temporal_order_validated": "boolean",
+        "independent_sample_unit": "string",
+        "rolling_origin_eligible": "boolean",
+        "training_boundary_required": "boolean",
+        "information_set": "string",
+        "pair_sample_count": "integer",
+        "n_eff_upper_bound": "integer",
+        "n_eff_status": "string",
+    }
+    table_bytes = table_path.read_bytes()
+    table_sha256 = hashlib.sha256(table_bytes).hexdigest()
+    dataset_ids = [
+        str(value)
+        for value in precursor_receipt.get("dataset_ids", [])
+        if isinstance(value, str) and value
+    ]
+    if not dataset_ids:
+        dataset_ids = list(
+            dict.fromkeys(
+                str(item["dataset_id"])
+                for item in precursor_receipt.get("input_refs", [])
+                if isinstance(item, Mapping)
+                and isinstance(item.get("dataset_id"), str)
+                and str(item["dataset_id"]).strip()
+            )
+        )
+    sign_convention = precursor_receipt.get("sign_convention")
+    if not isinstance(sign_convention, Mapping):
+        sign_convention = {
+            "polar_field_at_ending_minimum_gauss": (
+                "inherits the precursor product convention; the legacy receipt "
+                "does not state its source-header basis"
+            )
+        }
+    payload = {
+        "schema_version": "solar-cycle-pair-analysis-table-v2",
+        "receipt_type": "solar_cycle_pair_analysis_table",
+        "status": (
+            "verified"
+            if not unavailable_pairs and measurement_dates_verified
+            else "partial"
+        ),
+        "analysis_status": (
+            "analysis_table_ready"
+            if not unavailable_pairs and measurement_dates_verified
+            else "analysis_table_incomplete"
+        ),
+        "producer": "solar-data",
+        "task_id": binding.thread_id,
+        "source_ref": source_ref.as_posix(),
+        "source_receipt_ref": ("receipts/datasets/solar_precursor_cycle_table.json"),
+        "source_sha256": source_sha256,
+        "source_receipt_sha256": hashlib.sha256(
+            precursor_receipt_path.read_bytes()
+        ).hexdigest(),
+        "input_refs": [
+            {
+                "path": source_ref.as_posix(),
+                "bytes": len(source_bytes),
+                "sha256": source_sha256,
+            },
+            {
+                "path": "receipts/datasets/solar_precursor_cycle_table.json",
+                "bytes": precursor_receipt_path.stat().st_size,
+                "sha256": hashlib.sha256(
+                    precursor_receipt_path.read_bytes()
+                ).hexdigest(),
+            },
+        ],
+        "source_snapshot_time": source_snapshot,
+        "observation_cutoff": max(str(row["next_cycle_peak_date"]) for row in rows),
+        "prediction_issue_rule": (
+            "six months after the ending minimum, when the centered-smoothed "
+            "minimum can be confirmed"
+        ),
+        "output_ref": table_ref.as_posix(),
+        "outputs": [
+            {
+                "path": table_ref.as_posix(),
+                "bytes": len(table_bytes),
+                "sha256": table_sha256,
+            }
+        ],
+        "dataset_ids": dataset_ids,
+        "column_schema": [
+            {
+                "name": name,
+                "type": field_types.get(name, "string"),
+                "nullable": any(row.get(name) is None for row in rows),
+            }
+            for name in fieldnames
+        ],
+        "units": {
+            "cycle_length_months": "month",
+            "cycle_length_years": "year",
+            "previous_cycle_amplitude": "international_sunspot_number",
+            "previous_cycle_amplitude_sigma": "international_sunspot_number",
+            "polar_field_at_ending_minimum_gauss": "gauss",
+            "polar_field_sem_gauss": "gauss",
+            "north_measurement_date": "decimal_year",
+            "south_measurement_date": "decimal_year",
+            "polar_field_predictor_cutoff_decimal_year": "decimal_year",
+            "polar_field_window_start_decimal_year": "decimal_year",
+            "polar_field_window_end_decimal_year": "decimal_year",
+            "next_cycle_amplitude": "international_sunspot_number",
+            "next_cycle_amplitude_sigma": "international_sunspot_number",
+            "cycle_end_minimum_sensitivity_span_months": "month",
+        },
+        "sign_convention": dict(sign_convention),
+        "row_count": len(rows),
+        "predictor_cycles": [row["predictor_cycle_n"] for row in rows],
+        "target_cycles": [row["target_cycle_n_plus_1"] for row in rows],
+        "pair_coverage": {
+            "requested_pairs": _SOLAR_REQUESTED_PAIR_IDS,
+            "available_pairs": available_pairs,
+            "unavailable_pairs": unavailable_pairs,
+        },
+        "independent_sample_unit": "solar_cycle_pair",
+        "sample_size": {
+            "independent_sample_unit": "solar_cycle_pair",
+            "independent_sample_count": len(rows),
+            "n_eff_upper_bound": len(rows),
+            "n_eff_status": "bounded_not_estimated",
+        },
+        "measurement_regimes": regimes,
+        "temporal_ordering_rule": (
+            "cycle_start_minimum < north/south measurement <= predictor cutoff "
+            "at cycle_end_minimum plus six months < next_cycle_peak < "
+            "target_availability"
+        ),
+        "uncertainty_fields": {
+            "reported": [
+                "polar_field_sem_gauss",
+                *(
+                    ["previous_cycle_amplitude_sigma"]
+                    if all(
+                        row.get("previous_cycle_amplitude_sigma") is not None
+                        for row in rows
+                    )
+                    else []
+                ),
+                *(
+                    [
+                        "next_cycle_amplitude_sigma",
+                        "cycle_end_minimum_sensitivity_start",
+                        "cycle_end_minimum_sensitivity_end",
+                        "cycle_end_minimum_sensitivity_span_months",
+                    ]
+                    if all(
+                        row.get("next_cycle_amplitude_sigma") is not None
+                        and row.get("cycle_end_minimum_sensitivity_start") is not None
+                        and row.get("cycle_end_minimum_sensitivity_end") is not None
+                        for row in rows
+                    )
+                    else []
+                ),
+            ],
+            "not_computed": [
+                "dependence_adjusted_n_eff",
+                *(
+                    []
+                    if all(
+                        row.get("next_cycle_amplitude_sigma") is not None
+                        and row.get("cycle_end_minimum_sensitivity_start") is not None
+                        and row.get("cycle_end_minimum_sensitivity_end") is not None
+                        for row in rows
+                    )
+                    else [
+                        "next_cycle_amplitude_uncertainty",
+                        "cycle_minimum_date_uncertainty",
+                    ]
+                ),
+            ],
+            "interpretation": (
+                "Reported SILSO sigma and minimum-date sensitivity intervals "
+                "describe observational dispersion and label sensitivity; they "
+                "are not calibrated confidence intervals."
+            ),
+        },
+        "method": {
+            "cycle_length": "ending minimum minus starting minimum",
+            "polar_predictor": (
+                "mean polar field in the declared plus/minus six-month window "
+                "around the ending minimum of cycle N, with any documented "
+                "sparse-window fallback inherited from the precursor receipt"
+            ),
+            "target": "centered-smoothed peak amplitude of cycle N+1",
+            "target_uncertainty": (
+                "SILSO smoothed observational sigma at the selected target peak"
+            ),
+            "minimum_date_uncertainty": (
+                "SILSO-dispersion sensitivity interval inherited from the "
+                "precursor table"
+            ),
+            "target_blinding": (
+                "target peak excluded from the information set at prediction issue"
+            ),
+            "evaluation_boundary": (
+                "rolling-origin folds must train only on earlier cycle pairs"
+            ),
+        },
+        "gaps": gaps,
+        "limitations": limitations,
+        "created_at": source_snapshot,
+    }
+    receipt_ref = Path("receipts/datasets/solar_cycle_pair_analysis_table.json")
+    receipt_path = root / receipt_ref
     rendered = json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n"
-    if not destination.is_file() or destination.read_text(encoding="utf-8") != rendered:
-        destination.parent.mkdir(parents=True, exist_ok=True)
-        temporary = destination.with_suffix(".json.tmp")
-        temporary.write_text(rendered, encoding="utf-8")
-        temporary.replace(destination)
-    return relative.as_posix()
+    if (
+        not receipt_path.is_file()
+        or receipt_path.read_text(encoding="utf-8") != rendered
+    ):
+        temporary_receipt = receipt_path.with_suffix(".json.tmp")
+        temporary_receipt.write_text(rendered, encoding="utf-8")
+        temporary_receipt.replace(receipt_path)
+    return receipt_ref.as_posix()
+
+
+def _ensure_solar_cycle_pair_analysis_table(config: object) -> str | None:
+    """Materialize the generic cycle-pair input when accepted Data supports it."""
+
+    from ..workspaces import binding_from_config
+
+    binding = binding_from_config(config)  # type: ignore[arg-type]
+    if binding is None:
+        return None
+    root = Path(binding.workspace)
+    source = root / "work/solar_data/solar_precursor_cycle_features.csv"
+    source_receipt = root / "receipts/datasets/solar_precursor_cycle_table.json"
+    if not source.is_file() or not source_receipt.is_file():
+        return None
+    # Always revalidate source and output hashes. The writer is content-stable,
+    # so a valid existing pair table is retained byte-for-byte while stale
+    # output is regenerated from the current precursor product.
+    receipt_ref = _persist_solar_cycle_pair_analysis_table(config, {})
+    receipt = json.loads((root / receipt_ref).read_text(encoding="utf-8"))
+    if not (
+        isinstance(receipt, Mapping)
+        and receipt.get("status") == "verified"
+        and receipt.get("analysis_status") == "analysis_table_ready"
+    ):
+        raise RuntimeError(
+            "solar cycle-pair analysis table is incomplete and cannot enter Experiment"
+        )
+    return receipt_ref
 
 
 def _data_context_projection(payload: Mapping[str, Any]) -> dict[str, Any]:
@@ -904,53 +1519,32 @@ def _data_context_projection(payload: Mapping[str, Any]) -> dict[str, Any]:
         "missing_required_dataset_ids": payload.get("missing_required_dataset_ids", []),
         "eligible_inputs": eligible if isinstance(eligible, list) else [],
         "instruction": payload.get("instruction"),
-        "readiness_receipt_ref": payload.get("readiness_receipt_ref"),
+        "produced_data_receipt_ref": payload.get("produced_data_receipt_ref"),
     }
 
 
-def _cycle26_readiness_producer_text(workspace_root: Path, receipt_ref: str) -> str:
-    """Project a canonical readiness receipt into a bounded Data result."""
+def _solar_cycle_pair_analysis_producer_text(
+    workspace_root: Path, receipt_ref: str
+) -> str:
+    """Project the bounded cycle-pair receipt into the Data result."""
 
     receipt_path = (workspace_root / receipt_ref).resolve()
     if not receipt_path.is_relative_to(workspace_root.resolve()):
-        raise RuntimeError("readiness receipt escapes the task workspace")
+        raise RuntimeError("cycle-pair receipt escapes the task workspace")
     payload = json.loads(receipt_path.read_text(encoding="utf-8"))
     if not isinstance(payload, Mapping):
-        raise RuntimeError("readiness receipt is not an object")
-    silso = payload.get("silso") if isinstance(payload.get("silso"), Mapping) else {}
-    polar = (
-        payload.get("polar_field")
-        if isinstance(payload.get("polar_field"), Mapping)
-        else {}
-    )
-    f107 = payload.get("f107") if isinstance(payload.get("f107"), Mapping) else {}
-    historical = (
-        payload.get("historical_calibration")
-        if isinstance(payload.get("historical_calibration"), Mapping)
-        else {}
-    )
-    triggers = (
-        payload.get("trigger_status")
-        if isinstance(payload.get("trigger_status"), Mapping)
-        else {}
-    )
+        raise RuntimeError("cycle-pair receipt is not an object")
     return (
-        "Cycle 26 launch-readiness Data result (deterministic receipt projection).\n"
-        f"Canonical source: {receipt_ref}\n"
+        "Solar-cycle pair analysis Data result (deterministic receipt projection).\n"
+        f"Canonical receipt: {receipt_ref}\n"
+        f"Canonical pair table: {payload.get('output_ref')}\n"
         f"Observation cutoff: {payload.get('observation_cutoff')}\n"
-        "SILSO last observed month at cutoff: "
-        f"{silso.get('last_observed_month_at_cutoff')}; missing through cutoff: "
-        f"{json.dumps(silso.get('missing_months_through_cutoff', []))}.\n"
-        "Cycle 25-to-26 minimum confirmed: "
-        f"{str(bool(silso.get('cycle25_to_cycle26_minimum_confirmed'))).lower()}.\n"
-        "Cycle 26 minimum polar precursor bindable: "
-        f"{str(bool(polar.get('cycle26_minimum_precursor_bindable'))).lower()}.\n"
-        f"F10.7 status: {f107.get('status')}.\n"
-        "Historical cycle-pair count: "
-        f"{historical.get('cycle_pair_count')}; independence is not inferred.\n"
-        f"Trigger ledger: {json.dumps(triggers, ensure_ascii=False, sort_keys=True)}\n"
-        f"Launch readiness: {payload.get('launch_readiness')}.\n"
-        f"Claim limit: {payload.get('claim_limit')}"
+        f"Independent cycle-pair rows: {payload.get('row_count')}\n"
+        f"Predictor cycles: {json.dumps(payload.get('predictor_cycles', []))}\n"
+        f"Target cycles: {json.dumps(payload.get('target_cycles', []))}\n"
+        f"Measurement regimes: {json.dumps(payload.get('measurement_regimes', []))}\n"
+        f"Prediction issue rule: {payload.get('prediction_issue_rule')}\n"
+        f"Limitations: {json.dumps(payload.get('limitations', []), ensure_ascii=False)}"
     )
 
 
@@ -1323,25 +1917,27 @@ class ResearchReviewOrchestrationMiddleware(AgentMiddleware[Any, Any, Any]):
                         and analysis_protocol == "solar_polar_precursor_v1"
                         and data_context.get("must_stop") is not True
                     ):
-                        data_context["readiness_receipt_ref"] = (
-                            _persist_cycle26_readiness_receipt(config, data_context)
+                        produced_receipt_ref = _persist_solar_cycle_pair_analysis_table(
+                            config, data_context
                         )
-                        # The launch-readiness receipt is itself the requested
-                        # bounded answer.  Missing Cycle-26 minimum/precursor
-                        # observations cannot be repaired by rebuilding the
-                        # historical precursor table, so make the scientific
-                        # stop explicit to the unmodified Data Agent contract.
-                        data_context["status"] = "launch_not_ready"
-                        data_context["must_stop"] = True
+                        produced_receipt = json.loads(
+                            (store.workspace_root / produced_receipt_ref).read_text(
+                                encoding="utf-8"
+                            )
+                        )
+                        if not isinstance(produced_receipt, Mapping):
+                            raise RuntimeError("cycle-pair receipt is not an object")
+                        data_context["produced_data_receipt_ref"] = produced_receipt_ref
+                        data_context["status"] = produced_receipt.get("analysis_status")
+                        data_context["must_stop"] = False
                         data_context["instruction"] = (
-                            "Return readiness_receipt_ref as the source-bound "
-                            "Data result. Do not rebuild the historical table or "
-                            "invent the unavailable Cycle 26 launch inputs."
+                            "return the receipt-bound analysis table without another "
+                            "tool call; preserve its status, gaps, and output_ref."
                         )
                         action["precomputed_producer_text"] = (
-                            _cycle26_readiness_producer_text(
+                            _solar_cycle_pair_analysis_producer_text(
                                 store.workspace_root,
-                                str(data_context["readiness_receipt_ref"]),
+                                str(data_context["produced_data_receipt_ref"]),
                             )
                         )
                 except Exception as exc:
@@ -1382,21 +1978,116 @@ class ResearchReviewOrchestrationMiddleware(AgentMiddleware[Any, Any, Any]):
                                 f"old validated draft: {type(exc).__name__}: {exc}",
                             ),
                         )
+            experiment_analysis_protocol = "none"
+            verified_cycle_pair_context: dict[str, Any] | None = None
+            if action["stage"] in {"experiment_design", "experiment_result"}:
+                route = (
+                    request.state.get("research_route", {})
+                    if isinstance(request.state, Mapping)
+                    else {}
+                )
+                experiment_analysis_protocol = (
+                    str(route.get("required_analysis_protocol") or "none")
+                    if isinstance(route, Mapping)
+                    else "none"
+                )
+                if experiment_analysis_protocol == "none" and route_kind == "full":
+                    from ..research_protocols import detect_analysis_protocol
+
+                    experiment_analysis_protocol = detect_analysis_protocol(
+                        _bound_research_question(store) or ""
+                    )
+                if experiment_analysis_protocol == "solar_polar_precursor_v1":
+                    try:
+                        pair_receipt_ref = _ensure_solar_cycle_pair_analysis_table(
+                            config
+                        )
+                        if pair_receipt_ref is not None:
+                            pair_receipt = json.loads(
+                                (store.workspace_root / pair_receipt_ref).read_text(
+                                    encoding="utf-8"
+                                )
+                            )
+                            if not isinstance(pair_receipt, Mapping):
+                                raise RuntimeError(
+                                    "solar cycle-pair receipt is not an object"
+                                )
+                            verified_cycle_pair_context = {
+                                "schema_version": pair_receipt.get("schema_version"),
+                                "status": pair_receipt.get("status"),
+                                "analysis_status": pair_receipt.get("analysis_status"),
+                                "row_count": pair_receipt.get("row_count"),
+                                "predictor_cycles": pair_receipt.get(
+                                    "predictor_cycles", []
+                                ),
+                                "target_cycles": pair_receipt.get("target_cycles", []),
+                                "pair_coverage": pair_receipt.get("pair_coverage", {}),
+                                "sample_size": pair_receipt.get("sample_size", {}),
+                            }
+                    except Exception as exc:
+                        return (
+                            request,
+                            action,
+                            self._blocked(
+                                request,
+                                "cycle-pair input construction failed before "
+                                f"experiment dispatch: {type(exc).__name__}: {exc}",
+                            ),
+                        )
             staged_inputs: list[str] = []
             if action["stage"] in {"experiment_design", "experiment_result"}:
                 try:
                     staged_inputs = _stage_data_produced_inputs(store)
-                except Exception:
-                    staged_inputs = []
+                except Exception as exc:
+                    return (
+                        request,
+                        action,
+                        self._blocked(
+                            request,
+                            "experiment input staging failed before producer "
+                            f"dispatch: {type(exc).__name__}: {exc}",
+                        ),
+                    )
             staged_directive = ""
             if staged_inputs:
-                staged_directive = (
-                    "\nstaged_data_inputs="
-                    + json.dumps(staged_inputs, ensure_ascii=False)
-                    + "\nBind every required input_ref to one of these staged "
-                    "inputs/... paths; they are the only readable task-local copies "
-                    "of the accepted data artifact's produced files."
-                )
+                if action["stage"] == "experiment_result":
+                    staged_directive = (
+                        "\nstaged_data_inputs="
+                        + json.dumps(staged_inputs, ensure_ascii=False)
+                        + "\nThese are the task-local copies already captured by the "
+                        "accepted experiment run. Resume that run without rebinding "
+                        "or changing its input_refs."
+                    )
+                else:
+                    staged_directive = (
+                        "\nstaged_data_inputs="
+                        + json.dumps(staged_inputs, ensure_ascii=False)
+                        + "\nBind every required input_ref to one of these staged "
+                        "inputs/... paths; they are the only readable task-local "
+                        "copies of the accepted data artifact's produced files."
+                    )
+            experiment_protocol_directive = ""
+            if action["stage"] in {"experiment_design", "experiment_result"}:
+                if experiment_analysis_protocol == "solar_polar_precursor_v1":
+                    from ..research_protocols import solar_polar_precursor_directive
+
+                    experiment_protocol_directive = (
+                        "\nanalysis_protocol_contract="
+                        + solar_polar_precursor_directive()
+                    )
+                    if verified_cycle_pair_context is not None:
+                        experiment_protocol_directive += (
+                            "\nverified_cycle_pair_context="
+                            + json.dumps(
+                                verified_cycle_pair_context, ensure_ascii=False
+                            )
+                            + "\nThis receipt-derived context is authoritative for "
+                            "sample mapping and row count. Do not replace it with "
+                            "a count inferred from wording in the question or "
+                            "inherited producer prose. Treat n_eff_upper_bound as "
+                            "an upper bound; report a dependence-adjusted estimate "
+                            "only when the declared data support one."
+                        )
             data_context_directive = ""
             if data_context is not None:
                 data_context_directive = (
@@ -1406,10 +2097,9 @@ class ResearchReviewOrchestrationMiddleware(AgentMiddleware[Any, Any, Any]):
                     )
                     + "\nThe Supervisor already opened this hash-bound context. "
                     "Do not rediscover or guess inputs. If must_stop=true, return "
-                    "the blocker immediately. If readiness_receipt_ref is present, "
-                    "the receipt is already the additional task-local Data artifact: "
-                    "return its bounded status immediately without another tool "
-                    "call. Otherwise inspect the exact eligible input and persist "
+                    "the blocker immediately. If produced_data_receipt_ref is "
+                    "present, return the receipt-bound analysis table without "
+                    "another tool call. Otherwise inspect the exact eligible input and persist "
                     "at least one additional task-local data artifact before "
                     "returning."
                 )
@@ -1444,11 +2134,17 @@ class ResearchReviewOrchestrationMiddleware(AgentMiddleware[Any, Any, Any]):
                     "\nbound_hypothesis_request=@"
                     + request_path
                     + "\nCall scientific_hypothesis_bind_request with exactly this "
-                    "@ path. It contains the accepted Data artifact as a declared "
-                    "data_feature. Bind an exact excerpt from that material as "
-                    "verified upstream evidence when it supports or limits a "
-                    "candidate. Preserve the stated boundary: Data acceptance does "
-                    "not establish predictive skill or causality."
+                    "@ path. It contains accepted Data as data_feature and, after "
+                    "execution, the accepted prior hypothesis plus the verified "
+                    "Experiment summary. Bind exact excerpts from those materials "
+                    "when they support, oppose, or limit a candidate. In "
+                    "hypothesis_update, the new statement, confidence, evidence "
+                    "roles, falsification status, scope, measurement/novelty "
+                    "boundaries, next discriminating test, and conclusion class "
+                    "must follow the computed relation; never preserve an incoming "
+                    "direction merely because it was the original hypothesis. "
+                    "Data acceptance alone does not establish predictive skill or "
+                    "causality."
                 )
             description += (
                 "\n\n[RESEARCH_PRODUCER_V2]\n"
@@ -1468,6 +2164,7 @@ class ResearchReviewOrchestrationMiddleware(AgentMiddleware[Any, Any, Any]):
                 f"policy_preflight={json.dumps(policy_registry(stage=action['stage']), ensure_ascii=False)}\n"
                 f"accepted_upstream={_upstream_context(store, action['stage'])}"
                 f"{staged_directive}"
+                f"{experiment_protocol_directive}"
                 f"{data_context_directive}"
                 f"{bound_question_directive}"
                 f"{hypothesis_request_directive}"
@@ -1485,6 +2182,23 @@ class ResearchReviewOrchestrationMiddleware(AgentMiddleware[Any, Any, Any]):
                 store.reserve_action(action)
             except RuntimeError as exc:
                 return request, action, self._blocked(request, str(exc))
+            action_reserved = True
+        if action["kind"] == "producer" and action["stage"] in {
+            "experiment_design",
+            "experiment_result",
+        }:
+            try:
+                _persist_experiment_scope(store, action)
+            except Exception as exc:
+                return (
+                    request,
+                    action,
+                    self._blocked(
+                        request,
+                        "the reserved host-owned experiment scope could not be persisted: "
+                        f"{type(exc).__name__}: {exc}",
+                    ),
+                )
         return rewritten, action, None
 
     def _after(
@@ -1607,9 +2321,13 @@ class ResearchReviewOrchestrationMiddleware(AgentMiddleware[Any, Any, Any]):
                 action["review_mode"], [store.artifact_ref(item) for item in target]
             )
             if verdict is None:
+                diagnostic = _kimi_evidence_failure_summary(_tool_result_text(result))
+                detail = "solar-evidence returned without persisting a hash-bound ReviewVerdictV2"
+                if diagnostic:
+                    detail += "\n" + diagnostic
                 return self._blocked(
                     request,
-                    "solar-evidence returned without persisting a hash-bound ReviewVerdictV2",
+                    detail,
                 )
             return _with_result_content(
                 result,

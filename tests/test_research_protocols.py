@@ -7,8 +7,10 @@ from jw.research_protocols import (
     SOLAR_POLAR_PRECURSOR_PROTOCOL,
     detect_analysis_protocol,
     f107_discontinuity_directive,
+    plan_dataset_selection_conflicts_protocol,
     render_silso_cycle_reproduction_markdown,
     required_data_product_for_protocol,
+    solar_polar_precursor_directive,
 )
 
 
@@ -67,6 +69,41 @@ def test_explicit_polar_precursor_request_has_separate_protocol() -> None:
         detect_analysis_protocol("比较极小附近极区磁场作为下一周期振幅前兆")
         == SOLAR_POLAR_PRECURSOR_PROTOCOL
     )
+
+
+def test_plan_dataset_selection_conflict_detection_matches_protocol() -> None:
+    plan = {
+        "required_datasets": [
+            {"selected_source_id": "silso-monthly-total-v2"},
+            {"selected_source_id": "foreign-dataset-v1"},
+        ]
+    }
+
+    assert (
+        plan_dataset_selection_conflicts_protocol(plan, SOLAR_POLAR_PRECURSOR_PROTOCOL)
+        is True
+    )
+    assert (
+        plan_dataset_selection_conflicts_protocol(plan, SOLAR_POLAR_PRECURSOR_PROTOCOL)
+        is True
+    )
+
+
+def test_polar_precursor_directive_requires_cycle_level_out_of_sample_analysis() -> (
+    None
+):
+    directive = solar_polar_precursor_directive()
+
+    assert "cycle N" in directive
+    assert "cycle N+1" in directive
+    assert "adjacent minima" in directive
+    assert "independent sample unit" in directive
+    assert "rolling-origin" in directive
+    assert "MAE and RMSE" in directive
+    assert "leave-one-cycle" in directive
+    assert "MWO" in directive
+    assert "WSO" in directive
+    assert "Do not preselect the interaction sign" in directive
 
 
 def test_silso_final_markdown_is_deterministic_and_scoped() -> None:

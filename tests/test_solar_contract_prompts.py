@@ -21,14 +21,23 @@ def test_solar_planner_supports_explore_checkpoint_and_publish_modes():
     assert "checkpoint/publication mode" in text
     assert "[RESEARCH_PRODUCER_V2]" in text
     assert "MUST call research_planner_get_brief" in text
+    assert "research_planner_create_empirical_plan once" in text
+    assert "research_planner_submit_complete_draft" in text
     assert "research_planner_update_draft" in text
-    assert "exactly one plan_content section per call" in text
+    assert "only to resume a previously interrupted partial draft" in text
     assert "draft_checkpoint.next_section" in text
     assert "research_planner_validate_draft" in text
     assert "research_planner_freeze_plan before returning" in text
     assert "not permission to return an unfrozen draft" in text
     assert "freeze only when publication was requested" in text
     assert "planner/runs/<run_id>/" in text
+
+
+def test_runtime_planning_directive_prefers_compact_empirical_plan():
+    text = _read("jw/middleware/research_review_orchestration.py")
+    planning = text.split('"planning": (', 1)[1].split('    "data": (', 1)[0]
+    assert "research_planner_create_empirical_plan" in planning
+    assert "persist exactly one ordered section" not in planning
 
 
 def test_parent_accepts_partial_results_and_bounds_repair():
@@ -40,12 +49,20 @@ def test_parent_accepts_partial_results_and_bounds_repair():
 
 def test_solar_data_requires_hash_bound_inputs_before_discovery():
     text = _read("jw/subagents/solar/solar_data.yaml")
-    assert "tool_bundles: [solar-features]" in text
+    assert "tool_bundles: [solar-features, knowledge-base-literature]" in text
     assert "deterministic_data_context" in text
     assert "do not call `solar_data_open_context` again" in text
     assert "Only paths in `eligible_inputs`" in text
     assert "reproduce_silso_cycle_extrema" in text
     assert "never guess `/project/data`" in text
+    assert "host stages eligible `/project/...` inputs" in text
+    assert "If a Harness calculation returns `error` or `partial` twice" in text
+    assert (
+        "treat its task-local table and receipt as the canonical Data product" in text
+    )
+    assert "n_eff_upper_bound" in text
+    assert "peak_smoothed_sunspot_number_sigma" in text
+    assert "minimum_date_sensitivity" in text
     assert "must_stop=true" in text
 
 
@@ -116,6 +133,7 @@ def test_hypothesis_agent_reads_wiki_before_generating_candidates():
     assert "call lit_bundle_read exactly once" in text
     assert "scientific_hypothesis_bind_literature_evidence" in text
     assert "scientific_hypothesis_build_novelty_bundle" in text
+    assert "每条 query axis 都必须保留同一个目标观测量" in text
     assert "identifiability={association_only, mechanism_support_requires}" in text
     assert "searched_family_count" in text
     assert "one source per assistant turn" in text
@@ -165,6 +183,12 @@ def test_hypothesis_agent_reads_wiki_before_generating_candidates():
     assert "固定审查协议必须先单独执行并报告" in text
     assert "scientific_hypothesis_update_draft" in text
     assert "scientific_hypothesis_review_tail" in text
+    assert (
+        "evidence_confidence_caps 的四个字段只能逐字使用 exploratory、"
+        "evidence_constrained 或 release_candidate" in text
+    )
+    assert "checkpoint_draft 是父流程的结构化交接" in text
+    assert "checkpoint 返回 needs_revision 时只修正 validation_error" in text
     assert "positive_tail" in text
     assert "negative_tail" in text
     assert "violation-first" in text

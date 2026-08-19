@@ -76,6 +76,10 @@ _DASHSCOPE_STREAM_CHUNK_TIMEOUT_MAX_S = 900.0
 _DASHSCOPE_REQUEST_TIMEOUT_DEFAULT_S = 300.0
 _DASHSCOPE_REQUEST_TIMEOUT_MIN_S = 30.0
 _DASHSCOPE_REQUEST_TIMEOUT_MAX_S = 900.0
+# Qwen transport retries are owned by QwenToolCompatibilityMiddleware, which
+# can recover streams that fail after HTTP response headers arrive. Keep the
+# SDK layer at zero by default so one middleware retry remains one retry total;
+# operators may still opt into a bounded SDK-only policy for non-agent callers.
 _DASHSCOPE_MAX_RETRIES_DEFAULT = 0
 _DASHSCOPE_MAX_RETRIES_MAX = 2
 

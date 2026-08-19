@@ -13,6 +13,7 @@ import os
 import re
 import sys
 import tempfile
+import time
 from copy import deepcopy
 from datetime import UTC, datetime
 from pathlib import Path
@@ -75,6 +76,13 @@ _PLAN_SECTION_ORDER = (
     "report_outline",
     "iteration_policy",
     "stop_rules",
+)
+_EMPIRICAL_ROUTE_STAGES = (
+    "data",
+    "hypothesis_generation",
+    "experiment_design",
+    "experiment_result",
+    "hypothesis_update",
 )
 _RESPONSE_SCHEMA = json.loads(
     (
@@ -169,6 +177,39 @@ def _atomic_write_json(path: Path, payload: object) -> None:
             temporary.unlink()
         except FileNotFoundError:
             pass
+
+
+def _record_compact_attempt(
+    config: RunnableConfig | None,
+    *,
+    started: float,
+    payload: object,
+    status: str,
+    error: str = "",
+) -> None:
+    """Append structural diagnostics for a compact planning attempt."""
+
+    summary: dict[str, Any] = {}
+    if isinstance(payload, dict):
+        for key in ("subquestions", "evidence_gaps", "datasets", "evaluation_focus"):
+            value = payload.get(key)
+            summary[f"{key}_count"] = len(value) if isinstance(value, list) else None
+        methods = payload.get("stage_methods")
+        summary["stage_methods"] = (
+            sorted(str(key) for key in methods) if isinstance(methods, dict) else []
+        )
+    record = {
+        "schema_version": "research-planner-compact-attempt-v1",
+        "created_at": _utc_now(),
+        "duration_seconds": round(time.perf_counter() - started, 6),
+        "status": status,
+        "summary": summary,
+        "error": error,
+    }
+    path = workspace_root_from_config(config) / "planner" / "compact_attempts.jsonl"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps(record, ensure_ascii=False, sort_keys=True) + "\n")
 
 
 def _load_or_initialize_draft(
@@ -1001,19 +1042,28 @@ def research_planner_get_brief(
         brief = build_planning_brief(request)
         sha = _bind_request(request, config)
         brief["instruction"] = (
-            "For a published plan, do not construct the complete response in one "
-            "model turn. Persist exactly one plan_content section at a time with "
-            "research_planner_update_draft, following draft_protocol.section_order; "
-            "then call research_planner_validate_draft and "
-            "research_planner_freeze_plan. The one-shot validation tool remains a "
-            "backward-compatible path for non-draft callers. Once all sections "
-            "exist, cross-section repairs must use "
+            "For a fresh quantitative or observational published plan, supply the "
+            "question-specific scope, subquestions, evidence gaps, dataset needs, "
+            "stage methods, and evaluation focus once with "
+            "research_planner_create_empirical_plan. Use "
+            "research_planner_submit_complete_draft only for a non-empirical route "
+            "whose full structure is already known. Both tools validate every "
+            "section and the full cross-section graph before activating the draft. "
+            "After plan_ready, call research_planner_freeze_plan without another "
+            "validation read. Once all sections exist, repairs must use "
             "research_planner_apply_revision_patch, or stage large replacements "
             "one at a time with research_planner_stage_revision_section and finish "
             "with research_planner_commit_revision_candidate. A non-improving "
             "candidate cannot replace the active draft."
         )
         checkpoint = _draft_checkpoint(draft_state)
+        if checkpoint["completed_sections"] and checkpoint["missing_sections"]:
+            brief["instruction"] = (
+                "Resume the already persisted draft from "
+                "draft_checkpoint.next_section with research_planner_update_draft. "
+                "Do not replace completed sections. After the final missing section, "
+                "validate once and freeze."
+            )
         if checkpoint["next_action"] == "commit_revision_candidate":
             brief["instruction"] = (
                 "A hash-bound shadow revision candidate already exists. The next "
@@ -1049,14 +1099,17 @@ def research_planner_get_brief(
             "schema_version": "research-planner-draft-protocol-v1",
             "state_path": str(_WORKING_STATE_RELATIVE_PATH),
             "section_order": list(_PLAN_SECTION_ORDER),
-            "write_rule": "persist exactly one section per update call",
+            "write_rule": (
+                "submit a fresh complete plan once; use one-section writes only to "
+                "resume an older partial draft"
+            ),
             "resume_rule": (
                 "continue from draft_checkpoint.next_section; use reference_index "
                 "for stable cross-section ids"
             ),
             "validation_rule": (
-                "only validate after every section is persisted; repair the named "
-                "section and validate once more"
+                "complete submission validates before persistence; later repairs "
+                "must change only the named affected sections"
             ),
         }
         return _ok(
@@ -1065,6 +1118,12 @@ def research_planner_get_brief(
                 "request_sha256": sha,
                 "input_request_sha256": input_request_sha256,
                 "canonical_request_reused": input_request_sha256 != sha,
+                "recommended_next_tool": (
+                    "research_planner_create_empirical_plan"
+                    if not checkpoint["completed_sections"]
+                    and checkpoint["missing_sections"]
+                    else None
+                ),
                 "draft_checkpoint": checkpoint,
             }
         )
@@ -1246,6 +1305,483 @@ def research_planner_inspect_dataset(
         result["request_sha256"] = canonical_json_sha256(request)
         return _ok(result)
     except Exception as exc:
+        return _err(str(exc))
+
+
+@tool(parse_docstring=True)
+def research_planner_submit_complete_draft(
+    plan_content_json: str,
+    request_sha256: str = "",
+    config: RunnableConfig = None,
+) -> str:
+    """Validate and atomically persist all plan sections in one call.
+
+    Use this for a fresh plan when the complete cross-section structure is
+    already known. The call validates every section and the full plan before
+    activating any section, so no scientific content is supplied by the host.
+    Later repairs still use the targeted revision tools.
+
+    Args:
+        plan_content_json: JSON object containing every section in section_order.
+        request_sha256: Optional bound request hash; defaults to the active request.
+
+    Returns:
+        Plan-ready checkpoint, or all detected section/full-plan issues.
+    """
+    try:
+        request = _lookup_request(request_sha256, config)
+        state = _lookup_draft(request, config)
+        parsed = json.loads(plan_content_json)
+        if not isinstance(parsed, dict):
+            raise ValueError("plan_content_json must encode one JSON object")
+        missing = [name for name in _PLAN_SECTION_ORDER if name not in parsed]
+        unknown = sorted(set(parsed) - set(_PLAN_SECTION_ORDER))
+        if missing or unknown:
+            return _ok(
+                {
+                    "status": "draft_invalid",
+                    "missing_sections": missing,
+                    "unknown_sections": unknown,
+                    "instruction": "Submit exactly every section reported by section_order.",
+                }
+            )
+        candidate = deepcopy(parsed)
+        candidate["evaluation_rules"] = _sanitize_evaluation_rules(
+            candidate["evaluation_rules"]
+        )
+        candidate["evidence_sources"] = _sanitize_evidence_sources(
+            candidate["evidence_sources"]
+        )
+        section_issues: list[dict[str, str]] = []
+        for section_name in _PLAN_SECTION_ORDER:
+            try:
+                _validate_section(section_name, candidate[section_name])
+            except Exception as exc:
+                section_issues.append({"section": section_name, "error": str(exc)})
+        if section_issues:
+            return _ok(
+                {
+                    "status": "draft_invalid",
+                    "issues": section_issues,
+                    "instruction": "Repair all listed sections and submit once more.",
+                }
+            )
+        existing = state.get("sections", {})
+        conflicts = [
+            name
+            for name, value in existing.items()
+            if name in candidate and value != candidate[name]
+        ]
+        if conflicts:
+            return _ok(
+                {
+                    "status": "draft_invalid",
+                    "issues": [
+                        {
+                            "section": name,
+                            "error": "a different active section already exists",
+                        }
+                        for name in conflicts
+                    ],
+                    "instruction": (
+                        "Preserve the active draft and use the targeted revision tools."
+                    ),
+                }
+            )
+        checked, error, issue_count = _preflight_sections(request, candidate)
+        if checked is None or "_validated_response" not in checked:
+            return _ok(
+                {
+                    "status": "draft_invalid",
+                    "error": error,
+                    "issue_count": issue_count,
+                    "instruction": (
+                        "Repair the named cross-section relationships and resubmit "
+                        "the complete draft once."
+                    ),
+                }
+            )
+        validated_response = checked["_validated_response"]
+        receipts: dict[str, Any] = {}
+        for section_name in _PLAN_SECTION_ORDER:
+            receipts[section_name] = _persist_section_version(
+                state, section_name, candidate[section_name], config
+            )
+        state["sections"] = candidate
+        state["section_failures"] = {}
+        state["validated_response"] = validated_response
+        state["validated_response_sha256"] = canonical_json_sha256(validated_response)
+        state["revision_candidate"] = None
+        context = workspace_context_key(config)
+        request_hash = canonical_json_sha256(request)
+        with _STATE_LOCK:
+            _VALIDATED_RESPONSES[(context, request_hash)] = validated_response
+        _persist_draft(state, config)
+        checkpoint = _draft_checkpoint(state)
+        return _ok(
+            {
+                "status": "plan_ready",
+                "request_sha256": request_hash,
+                "draft_checkpoint": checkpoint,
+                "section_receipts": receipts,
+            }
+        )
+    except Exception as exc:
+        return _err(str(exc))
+
+
+def _compact_empirical_plan_content(payload: dict[str, Any]) -> dict[str, Any]:
+    """Expand question-specific semantics into the standard empirical route.
+
+    The model remains responsible for scientific scope, questions, data needs,
+    methods, and evidence gaps.  This helper supplies only stable identifiers,
+    lifecycle transitions, review points, and reporting links required by the
+    planner contract.
+    """
+
+    required = {
+        "scope",
+        "subquestions",
+        "evidence_gaps",
+        "datasets",
+        "stage_methods",
+        "evaluation_focus",
+    }
+    missing = sorted(required - set(payload))
+    unknown = sorted(set(payload) - required)
+    if missing or unknown:
+        raise ValueError(
+            "compact_plan_json must contain exactly "
+            f"{sorted(required)}; missing={missing}, unknown={unknown}"
+        )
+    scope = payload["scope"]
+    subquestions = payload["subquestions"]
+    gaps = payload["evidence_gaps"]
+    datasets = payload["datasets"]
+    stage_methods = payload["stage_methods"]
+    evaluation_focus = payload["evaluation_focus"]
+    if not isinstance(scope, dict):
+        raise ValueError("scope must be an object")
+    if not isinstance(subquestions, list) or not subquestions:
+        raise ValueError("subquestions must be a non-empty array")
+    if not isinstance(gaps, list) or not gaps:
+        raise ValueError("evidence_gaps must be a non-empty array")
+    if not isinstance(datasets, list) or not datasets:
+        raise ValueError("datasets must be a non-empty array")
+    if not isinstance(stage_methods, dict):
+        raise ValueError("stage_methods must be an object")
+    if set(stage_methods) != set(_EMPIRICAL_ROUTE_STAGES):
+        raise ValueError(
+            "stage_methods must contain exactly: " + ", ".join(_EMPIRICAL_ROUTE_STAGES)
+        )
+    if not isinstance(evaluation_focus, list) or not evaluation_focus:
+        raise ValueError("evaluation_focus must be a non-empty array")
+
+    question_items: list[dict[str, Any]] = []
+    for index, item in enumerate(subquestions, 1):
+        if not isinstance(item, dict) or set(item) != {
+            "question",
+            "purpose",
+            "completion_evidence",
+        }:
+            raise ValueError(
+                "each subquestion must contain exactly question, purpose, and "
+                "completion_evidence"
+            )
+        question_items.append(
+            {
+                "id": f"Q{index}",
+                **deepcopy(item),
+                "depends_on": [],
+            }
+        )
+    question_ids = [item["id"] for item in question_items]
+
+    dataset_items: list[dict[str, Any]] = []
+    dataset_fields = {
+        "name",
+        "purpose",
+        "required_variables",
+        "time_coverage_needed",
+        "cadence_needed",
+        "quality_requirements",
+    }
+    for index, item in enumerate(datasets, 1):
+        if not isinstance(item, dict) or set(item) != dataset_fields:
+            raise ValueError(
+                "each dataset must contain exactly name, purpose, "
+                "required_variables, time_coverage_needed, cadence_needed, and "
+                "quality_requirements"
+            )
+        dataset_items.append(
+            {
+                "id": f"D{index}",
+                "source_kind": "proposed",
+                "selected_source_id": None,
+                **deepcopy(item),
+                "version_requirement": "获取时记录实际版本、发布日期或访问日期。",
+                "unit_requirements": ["获取时核对并保留各变量的原始单位与换算。"],
+                "revision_requirements": ["记录数据修订状态及其对分析的影响。"],
+                "license_requirements": ["只使用许可允许的获取与分析方式。"],
+                "acquisition_status": "needs_confirmation",
+            }
+        )
+    dataset_ids = [item["id"] for item in dataset_items]
+
+    stage_titles = {
+        "data": "数据获取与样本构造",
+        "hypothesis_generation": "可证伪假设与文献边界",
+        "experiment_design": "统计实验设计",
+        "experiment_result": "真实统计实验",
+        "hypothesis_update": "实验后假设更新",
+    }
+    artifacts = [
+        {
+            "id": f"A{index}",
+            "name": f"{stage_titles[stage]}结果",
+            "artifact_kind": f"{stage}_result",
+            "purpose": f"承载{stage_titles[stage]}的可审查结果与证据边界。",
+            "source_kind": "planned_output",
+            "producer_step_id": f"R{index}",
+            "subquestion_ids": question_ids,
+            "content_requirements": ["记录实际完成内容、来源、限制以及未解决问题。"],
+        }
+        for index, stage in enumerate(_EMPIRICAL_ROUTE_STAGES, 1)
+    ]
+
+    state_items = []
+    for index, gap in enumerate(gaps, 1):
+        if not isinstance(gap, str) or not gap.strip():
+            raise ValueError("every evidence gap must be non-empty text")
+        state_items.append(
+            {
+                "id": f"S{index}",
+                "statement": gap.strip(),
+                "item_kind": "evidence_gap",
+                "status": "unresolved",
+                "rationale": "该内容必须由后续数据、文献或实验结果核验。",
+                "evidence_source_ids": [],
+                "subquestion_ids": question_ids,
+                "blocking": False,
+                "resolution_requirements": ["形成可定位、可复算或可证伪的核验结果。"],
+                "resolution_step_ids": ["R2", "R4", "R5"],
+                "impact_if_wrong": "可能改变假设方向、置信度、适用范围或结论类别。",
+                "confidence": {
+                    "level": "high",
+                    "basis": "这是规划时尚未由本次研究产物解决的明确证据缺口。",
+                },
+            }
+        )
+
+    secondary_outcomes = {
+        "data": ("input_missing", "needs_input"),
+        "hypothesis_generation": ("evidence_conflict", "partial_result"),
+        "experiment_design": ("method_invalid", "no_viable_route"),
+        "experiment_result": ("inconclusive", "partial_result"),
+        "hypothesis_update": ("inconclusive", "partial_result"),
+    }
+    route: list[dict[str, Any]] = []
+    evaluation_rules: list[dict[str, Any]] = []
+    for index, stage in enumerate(_EMPIRICAL_ROUTE_STAGES, 1):
+        step_id = f"R{index}"
+        artifact_id = f"A{index}"
+        prior_step = f"R{index - 1}" if index > 1 else None
+        prior_artifact = f"A{index - 1}" if index > 1 else None
+        adverse_outcome, adverse_terminal = secondary_outcomes[stage]
+        completed_transition: dict[str, str]
+        if index < len(_EMPIRICAL_ROUTE_STAGES):
+            completed_transition = {
+                "on": "completed",
+                "target_step_id": f"R{index + 1}",
+            }
+        else:
+            completed_transition = {
+                "on": "completed",
+                "terminal_status": "plan_complete",
+            }
+        method = stage_methods[stage]
+        if not isinstance(method, str) or not method.strip():
+            raise ValueError(f"stage_methods.{stage} must be non-empty text")
+        route.append(
+            {
+                "id": step_id,
+                "iteration": 1,
+                "stage": stage,
+                "objective": f"完成{stage_titles[stage]}，回答已登记的研究子问题。",
+                "necessity": f"{stage_titles[stage]}是从自然语言问题走向受证据约束结论的必要环节。",
+                "subquestion_ids": question_ids,
+                "required_dataset_ids": dataset_ids if stage == "data" else [],
+                "consumes_artifact_ids": [prior_artifact] if prior_artifact else [],
+                "produces_artifact_ids": [artifact_id],
+                "prerequisite_step_ids": [prior_step] if prior_step else [],
+                "join_policy": "all",
+                "method_outline": method.strip(),
+                "capability_needs": [],
+                "outcome_rules": [
+                    {
+                        "outcome": "completed",
+                        "criteria": [
+                            f"{stage_titles[stage]}形成了可审查产物，并明确事实、推断与限制。"
+                        ],
+                        "evidence_required": [f"{stage_titles[stage]}结果。"],
+                    },
+                    {
+                        "outcome": adverse_outcome,
+                        "criteria": [
+                            f"现有输入或证据不足以可靠完成{stage_titles[stage]}。"
+                        ],
+                        "evidence_required": ["已完成内容、具体缺口及其结论影响。"],
+                    },
+                ],
+                "transitions": [
+                    completed_transition,
+                    {"on": adverse_outcome, "terminal_status": adverse_terminal},
+                ],
+                "visit_limit": 1,
+                "evaluation_rule_ids": [f"E{index}"],
+            }
+        )
+        focus = evaluation_focus[(index - 1) % len(evaluation_focus)]
+        if not isinstance(focus, str) or not focus.strip():
+            raise ValueError("every evaluation_focus item must be non-empty text")
+        evaluation_rules.append(
+            {
+                "id": f"E{index}",
+                "name": f"{stage_titles[stage]}质量检查",
+                "purpose": focus.strip(),
+                "target_step_ids": [step_id],
+                "outcome": "completed",
+                "check": focus.strip(),
+                "interpretation": "满足则该阶段完成；不满足时保留对应缺口或进入相应终止结果。",
+                "uncertainty": "无法由实际产物核验的内容不得作为已完成结果。",
+                "criterion_basis": {
+                    "kind": "data_based",
+                    "basis_text": "依据本阶段实际生成并接受审查的产物判断。",
+                    "evidence_source_ids": [],
+                    "artifact_ids": [artifact_id],
+                },
+            }
+        )
+
+    report_outline = [
+        {
+            "id": "P1",
+            "order": 1,
+            "title": "研究问题、数据、证据、实验与结论",
+            "purpose": "综合报告研究范围、真实输入、方法、结果、证据关系、假设变化与结论边界。",
+            "source_step_ids": [step["id"] for step in route],
+        }
+    ]
+    stop_rules = [
+        {
+            "id": "T1",
+            "terminal_status": "plan_complete",
+            "condition_kind": "goal_satisfied",
+            "condition": "数据、假设、实验及实验后更新均形成经过审查的结果。",
+            "required_evidence": ["全部阶段的实际产物和审查结果。"],
+            "report_section_ids": ["P1"],
+        },
+        {
+            "id": "T2",
+            "terminal_status": "partial_result",
+            "condition_kind": "partial_result_ready",
+            "condition": "证据冲突、低功效或不确定结果阻止更强结论，但已有结果与缺口可完整报告。",
+            "required_evidence": ["已完成分析、冲突或不确定性及其影响。"],
+            "report_section_ids": ["P1"],
+        },
+        {
+            "id": "T3",
+            "terminal_status": "needs_input",
+            "condition_kind": "input_required",
+            "condition": "缺少完成数据构造所必需且不可替代的真实输入。",
+            "required_evidence": ["缺失输入、已检查来源与无法继续的原因。"],
+            "report_section_ids": ["P1"],
+        },
+        {
+            "id": "T4",
+            "terminal_status": "no_viable_route",
+            "condition_kind": "no_viable_route",
+            "condition": "当前数据与方法无法形成有效的可执行统计设计。",
+            "required_evidence": ["方法失效原因及已排除的可行替代方案。"],
+            "report_section_ids": ["P1"],
+        },
+    ]
+    return {
+        "scope": deepcopy(scope),
+        "research_subquestions": question_items,
+        "research_state_map": {"items": state_items},
+        "evidence_sources": [],
+        "required_datasets": dataset_items,
+        "research_artifacts": artifacts,
+        "research_route": route,
+        "evaluation_rules": evaluation_rules,
+        "report_outline": report_outline,
+        "iteration_policy": {
+            "global_visit_limit": len(route),
+            "review_step_ids": [step["id"] for step in route],
+            "revision_triggers": [],
+            "budget_response": "partial_result",
+        },
+        "stop_rules": stop_rules,
+    }
+
+
+@tool(parse_docstring=True)
+def research_planner_create_empirical_plan(
+    compact_plan_json: str,
+    request_sha256: str = "",
+    config: RunnableConfig = None,
+) -> str:
+    """Create and validate a full empirical plan from compact research semantics.
+
+    Use this for a fresh quantitative or observational research task. The model
+    supplies the scientific scope, subquestions, evidence gaps, dataset needs,
+    stage-specific methods, and evaluation focus. The host expands only the
+    standard reviewed route and contract lifecycle fields.
+
+    Args:
+        compact_plan_json: JSON object with scope, subquestions, evidence_gaps,
+            datasets, stage_methods, and evaluation_focus. stage_methods must
+            contain exactly data, hypothesis_generation, experiment_design,
+            experiment_result, and hypothesis_update. Dataset items contain
+            name, purpose, required_variables, time_coverage_needed,
+            cadence_needed, and quality_requirements. Subquestions contain
+            question, purpose, and completion_evidence.
+        request_sha256: Optional bound request hash; defaults to the active request.
+
+    Returns:
+        Plan-ready checkpoint, or precise compact/full-plan validation issues.
+    """
+    started = time.perf_counter()
+    parsed: object = None
+    try:
+        parsed = json.loads(compact_plan_json)
+        if not isinstance(parsed, dict):
+            raise ValueError("compact_plan_json must encode one JSON object")
+        plan_content = _compact_empirical_plan_content(parsed)
+        result = research_planner_submit_complete_draft.func(
+            plan_content_json=json.dumps(plan_content, ensure_ascii=False),
+            request_sha256=request_sha256,
+            config=config,
+        )
+        result_payload = json.loads(result)
+        status = str(result_payload.get("status") or "unknown")
+        _record_compact_attempt(
+            config,
+            started=started,
+            payload=parsed,
+            status=status,
+            error=str(result_payload.get("error") or ""),
+        )
+        return result
+    except Exception as exc:
+        _record_compact_attempt(
+            config,
+            started=started,
+            payload=parsed,
+            status="error",
+            error=str(exc),
+        )
         return _err(str(exc))
 
 
@@ -1568,6 +2104,34 @@ def research_planner_stage_revision_section(
                 "receipts": {},
                 "created_at": _utc_now(),
             }
+        affected_sections = candidate.get("affected_sections")
+        if (
+            candidate.get("next_action") == "stage_revision_section"
+            and isinstance(affected_sections, list)
+            and affected_sections
+            and section_name not in affected_sections
+        ):
+            return _ok(
+                {
+                    "status": "error",
+                    "error_code": "PLANNER_REVISION_SECTION_NOT_AFFECTED",
+                    "section_name": section_name,
+                    "affected_sections": list(affected_sections),
+                    "staged_sections": [
+                        name
+                        for name in _PLAN_SECTION_ORDER
+                        if name in candidate["sections"]
+                    ],
+                    "active_draft_unchanged": True,
+                    "new_version_written": False,
+                    "must_stop": False,
+                    "instruction": (
+                        "Stage one of affected_sections returned by the failed "
+                        "candidate commit; do not rewrite an unrelated section."
+                    ),
+                    "draft_checkpoint": _draft_checkpoint(state),
+                }
+            )
         prior_staged = candidate["sections"].get(section_name)
         if prior_staged == value:
             state.get("section_failures", {}).pop(section_name, None)
@@ -2056,6 +2620,8 @@ RESEARCH_PLANNER_TOOLS = [
     research_planner_resolve_reference,
     research_planner_extract_evidence,
     research_planner_inspect_dataset,
+    research_planner_create_empirical_plan,
+    research_planner_submit_complete_draft,
     research_planner_update_draft,
     research_planner_apply_revision_patch,
     research_planner_stage_revision_section,

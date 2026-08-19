@@ -85,7 +85,57 @@ def _err(exc: Exception) -> str:
                 or "按字段路径和 bind/verification preview 返回的写作指南修正后重试。",
             }
         )
+    error_code = getattr(exc, "error_code", None)
+    if isinstance(error_code, str) and error_code:
+        output["error_code"] = error_code
+    run_id = getattr(exc, "run_id", None)
+    if isinstance(run_id, str) and run_id:
+        output["run_id"] = run_id
     return json.dumps(output, ensure_ascii=False, default=str)
+
+
+def _host_research_scope(config: RunnableConfig) -> dict[str, Any] | None:
+    workspace = workspace_root_from_config(config)
+    review_state_path = workspace / "research_review" / "run_state.json"
+    scope_path = workspace / "research_review" / "experiment_scope.json"
+    if not review_state_path.is_file():
+        return None
+    run_state = json.loads(review_state_path.read_text(encoding="utf-8"))
+    current_stage = run_state.get("current_stage")
+    if not scope_path.is_file():
+        if current_stage not in {"experiment_design", "experiment_result"}:
+            return None
+        raise service.ServiceError(
+            "the Research Review experiment stage has no host-owned scope",
+            error_code="RESEARCH_EXPERIMENT_SCOPE_MISSING",
+        )
+    scope = json.loads(scope_path.read_text(encoding="utf-8"))
+    if not isinstance(scope, dict):
+        raise service.ServiceError(
+            "the host-owned research experiment scope must be a JSON object",
+            error_code="RESEARCH_EXPERIMENT_SCOPE_INVALID",
+        )
+    if scope.get("task_id") != run_state.get("task_id"):
+        raise service.ServiceError(
+            "the host-owned research experiment scope belongs to another task",
+            error_code="RESEARCH_EXPERIMENT_SCOPE_INVALID",
+        )
+    scope_stage = scope.get("stage")
+    if scope_stage not in {"experiment_design", "experiment_result"}:
+        raise service.ServiceError(
+            "the host-owned research experiment scope has an invalid stage",
+            error_code="RESEARCH_EXPERIMENT_SCOPE_INVALID",
+        )
+    stage_status = run_state.get("stage_status")
+    pending_dispatch = (
+        isinstance(stage_status, dict) and stage_status.get(scope_stage) == "pending"
+    )
+    if scope_stage != current_stage and not pending_dispatch:
+        raise service.ServiceError(
+            "the host-owned research experiment scope does not match the current stage",
+            error_code="RESEARCH_EXPERIMENT_SCOPE_INVALID",
+        )
+    return scope
 
 
 def _normalize_model_input_path(value: object) -> str:
@@ -175,6 +225,15 @@ def automatic_experiment_bind_request(
         supplied = request_input.strip()
         if not supplied:
             raise ValueError("request_input must not be empty")
+        research_scope = _host_research_scope(config)
+        if (
+            research_scope is not None
+            and research_scope.get("stage") == "experiment_result"
+        ):
+            raise service.ServiceError(
+                "experiment_result must resume the accepted run_id; binding a new run is forbidden",
+                error_code="RESEARCH_EXPERIMENT_RESULT_REBIND_FORBIDDEN",
+            )
         if supplied.startswith("@"):
             path = resolve_scoped_path(supplied[1:].strip(), config, allow_project=True)
             payload = {"request": json.loads(path.read_text(encoding="utf-8"))}
@@ -192,7 +251,7 @@ def automatic_experiment_bind_request(
                 else {"request_input": supplied}
             )
         with task_workspace(workspace_root_from_config(config)):
-            return _ok(service.bind_request(payload))
+            return _ok(service.bind_request(payload, research_scope=research_scope))
     except Exception as exc:
         return _err(exc)
 
@@ -210,11 +269,69 @@ def automatic_experiment_inspect_inputs(
         run_id: The run identifier returned by ``automatic_experiment_bind_request``.
 
     Returns:
-        JSON string with per-input metadata and snapshot status.
+        JSON string with per-input metadata and snapshot status. After design
+        validation, a repeated inspection also returns the current stage's exact
+        required_worker_outputs contract for attempt authoring.
     """
     try:
         with task_workspace(workspace_root_from_config(config)):
             return _ok(service.inspect_inputs(run_id))
+    except Exception as exc:
+        return _err(exc)
+
+
+@tool(parse_docstring=True)
+def automatic_experiment_create_single_stage_design(
+    run_id: str,
+    response: dict[str, Any] | str,
+    analysis: dict[str, Any] | str,
+    config: RunnableConfig = None,
+) -> str:
+    """Create and validate one experiment stage from a compact analysis plan.
+
+    Prefer this tool when one computational stage is sufficient. The model
+    supplies the scientific choices while the host fills stable lifecycle
+    fields. ``analysis`` contains: design_summary, primary_question,
+    analysis_mode, claim_scope, method_outline, measurements, results,
+    artifacts, dependencies, primary_estimand, and threats_to_validity.
+    Measurements use name/display_name/role/unit/scientific_meaning. Results
+    use id/display_name/value_kind/role/unit/scientific_meaning; answer-bearing
+    numbers belong in measurements, while results hold category, boolean, text,
+    or diagnostic values. Artifacts use path/kind/description. Optional
+    ``criteria`` items use id/statement/basis_kind/basis_text/source_refs/
+    artifact_refs/measurement_refs/result_refs/endpoint_refs. Criterion
+    basis_kind is user_request, located_source, data_derived, method_standard,
+    bounded_pragmatic_choice, or qualitative_no_fixed_threshold; use the
+    bounded choice for an explicitly arbitrary convention fixed before seeing
+    results. Optional ``method_decisions`` items use id/decision_key/decision/
+    rationale/basis_kind/source_refs/alternatives/claim_limit. Other optional
+    fields are input_evidence, supported_questions, deferred_questions,
+    assumptions, literature_basis, paired_comparison_audits, seed, and the
+    interpretation rules. Every criterion must cite an actual measurement,
+    result, or analysis_endpoint. This tool performs the same full design
+    validation as the expanded endpoint and returns all visible issues together.
+
+    Args:
+        run_id: The run identifier returned by bind_request.
+        response: The automatic-experiment response object.
+        analysis: Compact scientific analysis plan for one execution stage.
+
+    Returns:
+        JSON string with validated design status or the complete issue list.
+    """
+    try:
+        parsed_response = _parse_json_arg(response, "response")
+        parsed_analysis = _parse_json_arg(analysis, "analysis")
+        if not isinstance(parsed_response, dict):
+            raise ValueError("response must be a JSON object")
+        if not isinstance(parsed_analysis, dict):
+            raise ValueError("analysis must be a JSON object")
+        with task_workspace(workspace_root_from_config(config)):
+            return _ok(
+                service.build_and_store_single_stage_design(
+                    run_id, parsed_response, parsed_analysis
+                )
+            )
     except Exception as exc:
         return _err(exc)
 
@@ -388,6 +505,7 @@ def automatic_experiment_finalize(run_id: str, config: RunnableConfig = None) ->
 AUTOMATIC_EXPERIMENT_TOOLS = [
     automatic_experiment_bind_request,
     automatic_experiment_inspect_inputs,
+    automatic_experiment_create_single_stage_design,
     automatic_experiment_validate_design,
     automatic_experiment_prepare_attempt,
     automatic_experiment_execute_attempt,

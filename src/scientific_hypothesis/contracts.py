@@ -1063,6 +1063,22 @@ def validate_hypothesis_response(
     prior_versions = {
         prior["id"]: prior["version"] for prior in request["prior_hypotheses"]
     }
+    prior_statements = {
+        prior["id"]: prior["statement"] for prior in request["prior_hypotheses"]
+    }
+    experiment_relations: set[str] = set()
+    for material in request["upstream_materials"]:
+        summary = material.get("experiment_summary")
+        if not isinstance(summary, dict):
+            continue
+        outcome = summary["outcome"]
+        if outcome in {"null_result", "uncertain"}:
+            experiment_relations.add(outcome)
+        for metric in summary["metrics"]:
+            if metric["name"] == "hypothesis_relation":
+                relation = metric["value_text"].strip().casefold()
+                if relation in {"supports", "opposes", "null_result", "uncertain"}:
+                    experiment_relations.add(relation)
     candidates = [
         _validate_candidate(item, f"candidates[{index}]", prior_versions)
         for index, item in enumerate(
@@ -1110,6 +1126,25 @@ def validate_hypothesis_response(
             raise ContractError(
                 f"{label} 声明更新已有假设时必须填写 evidence_update 说明更新原因"
             )
+        prior_id = candidate["prior_version_id"]
+        adverse_relations = experiment_relations & {
+            "opposes",
+            "null_result",
+            "uncertain",
+        }
+        if prior_id is not None and adverse_relations:
+            relation = sorted(adverse_relations)[0]
+            if candidate["confidence"]["level"] != "low":
+                raise ContractError(
+                    f"{label} 的实验关系为 {relation}; updated hypothesis requires low confidence"
+                )
+            if (
+                relation in {"opposes", "null_result"}
+                and candidate["statement"].strip() == prior_statements[prior_id].strip()
+            ):
+                raise ContractError(
+                    f"{label} 的实验关系为 {relation}; updated statement must change"
+                )
         # 数据覆盖范围核验规则：候选陈述或适用范围的泛化越出所绑定材料的
         # 已知覆盖范围时，置信度不得为 high（写死规则，不靠模型自觉）。
         if candidate["confidence"]["level"] == "high":

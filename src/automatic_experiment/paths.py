@@ -8,6 +8,7 @@ import os
 import re
 import shutil
 import subprocess
+import sysconfig
 from pathlib import Path, PurePosixPath
 from typing import Any
 
@@ -384,43 +385,56 @@ def _scientific_profile(path: Path) -> dict[str, Any] | None:
             "scientific input exceeds the metadata-inspection size limit"
         )
     inspector = PROJECT_ROOT / "src" / "automatic_experiment" / "metadata_inspector.py"
-    try:
-        site_probe = subprocess.run(
-            [
-                "wsl.exe",
-                "-d",
-                "Ubuntu-E",
-                "--",
-                "python3",
-                "-I",
-                "-c",
-                "import site;print(site.getusersitepackages())",
-            ],
-            cwd=PROJECT_ROOT,
-            stdin=subprocess.DEVNULL,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            timeout=10,
-            check=False,
-        )
-    except FileNotFoundError:
-        return {
-            "kind": "scientific_container",
-            "format": format_name,
-            "profile_complete": False,
-            "reason": "locked scientific metadata runtime is unavailable",
-        }
-    site_packages = site_probe.stdout.strip()
-    if site_probe.returncode != 0 or not site_packages:
-        raise PathPolicyError("locked scientific metadata runtime is unavailable")
+    if os.name == "nt":
+        try:
+            site_probe = subprocess.run(
+                [
+                    "wsl.exe",
+                    "-d",
+                    "Ubuntu-E",
+                    "--",
+                    "python3",
+                    "-I",
+                    "-c",
+                    "import site;print(site.getusersitepackages())",
+                ],
+                cwd=PROJECT_ROOT,
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                timeout=10,
+                check=False,
+            )
+        except FileNotFoundError:
+            return {
+                "kind": "scientific_container",
+                "format": format_name,
+                "profile_complete": False,
+                "reason": "locked scientific metadata runtime is unavailable",
+            }
+        site_packages = site_probe.stdout.strip()
+        if site_probe.returncode != 0 or not site_packages:
+            raise PathPolicyError("locked scientific metadata runtime is unavailable")
+        command_prefix = ["wsl.exe", "-d", "Ubuntu-E", "--"]
+        inspector_path = _windows_to_wsl(inspector)
+        input_path = _windows_to_wsl(path)
+    else:
+        if shutil.which("bwrap") is None:
+            return {
+                "kind": "scientific_container",
+                "format": format_name,
+                "profile_complete": False,
+                "reason": "locked scientific metadata runtime is unavailable",
+            }
+        site_packages = sysconfig.get_paths()["purelib"]
+        command_prefix = []
+        inspector_path = str(inspector.resolve())
+        input_path = str(path.resolve())
     command = [
-        "wsl.exe",
-        "-d",
-        "Ubuntu-E",
-        "--",
+        *command_prefix,
         "bwrap",
         "--die-with-parent",
         "--new-session",
@@ -478,10 +492,10 @@ def _scientific_profile(path: Path) -> dict[str, Any] | None:
         site_packages,
         "/runtime/site-packages",
         "--ro-bind",
-        _windows_to_wsl(inspector),
+        inspector_path,
         "/runtime/metadata_inspector.py",
         "--ro-bind",
-        _windows_to_wsl(path),
+        input_path,
         "/input/data",
         "/usr/bin/prlimit",
         "--as=1610612736",

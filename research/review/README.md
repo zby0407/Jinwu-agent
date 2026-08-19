@@ -120,7 +120,30 @@ review、simulation 和同家族重复来源均受到确定性 quality cap。Fin
 claim-level assessment、科学质量 sidecar 和路由 verdict。
 
 实现说明、当前证据和未通过的外部科学验收见
-`SCI_PEER_PRE_REVIEW_STATUS.md`。截至 2026-08-14 的最新本地验证，全量 pytest 为
+`SCI_PEER_PRE_REVIEW_STATUS.md`。截至 2026-08-16 的最新本地验证，Qwen 兼容重试与
+当前工作树重新执行的相关定向测试为 `581 passed`（其中 8 个 subtests），根目录全量
+pytest 为 `3439 passed, 13 skipped, 6 warnings, 8 subtests passed`；自动实验子项目为
+`66 passed`，知识库子项目为 `43 passed`。这些数字只覆盖工程回归，不替代真实科研验收。
+WebUI Node 测试为 `25 passed`，production build 已成功并保留一个已知 Turbopack tracing
+warning。
+
+2026-08-16 的 fresh headed 外部案例复验保留了 r10–r17 的失败现场：r10、r11 为
+`research_blocked`，r12 为 Qwen 流式连接导致的 `runtime_error`，r13 因 reviewer 配置
+未显式传入而退化为同家族审查并在 planning 阶段阻断；r14 没有终态回执，不能称为完成；
+r15 读取两份既有登记数据后在实验设计阶段阻断；r16 在 Planning reviewer 连续失败前未
+形成完整审查三件套；r17 则因同一 thread 使用了两个 workspace 根，在错误根得到空输入而
+于 Data 阶段阻断。r18 使用正式 launcher 和单一 workspace 根重新启动，最终在
+`experiment_design` 阶段以 `research_blocked` 收尾：设计文件已经生成并通过本地设计校验，
+但实验设计生产子 Agent 的 `qwen3.8-max` 调用连续两次返回 `403 AccessDenied.Unpurchased`，
+按重试策略停止；没有形成实验设计 Evidence，也没有实验结果、整合或最终发布。这些运行
+用于定位运行时问题，均不改变 `do_not_launch`。
+
+r15 的源表包含周期 15–24 共 10 行；相邻周期分析只能形成 15→16 至 23→24 共 9 对。
+历史审查材料中出现的“10 对”是计数语义错误，后续派生表、实验输入合同和本说明均按 9
+对记录。Data Agent 配置文件未改，本轮变化集中在编排、运行时 workspace 绑定、派生表和
+实验衔接。
+
+截至 2026-08-14 的历史本地验证，全量 pytest 为
 `3401 passed, 13 skipped, 6 warnings, 8 subtests passed`；WebUI Node 测试 25 项通过，
 production build 成功；Qwen Max、Qwen Plus、Kimi K3 for Coding 与 DeepSeek V4 Pro 的
 四类真实兼容探针均通过。这些证据不替代 10 例 fresh 质量回归、仓库外至少 12 个 hidden

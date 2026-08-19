@@ -49,6 +49,17 @@
 | CL-20260814-06 | 2026-08-14 02:29 | 聚焦 Evidence 兼容验证 | EXT-POLAR-BASELINE-01 工件 | `runtime_error` | 无 verdict | forced tool choice 路径连接结束后不返回 | 不兼容方案已撤回 |
 | CL-20260814-07 | 2026-08-14 06:32 | 仓库外 WebUI 闭环 | EXT-POLAR-GROWTH-01 | `blocked` | 形成低置信可证伪假设，Data 与 Hypothesis 审查完整 | Data 审查遗漏核心变量；Hypothesis 审查误报已存在字段 | 已修代码，真实结果保留 |
 | CL-20260814-08 | 2026-08-14 08:01 | 仓库外 WebUI 闭环 | EXT-POLAR-LENGTH-01 | `completed_with_limits` | 形成低置信交互假设，Data 与 Hypothesis 审查完整 | 前四次暴露 stage 识别与原子提交兼容问题；成功轮仍把无支持主张写成 `limited_support` | 已修代码，待下次真实运行复验 |
+| CL-20260816-09 | 2026-08-16 | 仓库外 WebUI 闭环 | EXT-POLAR-LENGTH-FULL-01 / r10 | `blocked` | Planning、Data、Hypothesis 各形成完整三件套；实验设计阶段阻断 | Evidence specialist 两次未持久化 verdict | 保留失败现场，继续修复后重跑 |
+| CL-20260816-10 | 2026-08-16 | 仓库外 WebUI 闭环 | EXT-POLAR-LENGTH-FULL-01 / r11 | `blocked` | 未形成有效阶段审查 | REQUIRED_SPECIALIST_FAILED_TWICE；无 assessment 三件套 | 保留失败现场 |
+| CL-20260816-11 | 2026-08-16 | 仓库外 WebUI 闭环 | EXT-POLAR-LENGTH-FULL-01 / r12 | `runtime_error` | Planning、Data 各形成完整三件套，Hypothesis 未完成 | Qwen 流式连接被远端提前关闭，主图随后返回 APIConnectionError | 已增加一次有界传输重试并将 SDK 默认重试设为 0，待修复后 fresh 重跑 |
+| CL-20260816-12 | 2026-08-16 | 仓库外 WebUI 闭环 | EXT-POLAR-LENGTH-FULL-01 / r13 | `blocked` | Planning 形成三件套但被阻断 | reviewer 未显式传入，实际配置退化为 Qwen，同家族审查未满足规划门 | 保留失败现场；后续运行显式使用 Kimi reviewer |
+| CL-20260816-13 | 2026-08-16 | 仓库外 WebUI 闭环（进行中） | EXT-POLAR-LENGTH-FULL-01 / r14 | `partial` | Planning 与 Data 各完成一轮 `accept_with_limits`；当前已进入 Hypothesis 任务 | Hypothesis、实验、整合和最终发布尚未收尾，不能判定终态 | 仅作进行中过程证据，不计入闭环通过 |
+| CL-20260816-19 | 2026-08-16 | 仓库外 WebUI 闭环 | EXT-POLAR-LENGTH-FULL-01 / r19 | `blocked` | Planning artifact 已形成，Evidence 三件套为 0；Data 未启动 | Planning Evidence 原子提交连续不合格 | 保留失败现场，随后加固提交边界 |
+| CL-20260816-20 | 2026-08-16 | 仓库外 WebUI 闭环 | EXT-POLAR-LENGTH-FULL-01 / r20 | `blocked` | Planning `accept_with_limits`，Data `block`；未进入实验 | Data 结构字段投影不足，Reviewer 又把题外周期输入误作必需项 | 保留失败现场，随后修复为可返修审查 |
+| CL-20260817-21 | 2026-08-17 | 仓库外 WebUI 闭环 | EXT-POLAR-LENGTH-FULL-01 / r21 | `runtime_error` | 未形成可审查的 Planning artifact 或科学结论 | headed browser、后端和 WebUI 进程在 Planning 期间消失 | 保留进程丢失记录，改用独立 tmux 会话重跑 |
+| CL-20260817-22 | 2026-08-17 | 仓库外 WebUI 闭环 | EXT-POLAR-LENGTH-FULL-01 / r22 | `runtime_error` | Planning、Data 各完成一轮 `accept_with_limits`；无 Hypothesis artifact | Hypothesis 长调用发生 `APIConnectionError`；Harness 同时暴露空分析输出状态缺口 | 保留完整失败现场；修复、重启后以全新 r23 复验 |
+| CL-20260817-24 | 2026-08-17 19:10–20:27 | 仓库外 WebUI 闭环 | EXT-POLAR-LENGTH-FULL-01 / r24 | `blocked` | 未形成 assessment、quality assessment 或科学结论 | Qwen 同家族审查在 Data 路径重复触发工具选择兼容失败，最终 `REQUIRED_SPECIALIST_FAILED_TWICE` | 保留失败现场；修复兼容路径后重新 fresh 复验 |
+| CL-20260818-25 | 2026-08-17 19:28–20:37 | WebUI 自主主任务 | MAIN-SC26-B06 | `blocked` | Planning `accept_with_limits`；仅形成 Data 回执与 11 行历史表，未形成新的科学结论 | Data canonical artifact 不完整；千问 thinking 模式拒绝 `tool_choice=required/object` | 保留失败现场；修复后必须以全新 headed production WebUI 会话复验 |
 
 此外，2026-08-12 的 36 次可见集成回归作为批次记录保留：21 次完成且有回答、
 2 次完成但无回答、13 次 runtime error；assessment coverage、核心签名稳定性和
@@ -441,6 +452,356 @@ Node 测试 25 项通过，production build 成功。上述结果证明工程合
 证据目录：`evals/runs/external_polar_length.20260814.r1.retry5/`；持久化工作区：
 `projects/default/runs/run_019fff4a-6644-79b0_a41191c7/`；后端日志：
 `evals/runs/backend.external_polar_length.interaction5.20260814.kimi.two_pass.log`。
+
+## 2026-08-16 r15–r18 接管记录
+
+后续只读复核补充了 r15–r17 的实际边界，未改写原始运行产物：
+
+- r15 的 Data 阶段真实读取两份此前获取并登记的 SILSO 与 MWO/WSO 输入，形成周期 15–24 的
+  10 行逐周期表；相邻周期派生表为 15→16 至 23→24 的 9 对。Data 与 Hypothesis 审查曾把
+  10 行误解为 10 对，随后由确定性派生表和实验合同更正为 `independent_sample_count=9`。
+  运行最终阻断在 Experiment Design，没有实验结果、Hypothesis Update、Integration 或
+  Final Release。
+- r16 的 Kimi Planning reviewer 连续失败，未形成可验收的完整审查三件套；不能把该运行的
+  其他目录痕迹解释成 Data 缺失。
+- r17 的正确 workspace 根包含两份登记输入，错误后端根为空；Data 在错误根形成
+  `input_missing`，直接原因是 thread binding 分裂，不是真实项目数据缺失。
+
+r18 使用正式 launcher，将 `JW_WORKSPACE_DIR` 绑定到同一运行根重新启动。已确认 Planning、
+Data、Hypothesis 分别以 `accept_with_limits` 通过 Evidence；实验设计文件已生成并由自动实验
+模块标记为 `design_validated`。随后实验设计生产子 Agent 的 `qwen3.8-max` 调用连续两次
+返回 `403 AccessDenied.Unpurchased`，运行按错误策略在 `experiment_design` 阶段以
+`research_blocked` 终止。没有实验设计 Evidence、实验结果、Hypothesis Update、Integration
+或 Final Release。r15 的历史“10 对”表述保留在原始产物中，并在本记录中附上更正，避免把
+后续复核误写成当时已知事实。
+
+本次 r18 的结构化回执位于 `evals/runs/next_stage_polar_length.full.r18/`；其中
+`metadata.json` 记录 `outcome=research_blocked`、`current_stage=experiment_design`，错误
+摘要为必需 specialist 连续失败。自动实验目录保留 `design.json`、`response.json`、
+`compact_design_attempts.jsonl` 与 `state.json`，但没有 `record.json` 或结果报告。
+
+当前 r18 证据目录：`evals/runs/next_stage_polar_length.full.r18/`；观察链接：
+<http://127.0.0.1:4717/?threadId=01a00953-d62a-7843-b7fd-ac61074ea273>；后端日志：
+`evals/runs/backend.next_stage.full.r18.20260816.kimi.two_pass.log`。
+
+## 新 Token Plan 接口复验：CL-20260816-19
+
+r19 使用新的千问 Token Plan Base URL，以 production build WebUI 全新 headed 会话再次运行
+周期长度交互问题。用户输入仍只有原始自然语言研究问题，没有阶段名、工具调用说明或科学
+结论注入。
+
+- 线程：`01a00aff-2ac8-7dc3-952d-b0488669f9a1`；
+- 运行根：`projects/default/runs/run_01a00aff-2ac8-7dc3_efd2a077/`；
+- 模型：Qwen 生产者、Kimi for Coding Evidence，`two_pass`；
+- 耗时：1174.074 秒；
+- 终态：`research_blocked`，持久化状态为 `blocked/planning`；
+- 完整性：Planning artifact v0001 已生成，Evidence 三件套均未落盘，Data 未启动。
+
+新千问接口在路由和 Planning 生产期间持续返回 HTTP 200，没有出现 401、403、
+`AccessDenied`、`input_missing` 或 workspace 根分裂。直接阻断原因是 Kimi Evidence 的原子
+提交连续不符合科学质量字段要求：缺口证据填写了虚构来源、`release_candidate` 状态与结论
+上限不一致、模拟或综述材料被赋予过高结论上限，并在接受型结果中遗漏 `accepted_claims`。
+严格检查拒绝了这些提交，因此没有把不完整审查写成成功结果。
+
+后续修改保留 r19 原始产物不变：Evidence 提交增加了只降低主张强度的安全修正，并补充了
+缺口来源、结论上限和接受主张字段的明确提示。Data Agent 同时增加学术检索、任务级网页
+来源和小型数据代码分析能力；这些修改发生在 r19 之后，必须由全新会话验证。
+
+证据目录：`evals/runs/next_stage_polar_length.full.r19/`；后端日志：
+`evals/runs/backend.next_stage.full.r19.20260816.kimi.two_pass.log`；harness 日志：
+`evals/runs/webui.next_stage_polar_length.full.r19.20260816.harness.log`。
+
+## Qwen Harness 与 Data 增强复验：CL-20260816-20
+
+r20 在新千问接口与 Data 增强代码加载后，以 production build WebUI 全新 headed 会话运行同一
+周期长度交互问题。页面只提交原始自然语言问题，没有阶段说明、科学答案或人工批准。
+
+- 线程：`01a00b3b-efb1-7de3-99e5-4d36137ef913`；
+- 运行根：`projects/default/runs/run_01a00b3b-efb1-7de3_dc5a1bc0/`；
+- 生产者：`qwen3.8-max`，Data 子 Agent 使用 `qwen3.7-plus`；Evidence 实际调用由后端日志
+  记录为 Kimi for Coding，模式为 `two_pass`；
+- 耗时：1289.036 秒；
+- 终态：`research_blocked`，持久化状态为 `blocked/data`；
+- 完整性：Planning 与 Data 各形成一套 assessment、scientific quality assessment 和
+  verdict；Planning 为 `accept_with_limits`，Data 为 `block`；后续阶段均未启动。
+
+Planning 生成并冻结了交互检验路线，明确把周对作为独立样本，预先规定交互项、加性与仅极区
+场基线、周期级置换、留一周期分析、滚动原点误差和降级条件。规划同时保留了早期极区场覆盖、
+MWO/WSO 制度差异、单位和符号约定等未决项，没有把这些内容写成已核验事实。
+
+Data 随后读取两份登记输入，生成周期 15–24 的十行前兆表和语义回执。Evidence 没有把文件
+存在直接视为合格结果：数据工件仍由自由文本适配而来，未把表头、单位、符号约定、逐行时间
+关系、有效独立样本数和不确定性完整投影到可审查字段，因此被阻断。审查提出的“需要周期
+25/26 当前周期输入”超出原问题限定的历史周期 15–24，不应构成必要输入缺失；现有状态机却
+仅凭 Reviewer 使用 `REQUIRED_DATA_INPUT_UNAVAILABLE` 标签就把该意见升级为永久阻断，导致
+本可返修的 Data 阶段提前终止。
+
+Data 入口的两个强制工具选择请求返回 HTTP 400；兼容层仅为
+`solar_data_open_context` 与 `prepare_solar_precursor_cycle_table` 两个确定性过渡动作生成本地
+工具调用，后续数据读取、质量审计和统计请求继续返回 HTTP 200。本轮没有出现 401、403、
+超时、工作区分裂或运行期 Schema 校验错误。Data 没有调用外部 Harness 检索或托管代码分析，
+因此本轮不能作为 Harness 来源绑定的端到端验收。
+
+r20 只证明 Data 生产与审查阻断路径被真实运行到；它没有形成 Harness 回执、实验设计或结果、
+样本外指标、Hypothesis Update、Integration 或 Final Release，也没有产生可支持或反对交互作用
+假设的科学结论。
+
+该运行保留为修复前证据。后续工作包括：让必要输入缺失以任务绑定的数据清单为准；把周期对
+表、时间边界、单位、符号、来源制度和缺口投影为结构化 Data 主张；加固 Harness 路径、来源
+角色、响应不完整状态和凭据回显处理；修复后必须使用全新会话复验。
+
+证据目录：`evals/runs/next_stage_polar_length.full.r20/`；后端日志：
+`evals/runs/backend.next_stage.full.r20.20260816.kimi.two_pass.log`；harness 日志：
+`evals/runs/webui.next_stage_polar_length.full.r20.20260816.harness.log`。
+
+## 独立进程会话前的失败：CL-20260817-21
+
+r21 使用 production build WebUI 全新 headed 会话，页面仍只提交原始自然语言研究问题。Planning
+文稿已经写入任务目录，但尚未注册为 `ResearchArtifactV2`，assessment、scientific quality
+assessment 和 verdict 均为 0。运行约十分钟后，headed browser monitor、后端和 WebUI 临时执行
+进程同时消失；最后持久化状态仍为 `active/planning`。
+
+后端最后保存的事件是 Qwen 请求返回 HTTP 200，日志没有 shutdown traceback。该结果归类为
+`runtime_process_loss`：它不是 Evidence 对规划的阻断，也不支持任何太阳活动科学判断。失败记录
+位于 `evals/runs/next_stage_polar_length.full.r21/harness_failure.json`，后端日志位于
+`evals/runs/backend.next_stage.full.r21.20260817.kimi.two_pass.log`。后续 r22 将后端、WebUI 和 headed
+browser harness 分别放入独立 tmux 会话，仍使用全新线程和同一原始问题。
+
+## 独立进程会话复验：CL-20260817-22
+
+r22 的后端、production build WebUI 和 headed browser harness 分别运行在独立 tmux 会话中。
+页面只提交原始自然语言问题，用户批准、自动批准和运行指导均为 0。
+
+- 线程：`01a01073-6dc6-7670-bc42-cd81f1074a70`；
+- 观察链接：<http://127.0.0.1:4717/?threadId=01a01073-6dc6-7670-bc42-cd81f1074a70>；
+- 耗时：3207.258 秒，约 53.5 分钟；
+- WebUI harness 终态：`runtime_error`，`has_answer=false`；
+- 持久化状态：`active/data`；
+- 完整性：Planning 与 Data 各有一份 artifact、一份 assessment、一份 scientific quality
+  assessment 和一份 verdict；两轮均为 `accept_with_limits`，两轮均显式列出接受的 claim ID。
+
+Data context 为 `inputs_available`，必需数据集为 `silso-monthly-total-v2` 和
+`mwo-wso-polar-field-v2`，缺失列表为空且 `must_stop=false`。前兆表回执为
+`solar-precursor-cycle-table-v2 / verified`，包含 cycle 14 边界行和 cycles 15–24，共 11 行；
+回执声明 14→15 至 23→24 共 10 个请求周期对均可构造。回执仍明确记录预测量窗口尚未按计划
+实现、目标振幅不确定性未计算和极小期日期不确定性未计算。
+
+Data Agent 共调用 8 次受控代码分析 Harness。3 份回执因 `ReadTimeout` 为 `error`；另外 5 份
+provider 返回 `completed`，但均没有分析条目或分析工件。Data artifact 没有把这些空回执投影
+为候选证据，而是依靠任务绑定的本地结构化前兆表完成审查。该真实结果同时说明旧状态判定仍会
+把“provider 完成但没有必需分析输出”写成 completed，后续已增加 partial 降级回归。
+
+Data 审查后，系统开始生成 Hypothesis 草稿并绑定本地资料，但在 Hypothesis artifact 注册前，
+Qwen 长调用最终抛出 `APIConnectionError('Connection error.')`。因此 Hypothesis artifact、实验
+设计、实验结果、Hypothesis Update、Integration 和 Final Release 均为 0。本轮没有交互估计、
+样本外误差或可支持/反对交互作用的科学结论。
+
+证据目录：`evals/runs/next_stage_polar_length.full.r22/`；持久化工作区：
+`projects/default/runs/run_01a01073-6dc6-7670_57c7c500/`；后端日志：
+`evals/runs/backend.next_stage.full.r22.20260817.kimi.two_pass.log`；harness 日志：
+`evals/runs/webui.next_stage_polar_length.full.r22.20260817.harness.log`。
+
+## Qwen Pro 同模型复验与 thinking/tool_choice 阻断：CL-20260818-23
+
+r23 在修复 Task 1–4 的最终复审问题后，以独立运行数据目录启动 backend、production build
+WebUI 和 headed browser harness。页面只提交原始自然语言问题，没有阶段提示、工具说明、科学
+答案或人工批准。
+
+- 线程：`01a0110f-d112-7241-87c7-e8325287c130`；
+- 观察链接：<http://127.0.0.1:4717/?threadId=01a0110f-d112-7241-87c7-e8325287c130>；
+- 时间：2026-08-18 02:50:37–03:03:21（本地时间）；
+- 耗时：764.153 秒，约 12.7 分钟；
+- 模型：`qwen3.8-max/custom-openai`；Planning、Data、Evidence、Hypothesis 和 Experiment
+  均按本轮配置使用千问；Evidence 与生产者属于同一模型家族，`heterogeneous=false`；
+- 用户干预：0 次批准、0 次自动批准、0 次运行指导；浏览器模式为 headed；
+- WebUI harness 终态：`research_blocked`，`has_answer=false`；持久化状态为 `blocked/planning`；
+- 完整性：Planning 形成 `v0001` artifact，但 assessment、scientific quality assessment、
+  verdict 和 Data artifact 均为 0，后续 Hypothesis、Experiment Design、Experiment Result、
+  Hypothesis Update、Integration 和 Final Release 均未启动。
+
+Planning 之后的必需 specialist 调用两次收到 Qwen/Token Plan 的 400 拒绝：
+`The tool_choice parameter does not support being set to required or object in thinking mode`。
+该错误不是科学审查意见，也不是数据缺失；状态机按“必需 specialist 连续失败两次”停止，保留
+`REQUIRED_SPECIALIST_FAILED_TWICE` 和原始错误摘要。浏览器另有 WebGL、SSL 和 D-Bus 环境提示，
+未被用作研究阻断原因。
+
+该轮暴露了 Qwen thinking 模式下 Evidence 原子提交仍使用 OpenAI object tool choice 的兼容缺口。
+随后新增回归：Evidence 进入提交阶段时只暴露唯一的 `evidence_review_submit_round` 工具，
+保持自动选择并通过短指令要求完整参数；Qwen 仍可保留思考模式，避免发送 provider 拒绝的
+`required/object` 选择。原 r23 目录和日志保持不变，修复后需要以全新会话复验。
+
+证据目录：`evals/runs/next_stage_polar_length.full.r23/`；持久化工作区：
+`projects/default/runs/run_01a0110f-d112-7241_8cfb89aa/`；后端日志：
+`evals/runs/backend.next_stage.full.r23.20260818.qwen.two_pass.log`；harness 日志：
+`evals/runs/webui.next_stage_polar_length.full.r23.20260818.harness.log`。
+
+## 全新复验终态：CL-20260817-24
+
+r24 的 headed production WebUI 会话已收尾。页面只提交周期长度交互问题原始自然语言，没有阶段提示、
+工具说明或人工批准。observer 线程为
+`01a01122-23fc-7e42-8b2f-e56ccae51b10`，观察链接为
+<http://127.0.0.1:4717/?threadId=01a01122-23fc-7e42-8b2f-e56ccae51b10>。
+
+- 时间：2026-08-17 19:10:41–20:27:43 UTC；耗时 4621.233 秒，约 77.0 分钟；
+- 模型：`qwen3.8-max/custom-openai`；生产者与 reviewer 同属 Qwen，`heterogeneous=false`，
+  审查模式为 `two_pass`；用户干预 0 次；
+- 终态：`research_blocked` / `blocked`，`has_answer=false`；assessment、scientific quality
+  assessment、Evidence review invocation 和科学结论均为 0。
+
+Data 路径的多次工具调用曾收到 Token Plan 兼容接口的 HTTP 400，兼容层合成了本地过渡调用；后续
+运行仍反复进入 Data 工具路径，最终以 `REQUIRED_SPECIALIST_FAILED_TWICE` 停止。该终态只说明本轮
+没有形成可审查的科研工件，不能解释为周期长度交互假设得到支持或反对。
+
+权威工作区 `projects/default/runs/run_01a01122-23fc-7e42_74c48881/` 的持久化状态为
+`blocked/data`：Planning 已接受，Data 被阻断，后续阶段均未启动。该工作区已经保存 Data context、
+前兆表 CSV、v2 回执和失败文件；只读复现显示，首要工程根因是审查器拒绝任务清单中的合法
+`/project/data/...` 虚拟路径，导致 full-research Data context 没有通过权威性检查。项目输入实际
+存在且与清单摘要匹配，前兆表回执也与 CSV 内容摘要一致。修复已加入受限项目共享目录映射、
+注册清单核对和回归测试，r24 原始阻断产物保持不变。
+
+证据目录：`evals/runs/next_stage_polar_length.full.r24/`；后端日志：
+`evals/runs/backend.next_stage.full.r24.20260818.qwen.two_pass.log`；harness 日志：
+`evals/runs/webui.next_stage_polar_length.full.r24.20260818.harness.log`。
+
+## 主问题全新复验：CL-20260818-25
+
+本轮以 production build WebUI 的全新 headed 会话，只提交主问题原始自然语言；没有提供阶段提示、
+工具说明、科学答案或人工批准。问题要求将资料冻结至 2026-06-30，判断第 26 太阳活动周正式强度
+分类和可检验峰值区间是否已经具备证据条件，并核查 SILSO、F10.7 和 MWO/WSO。
+
+- 线程：`01a01131-fcc4-7840-9419-330ee2e26e1c`；
+- 观察链接：<http://127.0.0.1:4727/?threadId=01a01131-fcc4-7840-9419-330ee2e26e1c>；
+- 时间：2026-08-17 19:28:03–20:36:07 UTC（2026-08-18 03:28:03–04:36:07 北京时间）；研究状态
+  在 4083.4 秒后写入阻断。后端背景运行随后于 20:37:28 UTC 结束，总执行时间 4164.283 秒；
+- 模型：`qwen3.8-max/custom-openai`；用户干预 0 次；
+- 终态：`research_blocked` / 持久化 `blocked/data`；没有最终回答；Hypothesis、Experiment Design、
+  Experiment Result、Hypothesis Update、Integration 和 Final Release 均未启动。
+
+Planning 已形成并通过 `accept_with_limits` 审查的 planning artifact、assessment、quality assessment
+和 verdict。Data 阶段生成了 `solar_precursor_cycle_table` 回执与 CSV：cycle 14 边界行、cycle 15–24
+的 10 个历史周期对，共 11 行。回执仍明确记录三项缺口：计划的极小期前后 6 个月窗口尚未实现、
+目标振幅不确定性未计算、极小日期不确定性未计算；F10.7 没有形成可核验的任务级序列和出处。
+这些是数据回执，不等同于已注册的 Data canonical artifact；`run_state` 中没有 Data artifact、
+Data assessment 或 Data verdict，因此不能把该表写成已完成的数据审查。
+
+Data 受控 Harness 共留下 12 份回执：两次 `code_interpreter` 为 `completed` 且各有两个分析工件，
+一次为空输出的 `partial`，八次因 `RemoteProtocolError: Server disconnected without sending a response`
+为 `error`；另一次 `web_search` 为 `partial`，保存 72 条外部线索/抽取工件，但部分页面抽取失败，
+没有升级为支持证据。Harness 记录只说明工具调用和失败边界，不构成太阳物理实验结果。
+
+Data 阶段最终失败回执记录了两次原因：第一次为缺少完整的 task-local canonical v1 artifact；第二次
+为千问思考模式拒绝 `tool_choice=required/object`（HTTP 400）。状态机因此停止在 Data 阶段。本轮没有
+计算交互或样本外指标，也没有形成支持、反对或正式发布第 26 周强度分类的科学结论。应保留原始运行
+目录和失败回执；修复 Data canonical artifact 完整性与 Qwen thinking/tool-choice 兼容后，必须用全新
+headed production WebUI 会话复验。
+
+证据目录：`projects/default/runs/run_01a01131-fcc4-7840_d304e57c/`；后端日志：
+`evals/runs/backend.main_sc26.retry1.20260818.qwen.two_pass.log`；harness 日志：
+`evals/runs/webui.main_sc26.current.retry1.20260818.harness.log`。
+
+## Token Plan Chat 兼容层最小真实探针：CL-20260818-HARNESS-01
+
+针对 r24 暴露的 `/responses` 404，先在不启动新的科学闭环、也不打印凭据的条件下做了一个
+小型协议探针。输入是一份已登记格式的逐周期 CSV，研究请求只要求读取表格、计算行列数并写出
+一个校验文本。
+
+- 协议：Token Plan OpenAI-compatible `chat/completions`；模型为 `qwen3.8-max`；
+- 结果：千问返回唯一 `run_python` function call，宿主在隔离 `python_workspace` 中真实执行，
+  标准输出报告 11 行、13 列，并生成 `verified rows=11` 文件；
+- 回执：`status=completed`，包含一条 `derived_calculation` 和一条 `derived_output`，工具轨迹
+  标记 `protocol=chat_completions`，无 errors/warnings；
+- 边界：执行代码、输入摘要、输出文件和回执均落在该调用目录；普通 prose 不会产生计算条目。
+
+该探针只验证端点协议、隔离执行和证据落盘，不证明任何太阳物理命题，也不能替代新的 headed
+production WebUI 全流程验收。r24 原始运行的 `research_blocked` 终态和失败现场保持不变，未被本探针改写。
+
+## 近期质量修复复验：CL-20260819-r31–r33
+
+### r31：Planning Evidence 阻断
+
+- 线程：`01a01676-70f7-75b1-bf00-32b6e1f78574`；运行：`01a01676-7169-7a61-b058-9e23d26f9fcc`；
+- 终态：`research_blocked`，持久化状态为 `blocked/planning`，无最终回答；
+- Planning artifact 曾生成，但连续两次没有形成与当前工件对应的 `ReviewVerdictV2`；Data、Hypothesis、
+  Experiment 和后续阶段均未启动；
+- 该轮是运行时审查交接失败，不能用来评价 Data Agent 或太阳物理假设。
+
+### r32：Planning/Data 接受，Hypothesis checkpoint 缺失
+
+r32 的 Planning 和 Data 各形成一套完整三件套，均为 `accept_with_limits`。Data 的 v2 周期表为
+11 行，覆盖 14→15 至 23→24 的 10 个请求周期对；MWO 代理、WSO 制度、周 15 回退值、回顾性平滑
+标签和 `n_eff≤10` 等限制均保留。Hypothesis 已生成候选草稿，但 checkpoint 没有绑定成功；没有
+实验设计、实验结果、Hypothesis Update、Integration 或 Final Release。该轮不构成完整闭环，也不
+提供交互效应的实证结果。
+
+### r33：修复后 fresh headed 会话（进行中快照）
+
+截至 2026-08-19 07:07（北京时间），r33 仍在同一 headed 会话中运行：
+
+- 线程：`01a016f8-df28-7ad2-affd-03fab73cd906`；运行：`01a016f8-df52-7bd0-ab47-9bceb3bc1946`；
+- 观察链接：<http://127.0.0.1:4751/?threadId=01a016f8-df28-7ad2-affd-03fab73cd906>；
+- Planning 与 Data 已各以 `accept_with_limits` 持久化；Hypothesis 已有低置信探索性草稿并在绑定
+  文献证据，checkpoint、实验与最终发布尚未形成；
+- 当前快照不是终态。终态、耗时、每阶段工件数量和任何科学结论必须在运行自然结束后从同一
+  `projects/default/runs/` 工作区与 `evals/runs/` 日志补录，不能由本快照推断。
+
+本轮对应的代码修复是结构化交接修复：`src/scientific_hypothesis/harness.py` 补齐模型可见的
+`scientific_quality` 合同并限制 `evidence_confidence_caps` 枚举；`jw/subagents/solar/solar_hypothesis.yaml`
+明确 checkpoint 不等于发布、`needs_revision` 只有一次有界返修机会。定向回归为 73 项通过、8 个
+子测试通过；该工程证据与真实模型调用、科学有效性保持分层。
+
+## 完整闭环收尾：CL-20260820-26
+
+本条目记录 `EXT-POLAR-LENGTH-FULL-01` 从 r34 到 r39 的同一任务收尾。fresh headed WebUI
+会话只提交原始自然语言问题；后续恢复只提交“继续完成上述完整科研闭环”。线程为
+`01a017a8-cf80-7371-a437-2079b63d13ff`，观察地址为
+<http://127.0.0.1:4717/?threadId=01a017a8-cf80-7371-a437-2079b63d13ff>，持久化工作区为
+`projects/default/runs/run_01a017a8-cf80-7371_e5f36de7/`。
+
+### 运行序列
+
+- r33 属于上一条独立线程，其浏览器监控在获得终态前中断；该快照不作为本任务的完成证据。
+- r34 在 Planning、Data 和第一版 Hypothesis 工件形成后因 `APIConnectionError` 结束，页面终态为
+  `runtime_error`。该失败保留，后续在同一任务上恢复。
+- r35 完成 Hypothesis 审查、Experiment Design、真实 Experiment Result、实验后 Hypothesis Update
+  和 Integration。真实实验运行
+  `question_0555d8c0e646-20260819T095630Z-beb9e677` 的 attempt-001 完成计算但区间依据未通过追溯；
+  attempt-002 补齐依据后重新执行并通过结果核验，科学终态为 `high_uncertainty`。
+- r36 暴露恢复路由误回到有界 Hypothesis、并把状态误写为 `released/hypothesis` 的问题；
+  Final Release 仍为 pending。r37 已恢复完整研究路由，但发布工具的逐字限制、逐字摘录、数字正则和
+  段落匹配造成多次无科学意义的返工，因此该轮被中止。
+- r38 删除上述文本级硬门，只保留发布边界结构检查，并把科学表达、限制覆盖和内容污染交给 Final
+  Evidence。运行 `01a01aee-537b-74e3-b35a-da074b5798a7` 于 577.834 秒内成功完成：
+  `final_release-artifact@v1` 与 Final Release 的三份审查文件落盘，verdict 为
+  `accept_with_limits`。
+- r39 增加“已接受报告实际返回后提交 released 状态”的终态动作。WSL 曾在第一次启动期间由外部
+  重启，服务恢复后从同一 headed WebUI 任务再次续跑；运行
+  `01a01b0c-b502-7eb2-9b3b-a9b6ed684df3` 于 66.417 秒内成功，最终状态为
+  `released/final_release`。
+
+### 科学结论与限制
+
+- `β3=12.0217`，周期对重抽样区间 `[-71.2719, 106.2204]` 覆盖零；
+- 加性零模型置换尾部比例为 `0.5193`，五项预注册支持条件均未通过；
+- 交互模型 `MAE/RMSE=81.27/117.63`，高于加性模型的 `34.06/43.44`；
+- 剔除 23→24 对或采用极小日期最长情景会使方向翻转；
+- 结论限于周期 15–24 的 10 个相邻周期对，不外推至周期 25，不形成因果机制、显著性、原创性或
+  正式预测声明。
+
+Final Release 的 ReviewAssessment 将正文主张评为有高置信支持，但记录两条引用映射可在后续重发布
+时改进；ScientificQualityAssessment 将结论与数值结果限定为 `evidence_constrained`。这些信息性
+引用问题没有改变数值、结论或 `accept_with_limits` verdict。
+
+证据包括：
+
+- `research/review/evals/runs/backend.next_stage.full.r38.release_semantic_review.20260820.qwen.two_pass.log`；
+- `research/review/evals/runs/backend.next_stage.full.r39.release_delivery.20260820.qwen.two_pass.log`；
+- `projects/default/runs/run_01a017a8-cf80-7371_e5f36de7/research_review/`；
+- `projects/default/runs/run_01a017a8-cf80-7371_e5f36de7/experiment/runs/question_0555d8c0e646-20260819T095630Z-beb9e677/`。
+
+交付前对当前工作树重新执行全量工程检查：Python 为
+`3668 passed, 13 skipped, 6 warnings, 8 subtests passed`，WebUI Node 为 `25/25`，production build、
+Python 编译及根仓库与 8.12.1 工作区的差异格式检查均通过。检查完成后停止本轮后端和 WebUI，
+`6174`、`4717`、`9239` 均无监听；运行目录与失败记录未删除。
 
 ## 新运行条目模板
 

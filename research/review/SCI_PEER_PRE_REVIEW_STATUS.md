@@ -48,9 +48,33 @@ Kimi Evidence 对每个 load-bearing claim 输出证据矩阵、方法与原创�
 
 ## 当前验证证据
 
-截至 2026-08-14，当前工作树具备以下证据：
+截至 2026-08-16，当前工作树具备以下证据：
 
-- 相关定向测试通过；最终全量 pytest 为 `3401 passed, 13 skipped, 6 warnings, 8 subtests passed`。
+本轮运行时修复的范围是 Qwen 传输异常处理：`jw/middleware/qwen_compat.py` 对同一异步
+Qwen 请求最多增加一次传输层重试，领域校验、API 参数错误和非 Qwen 模型不重试；
+`jw/llm/models.py` 将 Qwen/DashScope SDK 默认 `max_retries` 设为 0，避免 SDK 与中间件
+重试叠加。当前工作树重新执行的相关回归定向测试为 `581 passed`（含 8 个 subtests），
+自动实验子项目 `66 passed`，知识库子项目 `43 passed`。这属于工程回归证据，
+不等于真实科学闭环或结论有效性。
+
+2026-08-16 的 fresh headed 外部案例 EXT-POLAR-LENGTH-FULL-01 保留了连续运行事实：
+r10、r11 为 `research_blocked`，r12 在 Planning/Data 审查后因 Qwen 流式连接错误为
+`runtime_error`，r13 因 reviewer 配置未显式传入而在 planning 阶段阻断；r14 没有终态回执；
+r15 读取既有登记数据后在实验设计阶段阻断；r16 在 Planning reviewer 连续失败前未形成
+完整三件套；r17 因 thread binding 分裂在错误 workspace 根以 `input_missing` 阻断。r18 已
+使用单一 workspace 根重新启动，Planning、Data、Hypothesis 均形成 `accept_with_limits` 的
+Evidence 三件套；实验设计文件通过本地结构校验，但实验设计生产子 Agent 的 `qwen3.8-max`
+调用连续两次返回 `403 AccessDenied.Unpurchased`，运行在 `experiment_design` 阶段以
+`research_blocked` 终止。因此没有实验设计 Evidence、实验结果、Hypothesis Update、
+Integration 或 Final Release，不能计作完整闭环。上述失败状态均不改变 `do_not_launch`。
+
+r15 的源表包含周期 15–24 共 10 行，后续相邻周期分析单位为 9 对而非 10 对；该更正已写入
+派生表和实验输入合同。Data Agent 配置文件 `jw/subagents/solar/solar_data.yaml` 未修改，
+本轮工作主要在编排、运行时绑定、实验和 Evidence 衔接层。
+
+- 根目录全量 pytest 为 `3439 passed, 13 skipped, 6 warnings, 8 subtests passed`；WebUI Node
+  测试为 `25 passed`；Next.js production build 和 standalone 组装成功，保留一个已知
+  Turbopack NFT tracing warning。
 - WebUI 内置 Node 测试 `25 passed`；Next.js production build 和 standalone 组装成功，保留一个已知 Turbopack NFT tracing warning。
 - Qwen Max、Qwen Plus、Kimi K3 for Coding 和 DeepSeek V4 Pro 的真实普通回答、单工具、结构化输出、多轮工具四类探针全部通过。Kimi thinking 在普通回答和工具轮中可观察；DeepSeek 多轮工具确认了 `reasoning_content` 回传。
 - 可见质量集已经冻结为 10 例，明确要求每例使用全新 8.12.1 会话形成一次 baseline，冻结实现后再运行 3 次，并以 scientific conclusion signature 比较。

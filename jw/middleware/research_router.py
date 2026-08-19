@@ -46,6 +46,7 @@ from jw.research_protocols import (
     SOLAR_POLAR_PRECURSOR_PROTOCOL,
     detect_analysis_protocol,
     f107_discontinuity_directive,
+    solar_polar_precursor_directive,
 )
 from jw.research_review import store_from_config
 from jw.workspaces import workspace_root_from_config
@@ -183,10 +184,12 @@ Professional intents:
 - experiment_design: design a bounded experiment without claiming execution.
 - experiment_run: execute or resume a bounded accepted experiment.
 Each is a bounded verified_analysis request with its matching solar specialist.
-Hypothesis tasks must not be promoted to full_research
-unless the user explicitly asks for the complete planner -> hypothesis ->
-experiment workflow. Use task_intent=general and required_specialist=none for
-full_research because that route owns its fixed specialist graph.
+Conceptual hypothesis generation remains bounded.  A hypothesis question that
+asks the system to decide an empirical relation from observations, data, a
+prediction test, or a reproducible calculation requires full_research even when
+the user does not know or name the internal stages.  Use task_intent=general and
+required_specialist=none for full_research because that route owns its fixed
+specialist graph.
 
 Classify the actual evidence dependency, not the phrasing style. A short question
 about a named dataset is verified_analysis. A long conceptual explanation may
@@ -235,6 +238,7 @@ _EXTERNAL_EVIDENCE_TOOLS = (
     "web_search",
 )
 _COMPUTE_TOOLS = ("execute",)
+_SOLAR_PRECURSOR_TABLE_TOOL = "prepare_solar_precursor_cycle_table"
 _DATA_FALLBACK = re.compile(
     r"(?:数据|文件|表格|本地|workspace|dataset|data|file|csv|tsv|parquet|"
     r"json|fits?|计算|预测|回归|检验|calculate|predict|regression|test)",
@@ -481,6 +485,9 @@ def _continuation_route(state: Mapping[str, Any], text: str) -> dict[str, Any] |
                 continue
             if str(call.get("id") or "") in blocked_call_ids:
                 continue
+            if call.get("name") == "research_release_prepare":
+                stage = "final_release"
+                break
             args = call.get("args")
             if call.get("name") == "task" and isinstance(args, Mapping):
                 stage = specialist_to_stage.get(
@@ -521,6 +528,28 @@ def _hypothesis_intent(text: str) -> TaskIntent | None:
         if pattern.search(text):
             return intent
     return None
+
+
+def _final_release_generation_messages(messages: Sequence[object]) -> list[object]:
+    """Keep the scientific question and current request for release synthesis."""
+
+    latest = _latest_human(messages)
+    if latest is None:
+        return list(messages)
+    latest_index, latest_message = latest
+    original = next(
+        (
+            message
+            for message in messages[:latest_index]
+            if (
+                isinstance(message, HumanMessage)
+                or _message_role(message) in {"human", "user"}
+            )
+            and not _is_research_continuation_request(_message_text(message))
+        ),
+        None,
+    )
+    return [latest_message] if original is None else [original, latest_message]
 
 
 def _explicit_full_research(text: str) -> bool:
@@ -612,6 +641,26 @@ def _with_analysis_protocol(
     if protocol == "none":
         return normalized
     normalized["required_analysis_protocol"] = protocol
+    empirical_hypothesis = bounded_hypothesis and bool(
+        _CURRENT_OBSERVATION_HYPOTHESIS.search(text) or _DATA_FALLBACK.search(text)
+    )
+    if empirical_hypothesis and not _NEGATED_FULL_FALLBACK.search(text):
+        normalized.update(
+            {
+                "mode": "full_research",
+                "source_mode": "mixed",
+                "needs_computation": True,
+                "task_intent": "general",
+                "required_specialist": "none",
+                "reason": (
+                    "The empirical hypothesis must be resolved through verified "
+                    "data, literature, real computation, post-result hypothesis "
+                    "update, and reviewed release"
+                ),
+            }
+        )
+        normalized.pop("preliminary_stages", None)
+        return normalized
     if (
         protocol in {SILSO_CYCLE_REPRODUCTION_PROTOCOL, SOLAR_POLAR_PRECURSOR_PROTOCOL}
         and normalized.get("mode") != "full_research"
@@ -842,6 +891,66 @@ def _calls_since_latest_human(
         call_names[call_id] for call_id in successful_ids if call_id in call_names
     )
     return calls, successful_names
+
+
+def _latest_solar_precursor_receipt_status(
+    messages: Sequence[object],
+) -> str | None:
+    latest_human = _latest_human(messages)
+    start = latest_human[0] + 1 if latest_human else 0
+    for message in reversed(messages[start:]):
+        if not (isinstance(message, ToolMessage) or _message_role(message) == "tool"):
+            continue
+        name = (
+            message.get("name")
+            if isinstance(message, Mapping)
+            else getattr(message, "name", None)
+        )
+        if name != _SOLAR_PRECURSOR_TABLE_TOOL:
+            continue
+        try:
+            payload = json.loads(_message_text(message))
+        except (TypeError, ValueError):
+            return None
+        status = payload.get("status") if isinstance(payload, Mapping) else None
+        return status if isinstance(status, str) else None
+    return None
+
+
+def _verified_solar_precursor_table_ready(
+    route: Mapping[str, Any],
+    system_text: str,
+    latest_text: str,
+    successful_names: set[str],
+    messages: Sequence[object],
+) -> bool:
+    """Return whether the bounded Data producer has its canonical table.
+
+    The deterministic table is the Data protocol's terminal product.  Qwen may
+    still see optional audit/calculation tools after that tool succeeds and keep
+    issuing redundant Harness calls.  Detect the producer stage from either the
+    persisted route or its injected producer directive, then let the caller
+    suppress all tools for the next model turn so it must return the
+    receipt-backed result.
+    """
+
+    if _SOLAR_PRECURSOR_TABLE_TOOL not in successful_names:
+        return False
+    if _latest_solar_precursor_receipt_status(messages) != "verified":
+        return False
+    protocol = str(route.get("required_analysis_protocol") or "")
+    route_data_stage = (
+        protocol == SOLAR_POLAR_PRECURSOR_PROTOCOL
+        and str(route.get("required_specialist") or "") == "solar-data"
+        and str(route.get("task_intent") or "") == "data_preparation"
+    )
+    producer_context = "\n".join((system_text, latest_text))
+    injected_data_stage = (
+        "[RESEARCH_PRODUCER_V2]" in producer_context
+        and "stage=data" in producer_context
+        and "solar_polar_precursor_table_v1" in producer_context
+    )
+    return route_data_stage or injected_data_stage
 
 
 def _successful_specialists(
@@ -1098,7 +1207,7 @@ def _bounded_route_stages(route: Mapping[str, Any]) -> tuple[str, ...]:
         if stage in {"planning", "data", "hypothesis", "experiment_design"}
         and stage != final_stage
     ]
-    return tuple((*stages, final_stage))
+    return (*stages, final_stage)
 
 
 def _bounded_route_action(request: object) -> dict[str, Any]:
@@ -1706,7 +1815,10 @@ def _passthrough_accepted_release(
         return response
     config = _request_config(request)
     try:
-        report = store_from_config(config).accepted_release_markdown()
+        store = store_from_config(config)
+        report = store.accepted_release_markdown()
+        if isinstance(report, str) and report.strip():
+            store.mark_release_delivered()
     except Exception:
         logger.exception("accepted release state is unavailable")
         return _blocked_model_response(
@@ -2029,10 +2141,20 @@ class ResearchRouterMiddleware(AgentMiddleware[ResearchRoutingState, Any, Any]):
         calls, successful_names = _calls_since_latest_human(messages)
         latest_human = _latest_human(messages)
         latest_text = _message_text(latest_human[1]) if latest_human else ""
+        system_text = _message_text(request.system_message)
         required_analysis_protocol = str(
             route.get("required_analysis_protocol")
             or detect_analysis_protocol(latest_text)
         )
+        verified_precursor_table = _verified_solar_precursor_table_ready(
+            route,
+            system_text,
+            latest_text,
+            successful_names,
+            messages,
+        )
+        precursor_receipt_status = _latest_solar_precursor_receipt_status(messages)
+        nonverified_precursor_receipt = precursor_receipt_status in {"partial", "error"}
 
         directive = [
             "<research_route>",
@@ -2045,6 +2167,20 @@ class ResearchRouterMiddleware(AgentMiddleware[ResearchRoutingState, Any, Any]):
         ]
         forced_tool: str | None = None
         suppress_tools = False
+        release_generation_messages: list[object] | None = None
+        if verified_precursor_table:
+            directive.append(
+                "The deterministic solar precursor table has already returned "
+                "status=verified. Return its receipt-backed Data result now; "
+                "optional audit and Harness calculation tools are complete for "
+                "this producer turn and must not be called again."
+            )
+        elif nonverified_precursor_receipt:
+            directive.append(
+                "The latest deterministic solar precursor receipt is not verified. "
+                "Keep the current Data tools available, repair the reported gap or "
+                "error in place, and do not return it as a completed Data product."
+            )
 
         if mode == "fast_answer":
             directive.append(
@@ -2295,6 +2431,8 @@ class ResearchRouterMiddleware(AgentMiddleware[ResearchRoutingState, Any, Any]):
             )
             if required_analysis_protocol == F107_DISCONTINUITY_PROTOCOL:
                 directive.append(f107_discontinuity_directive())
+            if required_analysis_protocol == SOLAR_POLAR_PRECURSOR_PROTOCOL:
+                directive.append(solar_polar_precursor_directive())
             config = _request_config(request)
             try:
                 action = store_from_config(config).next_action()
@@ -2332,11 +2470,18 @@ class ResearchRouterMiddleware(AgentMiddleware[ResearchRoutingState, Any, Any]):
                     )
                 elif action["kind"] == "prepare_release":
                     forced_tool = "research_release_prepare"
+                    release_generation_messages = _final_release_generation_messages(
+                        messages
+                    )
                     directive.append(
-                        "Write one coherent reader-facing report using only accepted "
-                        "claims and required carried limitations. For every material "
-                        "passage, provide an exact draft_excerpt and its accepted "
-                        "claim_id in claim_citations, then call "
+                        "Write one coherent, concise scientific report using only "
+                        "accepted claims and the required carried limitations. State "
+                        "the result, uncertainty, alternatives, and scope in natural "
+                        "reader-facing language. Do not include raw JSON, internal IDs "
+                        "or hashes, tool/debug records, failed drafts, workflow status, "
+                        "or a verbatim limitations inventory. Keep claim_citations as "
+                        "separate machine metadata: bind each material passage to an "
+                        "accepted claim_id with a concise draft_excerpt, then call "
                         "research_release_prepare with the complete Markdown draft."
                     )
                 elif action["kind"] == "released":
@@ -2359,7 +2504,15 @@ class ResearchRouterMiddleware(AgentMiddleware[ResearchRoutingState, Any, Any]):
                 "\n".join(directive),
             )
         )
-        if forced_tool:
+        if release_generation_messages is not None:
+            prepared = prepared.override(messages=release_generation_messages)
+        if verified_precursor_table:
+            # A verified canonical table is the terminal Data product for this
+            # protocol.  Do not let later branch logic re-expose optional tools.
+            prepared = prepared.override(tools=[], tool_choice=None)
+        elif nonverified_precursor_receipt:
+            prepared = prepared.override(tools=list(request.tools), tool_choice=None)
+        elif forced_tool:
             # DashScope thinking models reject required/object ``tool_choice``.
             # Qwen-Agent's native pattern keeps tool choice automatic and makes
             # the intended capability the only visible function instead. This

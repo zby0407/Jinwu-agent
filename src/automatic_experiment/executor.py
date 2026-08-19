@@ -29,8 +29,10 @@ from .state import (
 
 IS_WINDOWS = os.name == "nt"
 IS_MACOS = sys.platform == "darwin"
+IS_LINUX = sys.platform.startswith("linux")
 
 WSL_DISTRO = "Ubuntu-E"
+WSL_PYTHON = "/usr/bin/python3" if IS_LINUX else "python3"
 EXPECTED_PACKAGES = {
     "astropy": "8.0.1",
     "h5netcdf": "1.8.1",
@@ -60,6 +62,14 @@ def windows_to_wsl(path: Path) -> str:
     return f"/mnt/{drive}{tail}"
 
 
+def _backend_path(path: Path) -> str:
+    if IS_WINDOWS:
+        return windows_to_wsl(path)
+    if IS_LINUX:
+        return str(path.resolve())
+    raise ExecutionError("WSL backend paths require Windows or Linux")
+
+
 def _safe_environment() -> dict[str, str]:
     result = {
         "PYTHONUTF8": "1",
@@ -73,8 +83,9 @@ def _safe_environment() -> dict[str, str]:
 
 
 def _run_wsl(args: list[str], timeout: int = 20) -> subprocess.CompletedProcess[str]:
+    command = ["wsl.exe", "-d", WSL_DISTRO, "--", *args] if IS_WINDOWS else args
     return subprocess.run(
-        ["wsl.exe", "-d", WSL_DISTRO, "--", *args],
+        command,
         cwd=PROJECT_ROOT,
         env=_safe_environment(),
         text=True,
@@ -89,7 +100,7 @@ def _run_wsl(args: list[str], timeout: int = 20) -> subprocess.CompletedProcess[
 
 def _locked_site_packages() -> tuple[str, dict[str, str], str | None]:
     site_probe = _run_wsl(
-        ["python3", "-I", "-c", "import site; print(site.getusersitepackages())"]
+        [WSL_PYTHON, "-I", "-c", "import site; print(site.getusersitepackages())"]
     )
     site_path = site_probe.stdout.strip() if site_probe.returncode == 0 else ""
     if not site_path:
@@ -104,7 +115,7 @@ def _locked_site_packages() -> tuple[str, dict[str, str], str | None]:
         f"names={json.dumps(list(EXPECTED_PACKAGES))};"
         "print(json.dumps({n:m.version('scikit-learn' if n=='sklearn' else n) for n in names}))"
     )
-    packages = _run_wsl(["python3", "-I", "-c", package_script])
+    packages = _run_wsl([WSL_PYTHON, "-I", "-c", package_script])
     if packages.returncode != 0:
         return site_path, {}, packages.stderr.strip()
     try:
@@ -119,7 +130,7 @@ def _locked_site_packages() -> tuple[str, dict[str, str], str | None]:
 def runtime_environment_snapshot() -> dict[str, Any]:
     if IS_MACOS:
         return sandbox_macos.runtime_snapshot(EXPECTED_PACKAGES)
-    python = _run_wsl(["python3", "--version"])
+    python = _run_wsl([WSL_PYTHON, "--version"])
     bubblewrap = _run_wsl(["bwrap", "--version"])
     site_path, installed, diagnostic = _locked_site_packages()
     mismatches = {
@@ -136,6 +147,8 @@ def runtime_environment_snapshot() -> dict[str, Any]:
     )
     return {
         "ready": ready,
+        "execution_backend": "native_wsl" if IS_LINUX else "windows_wsl_bridge",
+        "host_os": "linux" if IS_LINUX else "windows",
         "wsl_distro": WSL_DISTRO,
         "python_version": (python.stdout or python.stderr).strip(),
         "bubblewrap_version": (bubblewrap.stdout or bubblewrap.stderr).strip(),
@@ -296,24 +309,22 @@ def execute_attempt(
             str(budget["single_file_mb"] * 1024 * 1024),
         ]
         sandbox_policy = sandbox_macos.sandbox_policy_facts()
-    elif IS_WINDOWS:
+    elif IS_WINDOWS or IS_LINUX:
         runner = PROJECT_ROOT / "src" / "automatic_experiment" / "sandbox_runner.sh"
         for required in (runner, worker):
             if not required.is_file():
                 raise ExecutionError(
                     f"execution runtime is incomplete: {required.name}"
                 )
+        bridge_prefix = ["wsl.exe", "-d", WSL_DISTRO, "--"] if IS_WINDOWS else []
         command = [
-            "wsl.exe",
-            "-d",
-            WSL_DISTRO,
-            "--",
+            *bridge_prefix,
             "bash",
-            windows_to_wsl(runner),
+            _backend_path(runner),
             "--attempt-root",
-            windows_to_wsl(attempt_root),
+            _backend_path(attempt_root),
             "--runtime-file",
-            windows_to_wsl(worker),
+            _backend_path(worker),
             "--wall-seconds",
             str(budget["wall_seconds"]),
             "--cpu-seconds",
@@ -323,12 +334,13 @@ def execute_attempt(
             "--file-bytes",
             str(budget["single_file_mb"] * 1024 * 1024),
         ]
-        command_kind = "fixed_wsl_bubblewrap_python"
+        command_kind = (
+            "fixed_windows_wsl_bridge_bubblewrap_python"
+            if IS_WINDOWS
+            else "fixed_native_wsl_bubblewrap_python"
+        )
         command_arguments = [
-            "wsl.exe",
-            "-d",
-            WSL_DISTRO,
-            "--",
+            *bridge_prefix,
             "bash",
             "src/automatic_experiment/sandbox_runner.sh",
             "--attempt-root",
@@ -345,7 +357,11 @@ def execute_attempt(
             str(budget["single_file_mb"] * 1024 * 1024),
         ]
         sandbox_policy = {
-            "backend": f"WSL2/{WSL_DISTRO}+bubblewrap",
+            "backend": (
+                f"windows_wsl_bridge/{WSL_DISTRO}+bubblewrap"
+                if IS_WINDOWS
+                else f"native_wsl/{WSL_DISTRO}+bubblewrap"
+            ),
             "user_namespace": True,
             "pid_namespace": True,
             "network_namespace": True,
@@ -444,9 +460,11 @@ def execute_attempt(
         "started_at": started_at,
         "ended_at": ended_at,
         "wall_seconds": elapsed_seconds,
+        "execution_backend": "windows_wsl_bridge" if IS_WINDOWS else "native_wsl",
         "command_kind": command_kind,
         "command_arguments": command_arguments,
-        "windows_process_exit_code": exit_code,
+        "host_process_exit_code": exit_code,
+        "windows_process_exit_code": exit_code if IS_WINDOWS else None,
         "sandbox_exit_code": wrapper_exit,
         "sandbox_start_attempts": sandbox_start.get("attempts", 1),
         "sandbox_start_retries": sandbox_start.get("retries", 0),
@@ -660,7 +678,7 @@ def doctor() -> dict[str, Any]:
         "ready": version.returncode == 0,
         "version": (version.stdout or version.stderr).strip(),
     }
-    python = _run_wsl(["python3", "--version"])
+    python = _run_wsl([WSL_PYTHON, "--version"])
     checks["python"] = {
         "ready": python.returncode == 0,
         "version": (python.stdout or python.stderr).strip(),
@@ -753,10 +771,10 @@ def doctor() -> dict[str, Any]:
             site_packages,
             "/runtime/site-packages",
             "--bind",
-            windows_to_wsl(output),
+            _backend_path(output),
             "/workspace/output",
             "--ro-bind",
-            windows_to_wsl(runtime),
+            _backend_path(runtime),
             "/runtime.py",
             "/usr/bin/python3",
             "-I",

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -48,6 +49,7 @@ def _request(*tools, messages=None, model=None, tool_choice=None):
         updated.tool_choice = kwargs.get("tool_choice", request.tool_choice)
         updated.response_format = kwargs.get("response_format", request.response_format)
         updated.model_settings = kwargs.get("model_settings", request.model_settings)
+        updated.override.side_effect = override
         return updated
 
     request.override.side_effect = override
@@ -441,6 +443,45 @@ def test_planner_turn_disables_parallel_tools_and_serializes_provider_violation(
     assert response.result[0].response_metadata["jw_deferred_parallel_tool_calls"] == 1
 
 
+def test_planner_serializes_duplicate_compact_plan_calls():
+    middleware = QwenToolCompatibilityMiddleware(default_model="qwen3.7-plus")
+    request = _request({"name": "research_planner_create_empirical_plan"})
+    request.system_message = SystemMessage(
+        content="[RESEARCH_PRODUCER_V2]\nstage=planning"
+    )
+    handler = MagicMock(
+        return_value=ModelResponse(
+            result=[
+                AIMessage(
+                    content="",
+                    tool_calls=[
+                        {
+                            "name": "research_planner_create_empirical_plan",
+                            "args": {"compact_plan_json": "{}"},
+                            "id": "call-first",
+                            "type": "tool_call",
+                        },
+                        {
+                            "name": "research_planner_create_empirical_plan",
+                            "args": {"compact_plan_json": "{}"},
+                            "id": "call-second",
+                            "type": "tool_call",
+                        },
+                    ],
+                )
+            ]
+        )
+    )
+
+    with patch(
+        "jw.middleware.qwen_compat._read_model_override",
+        return_value=(None, None),
+    ):
+        response = middleware.wrap_model_call(request, handler)
+
+    assert [call["id"] for call in response.result[0].tool_calls] == ["call-first"]
+
+
 @pytest.mark.parametrize(
     ("receipt_tool", "next_action", "expected_tool"),
     [
@@ -555,6 +596,55 @@ def test_forced_tool_choice_strips_all_reasoning_content_from_history():
     assert prepared.model.extra_body["enable_thinking"] is False
     for message in prepared.messages:
         assert "reasoning_content" not in message.additional_kwargs
+
+
+def test_fresh_empirical_planner_exposes_only_single_compact_generation_tool():
+    middleware = QwenToolCompatibilityMiddleware(default_model="qwen3.7-plus")
+    tools = [
+        {"name": "research_planner_get_brief"},
+        {"name": "research_planner_create_empirical_plan"},
+        {"name": "research_planner_update_draft"},
+    ]
+    request = _request(
+        *tools,
+        messages=[
+            ToolMessage(
+                content=json.dumps(
+                    {
+                        "recommended_next_tool": (
+                            "research_planner_create_empirical_plan"
+                        ),
+                        "draft_checkpoint": {
+                            "completed_sections": [],
+                            "missing_sections": ["scope"],
+                        },
+                    }
+                ),
+                tool_call_id="call-brief",
+                name="research_planner_get_brief",
+            )
+        ],
+        tool_choice="auto",
+    )
+    request.system_message = SystemMessage(
+        content="[RESEARCH_PRODUCER_V2]\nstage=planning"
+    )
+    handler = MagicMock(return_value="ok")
+
+    with patch(
+        "jw.middleware.qwen_compat._read_model_override",
+        return_value=(None, None),
+    ):
+        assert middleware.wrap_model_call(request, handler) == "ok"
+
+    prepared = handler.call_args.args[0]
+    assert prepared.tool_choice is None
+    assert [tool["name"] for tool in prepared.tools] == [
+        "research_planner_create_empirical_plan"
+    ]
+    assert "Call research_planner_create_empirical_plan exactly once" in str(
+        prepared.system_message.content
+    )
 
 
 def test_data_stage_forces_context_open_before_any_data_tool():
@@ -673,6 +763,179 @@ async def test_async_data_stage_synthesizes_curated_adapter_after_rejection():
     }
 
 
+@pytest.mark.asyncio
+async def test_async_qwen_model_call_retries_one_truncated_stream():
+    class RemoteProtocolError(Exception):
+        pass
+
+    middleware = QwenToolCompatibilityMiddleware(default_model="qwen3.7-plus")
+    request = _request(read_dataset, messages=[HumanMessage(content="continue")])
+    recovered = ModelResponse(result=[AIMessage(content="recovered")])
+    handler = AsyncMock(
+        side_effect=[
+            RemoteProtocolError(
+                "peer closed connection without sending complete message body"
+            ),
+            recovered,
+        ]
+    )
+
+    with patch(
+        "jw.middleware.qwen_compat._read_model_override",
+        return_value=(None, None),
+    ):
+        response = await middleware.awrap_model_call(request, handler)
+
+    assert response.result == recovered.result
+    assert handler.await_count == 2
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("model_name", "failure"),
+    [
+        ("gpt-5.5", RuntimeError("peer closed connection")),
+        ("qwen3.7-plus", ValueError("domain validation failed")),
+    ],
+)
+async def test_async_model_retry_excludes_non_qwen_or_domain_errors(
+    model_name, failure
+):
+    middleware = QwenToolCompatibilityMiddleware(default_model="qwen3.7-plus")
+    request = _request(
+        read_dataset,
+        model=ChatOpenAI(model=model_name, api_key="test-key"),
+        messages=[HumanMessage(content="continue")],
+    )
+    handler = AsyncMock(side_effect=failure)
+
+    with (
+        patch(
+            "jw.middleware.qwen_compat._read_model_override",
+            return_value=(None, None),
+        ),
+        pytest.raises(type(failure), match=str(failure)),
+    ):
+        await middleware.awrap_model_call(request, handler)
+
+    assert handler.await_count == 1
+
+
+@pytest.mark.asyncio
+async def test_async_qwen_model_retry_stops_after_second_transport_failure():
+    class APIConnectionError(Exception):
+        pass
+
+    middleware = QwenToolCompatibilityMiddleware(default_model="qwen3.7-plus")
+    request = _request(read_dataset, messages=[HumanMessage(content="continue")])
+    handler = AsyncMock(
+        side_effect=[APIConnectionError("first"), APIConnectionError("second")]
+    )
+
+    with (
+        patch(
+            "jw.middleware.qwen_compat._read_model_override",
+            return_value=(None, None),
+        ),
+        pytest.raises(APIConnectionError, match="second"),
+    ):
+        await middleware.awrap_model_call(request, handler)
+
+    assert handler.await_count == 2
+
+
+@pytest.mark.asyncio
+async def test_async_qwen_thinking_tool_choice_rejection_retries_without_forced_choice():
+    """Nested Qwen agents must recover when no research-stage marker is present."""
+
+    middleware = QwenToolCompatibilityMiddleware(default_model="qwen3.7-plus")
+    request = _request(
+        read_dataset,
+        messages=[HumanMessage(content="read the registered dataset")],
+        tool_choice={
+            "type": "function",
+            "function": {"name": "read_dataset"},
+        },
+    )
+    recovered = ModelResponse(
+        result=[
+            AIMessage(
+                content="",
+                tool_calls=[
+                    {
+                        "name": "read_dataset",
+                        "args": {"path": "data.csv"},
+                        "id": "call-1",
+                    }
+                ],
+            )
+        ]
+    )
+    handler = AsyncMock(
+        side_effect=[
+            RuntimeError(
+                "The tool_choice parameter does not support being set to required "
+                "or object in thinking mode"
+            ),
+            recovered,
+        ]
+    )
+
+    with patch(
+        "jw.middleware.qwen_compat._read_model_override",
+        return_value=(None, None),
+    ):
+        response = await middleware.awrap_model_call(request, handler)
+
+    assert response.result == recovered.result
+    assert handler.await_count == 2
+    safe_request = handler.await_args_list[1].args[0]
+    assert safe_request.tool_choice is None
+    assert [
+        item.name if hasattr(item, "name") else item.get("name")
+        for item in safe_request.tools
+    ] == ["read_dataset"]
+    rendered = "\n".join(
+        block.get("text", "") if isinstance(block, dict) else str(block)
+        for block in safe_request.system_message.content
+    )
+    assert "forced tool_choice" in rendered
+
+
+@pytest.mark.asyncio
+async def test_async_qwen_retries_when_bound_model_hides_forced_choice():
+    """The agent factory may add tool_choice while binding the model downstream."""
+
+    middleware = QwenToolCompatibilityMiddleware(default_model="qwen3.7-plus")
+    request = _request(
+        read_dataset,
+        messages=[HumanMessage(content="read the registered dataset")],
+        tool_choice=None,
+    )
+    recovered = ModelResponse(result=[AIMessage(content="done")])
+    handler = AsyncMock(
+        side_effect=[
+            RuntimeError(
+                "The tool_choice parameter does not support being set to required "
+                "or object in thinking mode"
+            ),
+            recovered,
+        ]
+    )
+
+    with patch(
+        "jw.middleware.qwen_compat._read_model_override",
+        return_value=(None, None),
+    ):
+        response = await middleware.awrap_model_call(request, handler)
+
+    assert response.result == recovered.result
+    assert handler.await_count == 2
+    safe_request = handler.await_args_list[1].args[0]
+    assert safe_request.tool_choice is None
+    assert [item.name for item in safe_request.tools] == ["read_dataset"]
+
+
 def test_data_stage_routes_curated_precursor_inputs_to_specialized_adapter():
     tools = [
         {"name": "solar_data_open_context"},
@@ -720,6 +983,81 @@ def test_data_stage_routes_curated_precursor_inputs_to_specialized_adapter():
         "function": {"name": "prepare_solar_precursor_cycle_table"},
     }
     assert prepared.model.extra_body["enable_thinking"] is False
+
+
+@pytest.mark.parametrize("receipt_status", ["verified", "partial", "error"])
+def test_data_stage_suppresses_all_tools_only_after_verified_precursor_table(
+    receipt_status: str,
+):
+    """The inline Data subagent stops only for a verified canonical table."""
+
+    tools = [
+        {"name": "prepare_solar_precursor_cycle_table"},
+        {"name": "solar_research_analysis"},
+        {"name": "dataset_statistics"},
+        {"name": "audit_solar_data_quality"},
+    ]
+    messages = [
+        HumanMessage(content="prepare the bounded Data artifact"),
+        AIMessage(
+            content="",
+            tool_calls=[
+                {
+                    "name": "prepare_solar_precursor_cycle_table",
+                    "args": {
+                        "sunspot_path": "/project/shared/silso.txt",
+                        "polar_field_path": "/project/shared/polar.csv",
+                    },
+                    "id": "call-prepare",
+                }
+            ],
+        ),
+        ToolMessage(
+            content=json.dumps(
+                {
+                    "status": receipt_status,
+                    "artifact_refs": [
+                        "work/solar_data/solar_precursor_cycle_features.csv"
+                    ],
+                    "receipt_refs": [
+                        "receipts/datasets/solar_precursor_cycle_table.json"
+                    ],
+                    "row_count": 11,
+                }
+            ),
+            tool_call_id="call-prepare",
+            name="prepare_solar_precursor_cycle_table",
+        ),
+    ]
+    request = _request(*tools, messages=messages)
+    request.system_message = SystemMessage(
+        content=(
+            "[RESEARCH_PRODUCER_V2]\n"
+            "phase=data\n"
+            "stage=data\n"
+            'deterministic_data_context={"required_data_product":'
+            '"solar_polar_precursor_table_v1"}'
+        )
+    )
+    handler = MagicMock(return_value="ok")
+
+    with patch(
+        "jw.middleware.qwen_compat._read_model_override",
+        return_value=(None, None),
+    ):
+        assert (
+            QwenToolCompatibilityMiddleware(
+                default_model="qwen3.8-max"
+            ).wrap_model_call(request, handler)
+            == "ok"
+        )
+
+    prepared = handler.call_args.args[0]
+    if receipt_status == "verified":
+        assert prepared.tools == []
+        assert prepared.tool_choice is None
+    else:
+        assert prepared.tools == tools
 
 
 def test_data_stage_uses_preopened_silso_context_and_forces_reproduction():
@@ -1266,6 +1604,58 @@ def test_middleware_stops_third_identical_tool_attempt_after_two_errors():
     assert message.response_metadata["finish_reason"] == "stop"
 
 
+def test_middleware_stops_third_identical_contract_blocked_tool_attempt():
+    """Bounded specialist tools must not loop on an unavailable tool name."""
+
+    middleware = QwenToolCompatibilityMiddleware(default_model="qwen3.7-plus")
+    messages = [HumanMessage(content="continue")]
+    for index in range(2):
+        call_id = f"call_blocked_{index}"
+        messages.extend(
+            [
+                AIMessage(
+                    content="",
+                    tool_calls=[
+                        {
+                            "name": "read_file",
+                            "args": {"filename": "work/data.csv"},
+                            "id": call_id,
+                            "type": "tool_call",
+                        }
+                    ],
+                ),
+                ToolMessage(
+                    "[CONTRACT TOOL BLOCKED] 'read_file' is outside this specialist's bounded tool set.",
+                    tool_call_id=call_id,
+                    name="read_file",
+                ),
+            ]
+        )
+    third = AIMessage(
+        content="",
+        tool_calls=[
+            {
+                "name": "read_file",
+                "args": {"filename": "work/data.csv"},
+                "id": "call_blocked_third",
+                "type": "tool_call",
+            }
+        ],
+    )
+    request = _request(read_dataset, messages=messages)
+    handler = MagicMock(return_value=ModelResponse(result=[third]))
+
+    with patch(
+        "jw.middleware.qwen_compat._read_model_override",
+        return_value=(None, None),
+    ):
+        response = middleware.wrap_model_call(request, handler)
+
+    message = response.result[0]
+    assert not message.tool_calls
+    assert message.content.startswith("[TOOL RETRY STOP]")
+
+
 @pytest.mark.parametrize("marker_location", ["system", "delegation_message"])
 @pytest.mark.parametrize("provider_shape", ["openai", "anthropic"])
 def test_evidence_navigation_opens_reads_each_source_then_forces_atomic_submit(
@@ -1413,9 +1803,216 @@ def test_evidence_navigation_opens_reads_each_source_then_forces_atomic_submit(
         assert "novelty_not_assessed" in final_instruction
         assert "candidate fields" in final_instruction
     else:
-        assert captured["tool_choice"]["function"]["name"] == (
-            "evidence_review_submit_round"
+        assert captured["tool_choice"] is None
+        assert [
+            tool.name if hasattr(tool, "name") else tool["name"]
+            for tool in captured["tools"]
+        ] == ["evidence_review_submit_round"]
+        assert "The only remaining action" in middleware._message_text(
+            captured["system"]
         )
+
+
+def test_qwen_evidence_submit_uses_single_tool_auto_selection_in_thinking_mode():
+    """DashScope Qwen rejects forced tool_choice even when a request disables thinking."""
+    middleware = QwenToolCompatibilityMiddleware(default_model="qwen3.8-max")
+    human = HumanMessage(
+        content="Evidence Reviewer\n[EVIDENCE_REVIEW_V2]\nreview_mode=data"
+    )
+    open_call = AIMessage(
+        content="",
+        tool_calls=[
+            {
+                "name": "evidence_review_open_context",
+                "args": {"review_mode": "data"},
+                "id": "open",
+                "type": "tool_call",
+            }
+        ],
+    )
+    open_result = ToolMessage(
+        content=json.dumps(
+            {
+                "ok": True,
+                "result": {
+                    "artifacts": [{"evidence_refs": ["source.json"], "claims": []}]
+                },
+            }
+        ),
+        tool_call_id="open",
+        name="evidence_review_open_context",
+    )
+    read_call = AIMessage(
+        content="",
+        tool_calls=[
+            {
+                "name": "evidence_review_read_source",
+                "args": {"review_mode": "data", "source_ref": "source.json"},
+                "id": "read",
+                "type": "tool_call",
+            }
+        ],
+    )
+    read_result = ToolMessage(
+        content='{"ok": true, "result": {"content": "source"}}',
+        tool_call_id="read",
+        name="evidence_review_read_source",
+    )
+    request = _request(
+        {"name": "evidence_review_open_context"},
+        {"name": "evidence_review_read_source"},
+        evidence_review_submit_round,
+        messages=[human, open_call, open_result, read_call, read_result],
+    )
+    request.system_message = SystemMessage(
+        content="Evidence Reviewer\n[EVIDENCE_REVIEW_V2]\nreview_mode=data"
+    )
+    captured = {}
+
+    def handler(prepared):
+        captured["request"] = prepared
+        return ModelResponse(result=[AIMessage(content="submit")])
+
+    with patch(
+        "jw.middleware.qwen_compat._read_model_override",
+        return_value=(None, None),
+    ):
+        middleware.wrap_model_call(request, handler)
+
+    prepared = captured["request"]
+    assert prepared.tool_choice is None
+    assert [
+        _tool.get("name") if isinstance(_tool, dict) else _tool.name
+        for _tool in prepared.tools
+    ] == ["evidence_review_submit_round"]
+    assert "The only remaining action" in middleware._message_text(
+        prepared.system_message
+    )
+
+
+def test_evidence_navigation_batches_declared_source_reads_before_submit():
+    middleware = QwenToolCompatibilityMiddleware(default_model="qwen3.7-plus")
+    source_refs = [f"source-{index:02d}.json" for index in range(30)]
+    human = HumanMessage(content="[EVIDENCE_REVIEW_V2]\nreview_mode=experiment_design")
+    open_call = AIMessage(
+        content="",
+        tool_calls=[
+            {
+                "name": "evidence_review_open_context",
+                "args": {"review_mode": "experiment_design"},
+                "id": "open",
+                "type": "tool_call",
+            }
+        ],
+    )
+    open_result = ToolMessage(
+        content=json.dumps(
+            {
+                "ok": True,
+                "result": {"artifacts": [{"evidence_refs": source_refs, "claims": []}]},
+            }
+        ),
+        tool_call_id="open",
+        name="evidence_review_open_context",
+    )
+    request = _request(
+        {"name": "evidence_review_open_context"},
+        {"name": "evidence_review_read_source"},
+        evidence_review_submit_round,
+        messages=[human, open_call, open_result],
+    )
+    request.system_message = SystemMessage(content="Evidence Reviewer")
+
+    with patch(
+        "jw.middleware.qwen_compat._read_model_override",
+        return_value=(None, None),
+    ):
+        response = middleware.wrap_model_call(
+            request,
+            lambda _prepared: pytest.fail("declared-source reads are deterministic"),
+        )
+
+    read_calls = response.result[0].tool_calls
+    assert [call["args"]["source_ref"] for call in read_calls] == source_refs
+    assert all(call["name"] == "evidence_review_read_source" for call in read_calls)
+
+
+def test_evidence_navigation_submits_after_one_failed_declared_source_read():
+    middleware = QwenToolCompatibilityMiddleware(default_model="qwen3.8-max")
+    human = HumanMessage(content="[EVIDENCE_REVIEW_V2]\nreview_mode=planning")
+    open_call = AIMessage(
+        content="",
+        tool_calls=[
+            {
+                "name": "evidence_review_open_context",
+                "args": {"review_mode": "planning"},
+                "id": "open",
+                "type": "tool_call",
+            }
+        ],
+    )
+    source_ref = "planner/drafts/"
+    open_result = ToolMessage(
+        content=json.dumps(
+            {
+                "ok": True,
+                "result": {
+                    "artifacts": [{"evidence_refs": [source_ref], "claims": []}]
+                },
+            }
+        ),
+        tool_call_id="open",
+        name="evidence_review_open_context",
+    )
+    read_call = AIMessage(
+        content="",
+        tool_calls=[
+            {
+                "name": "evidence_review_read_source",
+                "args": {"review_mode": "planning", "source_ref": source_ref},
+                "id": "read",
+                "type": "tool_call",
+            }
+        ],
+    )
+    failed_read = ToolMessage(
+        content=json.dumps(
+            {
+                "ok": False,
+                "error": {
+                    "type": "IsADirectoryError",
+                    "message": "declared source is not a readable file",
+                },
+            }
+        ),
+        tool_call_id="read",
+        name="evidence_review_read_source",
+        status="error",
+    )
+    request = _request(
+        {"name": "evidence_review_open_context"},
+        {"name": "evidence_review_read_source"},
+        evidence_review_submit_round,
+        messages=[human, open_call, open_result, read_call, failed_read],
+    )
+    request.system_message = SystemMessage(content="Evidence Reviewer")
+    captured = {}
+
+    def handler(prepared):
+        captured["request"] = prepared
+        return ModelResponse(result=[AIMessage(content="submit")])
+
+    with patch(
+        "jw.middleware.qwen_compat._read_model_override",
+        return_value=(None, None),
+    ):
+        middleware.wrap_model_call(request, handler)
+
+    assert "request" in captured
+    assert [
+        tool.get("name") if isinstance(tool, dict) else tool.name
+        for tool in captured["request"].tools
+    ] == ["evidence_review_submit_round"]
 
 
 @pytest.mark.parametrize(
@@ -1605,6 +2202,66 @@ def test_kimi_evidence_json_schema_becomes_one_atomic_submit_tool_call():
     assert completed.result[0].content == "Evidence review round persisted."
 
 
+@pytest.mark.parametrize(
+    ("result", "error_type", "parsed_present", "raw_message_present"),
+    [
+        (
+            {
+                "raw": AIMessage(content="model output"),
+                "parsed": None,
+                "parsing_error": ValueError("token=secret-model-response"),
+            },
+            "ValueError",
+            False,
+            True,
+        ),
+        (
+            {
+                "raw": AIMessage(content="model output"),
+                "parsed": None,
+                "parsing_error": None,
+            },
+            "parsed_missing",
+            False,
+            True,
+        ),
+        (
+            {
+                "raw": {"content": "model output"},
+                "parsed": evidence_review_submit_round.args_schema(
+                    **_kimi_evidence_final_request()[2]
+                ),
+                "parsing_error": None,
+            },
+            "raw_not_ai_message",
+            True,
+            False,
+        ),
+    ],
+)
+def test_kimi_evidence_structured_submit_returns_limited_diagnostic_capsule(
+    result, error_type, parsed_present, raw_message_present
+):
+    response = QwenToolCompatibilityMiddleware._evidence_structured_result(result)
+
+    message = response.result[0]
+    assert message.tool_calls == []
+    assert message.response_metadata["finish_reason"] == "stop"
+    assert message.content.splitlines()[:5] == [
+        "[KIMI EVIDENCE STRUCTURED SUBMIT FAILED]",
+        "event=kimi_evidence_structured_submit_failed",
+        f"error_type={error_type}",
+        f"parsed_present={str(parsed_present).lower()}",
+        f"raw_message_present={str(raw_message_present).lower()}",
+    ]
+    lines = message.content.splitlines()
+    assert len(lines) == 6
+    fingerprint = lines[5].removeprefix("fingerprint=")
+    assert re.fullmatch(r"[0-9a-f]{64}", fingerprint)
+    assert "secret-model-response" not in message.content
+    assert "model output" not in message.content
+
+
 def test_kimi_evidence_revise_uses_the_issue_owner_when_owner_is_omitted():
     middleware, _request, submission = _kimi_evidence_final_request()
     submission.update(
@@ -1638,8 +2295,10 @@ def test_kimi_evidence_revise_uses_the_issue_owner_when_owner_is_omitted():
     assert response.result[0].tool_calls[0]["args"]["next_owner"] == "solar-data"
 
 
-def test_kimi_evidence_normalizes_review_routing_and_quality_caps():
+def test_kimi_evidence_normalizes_review_routing_and_quality_caps(monkeypatch):
+    monkeypatch.setenv("JW_EVIDENCE_REVIEW_MODE", "two_pass")
     submission = {
+        "assessment_review_mode": "planning",
         "decision": "accept_with_limits",
         "issues": [
             {
@@ -1666,6 +2325,7 @@ def test_kimi_evidence_normalizes_review_routing_and_quality_caps():
         submission
     )
 
+    assert normalized["assessment_review_mode"] == "two_pass"
     assert normalized["decision"] == "revise"
     assert normalized["next_owner"] == "solar-data"
     claim = normalized["scientific_quality_claims"][0]

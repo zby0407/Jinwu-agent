@@ -92,8 +92,28 @@ _REPEATED_TOOL_ERROR_STOP = (
     "resume only after changing the approach or external state."
 )
 _TOOL_ERROR_COMPACT_THRESHOLD = 1_200
+
+
+def _is_structured_tool_error_message(message: BaseMessage) -> bool:
+    """Recognize bounded-tool failures that should count toward retry limits."""
+
+    text = QwenToolCompatibilityMiddleware._message_text(message).lstrip()
+    if text.startswith(_TOOL_ERROR_PREFIXES) or text.startswith(
+        "[CONTRACT TOOL BLOCKED]"
+    ):
+        return True
+    if not text.startswith("{"):
+        return False
+    try:
+        payload = json.loads(text)
+    except (TypeError, ValueError):
+        return False
+    return isinstance(payload, Mapping) and payload.get("status") == "error"
+
+
 _PLANNER_SERIAL_TOOL_NAMES = frozenset(
     {
+        "research_planner_create_empirical_plan",
         "research_planner_get_section",
         "research_planner_stage_revision_section",
         "research_planner_commit_revision_candidate",
@@ -149,6 +169,31 @@ _SILSO_REPRODUCTION_DATASET_IDS = frozenset(
 )
 
 _logger = logging.getLogger(__name__)
+
+_RETRYABLE_QWEN_TRANSPORT_ERRORS = frozenset(
+    {
+        "APIConnectionError",
+        "APITimeoutError",
+        "ConnectError",
+        "ConnectTimeout",
+        "ReadError",
+        "ReadTimeout",
+        "RemoteProtocolError",
+    }
+)
+
+
+def _is_retryable_qwen_transport_error(exc: BaseException) -> bool:
+    """Recognize one-request transport failures without retrying API rejections."""
+
+    current: BaseException | None = exc
+    for _ in range(8):
+        if current is None:
+            return False
+        if type(current).__name__ in _RETRYABLE_QWEN_TRANSPORT_ERRORS:
+            return True
+        current = current.__cause__ or current.__context__
+    return False
 
 
 def _safe_host(base_url: Any) -> str:
@@ -386,6 +431,13 @@ class QwenToolCompatibilityMiddleware(AgentMiddleware):
             model_settings = dict(getattr(request, "model_settings", None) or {})
             model_settings["parallel_tool_calls"] = False
             overrides["model_settings"] = model_settings
+        verified_data_terminal = (
+            data_stage_context
+            and self._latest_data_terminal_receipt_is_verified(projected_messages)
+        )
+        if verified_data_terminal:
+            request_tools = []
+            overrides["tools"] = []
         deterministic_tool = self._deterministic_planner_tool(
             projected_messages,
             request_tools,
@@ -407,7 +459,9 @@ class QwenToolCompatibilityMiddleware(AgentMiddleware):
                 enabled=evidence_review_context,
                 review_mode=self._evidence_review_mode(request_context),
             )
-        tool_choice = request.tool_choice
+        tool_choice = None if verified_data_terminal else request.tool_choice
+        if verified_data_terminal:
+            overrides["tool_choice"] = None
         if deterministic_tool is not None:
             # ChatAnthropic (used by Kimi for Coding) accepts a tool name or
             # Anthropic ``{type: tool, name: ...}``, not the OpenAI
@@ -415,7 +469,49 @@ class QwenToolCompatibilityMiddleware(AgentMiddleware):
             # A plain name is normalized by LangChain for the provider while
             # preserving the same required-tool semantics.
             model_class = type(request.model)
-            if model_class.__module__.startswith("langchain_anthropic"):
+            if deterministic_tool == "research_planner_create_empirical_plan":
+                # The Qwen business-space route rejects object/required
+                # tool_choice even when the request explicitly disables
+                # thinking. Expose only the compact plan tool and retain auto
+                # selection, so the model still supplies every scientific
+                # argument without reopening the full planner tool surface.
+                request_tools = [
+                    tool
+                    for tool in request_tools
+                    if _tool_name(tool) == deterministic_tool
+                ]
+                overrides["tools"] = request_tools
+                system_message = append_to_system_message(
+                    system_message,
+                    self._atomic_empirical_plan_instruction(deterministic_tool),
+                )
+                overrides["system_message"] = system_message
+                tool_choice = None
+            elif (
+                deterministic_tool == _EVIDENCE_SUBMIT_TOOL
+                and self._active_model_is_qwen(request)
+            ):
+                # Qwen3.8-Max can remain provider-side thinking-enabled even
+                # after ``disable_thinking`` adds ``enable_thinking=false``.
+                # DashScope then rejects the OpenAI object/required
+                # ``tool_choice`` used by a forced atomic review. Expose only
+                # the already-resolved submit tool, keep selection on auto,
+                # and make the one allowed action explicit in the prompt. The
+                # model still supplies the complete review arguments while
+                # the request remains valid in thinking mode.
+                request_tools = [
+                    tool
+                    for tool in request_tools
+                    if _tool_name(tool) == deterministic_tool
+                ]
+                overrides["tools"] = request_tools
+                system_message = append_to_system_message(
+                    system_message,
+                    self._atomic_evidence_submit_instruction(deterministic_tool),
+                )
+                overrides["system_message"] = system_message
+                tool_choice = None
+            elif model_class.__module__.startswith("langchain_anthropic"):
                 # Kimi for Coding is always-thinking.  Its Anthropic endpoint
                 # rejects *all* forced tool choices while thinking is active.
                 # At the scientific-decision edge, expose only the atomic
@@ -529,6 +625,24 @@ class QwenToolCompatibilityMiddleware(AgentMiddleware):
         )
 
     @staticmethod
+    def _atomic_empirical_plan_instruction(tool_name: str) -> str:
+        return (
+            f"Call {tool_name} exactly once now; it is the only available tool. "
+            "Return no prose. compact_plan_json must be a JSON string encoding "
+            "exactly these fields: scope with objective, population_or_period, "
+            "boundaries, non_goals; subquestions with question, purpose, "
+            "completion_evidence; evidence_gaps as strings; datasets with name, "
+            "purpose, required_variables, time_coverage_needed, cadence_needed, "
+            "quality_requirements; stage_methods with exactly the five keys data, "
+            "hypothesis_generation, experiment_design, experiment_result, "
+            "hypothesis_update and one method string per key; evaluation_focus as "
+            "strings. Preserve the exact bound research question. "
+            "Do not add route transitions, lifecycle fields, stage identifiers, "
+            "artifact identifiers, or a claimed result; the host constructs those "
+            "generic fields and later agents perform the research."
+        )
+
+    @staticmethod
     def _evidence_review_mode(content: str) -> str | None:
         explicit = list(
             re.finditer(
@@ -606,7 +720,13 @@ class QwenToolCompatibilityMiddleware(AgentMiddleware):
                         payload = json.loads(cls._message_text(message))
                     except (TypeError, ValueError):
                         continue
-                    if isinstance(payload, Mapping) and payload.get("ok") is True:
+                    # A structured read error is an inspected gap, not a reason
+                    # to reopen the same immutable source until the tool budget
+                    # is exhausted.  Preserve the error ToolMessage for the
+                    # reviewer and advance to the atomic verdict submission.
+                    if isinstance(payload, Mapping) and isinstance(
+                        payload.get("ok"), bool
+                    ):
                         read_refs.add(source_ref)
             elif name == _EVIDENCE_SUBMIT_TOOL:
                 try:
@@ -668,6 +788,34 @@ class QwenToolCompatibilityMiddleware(AgentMiddleware):
         ):
             return _EVIDENCE_SUBMIT_TOOL
         return None
+
+    @classmethod
+    def _latest_data_terminal_receipt_is_verified(
+        cls,
+        messages: Sequence[BaseMessage],
+    ) -> bool:
+        """Accept only the latest explicit terminal Data receipt."""
+
+        latest_human_index = -1
+        for index, message in enumerate(messages):
+            if getattr(message, "type", "") in {"human", "user"}:
+                latest_human_index = index
+        terminal_tools = {
+            "prepare_solar_precursor_cycle_table",
+            "reproduce_silso_cycle_extrema",
+        }
+        for message in reversed(messages[latest_human_index + 1 :]):
+            if (
+                not isinstance(message, ToolMessage)
+                or message.name not in terminal_tools
+            ):
+                continue
+            try:
+                payload = json.loads(cls._message_text(message))
+            except (TypeError, ValueError):
+                return False
+            return isinstance(payload, Mapping) and payload.get("status") == "verified"
+        return False
 
     @classmethod
     def _deterministic_data_tool(
@@ -776,6 +924,7 @@ class QwenToolCompatibilityMiddleware(AgentMiddleware):
             if message.name not in {
                 "research_planner_get_brief",
                 "research_planner_get_draft_status",
+                "research_planner_create_empirical_plan",
                 "research_planner_update_draft",
                 "research_planner_validate_draft",
                 "research_planner_apply_revision_patch",
@@ -789,6 +938,12 @@ class QwenToolCompatibilityMiddleware(AgentMiddleware):
                 return None
             if not isinstance(payload, Mapping):
                 return None
+            recommended_tool = payload.get("recommended_next_tool")
+            if (
+                recommended_tool == "research_planner_create_empirical_plan"
+                and recommended_tool in available
+            ):
+                return recommended_tool
             checkpoint = payload.get("draft_checkpoint")
             next_action = (
                 checkpoint.get("next_action")
@@ -1339,7 +1494,7 @@ class QwenToolCompatibilityMiddleware(AgentMiddleware):
         for message in messages[latest_human_index + 1 :]:
             if not isinstance(message, ToolMessage):
                 continue
-            if not cls._message_text(message).lstrip().startswith(_TOOL_ERROR_PREFIXES):
+            if not _is_structured_tool_error_message(message):
                 continue
             if call_signatures.get(str(message.tool_call_id)) == signature:
                 failures += 1
@@ -1539,6 +1694,79 @@ class QwenToolCompatibilityMiddleware(AgentMiddleware):
         )
 
     @classmethod
+    def _safe_retry_without_forced_tool_choice(
+        cls,
+        prepared: ModelRequest,
+    ) -> ModelRequest | None:
+        """Build one provider-safe retry for an otherwise valid Qwen tool call.
+
+        Token Plan routes can remain in thinking mode even when the request
+        carries ``enable_thinking=false``.  In that state DashScope rejects an
+        OpenAI ``required``/object ``tool_choice`` before the model gets a turn.
+        This occurs in nested Deep Agents too, where the request has no research
+        stage marker and therefore cannot use the domain-specific local adapter.
+        If the forced choice identifies one tool, expose only that tool and let
+        the provider use automatic selection; the prompt preserves the original
+        one-tool intent while making the retry valid for thinking mode.
+        """
+
+        forced = getattr(prepared, "tool_choice", None)
+        implicit_binding = forced in (None, False, "auto", "none")
+        selected_name: str | None = None
+        if not implicit_binding and isinstance(forced, Mapping):
+            function = forced.get("function")
+            if isinstance(function, Mapping):
+                candidate = function.get("name")
+                if isinstance(candidate, str) and candidate.strip():
+                    selected_name = candidate.strip()
+            if selected_name is None:
+                candidate = forced.get("name")
+                if isinstance(candidate, str) and candidate.strip():
+                    selected_name = candidate.strip()
+        elif not implicit_binding and isinstance(forced, str) and forced != "required":
+            selected_name = forced.strip() or None
+
+        tools = list(getattr(prepared, "tools", ()) or ())
+        named_tools = {
+            name: item for item in tools if (name := _tool_name(item)) is not None
+        }
+        if selected_name is None and forced == "required" and len(named_tools) == 1:
+            selected_name = next(iter(named_tools))
+        if not named_tools:
+            return None
+        if selected_name is not None:
+            selected_tool = named_tools.get(selected_name)
+            if selected_tool is None:
+                return None
+            retry_tools = [selected_tool]
+            action_text = f"call {selected_name} exactly once with complete arguments"
+        else:
+            # The agent factory can bind a forced choice downstream of this
+            # middleware, leaving request.tool_choice as None. Keep all declared
+            # tools in that case so the model can still select the action implied
+            # by the current conversation.
+            retry_tools = list(named_tools.values())
+            action_text = "continue with the appropriate tool call exactly once"
+
+        from deepagents.middleware._utils import append_to_system_message
+
+        instruction = (
+            "The provider rejected the previous forced tool_choice because this "
+            "Qwen route is in thinking mode. This retry uses automatic selection "
+            f"and asks the model to {action_text}, then return the tool result. "
+            "Do not answer in prose before calling it."
+        )
+        return prepared.override(
+            tools=retry_tools,
+            tool_choice=None,
+            messages=cls._strip_all_reasoning(list(prepared.messages)),
+            system_message=append_to_system_message(
+                prepared.system_message,
+                instruction,
+            ),
+        )
+
+    @classmethod
     def _synthesize_evidence_navigation_response(
         cls,
         prepared: ModelRequest,
@@ -1583,26 +1811,33 @@ class QwenToolCompatibilityMiddleware(AgentMiddleware):
                 ]
             )
         if opened is None and _EVIDENCE_OPEN_TOOL in available:
-            name = _EVIDENCE_OPEN_TOOL
-            args = {"review_mode": review_mode}
-            suffix = "open"
+            tool_calls = [
+                {
+                    "name": _EVIDENCE_OPEN_TOOL,
+                    "args": {"review_mode": review_mode},
+                    "id": "local_evidence_open",
+                    "type": "tool_call",
+                }
+            ]
         else:
             unread = [ref for ref in ordered_refs if ref not in read_refs]
             if not unread or _EVIDENCE_READ_TOOL not in available:
                 return None
-            name = _EVIDENCE_READ_TOOL
-            args = {"review_mode": review_mode, "source_ref": unread[0]}
-            suffix = hashlib.sha256(unread[0].encode("utf-8")).hexdigest()[:20]
-        message = AIMessage(
-            content="",
-            tool_calls=[
+            tool_calls = [
                 {
-                    "name": name,
-                    "args": args,
-                    "id": f"local_evidence_{suffix}",
+                    "name": _EVIDENCE_READ_TOOL,
+                    "args": {"review_mode": review_mode, "source_ref": source_ref},
+                    "id": (
+                        "local_evidence_"
+                        + hashlib.sha256(source_ref.encode("utf-8")).hexdigest()[:20]
+                    ),
                     "type": "tool_call",
                 }
-            ],
+                for source_ref in unread
+            ]
+        message = AIMessage(
+            content="",
+            tool_calls=tool_calls,
             response_metadata={"finish_reason": "tool_calls"},
         )
         return ModelResponse(result=[message])
@@ -1626,6 +1861,16 @@ class QwenToolCompatibilityMiddleware(AgentMiddleware):
         submission: Mapping[str, Any],
     ) -> dict[str, Any]:
         normalized = dict(submission)
+        assessment_mode = (
+            os.environ.get("JW_EVIDENCE_REVIEW_MODE", "two_pass").strip().lower()
+        )
+        if assessment_mode not in {"closed", "two_pass"}:
+            assessment_mode = "two_pass"
+        # This value describes the configured review procedure, not the
+        # artifact stage in ``review_mode``. Keep it deterministic at the
+        # model/tool boundary so a stage name cannot invalidate a complete
+        # atomic review submission.
+        normalized["assessment_review_mode"] = assessment_mode
         issues = [
             issue
             for issue in normalized.get("issues", [])
@@ -1668,14 +1913,66 @@ class QwenToolCompatibilityMiddleware(AgentMiddleware):
         return normalized
 
     @classmethod
+    def _kimi_evidence_structured_failure(
+        cls,
+        *,
+        error_type: str,
+        parsed_present: bool,
+        raw_message_present: bool,
+    ) -> ModelResponse:
+        """Return a bounded diagnostic when Kimi cannot form the atomic review.
+
+        The structured-output wrapper may retain a raw provider response and an
+        exception containing model text. Neither belongs in the agent history or
+        failure receipt. Keep only stable structural facts so the orchestrator can
+        distinguish repeated provider/schema failures without turning them into a
+        synthetic evidence submission.
+        """
+
+        lines = [
+            "[KIMI EVIDENCE STRUCTURED SUBMIT FAILED]",
+            "event=kimi_evidence_structured_submit_failed",
+            f"error_type={error_type}",
+            f"parsed_present={str(parsed_present).lower()}",
+            f"raw_message_present={str(raw_message_present).lower()}",
+        ]
+        fingerprint = hashlib.sha256("\n".join(lines).encode("utf-8")).hexdigest()
+        return ModelResponse(
+            result=[
+                AIMessage(
+                    content="\n".join([*lines, f"fingerprint={fingerprint}"]),
+                    response_metadata={"finish_reason": "stop"},
+                )
+            ]
+        )
+
+    @classmethod
     def _evidence_structured_result(
         cls,
         result: Mapping[str, Any],
     ) -> ModelResponse:
         parsing_error = result.get("parsing_error")
-        if isinstance(parsing_error, BaseException):
-            raise parsing_error
         parsed = result.get("parsed")
+        raw = result.get("raw")
+        raw_message_present = isinstance(raw, AIMessage)
+        if parsing_error is not None:
+            return cls._kimi_evidence_structured_failure(
+                error_type=type(parsing_error).__name__,
+                parsed_present=parsed is not None,
+                raw_message_present=raw_message_present,
+            )
+        if parsed is None:
+            return cls._kimi_evidence_structured_failure(
+                error_type="parsed_missing",
+                parsed_present=False,
+                raw_message_present=raw_message_present,
+            )
+        if not raw_message_present:
+            return cls._kimi_evidence_structured_failure(
+                error_type="raw_not_ai_message",
+                parsed_present=True,
+                raw_message_present=False,
+            )
         if hasattr(parsed, "model_dump"):
             submission = parsed.model_dump()
         elif isinstance(parsed, Mapping):
@@ -1683,9 +1980,6 @@ class QwenToolCompatibilityMiddleware(AgentMiddleware):
         else:
             raise TypeError("Kimi Evidence structured output returned no parsed value")
         submission = cls._normalize_kimi_evidence_submission(submission)
-        raw = result.get("raw")
-        if not isinstance(raw, AIMessage):
-            raise TypeError("Kimi Evidence structured output returned no AI message")
         message = raw.model_copy(
             update={
                 "content": "",
@@ -1772,7 +2066,35 @@ class QwenToolCompatibilityMiddleware(AgentMiddleware):
                 local_data = self._synthesize_data_transition_response(prepared)
                 if local_data is not None:
                     return local_data
-            raise
+                safe_retry = self._safe_retry_without_forced_tool_choice(prepared)
+                if safe_retry is not None:
+                    _logger.warning(
+                        "[jw.middleware.qwen_compat] Qwen rejected forced "
+                        "tool_choice; retrying once with a single auto-selected tool"
+                    )
+                    response = handler(safe_retry)
+                else:
+                    raise
+            elif self._active_model_is_qwen(
+                request
+            ) and _is_retryable_qwen_transport_error(exc):
+                _logger.warning(
+                    "[jw.middleware.qwen_compat] transient Qwen transport failure; "
+                    "retrying the same model request once (%s)",
+                    type(exc).__name__,
+                )
+                response = handler(prepared)
+            else:
+                raise
+        _logger.info(
+            "[jw.middleware.qwen_compat] model result tool_calls=%s",
+            [
+                call.get("name")
+                for message in getattr(response, "result", [])
+                if isinstance(message, AIMessage)
+                for call in message.tool_calls
+            ],
+        )
         if not self._active_model_is_qwen(request):
             return response
         tools = list(prepared.tools)
@@ -1836,7 +2158,35 @@ class QwenToolCompatibilityMiddleware(AgentMiddleware):
                 local_data = self._synthesize_data_transition_response(prepared)
                 if local_data is not None:
                     return local_data
-            raise
+                safe_retry = self._safe_retry_without_forced_tool_choice(prepared)
+                if safe_retry is not None:
+                    _logger.warning(
+                        "[jw.middleware.qwen_compat] Qwen rejected forced "
+                        "tool_choice; retrying once with a single auto-selected tool"
+                    )
+                    response = await handler(safe_retry)
+                else:
+                    raise
+            elif self._active_model_is_qwen(
+                request
+            ) and _is_retryable_qwen_transport_error(exc):
+                _logger.warning(
+                    "[jw.middleware.qwen_compat] transient Qwen transport failure; "
+                    "retrying the same model request once (%s)",
+                    type(exc).__name__,
+                )
+                response = await handler(prepared)
+            else:
+                raise
+        _logger.info(
+            "[jw.middleware.qwen_compat] model result tool_calls=%s",
+            [
+                call.get("name")
+                for message in getattr(response, "result", [])
+                if isinstance(message, AIMessage)
+                for call in message.tool_calls
+            ],
+        )
         if not self._active_model_is_qwen(request):
             return response
         tools = list(prepared.tools)

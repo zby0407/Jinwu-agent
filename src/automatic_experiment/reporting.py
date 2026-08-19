@@ -55,6 +55,7 @@ BASIS_LABELS = {
     "located_source": "已定位资料",
     "data_derived": "当前数据推导",
     "method_standard": "方法标准",
+    "bounded_pragmatic_choice": "预先声明的有界约定",
     "qualitative_no_fixed_threshold": "不设固定数值门槛的定性检查",
 }
 ARTIFACT_KIND_LABELS = {
@@ -433,8 +434,7 @@ def _format_measurement(row: dict[str, Any]) -> str:
 def _format_typed_result(row: dict[str, Any]) -> str:
     value = row.get("value")
     category_context = " ".join(
-        str(row.get(field, ""))
-        for field in ("display_name", "scientific_meaning")
+        str(row.get(field, "")) for field in ("display_name", "scientific_meaning")
     )
     if row.get("value_kind") == "boolean":
         rendered = "是" if value else "否"
@@ -570,25 +570,20 @@ def _input_lines(record: dict[str, Any]) -> list[str]:
     lines = [f"- 已确认输入快照总大小为 {snapshot['total_bytes']} 字节。"]
     for row in snapshot["inputs"]:
         label = row.get("source_path") or row["id"]
-        lines.append(
-            f"- `{label}`：已快照 {len(row.get('files', []))} 个文件。"
-        )
+        lines.append(f"- `{label}`：已快照 {len(row.get('files', []))} 个文件。")
         for file_row in row.get("files", []):
             profile = file_row.get("profile")
             if not isinstance(profile, dict) or profile.get("kind") != "tabular":
                 continue
             if profile.get("profile_complete"):
-                columns = "、".join(
-                    f"`{name}`" for name in profile.get("columns", [])
-                )
+                columns = "、".join(f"`{name}`" for name in profile.get("columns", []))
                 lines.append(
                     f"  - 表格结构：{profile['row_count']} 行；列为 {columns or '未识别'}。"
                 )
                 missing = profile.get("missing_value_counts", {})
                 if isinstance(missing, dict) and missing:
                     detail = "、".join(
-                        f"`{name}` {count} 个"
-                        for name, count in missing.items()
+                        f"`{name}` {count} 个" for name, count in missing.items()
                     )
                     lines.append(f"  - 空值概况：{detail}。")
             else:
@@ -596,7 +591,9 @@ def _input_lines(record: dict[str, Any]) -> list[str]:
                     f"  - 表格结构概况未完整生成：{profile.get('reason', '达到检查上限')}。"
                 )
     if snapshot.get("missing_required_ids"):
-        lines.append(f"- 缺失的必要输入：{', '.join(snapshot['missing_required_ids'])}。")
+        lines.append(
+            f"- 缺失的必要输入：{', '.join(snapshot['missing_required_ids'])}。"
+        )
     return lines
 
 
@@ -662,9 +659,7 @@ def _criterion_table(
             if not row.get("measurements"):
                 evidence_parts.append(
                     "端点"
-                    + ENDPOINT_STATUS_LABELS.get(
-                        endpoint["status"], endpoint["status"]
-                    )
+                    + ENDPOINT_STATUS_LABELS.get(endpoint["status"], endpoint["status"])
                 )
         decision = CRITERION_LABELS.get(
             row.get("assessment_status"),
@@ -750,10 +745,13 @@ def _execution_lines(record: dict[str, Any]) -> list[str]:
             "- 未启动实验进程。",
             "- 因此本报告不声称已经运行代码或生成实验测量。",
         ]
+    host_exit = facts.get(
+        "host_process_exit_code", facts.get("windows_process_exit_code")
+    )
     lines = [
         f"- 后端：{facts['sandbox_policy']['backend']}。",
         f"- 开始：{facts['started_at']}；结束：{facts['ended_at']}；墙钟 {facts['wall_seconds']} 秒。",
-        f"- Windows/沙箱退出状态：{facts['windows_process_exit_code']} / {facts['sandbox_exit_code']}。",
+        f"- 主机/沙箱退出状态：{host_exit} / {facts['sandbox_exit_code']}。",
         f"- 停止原因：{facts['stop_reason'] or '正常结束'}。",
         f"- stdout/stderr：{facts['stdout']['size_bytes']} / {facts['stderr']['size_bytes']} 字节。",
         "- 网络、用户、PID、IPC 与 UTS 命名空间已启用；输入和代码只读，只有本次 output 目录可写。",
@@ -778,9 +776,7 @@ def _attempt_lines(record: dict[str, Any]) -> list[str]:
     design_sha = record.get("design_sha256")
     for index, row in enumerate(history, start=1):
         parent = (
-            "首次尝试"
-            if not row.get("parent_attempt")
-            else f"承接第 {index - 1} 次"
+            "首次尝试" if not row.get("parent_attempt") else f"承接第 {index - 1} 次"
         )
         design_state = (
             "保持同一已核验方案"
@@ -791,16 +787,22 @@ def _attempt_lines(record: dict[str, Any]) -> list[str]:
         if execution is None:
             execution_text = "未执行"
         else:
+            host_exit = execution.get(
+                "host_process_exit_code", execution.get("windows_process_exit_code")
+            )
             execution_text = (
                 f"已执行 {execution['wall_seconds']:.3f} 秒；"
-                f"退出 {execution['windows_process_exit_code']}/"
+                f"退出 {host_exit}/"
                 f"{execution['sandbox_exit_code']}"
             )
         outcome = row.get("verification_outcome")
         if (
             outcome == "technical_failure"
             and execution is not None
-            and execution["windows_process_exit_code"] == 0
+            and execution.get(
+                "host_process_exit_code", execution.get("windows_process_exit_code")
+            )
+            == 0
             and execution["sandbox_exit_code"] == 0
         ):
             outcome_text = "执行完成，结果核验未通过"
@@ -819,9 +821,7 @@ def _attempt_lines(record: dict[str, Any]) -> list[str]:
         changes = row.get("code_changes", [])
         if changes:
             change_count = sum(
-                1
-                for change in changes
-                if change.get("change_kind") != "unchanged"
+                1 for change in changes if change.get("change_kind") != "unchanged"
             )
             change_reason += f" 涉及 {change_count} 个代码文件变更。"
         lines.append(
@@ -892,7 +892,9 @@ def _paired_comparison_lines(record: dict[str, Any]) -> list[str]:
             f"`{name}`={value:.6g}"
             for name, value in row["recomputed_measurements"].items()
         )
-        direction = f"{', '.join(row['model_input_columns'])} → {row['model_target_column']}"
+        direction = (
+            f"{', '.join(row['model_input_columns'])} → {row['model_target_column']}"
+        )
         if row["comparison_kind"] == "candidate_vs_candidate":
             comparison_label = "两个候选模型条件"
             baseline_label = f"{row['baseline_fit_condition']}（{direction}）"
@@ -964,7 +966,9 @@ def _artifact_lines(record: dict[str, Any]) -> list[str]:
         if chinese_task and not any(
             "\u3400" <= char <= "\u9fff" for char in description
         ):
-            description = f"{ARTIFACT_KIND_LABELS.get(row['kind'], row['kind'])} 实验产物"
+            description = (
+                f"{ARTIFACT_KIND_LABELS.get(row['kind'], row['kind'])} 实验产物"
+            )
         lines.append(
             f"- `{row['path']}`：{description}，{row['size_bytes']} 字节，"
             f"SHA-256 `{row['sha256']}`。"
@@ -1153,14 +1157,11 @@ def _scientific_reader_text(value: Any) -> str:
         "合成重叠期配对数据上",
     )
     text = text.replace(
-        "仅 18 条观测且评估集仅 6 条观测，统计精度有限，"
-        "影响校准效果估计的可靠性",
-        "当前仅有 18 条观测，其中 6 条用于留出评价；"
-        "误差估计仅反映这 6 条留出观测",
+        "仅 18 条观测且评估集仅 6 条观测，统计精度有限，影响校准效果估计的可靠性",
+        "当前仅有 18 条观测，其中 6 条用于留出评价；误差估计仅反映这 6 条留出观测",
     )
     text = text.replace(
-        "线性校准模型可能无法捕获仪器间的非线性差异，"
-        "影响对校准充分性的判断",
+        "线性校准模型可能无法捕获仪器间的非线性差异，影响对校准充分性的判断",
         "本研究只评估线性校准，尚未检验仪器读数关系是否存在"
         "需要其他函数形式描述的非线性结构",
     )
@@ -1179,12 +1180,10 @@ def _scientific_reader_text(value: Any) -> str:
     )
     text = text.replace(
         "扩大样本量以提高统计精度，尤其增加留出评估集的观测数量",
-        "在更多独立的重叠期观测上复核校准误差，"
-        "并为留出评价保留足够的观测数量",
+        "在更多独立的重叠期观测上复核校准误差，并为留出评价保留足够的观测数量",
     )
     text = text.replace(
-        "两种条件的校准后平均绝对误差保留标记观测拟合条件比"
-        "排除标记观测拟合条件高",
+        "两种条件的校准后平均绝对误差保留标记观测拟合条件比排除标记观测拟合条件高",
         "包含被标记观测拟合后的校准平均绝对误差比排除标记观测拟合后高",
     )
     text = re.sub(
@@ -1468,8 +1467,7 @@ def _scientific_reader_text(value: Any) -> str:
     text = text.replace("略有变化", "发生变化")
     text = text.replace(
         "参数变化幅度较小，但误差改善方向在所有留出观测上一致",
-        "全部留出观测上的误差变化方向一致；"
-        "参数差异的实际重要性尚不能由本设计判断",
+        "全部留出观测上的误差变化方向一致；参数差异的实际重要性尚不能由本设计判断",
     )
     text = text.replace(
         "参数变化幅度较小",
@@ -1918,10 +1916,8 @@ def _scientific_reader_text(value: Any) -> str:
         text,
     )
     text = text.replace(
-        "排除可疑观测后斜率和截距均发生了变化，"
-        "对应当前留出段观测到的误差系统性降低",
-        "排除可疑观测后，斜率和截距发生变化，"
-        "同时当前留出段的平均绝对误差降低",
+        "排除可疑观测后斜率和截距均发生了变化，对应当前留出段观测到的误差系统性降低",
+        "排除可疑观测后，斜率和截距发生变化，同时当前留出段的平均绝对误差降低",
     )
     text = re.sub(
         r"这表明拟合样本中被标记为[^。]{1,160}"
@@ -2015,6 +2011,7 @@ def _scientific_reader_text(value: Any) -> str:
             delta = float(raw_value)
         except ValueError:
             return match.group(0)
+
         def condition_name(value: str) -> str:
             value = re.sub(
                 r"\s*[-+−]?\d+(?:\.\d+)?(?:\s*[A-Za-z%/]+)?\s*$",
@@ -2165,9 +2162,8 @@ def _concise_abstract_result(value: Any) -> str:
                 "。",
                 sentence,
             )
-            if (
-                without_repeated_clause != sentence
-                and re.search(r"\d", without_repeated_clause)
+            if without_repeated_clause != sentence and re.search(
+                r"\d", without_repeated_clause
             ):
                 result.append(without_repeated_clause)
             continue
@@ -2192,11 +2188,7 @@ def _remove_unrequested_descriptive_pattern(value: str, task: str) -> str:
         )
     if re.search(r"对称|中点|均匀递增|数列性质", task):
         return value.strip()
-    sentences = [
-        row
-        for row in re.split(r"(?<=[。！？!?])\s*", value)
-        if row.strip()
-    ]
+    sentences = [row for row in re.split(r"(?<=[。！？!?])\s*", value) if row.strip()]
     kept = [
         sentence
         for sentence in sentences
@@ -2209,10 +2201,13 @@ def _remove_unrequested_descriptive_pattern(value: str, task: str) -> str:
 
 
 def _has_decimal_result(value: str) -> bool:
-    return re.search(
-        r"(?<![A-Za-z0-9_])[-+−]?\d+\.\d+(?:[eE][-+]?\d+)?",
-        value,
-    ) is not None
+    return (
+        re.search(
+            r"(?<![A-Za-z0-9_])[-+−]?\d+\.\d+(?:[eE][-+]?\d+)?",
+            value,
+        )
+        is not None
+    )
 
 
 def _needs_primary_abstract_sentence(
@@ -2354,7 +2349,9 @@ def _scientific_result_display(
         "排除标记观测时的",
         raw_display,
     )
-    raw_display = re.sub(r"(?:保留|排除)标记条件\s+", lambda match: match.group(0).rstrip(), raw_display)
+    raw_display = re.sub(
+        r"(?:保留|排除)标记条件\s+", lambda match: match.group(0).rstrip(), raw_display
+    )
     if raw_display == "有效行数" and re.search(
         r"(?:质量标记.*正常|正常.*质量标记)",
         raw_definition,
@@ -2490,9 +2487,8 @@ def _scientific_result_definition(
             "candidate" in str(column).casefold()
             for column in audit.get("candidate_model_input_columns", [])
         )
-        and "reference" in str(
-            audit.get("candidate_model_target_column", "")
-        ).casefold()
+        and "reference"
+        in str(audit.get("candidate_model_target_column", "")).casefold()
         for audit in (design or {}).get("paired_comparison_audits", [])
     )
     if candidate_to_reference:
@@ -2508,11 +2504,14 @@ def _scientific_result_definition(
             "以候选读数为自变量、参考读数为因变量的",
             text,
         )
-    if sum(
-        1
-        for audit in (design or {}).get("paired_comparison_audits", [])
-        if audit.get("comparison_kind") == "source_baseline_vs_candidate"
-    ) >= 2:
+    if (
+        sum(
+            1
+            for audit in (design or {}).get("paired_comparison_audits", [])
+            if audit.get("comparison_kind") == "source_baseline_vs_candidate"
+        )
+        >= 2
+    ):
         text = re.sub(
             r"作为(?:保留|排除)标记(?:观测)?条件校正效果的对照基准",
             "作为两种校正条件共同的对照基准",
@@ -2686,10 +2685,7 @@ def _report_measurement_selection(
 ) -> list[dict[str, Any]]:
     """Keep a long experiment table focused without dropping comparison evidence."""
 
-    plan = {
-        str(row["name"]): row
-        for row in (design or {}).get("measurement_plan", [])
-    }
+    plan = {str(row["name"]): row for row in (design or {}).get("measurement_plan", [])}
 
     def structural_diagnostic(row: dict[str, Any]) -> bool:
         if row.get("role") != "diagnostic":
@@ -2728,16 +2724,21 @@ def _report_measurement_selection(
     task_text = " ".join(
         (
             str((design or {}).get("normalized_task", "")),
-            str(((design or {}).get("research_frame") or {}).get("primary_question", "")),
+            str(
+                ((design or {}).get("research_frame") or {}).get("primary_question", "")
+            ),
         )
     )
-    source_delta_requested = re.search(
-        r"校(?:准|正)前后|相对(?:未校准|未校正|原始)[^，。；;]{0,20}"
-        r"(?:差值|改善|变化)|改善(?:量|幅度|多少)|"
-        r"\bimprovement\b|\bbefore\b[^.]{0,30}\bafter\b",
-        task_text,
-        re.IGNORECASE,
-    ) is not None
+    source_delta_requested = (
+        re.search(
+            r"校(?:准|正)前后|相对(?:未校准|未校正|原始)[^，。；;]{0,20}"
+            r"(?:差值|改善|变化)|改善(?:量|幅度|多少)|"
+            r"\bimprovement\b|\bbefore\b[^.]{0,30}\bafter\b",
+            task_text,
+            re.IGNORECASE,
+        )
+        is not None
+    )
     if not source_delta_requested:
         source_delta_names = {
             str(row["delta_measurement"])
@@ -2810,9 +2811,7 @@ def _report_measurement_selection(
                 canonical = str(source_audit.get("candidate_measurement", ""))
                 if alias and canonical and alias != canonical:
                     aliases[alias] = canonical
-    by_measurement_name = {
-        str(row.get("name", "")): row for row in measurements
-    }
+    by_measurement_name = {str(row.get("name", "")): row for row in measurements}
     measurements = [
         row
         for row in measurements
@@ -2823,9 +2822,7 @@ def _report_measurement_selection(
             == by_measurement_name[aliases[str(row.get("name", ""))]].get("value")
             and str(row.get("unit", ""))
             == str(
-                by_measurement_name[aliases[str(row.get("name", ""))]].get(
-                    "unit", ""
-                )
+                by_measurement_name[aliases[str(row.get("name", ""))]].get("unit", "")
             )
         )
     ]
@@ -2885,9 +2882,7 @@ def _report_measurement_selection(
             if row.get("role") == role:
                 add(row["name"])
     selected_names = set(priority[:target_count])
-    return [
-        row for row in measurements if str(row["name"]) in selected_names
-    ]
+    return [row for row in measurements if str(row["name"]) in selected_names]
 
 
 def _paired_delta_report_text(
@@ -2941,9 +2936,7 @@ def _paired_delta_report_text(
         left, right = baseline, candidate
     noun = "改善量" if baseline == "未校准读数" and left == baseline else "差值"
     display = f"{metric}{noun}（{left} − {right}）"
-    definition = (
-        f"在相同评价观测上，{left}的{metric}减去{right}的{metric}"
-    )
+    definition = f"在相同评价观测上，{left}的{metric}减去{right}的{metric}"
     return display, definition
 
 
@@ -2994,10 +2987,7 @@ def _paired_result_lines(
 ) -> list[str]:
     """Describe pointwise comparison direction using reader-facing condition names."""
 
-    plan = {
-        str(row["name"]): row
-        for row in (design or {}).get("measurement_plan", [])
-    }
+    plan = {str(row["name"]): row for row in (design or {}).get("measurement_plan", [])}
     audits = {
         str(row["id"]): row
         for row in (design or {}).get("paired_comparison_audits", [])
@@ -3027,9 +3017,7 @@ def _paired_result_lines(
             label,
         )
         if timed_condition:
-            return timed_condition.group("label").replace(
-                "保留", "包含", 1
-            )
+            return timed_condition.group("label").replace("保留", "包含", 1)
         if re.match(r"(?:保留|包含)[^，。；;]{0,30}标记观测条件", label):
             return "包含被标记观测时"
         named_condition = re.match(
@@ -3073,9 +3061,10 @@ def _paired_result_lines(
     handled_source_ids: set[str] = set()
     for row in paired[:3]:
         audit = audits.get(str(row.get("id", "")), {})
-        if (
-            audit.get("comparison_kind") != "source_baseline_vs_candidate"
-            or not row.get("all_candidate_absolute_errors_lower")
+        if audit.get(
+            "comparison_kind"
+        ) != "source_baseline_vs_candidate" or not row.get(
+            "all_candidate_absolute_errors_lower"
         ):
             continue
         count = int(row.get("row_count", 0))
@@ -3120,9 +3109,7 @@ def _paired_result_lines(
         if len(unique_labels) == 1:
             continue
         handled_source_ids.update(group["row_ids"])
-        latin_labels = any(
-            re.search(r"[A-Za-z0-9]$", label) for label in unique_labels
-        )
+        latin_labels = any(re.search(r"[A-Za-z0-9]$", label) for label in unique_labels)
         retained = next(
             (
                 match.group("object")
@@ -3154,9 +3141,14 @@ def _paired_result_lines(
             comparison_phrase = f"无论包含还是排除{shared}，"
         else:
             joined = (" 和 " if latin_labels else "和").join(unique_labels)
-            suffix = " 下" if latin_labels else (
-                "，" if all(label.endswith("时") for label in unique_labels)
-                else "下"
+            suffix = (
+                " 下"
+                if latin_labels
+                else (
+                    "，"
+                    if all(label.endswith("时") for label in unique_labels)
+                    else "下"
+                )
             )
             comparison_phrase = f"{joined}{suffix}"
         lines.append(
@@ -3334,10 +3326,7 @@ def _verified_primary_comparison_sentence(
                 audit.get("delta_measurement"),
             )
         }
-    plan = {
-        item["name"]: item
-        for item in (design or {}).get("measurement_plan", [])
-    }
+    plan = {item["name"]: item for item in (design or {}).get("measurement_plan", [])}
     names = [
         audit.get("baseline_measurement"),
         audit.get("candidate_measurement"),
@@ -3371,9 +3360,7 @@ def _verified_primary_comparison_sentence(
         )
         for name in names
     ]
-    return _scientific_sentence(
-        f"{scope_intro}，" + "，".join(parts)
-    )
+    return _scientific_sentence(f"{scope_intro}，" + "，".join(parts))
 
 
 def _conclusion_has_primary_comparison_values(
@@ -3427,10 +3414,7 @@ def _verified_condition_contrast_sentence(
 ) -> str:
     """Summarize two condition estimates and their verified contrast."""
 
-    plan = {
-        str(row["name"]): row
-        for row in (design or {}).get("measurement_plan", [])
-    }
+    plan = {str(row["name"]): row for row in (design or {}).get("measurement_plan", [])}
     plan.update(
         {
             str(row["id"]): {
@@ -3499,11 +3483,7 @@ def _verified_condition_contrast_sentence(
         ]
         return _scientific_sentence("敏感性比较中，" + "，".join(parts))
 
-    available = [
-        name
-        for name in observed_measurements
-        if name in plan
-    ]
+    available = [name for name in observed_measurements if name in plan]
     all_included = [
         name
         for name in available
@@ -3515,11 +3495,14 @@ def _verified_condition_contrast_sentence(
         if not is_contrast(name) and condition_role(name) == "excluded"
     ]
     for criterion in (design or {}).get("criteria", []):
-        if re.search(
-            r"\b(?:difference|contrast)\b|差值|差异|二者之差|条件间",
-            str(criterion.get("statement", "")),
-            re.IGNORECASE,
-        ) is None:
+        if (
+            re.search(
+                r"\b(?:difference|contrast)\b|差值|差异|二者之差|条件间",
+                str(criterion.get("statement", "")),
+                re.IGNORECASE,
+            )
+            is None
+        ):
             continue
         refs = [
             str(ref)
@@ -3701,9 +3684,7 @@ def _scientific_follow_up(
         rows = [row for row in rows if sensitivity_route.search(row) is None]
     temporal_inference_route = re.compile(r"自相关|有效自由度|时序依赖")
     if re.search(r"自相关|有效自由度|时序|时间序列|推断", objective_text) is None:
-        rows = [
-            row for row in rows if temporal_inference_route.search(row) is None
-        ]
+        rows = [row for row in rows if temporal_inference_route.search(row) is None]
     deferred = (frame or {}).get("deferred_questions", [])
     if not deferred:
         return rows
@@ -3717,14 +3698,9 @@ def _scientific_follow_up(
 
     def trigrams(value: Any) -> set[str]:
         compact = "".join(
-            char.casefold()
-            for char in _scientific_reader_text(value)
-            if char.isalnum()
+            char.casefold() for char in _scientific_reader_text(value) if char.isalnum()
         )
-        return {
-            compact[index : index + 3]
-            for index in range(max(0, len(compact) - 2))
-        }
+        return {compact[index : index + 3] for index in range(max(0, len(compact) - 2))}
 
     relevant = trigrams(objective)
     deferred_grams = [trigrams(row) for row in deferred]
@@ -3733,10 +3709,7 @@ def _scientific_follow_up(
         for row in rows
         if not (
             max(
-                (
-                    len(trigrams(row) & deferred_row)
-                    for deferred_row in deferred_grams
-                ),
+                (len(trigrams(row) & deferred_row) for deferred_row in deferred_grams),
                 default=0,
             )
             >= 3
@@ -3789,14 +3762,9 @@ def _scientific_limitations(
 
     def trigrams(value: Any) -> set[str]:
         compact = "".join(
-            char.casefold()
-            for char in _scientific_reader_text(value)
-            if char.isalnum()
+            char.casefold() for char in _scientific_reader_text(value) if char.isalnum()
         )
-        return {
-            compact[index : index + 3]
-            for index in range(max(0, len(compact) - 2))
-        }
+        return {compact[index : index + 3] for index in range(max(0, len(compact) - 2))}
 
     objective_grams = trigrams(objective)
     deferred_grams = [trigrams(row) for row in deferred]
@@ -3865,8 +3833,7 @@ def _scientific_discussion_rows(
             if not (
                 row.startswith("结果的适用范围受")
                 and any(
-                    other != row
-                    and re.search(r"适用于|外推|适用范围", other)
+                    other != row and re.search(r"适用于|外推|适用范围", other)
                     for other in rows
                 )
             )
@@ -3924,9 +3891,7 @@ def _fallback_main_report(
 
     if has_verified_results and len(measurement_table) > 2:
         result_block = [*measurement_table]
-        abstract = (
-            "本次分析已获得下列测量结果。解释范围限于实际使用的数据与本次方法。"
-        )
+        abstract = "本次分析已获得下列测量结果。解释范围限于实际使用的数据与本次方法。"
         discussion = (
             "现有结果描述当前数据中的数值关系或差异，不能据此作超出数据范围和"
             "方法假设的外推。"
@@ -4027,9 +3992,7 @@ def _limitation_sentence(value: Any) -> str:
     if re.fullmatch(r"数据为合成(?:演示)?数据", text):
         return "数据为合成演示数据，因此结果不能直接外推到真实观测"
     if re.fullmatch(r"仅\s*\d+\s*(?:行|条)留出观测", text):
-        return (
-            f"{text}，平均误差和参数差异可能对个别观测及划分方式敏感"
-        )
+        return f"{text}，平均误差和参数差异可能对个别观测及划分方式敏感"
     if re.search(r"^仅考察.+一种扰动$", text):
         return f"{text}，尚不能判断其他质量控制方案下结论是否一致"
     if re.fullmatch(r"(?:只拟合了|仅考察)线性(?:形式|关系)?", text):
@@ -4064,9 +4027,7 @@ def render_report(
         or {}
     )
     title = (
-        _scientific_reader_text(
-            _reader_facing_plan_text(narrative["title"], design)
-        )
+        _scientific_reader_text(_reader_facing_plan_text(narrative["title"], design))
         if narrative
         else "实验分析报告"
     )
@@ -4076,8 +4037,7 @@ def render_report(
             _reader_facing_plan_text(narrative["objective"], design)
         )
         if narrative
-        else frame.get("primary_question")
-        or task
+        else frame.get("primary_question") or task
     )
 
     if narrative:
@@ -4116,10 +4076,7 @@ def render_report(
             objective=objective,
         )
         next_steps = _scientific_follow_up(
-            [
-                _reader_facing_plan_text(row, design)
-                for row in narrative["next_steps"]
-            ],
+            [_reader_facing_plan_text(row, design) for row in narrative["next_steps"]],
             frame=frame,
             limitations=limitations,
             objective=objective,
@@ -4135,8 +4092,7 @@ def render_report(
                 "估计量。"
             )
             data_scope = (
-                "本报告仅纳入已经复核的数据质量与样本构成结果；其他计算值"
-                "不作为证据。"
+                "本报告仅纳入已经复核的数据质量与样本构成结果；其他计算值不作为证据。"
             )
             limitations = [
                 "主要比较尚未完成结果复核，当前结果只能说明数据质量与样本构成，"
@@ -4153,9 +4109,11 @@ def render_report(
                 if row.get("id") not in completed_ids
                 and _scientific_reader_text(row.get("objective", "")).strip()
             ]
-            next_steps = [
-                f"完成{pending_objectives[0]}并复核相应估计量，以回答主要研究问题。"
-            ] if pending_objectives else []
+            next_steps = (
+                [f"完成{pending_objectives[0]}并复核相应估计量，以回答主要研究问题。"]
+                if pending_objectives
+                else []
+            )
         else:
             conclusion = "本次没有获得实验结果，不能据此对研究问题作出数值判断。"
             strength = "当前没有可供科学解释的测量结果。"
@@ -4172,22 +4130,17 @@ def render_report(
                 ]
             )
         claim_boundary = _scientific_reader_text(
-            frame.get("claim_scope")
-            or "本报告只覆盖已提供的数据与已经完成的分析。"
+            frame.get("claim_scope") or "本报告只覆盖已提供的数据与已经完成的分析。"
         )
 
-    plan = {
-        row["name"]: row for row in (design or {}).get("measurement_plan", [])
-    }
+    plan = {row["name"]: row for row in (design or {}).get("measurement_plan", [])}
     measurement_by_name = {row["name"]: row for row in measurements}
     selected_measurements = [
         measurement_by_name[row["name"]]
         for row in (design or {}).get("measurement_plan", [])
         if row["name"] in measurement_by_name
     ]
-    selected_measurements.extend(
-        row for row in measurements if row["name"] not in plan
-    )
+    selected_measurements.extend(row for row in measurements if row["name"] not in plan)
     selected_measurements = _report_measurement_selection(
         selected_measurements,
         design,
@@ -4226,9 +4179,7 @@ def render_report(
         seen_result_rows.add(key)
         measurement_table.append(
             "| "
-            + " | ".join(
-                _table_text(item) for item in (display, value, definition)
-            )
+            + " | ".join(_table_text(item) for item in (display, value, definition))
             + " |"
         )
 
@@ -4244,9 +4195,8 @@ def render_report(
             if planned
             else _legacy_measurement_meaning(row["name"])
         )
-        if (
-            _historical_mse_means_signed_error(design)
-            and re.search(r"(?:^|_)mse(?:_|$)", str(row["name"]))
+        if _historical_mse_means_signed_error(design) and re.search(
+            r"(?:^|_)mse(?:_|$)", str(row["name"])
         ):
             display = _repair_historical_signed_error_text(display)
             definition = _repair_historical_signed_error_text(definition)
@@ -4257,9 +4207,7 @@ def render_report(
             measurement_name=str(row["name"]),
         )
 
-    result_plan = {
-        row["id"]: row for row in (design or {}).get("result_plan", [])
-    }
+    result_plan = {row["id"]: row for row in (design or {}).get("result_plan", [])}
     answer_result_refs = {
         str(ref)
         for criterion in (design or {}).get("criteria", [])
@@ -4272,9 +4220,7 @@ def render_report(
         for row in (design or {}).get("result_plan", [])
         if row["id"] in result_by_id
     ]
-    ordered_results.extend(
-        row for row in typed_results if row["id"] not in result_plan
-    )
+    ordered_results.extend(row for row in typed_results if row["id"] not in result_plan)
     remaining_result_rows = max(0, 12 - (len(measurement_table) - 2))
     for row in ordered_results:
         if remaining_result_rows <= 0:
@@ -4317,9 +4263,8 @@ def render_report(
             and R_SQUARED_PLAN.search(str(task)) is None
         ):
             continue
-        if (
-            row.get("value_kind") == "boolean"
-            and re.search(r"(?:稳健|robust)", str(display_name), re.IGNORECASE)
+        if row.get("value_kind") == "boolean" and re.search(
+            r"(?:稳健|robust)", str(display_name), re.IGNORECASE
         ):
             continue
         append_result_row(
@@ -4342,10 +4287,7 @@ def render_report(
             "high_uncertainty": "现有证据不足以形成可靠的数值判断。",
         }
         context_rows = _unique_report_texts(
-            [
-                row.removeprefix("- ")
-                for row in _early_context_lines(record, response)
-            ],
+            [row.removeprefix("- ") for row in _early_context_lines(record, response)],
             limit=3,
         )
         sections = [
@@ -4411,7 +4353,9 @@ def render_report(
     elif chinese_task:
         summary_intro = f"研究目标是{objective_text}。"
     else:
-        summary_intro = f"This analysis addresses the following question: {objective_text}."
+        summary_intro = (
+            f"This analysis addresses the following question: {objective_text}."
+        )
     if outcome not in {"completed_interpretable", "scientific_null"}:
         partial_phrases = {
             "partial_result": "本次仅形成部分结果，以下解释限于已完成部分。",
@@ -4529,9 +4473,11 @@ def render_report(
             for row in ordered_results[:3]
         ]
         if summary_items:
-            typed_summary = "已复核结果显示：" + "；".join(
-                f"{display}为{value}" for display, value in summary_items
-            ) + "。"
+            typed_summary = (
+                "已复核结果显示："
+                + "；".join(f"{display}为{value}" for display, value in summary_items)
+                + "。"
+            )
 
     conclusion_sentence = _scientific_sentence(conclusion) if conclusion else ""
     summary_details = (
@@ -4578,11 +4524,7 @@ def render_report(
         "",
         summary_intro,
         "",
-        *[
-            item
-            for row in summary_details
-            for item in (row, "")
-        ],
+        *[item for row in summary_details for item in (row, "")],
         "## 数据与方法",
         "",
         data_detail,
@@ -4632,6 +4574,7 @@ def render_report(
         )
         _validate_main_report_quality(report)
     return report
+
 
 def _legacy_measurement_display_name(name: str) -> str:
     lowered = name.lower()
@@ -4745,9 +4688,13 @@ def _validate_main_report_quality(report: str) -> None:
     if re.search(r"\d+\s*行[^。；\n]{0,20}(?:观测|拟合|留出)", report):
         raise RuntimeError("main report uses table-row language for observations")
     if re.search(r"\d+\s*(?:行|列)", report):
-        raise RuntimeError("main report exposes table dimensions instead of scientific units")
+        raise RuntimeError(
+            "main report exposes table dimensions instead of scientific units"
+        )
     if re.search(r"在\d+\s*条", report):
-        raise RuntimeError("main report has inconsistent spacing around an observation count")
+        raise RuntimeError(
+            "main report has inconsistent spacing around an observation count"
+        )
     for match in re.finditer(
         r"(?P<declared>\d+)\s*条[^。\n]{0,100}?的全部\s*"
         r"(?P<observed>\d+)\s*条观测",
@@ -4910,8 +4857,7 @@ def render_audit(
         "",
         "```json",
         json.dumps(
-            (record.get("evidence_ledger") or {}).get("paired_comparisons")
-            or [],
+            (record.get("evidence_ledger") or {}).get("paired_comparisons") or [],
             ensure_ascii=False,
             indent=2,
             sort_keys=True,
