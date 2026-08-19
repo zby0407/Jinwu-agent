@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import fcntl
 import json
 import os
 import re
@@ -14,6 +13,8 @@ from contextvars import ContextVar
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterator
+
+from filelock import FileLock
 
 from research_layout import (
     PROJECT_ROOT as PROJECT_ROOT,
@@ -75,14 +76,12 @@ def exclusive_file_lock(path: Path) -> Iterator[None]:
             depths[key] -= 1
         return
     with _thread_file_lock(path):
-        with path.open("a+b") as handle:
-            fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+        with FileLock(str(path)):
             depths[key] = 1
             try:
                 yield
             finally:
                 depths.pop(key, None)
-                fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
 
 
 @contextmanager
