@@ -5,10 +5,11 @@ import hashlib
 import json
 import multiprocessing
 import sys
+import time
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
-from threading import Barrier
+from threading import Barrier, Lock
 from types import SimpleNamespace
 
 import pytest
@@ -1050,6 +1051,15 @@ def test_full_context_rebuilds_registered_project_inputs_from_virtual_paths(
         "project-input-authority", base, project_id="default"
     )
     store = ResearchReviewStore(Path(binding.workspace), binding.thread_id)
+    path_type = type(Path())
+    original_is_absolute = path_type.is_absolute
+
+    def windows_like_is_absolute(path: Path) -> bool:
+        if path.as_posix().startswith("/project/data/"):
+            return False
+        return original_is_absolute(path)
+
+    monkeypatch.setattr(path_type, "is_absolute", windows_like_is_absolute)
 
     records = store._current_manifest_input_records()
 
@@ -4382,23 +4392,38 @@ def test_concurrent_experiment_scope_publish_uses_unique_atomic_temporary_files(
         "stage": "experiment_design",
         "revision_review_id": None,
     }
-    barrier = Barrier(2)
+    start = Barrier(2)
+    replace_guard = Lock()
+    replace_active = False
     original_replace = review_store_module.os.replace
     replaced_sources: list[str] = []
 
     def synchronized_replace(source: object, target: object) -> None:
+        nonlocal replace_active
         source_path = Path(source)
-        if source_path.name.startswith(
-            ".experiment_scope.json."
-        ) and source_path.name.endswith(".tmp"):
+        if not (
+            source_path.name.startswith(".experiment_scope.json.")
+            and source_path.name.endswith(".tmp")
+        ):
+            original_replace(source, target)
+            return
+        with replace_guard:
+            if replace_active:
+                raise PermissionError(13, "Access is denied")
+            replace_active = True
+        try:
             replaced_sources.append(source_path.name)
-            barrier.wait(timeout=2)
-        original_replace(source, target)
+            time.sleep(0.05)
+            original_replace(source, target)
+        finally:
+            with replace_guard:
+                replace_active = False
 
     monkeypatch.setattr(review_store_module.os, "replace", synchronized_replace)
 
     def publish(_index: int) -> Exception | None:
         try:
+            start.wait(timeout=2)
             orchestration._persist_experiment_scope(store, action)
         except Exception as exc:
             return exc

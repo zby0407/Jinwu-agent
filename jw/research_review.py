@@ -339,12 +339,13 @@ def _lock_for(root: Path) -> threading.RLock:
 
 def _atomic_write_json(path: Path, payload: object) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_name(f".{path.name}.{uuid.uuid4().hex}.tmp")
-    temporary.write_text(
-        json.dumps(payload, ensure_ascii=False, indent=2, allow_nan=False) + "\n",
-        encoding="utf-8",
-    )
-    os.replace(temporary, path)
+    with _lock_for(path):
+        temporary = path.with_name(f".{path.name}.{uuid.uuid4().hex}.tmp")
+        temporary.write_text(
+            json.dumps(payload, ensure_ascii=False, indent=2, allow_nan=False) + "\n",
+            encoding="utf-8",
+        )
+        os.replace(temporary, path)
 
 
 def _read_json(path: Path) -> dict[str, Any] | None:
@@ -1186,7 +1187,7 @@ class ResearchReviewStore:
                     if source_group == "project_inputs"
                     else None
                 )
-                if Path(source_ref).is_absolute():
+                if source_group == "project_inputs":
                     if (
                         project_path is None
                         or not self._project_data_registration_matches(
@@ -1196,6 +1197,8 @@ class ResearchReviewStore:
                         return None
                     candidate = project_path
                 else:
+                    if Path(source_ref).is_absolute():
+                        return None
                     unresolved = self.workspace_root / source_ref
                     cursor = self.workspace_root
                     has_symlink = False
