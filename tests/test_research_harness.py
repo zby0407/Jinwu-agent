@@ -1,7 +1,8 @@
 from __future__ import annotations
 
-import json
 import gzip
+import json
+import shutil
 import socket
 from pathlib import Path
 
@@ -750,6 +751,7 @@ def test_analysis_embeds_small_task_data_with_hash(monkeypatch, tmp_path: Path):
     assert result["items"][0]["source_class"] == "derived_calculation"
 
 
+@pytest.mark.skipif(shutil.which("bwrap") is None, reason="bubblewrap is required")
 def test_qwen_compatible_chat_analysis_executes_bounded_function_tool(
     monkeypatch, tmp_path: Path
 ) -> None:
@@ -908,6 +910,32 @@ def test_local_python_executor_rejects_network_and_process_imports(
 
     with pytest.raises(ValueError, match="not allowed"):
         harness._validate_local_python_code("import subprocess\nprint('no')")
+
+
+@pytest.mark.skipif(shutil.which("bwrap") is None, reason="bubblewrap is required")
+def test_local_python_executor_cannot_read_files_outside_workspace(
+    tmp_path: Path,
+) -> None:
+    import jw.research_harness as harness
+
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    outside = tmp_path / "host-secret.txt"
+    secret = "host-secret-must-not-be-readable"
+    outside.write_text(secret, encoding="utf-8")
+    encoded_path = list(str(outside).encode("utf-8"))
+
+    execution, outputs = harness._run_local_python(
+        "path = bytes(" + repr(encoded_path) + ").decode()\n"
+        "print(open(path, encoding='utf-8').read())",
+        workspace=workspace,
+        input_relpaths=set(),
+    )
+
+    assert execution["status"] == "failed"
+    assert secret not in str(execution["stdout"])
+    assert secret not in str(execution["stderr"])
+    assert outputs == []
 
 
 def test_analysis_without_derived_calculation_is_partial(

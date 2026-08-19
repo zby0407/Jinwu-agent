@@ -330,20 +330,46 @@ def _run_local_python(
         raise RuntimeError("local Python Harness requires bubblewrap")
     script = workspace / ".harness_code.py"
     script.write_text(code + "\n", encoding="utf-8")
+    runtime_root = Path(sys.prefix).resolve()
+    try:
+        runtime_python = Path(sys.executable).relative_to(Path(sys.prefix))
+    except ValueError as exc:
+        raise RuntimeError("local Python runtime is outside its environment") from exc
+    sandbox_runtime = Path("/opt/harness-venv")
+    sandbox_workspace = Path("/workspace")
     command = [
         bwrap,
         "--ro-bind",
-        "/",
-        "/",
+        "/usr",
+        "/usr",
+        "--symlink",
+        "usr/bin",
+        "/bin",
+        "--symlink",
+        "usr/lib",
+        "/lib",
+        "--symlink",
+        "usr/lib64",
+        "/lib64",
+        "--symlink",
+        "usr/sbin",
+        "/sbin",
+        "--ro-bind",
+        str(runtime_root),
+        str(sandbox_runtime),
         "--bind",
         str(workspace),
-        str(workspace),
+        str(sandbox_workspace),
         "--chdir",
-        str(workspace),
+        str(sandbox_workspace),
         "--unshare-net",
         "--unshare-pid",
         "--proc",
         "/proc",
+        "--dev",
+        "/dev",
+        "--tmpfs",
+        "/tmp",
         "--die-with-parent",
         "--clearenv",
         "--setenv",
@@ -351,16 +377,16 @@ def _run_local_python(
         "/usr/bin:/bin",
         "--setenv",
         "HOME",
-        str(workspace),
+        str(sandbox_workspace),
         "--setenv",
         "PYTHONNOUSERSITE",
         "1",
         "--setenv",
         "MPLBACKEND",
         "Agg",
-        sys.executable,
+        str(sandbox_runtime / runtime_python),
         "-I",
-        str(script),
+        str(sandbox_workspace / script.name),
     ]
     try:
         completed = subprocess.run(
