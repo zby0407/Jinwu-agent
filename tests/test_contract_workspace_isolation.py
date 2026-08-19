@@ -219,6 +219,21 @@ def test_solar_data_context_blocks_guessed_paths_and_is_idempotent(
     assert context["data_steps"][0]["id"] == "rs1"
     assert context["planned_outputs"][0]["id"] == "art1"
     assert context["path_policy"].startswith("Only eligible_inputs")
+    assert (
+        context["task_sha256"]
+        == hashlib.sha256((workspace / "task.json").read_bytes()).hexdigest()
+    )
+    task = json.loads((workspace / "task.json").read_text(encoding="utf-8"))
+    assert (
+        context["research_question_sha256"]
+        == hashlib.sha256(
+            str(task.get("research_question") or "").encode("utf-8")
+        ).hexdigest()
+    )
+    assert (
+        context["input_manifest_sha256"]
+        == hashlib.sha256((workspace / "input_manifest.json").read_bytes()).hexdigest()
+    )
     assert repeated["receipt_ref"] == context["receipt_ref"]
     assert repeated["context_sha256"] == context["context_sha256"]
     assert (workspace / context["receipt_ref"]).is_file()
@@ -378,6 +393,13 @@ def test_reproduce_silso_cycle_extrema_writes_hash_bound_artifacts(
         row["difference_explanation"] == "Official and recomputed extrema agree."
         for row in payload["comparison"]
     )
+    receipt = json.loads(
+        (
+            workspace / "receipts/datasets/silso_cycle_extrema_reproduction.json"
+        ).read_text(encoding="utf-8")
+    )
+    assert receipt["producer"] == "solar-data"
+    assert receipt["task_id"] == "bounded-silso-tool"
 
     denied = json.loads(
         data_tools.reproduce_silso_cycle_extrema.invoke(
@@ -516,6 +538,7 @@ def test_planner_incremental_draft_rejects_invalid_section_schema(
             {"request_input": QUESTION_A}, config=config
         )
     )
+    assert brief["recommended_next_tool"] == "research_planner_create_empirical_plan"
     outcome = json.loads(
         planner_tools.research_planner_update_draft.invoke(
             {
@@ -731,6 +754,127 @@ def test_planner_incremental_draft_reaches_full_preflight_and_survives_reload(
     )
     assert resumed["draft_checkpoint"]["missing_sections"] == []
     assert resumed["draft_checkpoint"]["validated"] is True
+
+
+def test_planner_complete_draft_can_be_persisted_in_one_atomic_call(
+    tmp_path: Path, monkeypatch
+) -> None:
+    _binding, config = _task_config(tmp_path, monkeypatch, "planner-batch-draft")
+    root = Path(__file__).resolve().parents[1]
+    response = json.loads(
+        (root / "research/planner/examples/definition_audit_response.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    brief = json.loads(
+        planner_tools.research_planner_get_brief.invoke(
+            {"request_input": response["research_question"]}, config=config
+        )
+    )
+
+    submitted = json.loads(
+        planner_tools.research_planner_submit_complete_draft.invoke(
+            {
+                "plan_content_json": json.dumps(
+                    response["plan_content"], ensure_ascii=False
+                ),
+                "request_sha256": brief["request_sha256"],
+            },
+            config=config,
+        )
+    )
+
+    assert submitted["status"] == "plan_ready"
+    assert submitted["draft_checkpoint"]["missing_sections"] == []
+    assert submitted["draft_checkpoint"]["validated"] is True
+
+
+def test_planner_compact_empirical_plan_builds_full_reviewable_route(
+    tmp_path: Path, monkeypatch
+) -> None:
+    _binding, config = _task_config(tmp_path, monkeypatch, "planner-compact-empirical")
+    brief = json.loads(
+        planner_tools.research_planner_get_brief.invoke(
+            {"request_input": QUESTION_A}, config=config
+        )
+    )
+    compact = {
+        "scope": {
+            "objective": "检验观测量之间的交互关系及其样本外预测含义。",
+            "population_or_period": "具有可比观测和明确时间顺序的独立研究单位。",
+            "boundaries": ["只使用预测发出时点已经可用的信息。"],
+            "non_goals": ["不把相关关系解释为已经证实的因果机制。"],
+        },
+        "subquestions": [
+            {
+                "question": "目标交互项在独立研究单位上的方向与不确定性如何？",
+                "purpose": "检验主要可证伪主张。",
+                "completion_evidence": "给出估计、不确定性与影响分析。",
+            },
+            {
+                "question": "交互模型是否改善真实样本外预测？",
+                "purpose": "区分样本内拟合与预测增益。",
+                "completion_evidence": "给出逐折误差和基线比较。",
+            },
+        ],
+        "evidence_gaps": ["需要核验现有机制证据、组合关系和最强替代解释。"],
+        "datasets": [
+            {
+                "name": "时间有序的周期级观测表",
+                "purpose": "构造预测变量、调节变量与后续结果的独立样本。",
+                "required_variables": ["时间边界", "预测变量", "调节变量", "后续结果"],
+                "time_coverage_needed": "覆盖用户指定的全部独立研究单位。",
+                "cadence_needed": "能够聚合为独立研究单位。",
+                "quality_requirements": ["来源、单位、缺测与测量制度可追溯。"],
+            }
+        ],
+        "stage_methods": {
+            "data": "核验来源并按时间索引构造独立样本表。",
+            "hypothesis_generation": "依据数据边界与系统文献核验形成可证伪假设和最强零假设。",
+            "experiment_design": "预注册主模型、基线、不确定性、影响与样本外评估。",
+            "experiment_result": "执行真实统计分析并保留逐单位和逐折诊断。",
+            "hypothesis_update": "依据实验与证据结果更新方向、置信度、范围和结论类别。",
+        },
+        "evaluation_focus": [
+            "数据构造与独立样本数可追溯。",
+            "实验数值、文献支持和结论强度相互一致。",
+        ],
+    }
+
+    submitted = json.loads(
+        planner_tools.research_planner_create_empirical_plan.invoke(
+            {
+                "compact_plan_json": json.dumps(compact, ensure_ascii=False),
+                "request_sha256": brief["request_sha256"],
+            },
+            config=config,
+        )
+    )
+
+    assert submitted["status"] == "plan_ready", submitted
+    state = json.loads(
+        (Path(_binding.workspace) / "planner" / "working_state.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    route = state["sections"]["research_route"]
+    assert [step["stage"] for step in route] == [
+        "data",
+        "hypothesis_generation",
+        "experiment_design",
+        "experiment_result",
+        "hypothesis_update",
+    ]
+    assert state["validated_response"] is not None
+    assert state["sections"]["required_datasets"][0]["source_kind"] == "proposed"
+    attempts = [
+        json.loads(line)
+        for line in (Path(_binding.workspace) / "planner" / "compact_attempts.jsonl")
+        .read_text(encoding="utf-8")
+        .splitlines()
+    ]
+    assert attempts[-1]["status"] == "plan_ready"
+    assert attempts[-1]["summary"]["datasets_count"] == 1
 
 
 def test_planner_evidence_revision_invalidates_old_validation_idempotently(
@@ -1256,6 +1400,24 @@ def test_planner_non_improving_candidate_returns_to_section_staging(
         ).glob("f*.json")
     )
 
+    wrong_section = json.loads(
+        planner_tools.research_planner_stage_revision_section.invoke(
+            {
+                "section_name": "scope",
+                "section_json": json.dumps(changed_scope),
+                "request_sha256": sha,
+            },
+            config=config,
+        )
+    )
+    assert wrong_section["status"] == "error"
+    assert wrong_section["error_code"] == "PLANNER_REVISION_SECTION_NOT_AFFECTED"
+    assert wrong_section["affected_sections"] == ["evaluation_rules"]
+    assert wrong_section["draft_checkpoint"]["next_action"] == (
+        "stage_revision_section"
+    )
+    assert state["revision_patch_failures"] == {}
+
     repeated = json.loads(
         planner_tools.research_planner_commit_revision_candidate.invoke(
             {"request_sha256": sha}, config=config
@@ -1443,6 +1605,156 @@ def test_automatic_experiment_run_is_created_inside_task_workspace(
         else set()
     )
     assert after == before
+
+
+def test_research_experiment_scope_is_loaded_from_host_workspace(
+    tmp_path: Path, monkeypatch
+) -> None:
+    binding, config = _task_config(tmp_path, monkeypatch, "experiment-scope-a")
+    workspace = Path(binding.workspace)
+    store = ResearchReviewStore(workspace, "experiment-scope-a")
+    state = store.load_state()
+    state["current_stage"] = "experiment_design"
+    store._save_state(state)
+    scope = {
+        "schema_version": "research-experiment-scope-v1",
+        "task_id": "experiment-scope-a",
+        "stage": "experiment_design",
+        "accepted_upstream_refs": [
+            {
+                "artifact_id": "hypothesis-artifact",
+                "version": 2,
+                "artifact_sha256": "a" * 64,
+                "stage": "hypothesis",
+            }
+        ],
+        "revision_review_id": None,
+        "design_validation_limit": 3,
+    }
+    scope_path = workspace / "research_review" / "experiment_scope.json"
+    scope_path.parent.mkdir(parents=True, exist_ok=True)
+    scope_path.write_text(json.dumps(scope), encoding="utf-8")
+
+    first = json.loads(
+        experiment_tools.automatic_experiment_bind_request.invoke(
+            {"request_input": QUESTION_A}, config=config
+        )
+    )
+    second = json.loads(
+        experiment_tools.automatic_experiment_bind_request.invoke(
+            {"request_input": QUESTION_B}, config=config
+        )
+    )
+
+    assert first["ok"] is True
+    assert second["ok"] is False
+    assert second["error_code"] == "RESEARCH_EXPERIMENT_SCOPE_ALREADY_BOUND"
+    assert second["run_id"] == first["run_id"]
+    run_state = json.loads(
+        (workspace / "experiment" / "runs" / first["run_id"] / "state.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert run_state["research_scope"] == scope
+    assert run_state["design_validation_budget"] == {
+        "limit": 3,
+        "used": 0,
+        "remaining": 3,
+    }
+
+
+def test_research_experiment_scope_is_active_before_stage_artifact_exists(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """The host publishes the experiment scope immediately before dispatch.
+
+    At that point ``current_stage`` still names the last accepted artifact
+    (hypothesis), while ``stage_status.experiment_design`` is pending.  The
+    experiment tool must bind to that host-owned scope instead of silently
+    creating an unscoped run.
+    """
+
+    binding, config = _task_config(tmp_path, monkeypatch, "experiment-prestage-scope")
+    workspace = Path(binding.workspace)
+    store = ResearchReviewStore(workspace, "experiment-prestage-scope")
+    state = store.load_state()
+    state["current_stage"] = "hypothesis"
+    state["stage_status"]["planning"] = "accepted_with_limits"
+    state["stage_status"]["data"] = "accepted_with_limits"
+    state["stage_status"]["hypothesis"] = "accepted_with_limits"
+    state["stage_status"]["experiment_design"] = "pending"
+    store._save_state(state)
+    scope = {
+        "schema_version": "research-experiment-scope-v1",
+        "task_id": "experiment-prestage-scope",
+        "stage": "experiment_design",
+        "accepted_upstream_refs": [
+            {
+                "artifact_id": "hypothesis-artifact",
+                "version": 1,
+                "artifact_sha256": "a" * 64,
+                "stage": "hypothesis",
+            }
+        ],
+        "revision_review_id": None,
+        "design_validation_limit": 3,
+    }
+    scope_path = workspace / "research_review" / "experiment_scope.json"
+    scope_path.write_text(json.dumps(scope), encoding="utf-8")
+
+    first = json.loads(
+        experiment_tools.automatic_experiment_bind_request.invoke(
+            {"request_input": QUESTION_A}, config=config
+        )
+    )
+    second = json.loads(
+        experiment_tools.automatic_experiment_bind_request.invoke(
+            {"request_input": QUESTION_B}, config=config
+        )
+    )
+
+    assert first["ok"] is True
+    assert second["ok"] is False
+    assert second["error_code"] == "RESEARCH_EXPERIMENT_SCOPE_ALREADY_BOUND"
+    assert second["run_id"] == first["run_id"]
+    run_state = json.loads(
+        (workspace / "experiment" / "runs" / first["run_id"] / "state.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert run_state["research_scope"] == scope
+
+
+def test_experiment_result_stage_rejects_binding_a_new_run(
+    tmp_path: Path, monkeypatch
+) -> None:
+    binding, config = _task_config(tmp_path, monkeypatch, "experiment-result-bind")
+    workspace = Path(binding.workspace)
+    store = ResearchReviewStore(workspace, "experiment-result-bind")
+    state = store.load_state()
+    state["current_stage"] = "experiment_result"
+    store._save_state(state)
+    scope = {
+        "schema_version": "research-experiment-scope-v1",
+        "task_id": "experiment-result-bind",
+        "stage": "experiment_result",
+        "accepted_upstream_refs": [],
+        "revision_review_id": None,
+        "design_validation_limit": 3,
+    }
+    scope_path = workspace / "research_review" / "experiment_scope.json"
+    scope_path.parent.mkdir(parents=True, exist_ok=True)
+    scope_path.write_text(json.dumps(scope), encoding="utf-8")
+
+    outcome = json.loads(
+        experiment_tools.automatic_experiment_bind_request.invoke(
+            {"request_input": QUESTION_A}, config=config
+        )
+    )
+
+    assert outcome["ok"] is False
+    assert outcome["error_code"] == "RESEARCH_EXPERIMENT_RESULT_REBIND_FORBIDDEN"
+    assert not (workspace / "experiment" / "runs").exists()
 
 
 def _run3_route_payload(route_steps, stop_rules):

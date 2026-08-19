@@ -42,6 +42,7 @@ BASIS_KINDS = {
     "located_source",
     "data_derived",
     "method_standard",
+    "bounded_pragmatic_choice",
     "qualitative_no_fixed_threshold",
 }
 SEED_MODES = {"fixed", "sequence", "user_provided"}
@@ -115,9 +116,7 @@ HARD_RUN_BUDGET = {
 # work mount ("/work/inputs/data.csv") after locating staged files there.  The
 # immutable snapshot contract stores both spellings project-relative as
 # "inputs/data.csv", so accept and canonicalize either virtual spelling.
-_INPUT_PREFIX = (
-    r"/?(?:(?:work/)?inputs|runs/[A-Za-z][A-Za-z0-9_-]{0,127}/public)"
-)
+_INPUT_PREFIX = r"/?(?:(?:work/)?inputs|runs/[A-Za-z][A-Za-z0-9_-]{0,127}/public)"
 _QUOTED_INPUT_PATTERNS = (
     re.compile(rf"`(?P<path>{_INPUT_PREFIX}/[^`\r\n]+)`"),
     re.compile(rf'"(?P<path>{_INPUT_PREFIX}/[^"\r\n]+)"'),
@@ -350,7 +349,9 @@ NONCLAIM_SIGNIFICANCE_LANGUAGE = re.compile(
     r"[^。；;.!?！？]{0,20}显著(?:性(?:检验|分析|推断|证据)?)?"
     r"|显著性(?:检验|分析|推断|证据)",
 )
-P_VALUE_PLAN = re.compile(r"(?:^|[_\s-])p[_\s-]?value(?:$|[_\s-])|p\s*值", re.IGNORECASE)
+P_VALUE_PLAN = re.compile(
+    r"(?:^|[_\s-])p[_\s-]?value(?:$|[_\s-])|p\s*值", re.IGNORECASE
+)
 R_SQUARED_PLAN = re.compile(
     r"(?:\br[_ -]?(?:squared|square|2)\b|\br\s*\^\s*2\b|R²|决定系数|拟合优度|解释方差)",
     re.IGNORECASE,
@@ -381,6 +382,8 @@ def _normalize_fit_condition_text(value: Any) -> Any:
     if _FIT_CONDITION_INCLUDE.search(value):
         return "包含被标记观测"
     return value
+
+
 P_VALUE_REQUEST = re.compile(
     r"p\s*值|p[-_\s]?value|显著性|假设检验|hypothesis\s+test|significance",
     re.IGNORECASE,
@@ -411,7 +414,10 @@ PAIRED_COMPARISON_DELTA_FORMULAS = {
 }
 READER_METRIC_TERMS: tuple[tuple[re.Pattern[str], str], ...] = (
     (re.compile(r"平均绝对误差|mean\s+absolute\s+error|\bMAE\b", re.IGNORECASE), "mae"),
-    (re.compile(r"均方根误差|root\s+mean\s+squared\s+error|\bRMSE\b", re.IGNORECASE), "rmse"),
+    (
+        re.compile(r"均方根误差|root\s+mean\s+squared\s+error|\bRMSE\b", re.IGNORECASE),
+        "rmse",
+    ),
     (re.compile(r"均方误差|mean\s+squared\s+error|\bMSE\b", re.IGNORECASE), "mse"),
     (
         re.compile(r"平均有符号误差|mean\s+signed\s+error", re.IGNORECASE),
@@ -468,11 +474,7 @@ def _walk_text_values(value: Any) -> list[str]:
     if isinstance(value, str):
         return [value]
     if isinstance(value, dict):
-        return [
-            text
-            for nested in value.values()
-            for text in _walk_text_values(nested)
-        ]
+        return [text for nested in value.values() for text in _walk_text_values(nested)]
     if isinstance(value, list):
         return [text for nested in value for text in _walk_text_values(nested)]
     return []
@@ -491,12 +493,8 @@ def _quantitative_claims(text: str) -> list[tuple[float, float]]:
             continue
         normalized_value = value / 100.0 if is_percent else value
         mantissa, _, exponent_text = token.lower().partition("e")
-        decimal_places = (
-            len(mantissa.rsplit(".", 1)[1]) if "." in mantissa else 0
-        )
-        significant_digits = len(
-            mantissa.lstrip("+-").replace(".", "").lstrip("0")
-        )
+        decimal_places = len(mantissa.rsplit(".", 1)[1]) if "." in mantissa else 0
+        significant_digits = len(mantissa.lstrip("+-").replace(".", "").lstrip("0"))
         exponent = int(exponent_text) if exponent_text else 0
         rounding_tolerance = 0.0
         if decimal_places > 0 and significant_digits >= 1:
@@ -534,9 +532,11 @@ def _unsupported_quantitative_claims(
         ):
             allowed.append(float(row["value"]))
     for row in worker.get("result_items", []):
-        if row.get("value_kind") in {"number", "count"} and isinstance(
-            row.get("value"), (int, float)
-        ) and not isinstance(row.get("value"), bool):
+        if (
+            row.get("value_kind") in {"number", "count"}
+            and isinstance(row.get("value"), (int, float))
+            and not isinstance(row.get("value"), bool)
+        ):
             allowed.append(float(row["value"]))
     # Assessment rationale may accurately summarize the number of verified
     # measurements, typed diagnostics, endpoints, artifacts, or criteria.
@@ -625,11 +625,7 @@ def _measurement_supports_metric(name: str, metric: str) -> bool:
             or "均方根误差" in name
         )
     if metric == "mse":
-        return (
-            "mse" in tokens
-            or "mean_squared_error" in lowered
-            or "均方误差" in name
-        )
+        return "mse" in tokens or "mean_squared_error" in lowered or "均方误差" in name
     return (
         "mean_signed_error" in lowered
         or "signed_error" in lowered
@@ -740,7 +736,9 @@ def _validate_numeric_cutoff_basis(
                 "删除硬阈值。"
             ),
         )
-    cutoff_numbers = [float(value) for value in NUMBER_TOKEN.findall(cutoff_match.group(0))]
+    cutoff_numbers = [
+        float(value) for value in NUMBER_TOKEN.findall(cutoff_match.group(0))
+    ]
     basis_numbers = [float(value) for value in NUMBER_TOKEN.findall(basis_text)]
     if not cutoff_numbers or cutoff_numbers[-1] not in basis_numbers:
         raise ContractError(
@@ -922,16 +920,52 @@ def _sensitivity_criterion_roles(
             DERIVED_DIRECTION_MEASUREMENT.search(name)
             and condition_specific_name is None
         )
-        if explicit_delta_name or derived_name_without_condition or re.search(
-            r"\b(?:delta|difference|contrast)\b|"
-            r"\bchange\s+between\b|"
-            r"差值|差异|二者之差|两种[^。；;]{0,24}之差|"
-            r"(?:斜率|截距|误差|估计量|参数|均值|指标)(?:之)?差|条件间变化",
-            description,
-            re.IGNORECASE,
+        if (
+            explicit_delta_name
+            or derived_name_without_condition
+            or re.search(
+                r"\b(?:delta|difference|contrast)\b|"
+                r"\bchange\s+between\b|"
+                r"差值|差异|二者之差|两种[^。；;]{0,24}之差|"
+                r"(?:斜率|截距|误差|估计量|参数|均值|指标)(?:之)?差|条件间变化",
+                description,
+                re.IGNORECASE,
+            )
         ):
             contrasts.add(name)
     return set(names) - contrasts, contrasts
+
+
+def _has_explicit_condition_measurement(
+    names: list[str] | set[str], measurement_plan: dict[str, dict[str, Any]]
+) -> bool:
+    """Return whether planned measurements explicitly represent a sensitivity condition.
+
+    A general statement that a conclusion is subject to robustness checks is not
+    itself a fitted-condition comparison.  The paired-condition contract applies
+    only when the cited measurements actually distinguish included/excluded,
+    perturbed/reference, or named condition A/B estimates.
+    """
+
+    marker = re.compile(
+        r"(?:^|_)(?:include|included|with|exclude|excluded|without|"
+        r"perturbed|reference|baseline|sensitivity|condition_(?:[ab]|delta))(?:_|\b)"
+        r"|包含|排除|扰动|参考条件|基准条件|条件[甲乙AB]",
+        re.IGNORECASE,
+    )
+    for name in names:
+        row = measurement_plan.get(name, {})
+        if marker.search(
+            " ".join(
+                (
+                    str(name),
+                    str(row.get("display_name", "")),
+                    str(row.get("scientific_meaning", "")),
+                )
+            )
+        ):
+            return True
+    return False
 
 
 def _linked_sensitivity_roles(
@@ -952,10 +986,7 @@ def _linked_sensitivity_roles(
         if (
             delta
             and triplet <= all_criterion_refs
-            and (
-                delta in deltas
-                or {baseline, candidate} <= conditions
-            )
+            and (delta in deltas or {baseline, candidate} <= conditions)
         ):
             conditions.update({baseline, candidate})
             deltas.add(delta)
@@ -973,9 +1004,8 @@ def _reader_model_direction_conflict(
             "candidate" in str(column).casefold()
             for column in audit.get("candidate_model_input_columns", [])
         )
-        and "reference" in str(
-            audit.get("candidate_model_target_column", "")
-        ).casefold()
+        and "reference"
+        in str(audit.get("candidate_model_target_column", "")).casefold()
         for audit in comparison_audits
     )
     if not candidate_to_reference:
@@ -1197,9 +1227,14 @@ def _array(value: object, label: str, minimum: int, maximum: int) -> list[Any]:
     return value
 
 
-def _text_array(value: object, label: str, maximum: int, item_maximum: int = 1000) -> list[str]:
+def _text_array(
+    value: object, label: str, maximum: int, item_maximum: int = 1000
+) -> list[str]:
     rows = _array(value, label, 0, maximum)
-    result = [_text(row, f"{label}[{index}]", maximum=item_maximum) for index, row in enumerate(rows)]
+    result = [
+        _text(row, f"{label}[{index}]", maximum=item_maximum)
+        for index, row in enumerate(rows)
+    ]
     if len(result) != len(set(result)):
         raise ContractError(f"{label} must contain unique values")
     return result
@@ -1278,7 +1313,8 @@ def _explicit_input_refs(task: str) -> list[dict[str, Any]]:
                                 "required": bool(row.get("required", True)),
                             }
                             for index, row in enumerate(refs, start=1)
-                            if isinstance(row, dict) and isinstance(row.get("path"), str)
+                            if isinstance(row, dict)
+                            and isinstance(row.get("path"), str)
                         ]
         except Exception:
             pass  # Fall through to regex-based extraction.
@@ -1359,7 +1395,8 @@ def default_request(task: str) -> dict[str, Any]:
                                 "required": bool(row.get("required", True)),
                             }
                             for index, row in enumerate(declared, start=1)
-                            if isinstance(row, dict) and isinstance(row.get("path"), str)
+                            if isinstance(row, dict)
+                            and isinstance(row.get("path"), str)
                         ]
         except Exception:
             pass  # sidecar load failure is non-fatal; keep regex result
@@ -1403,7 +1440,9 @@ def validate_request(payload: dict[str, Any]) -> dict[str, Any]:
     _text(request["task"], "request.task", minimum=8, maximum=4000, preserve=True)
     input_rows = [
         _object(row, f"request.input_refs[{index}]")
-        for index, row in enumerate(_array(request["input_refs"], "request.input_refs", 0, 50))
+        for index, row in enumerate(
+            _array(request["input_refs"], "request.input_refs", 0, 50)
+        )
     ]
     _unique_ids(input_rows, "request.input_refs")
     for index, row in enumerate(input_rows):
@@ -1423,7 +1462,14 @@ def validate_request(payload: dict[str, Any]) -> dict[str, Any]:
         label = f"request.success_criteria[{index}]"
         _exact(
             row,
-            {"id", "statement", "basis_kind", "basis_text", "source_refs", "artifact_refs"},
+            {
+                "id",
+                "statement",
+                "basis_kind",
+                "basis_text",
+                "source_refs",
+                "artifact_refs",
+            },
             label,
         )
         statement = _text(row["statement"], f"{label}.statement")
@@ -1458,11 +1504,19 @@ def validate_request(payload: dict[str, Any]) -> dict[str, Any]:
     if len(normalized_seeds) != len(set(normalized_seeds)):
         raise ContractError("request.seed_policy.seeds must be unique")
     _nullable_text(request["replay_of"], "request.replay_of", maximum=128)
-    _text(request["user_notes"], "request.user_notes", minimum=0, maximum=4000, preserve=True)
+    _text(
+        request["user_notes"],
+        "request.user_notes",
+        minimum=0,
+        maximum=4000,
+        preserve=True,
+    )
     return request
 
 
-def validate_response(payload: dict[str, Any], request_payload: dict[str, Any]) -> dict[str, Any]:
+def validate_response(
+    payload: dict[str, Any], request_payload: dict[str, Any]
+) -> dict[str, Any]:
     request = validate_request(request_payload)
     response = clone(_object(payload, "response"), "response")
     fields = {
@@ -1486,13 +1540,21 @@ def validate_response(payload: dict[str, Any], request_payload: dict[str, Any]) 
     kind = _enum(response["response_kind"], RESPONSE_KINDS, "response.response_kind")
     _text(response["normalized_task"], "response.normalized_task", minimum=8)
     _text(response["design_summary"], "response.design_summary")
-    clarifications = _text_array(response["clarifications"], "response.clarifications", 3)
+    clarifications = _text_array(
+        response["clarifications"], "response.clarifications", 3
+    )
     blockers = _text_array(response["blockers"], "response.blockers", 10)
     method_fit = _enum(response["method_fit"], METHOD_FIT, "response.method_fit")
-    if kind == "experiment_ready" and (clarifications or blockers or method_fit == "incompatible"):
-        raise ContractError("experiment_ready cannot contain clarifications, blockers, or incompatible method_fit")
+    if kind == "experiment_ready" and (
+        clarifications or blockers or method_fit == "incompatible"
+    ):
+        raise ContractError(
+            "experiment_ready cannot contain clarifications, blockers, or incompatible method_fit"
+        )
     if kind == "clarification_required" and not clarifications:
-        raise ContractError("clarification_required requires at least one clarification")
+        raise ContractError(
+            "clarification_required requires at least one clarification"
+        )
     if kind == "execution_blocked" and not blockers:
         raise ContractError("execution_blocked requires at least one blocker")
     return response
@@ -1530,8 +1592,13 @@ def validate_design(
         raise ContractError(f"design.schema_version must be {DESIGN_VERSION}")
     if _safe_id(design["task_name"], "design.task_name") != request["task_name"]:
         raise ContractError("design.task_name must match request.task_name")
-    if _text(design["normalized_task"], "design.normalized_task") != response["normalized_task"]:
-        raise ContractError("design.normalized_task must match response.normalized_task")
+    if (
+        _text(design["normalized_task"], "design.normalized_task")
+        != response["normalized_task"]
+    ):
+        raise ContractError(
+            "design.normalized_task must match response.normalized_task"
+        )
     _text(design["design_summary"], "design.design_summary")
     _enum(design["method_fit"], {"suitable", "uncertain"}, "design.method_fit")
     input_ids = _text_array(design["input_ids"], "design.input_ids", 50)
@@ -1570,7 +1637,9 @@ def validate_design(
         _exact(row, {"input_id", "role", "intended_use", "limitations"}, label)
         input_id = _safe_id(row["input_id"], f"{label}.input_id")
         if input_id in evidence_ids:
-            raise ContractError(f"design.research_frame.input_evidence duplicate input_id: {input_id}")
+            raise ContractError(
+                f"design.research_frame.input_evidence duplicate input_id: {input_id}"
+            )
         evidence_ids.add(input_id)
         _text(row["role"], f"{label}.role")
         _text(row["intended_use"], f"{label}.intended_use")
@@ -1667,13 +1736,12 @@ def validate_design(
                     "实际意义必须结合测量精度、不确定性或预先给定的科学依据判断。"
                 ),
             )
-        if (
-            re.search(r"(?:^|_)mse(?:_|$)|\bMSE\b", f"{name} {display_name}")
-            and re.search(
-                r"(?:平均有符号|平均符号|mean\s+signed)",
-                f"{display_name} {scientific_meaning}",
-                re.IGNORECASE,
-            )
+        if re.search(
+            r"(?:^|_)mse(?:_|$)|\bMSE\b", f"{name} {display_name}"
+        ) and re.search(
+            r"(?:平均有符号|平均符号|mean\s+signed)",
+            f"{display_name} {scientific_meaning}",
+            re.IGNORECASE,
         ):
             raise ContractError(
                 f"{label} uses MSE for mean signed error",
@@ -1716,9 +1784,7 @@ def validate_design(
         result_display = _text(
             row["display_name"], f"{label}.display_name", maximum=200
         )
-        value_kind = _enum(
-            row["value_kind"], RESULT_VALUE_KINDS, f"{label}.value_kind"
-        )
+        value_kind = _enum(row["value_kind"], RESULT_VALUE_KINDS, f"{label}.value_kind")
         result_role = _enum(
             row["role"], {"primary", "secondary", "diagnostic"}, f"{label}.role"
         )
@@ -1816,7 +1882,9 @@ def validate_design(
         )
         decision_id = _safe_id(row["id"], f"{label}.id")
         if decision_id in decision_ids:
-            raise ContractError(f"design.method_decisions has duplicate id: {decision_id}")
+            raise ContractError(
+                f"design.method_decisions has duplicate id: {decision_id}"
+            )
         decision_ids.add(decision_id)
         decision_key = _safe_id(row["decision_key"], f"{label}.decision_key")
         if decision_key in decision_keys:
@@ -1926,12 +1994,16 @@ def validate_design(
         if row_filter is not None:
             _exact(row_filter, {"column", "in"}, f"{label}.row_filter")
             _text(row_filter["column"], f"{label}.row_filter.column", maximum=200)
-            _text_array(row_filter["in"], f"{label}.row_filter.in", 50, item_maximum=200)
+            _text_array(
+                row_filter["in"], f"{label}.row_filter.in", 50, item_maximum=200
+            )
             if not row_filter["in"]:
                 raise ContractError(f"{label}.row_filter.in must not be empty")
         source_input_id = _safe_id(row["source_input_id"], f"{label}.source_input_id")
         if source_input_id not in input_ids:
-            raise ContractError(f"{label}.source_input_id must reference design.input_ids")
+            raise ContractError(
+                f"{label}.source_input_id must reference design.input_ids"
+            )
         for field in (
             "source_row_id_column",
             "source_target_column",
@@ -1944,7 +2016,9 @@ def validate_design(
         ):
             _text(row[field], f"{label}.{field}", maximum=200)
         if row["source_target_column"] == row["source_baseline_column"]:
-            raise ContractError(f"{label} source target and baseline columns must be distinct")
+            raise ContractError(
+                f"{label} source target and baseline columns must be distinct"
+            )
         model_inputs = _text_array(
             row["candidate_model_input_columns"],
             f"{label}.candidate_model_input_columns",
@@ -1952,7 +2026,9 @@ def validate_design(
             item_maximum=200,
         )
         if not model_inputs:
-            raise ContractError(f"{label}.candidate_model_input_columns requires at least one column")
+            raise ContractError(
+                f"{label}.candidate_model_input_columns requires at least one column"
+            )
         if row["candidate_model_target_column"] != row["source_target_column"]:
             raise ContractError(
                 f"{label}.candidate_model_target_column must equal source_target_column"
@@ -2045,7 +2121,9 @@ def validate_design(
                     f"{label} candidate_vs_candidate fit conditions must be distinct"
                 )
         if row["fit_evaluation_relation"] != "disjoint_rows":
-            raise ContractError(f"{label}.fit_evaluation_relation must be disjoint_rows")
+            raise ContractError(
+                f"{label}.fit_evaluation_relation must be disjoint_rows"
+            )
         if row["evaluation_target_usage"] != "metrics_and_evidence_only":
             raise ContractError(
                 f"{label}.evaluation_target_usage must be metrics_and_evidence_only"
@@ -2090,16 +2168,12 @@ def validate_design(
             )
         if not _measurement_supports_metric(
             baseline_measurement, comparison_metric
-        ) or not _measurement_supports_metric(
-            candidate_measurement, comparison_metric
-        ):
+        ) or not _measurement_supports_metric(candidate_measurement, comparison_metric):
             raise ContractError(
                 f"{label} baseline and candidate measurement names must match "
                 f"the declared {comparison_metric} metric semantics"
             )
-        comparison_measurements.update(
-            {baseline_measurement, candidate_measurement}
-        )
+        comparison_measurements.update({baseline_measurement, candidate_measurement})
         delta_measurement = _nullable_text(
             row["delta_measurement"],
             f"{label}.delta_measurement",
@@ -2132,15 +2206,20 @@ def validate_design(
                     str(delta_plan.get("scientific_meaning", "")),
                 )
             )
-            if re.search(
-                r"(?:差值|差异|变化量|改善量|改进量|delta|difference|contrast|improvement)",
-                delta_reader_text,
-                re.IGNORECASE,
-            ) is None or re.search(
-                r"(?:减去|相减|减|minus|subtract(?:ed|ion)?)",
-                delta_reader_text,
-                re.IGNORECASE,
-            ) is None:
+            if (
+                re.search(
+                    r"(?:差值|差异|变化量|改善量|改进量|delta|difference|contrast|improvement)",
+                    delta_reader_text,
+                    re.IGNORECASE,
+                )
+                is None
+                or re.search(
+                    r"(?:减去|相减|减|minus|subtract(?:ed|ion)?)",
+                    delta_reader_text,
+                    re.IGNORECASE,
+                )
+                is None
+            ):
                 raise ContractError(
                     f"{label}.delta_measurement must describe the metric subtraction and its direction",
                     error_code="delta_measurement_semantics_incomplete",
@@ -2151,12 +2230,9 @@ def validate_design(
                         "不能把两个预测值的平均绝对差冒充两项误差指标之差。"
                     ),
                 )
-            if (
-                comparison_metric in {"mae", "rmse"}
-                and _loss_delta_direction_conflicts(
-                    delta_reader_text,
-                    str(delta_formula),
-                )
+            if comparison_metric in {"mae", "rmse"} and _loss_delta_direction_conflicts(
+                delta_reader_text,
+                str(delta_formula),
             ):
                 raise ContractError(
                     f"{label}.delta_measurement sign interpretation contradicts delta_formula",
@@ -2179,9 +2255,7 @@ def validate_design(
                 "candidate_measurement": candidate_measurement,
                 "delta_measurement": delta_measurement,
                 "candidate_model_input_columns": model_inputs,
-                "candidate_model_target_column": row[
-                    "candidate_model_target_column"
-                ],
+                "candidate_model_target_column": row["candidate_model_target_column"],
                 "baseline_model_input_columns": baseline_model_inputs,
                 "baseline_model_target_column": baseline_model_target,
                 "baseline_fit_condition": baseline_fit_condition,
@@ -2305,12 +2379,8 @@ def validate_design(
     for row in comparison_audit_semantics:
         if row["comparison_kind"] != "candidate_vs_candidate":
             continue
-        baseline_source = source_audits_by_candidate.get(
-            row["baseline_measurement"]
-        )
-        candidate_source = source_audits_by_candidate.get(
-            row["candidate_measurement"]
-        )
+        baseline_source = source_audits_by_candidate.get(row["baseline_measurement"])
+        candidate_source = source_audits_by_candidate.get(row["candidate_measurement"])
         if not baseline_source or not candidate_source:
             continue
         scopes = {
@@ -2417,7 +2487,11 @@ def validate_design(
         ]
         if len(normalized_endpoints) != len(set(normalized_endpoints)):
             raise ContractError(f"{label}.endpoint_refs must contain unique values")
-        if not normalized_measurements and not normalized_results and not normalized_endpoints:
+        if (
+            not normalized_measurements
+            and not normalized_results
+            and not normalized_endpoints
+        ):
             raise ContractError(
                 f"{label} must reference at least one planned measurement, typed result, or endpoint"
             )
@@ -2427,7 +2501,12 @@ def validate_design(
             measurement_plan_by_name,
         )
         requires_condition_contrast = bool(
-            SENSITIVITY_CONTEXT.search(criterion_semantics)
+            (
+                SENSITIVITY_CONTEXT.search(criterion_semantics)
+                and _has_explicit_condition_measurement(
+                    normalized_measurements, measurement_plan_by_name
+                )
+            )
             or (
                 MULTI_CONDITION_CONTEXT.search(criterion_semantics)
                 and CONTRAST_PROMISE.search(criterion_semantics)
@@ -2461,9 +2540,7 @@ def validate_design(
                 same_unit_conditions = [
                     ref
                     for ref in condition_refs
-                    if str(
-                        measurement_plan_by_name.get(ref, {}).get("unit", "")
-                    )
+                    if str(measurement_plan_by_name.get(ref, {}).get("unit", ""))
                     == delta_unit
                 ]
                 if len(same_unit_conditions) < 2:
@@ -2563,10 +2640,9 @@ def validate_design(
             )
         )
     }
-    if (
-        (fit_quality_measurements or fit_quality_results)
-        and R_SQUARED_PLAN.search(request["task"]) is None
-    ):
+    if (fit_quality_measurements or fit_quality_results) and R_SQUARED_PLAN.search(
+        request["task"]
+    ) is None:
         located_basis_refs = {
             ref
             for row in criteria
@@ -2591,9 +2667,7 @@ def validate_design(
                     "参数和条件差值。"
                 ),
             )
-    orphan_numeric_results = sorted(
-        numeric_diagnostic_result_ids - planned_results
-    )
+    orphan_numeric_results = sorted(numeric_diagnostic_result_ids - planned_results)
     if orphan_numeric_results:
         raise ContractError(
             "numeric diagnostic results are not used by any scientific criterion: "
@@ -2618,7 +2692,9 @@ def validate_design(
         stage = _object(raw, f"design.experiment_stages[{index}]")
         stage_id = _safe_id(stage.get("id"), f"design.experiment_stages[{index}].id")
         if stage_id in stage_ids:
-            raise ContractError(f"design.experiment_stages has duplicate id: {stage_id}")
+            raise ContractError(
+                f"design.experiment_stages has duplicate id: {stage_id}"
+            )
         stages.append(stage)
         stage_ids.append(stage_id)
     stage_index = {stage_id: index for index, stage_id in enumerate(stage_ids)}
@@ -2628,12 +2704,10 @@ def validate_design(
     }
     for label, summary_text in summaries.items():
         for match in STAGE_COUNT_DECLARATION.finditer(summary_text):
-            token = (
-                match.group("cjk")
-                or match.group("english")
-                or match.group("digit")
+            token = match.group("cjk") or match.group("english") or match.group("digit")
+            declared = (
+                int(token) if token.isdigit() else STAGE_COUNT_WORDS[token.lower()]
             )
-            declared = int(token) if token.isdigit() else STAGE_COUNT_WORDS[token.lower()]
             if declared != len(stages):
                 raise ContractError(
                     f"{label} declares {declared} stages but design.experiment_stages "
@@ -2713,7 +2787,9 @@ def validate_design(
         _text(row["description"], f"{label}.description", maximum=1000)
         producer = _safe_id(row["producer_stage_id"], f"{label}.producer_stage_id")
         if producer not in stage_index:
-            raise ContractError(f"{label}.producer_stage_id references an unknown stage")
+            raise ContractError(
+                f"{label}.producer_stage_id references an unknown stage"
+            )
         artifact_by_id[artifact_id] = row
 
     expected_artifacts: set[str] = set()
@@ -2745,9 +2821,7 @@ def validate_design(
             },
             label,
         )
-        stage_objective = _text(
-            stage["objective"], f"{label}.objective", maximum=2000
-        )
+        stage_objective = _text(stage["objective"], f"{label}.objective", maximum=2000)
         stage_input_ids = _text_array(stage["input_ids"], f"{label}.input_ids", 50)
         if not set(stage_input_ids).issubset(set(input_ids)):
             raise ContractError(f"{label}.input_ids references an unknown design input")
@@ -2845,7 +2919,9 @@ def validate_design(
                     f"{label}.produces_artifact_ids disagrees with artifact_plan producer"
                 )
             if artifact_id in produced_ids:
-                raise ContractError(f"artifact has more than one producer: {artifact_id}")
+                raise ContractError(
+                    f"artifact has more than one producer: {artifact_id}"
+                )
             produced_ids.add(artifact_id)
 
         stage_measurements = [
@@ -2855,7 +2931,9 @@ def validate_design(
             )
         ]
         if not set(stage_measurements).issubset(measurement_plan_names):
-            raise ContractError(f"{label}.measurement_refs references an unknown measurement")
+            raise ContractError(
+                f"{label}.measurement_refs references an unknown measurement"
+            )
         repeated_measurements = sorted(
             produced_measurement_names.intersection(stage_measurements)
         )
@@ -2876,7 +2954,9 @@ def validate_design(
             )
         ]
         if not set(stage_results).issubset(result_plan_ids):
-            raise ContractError(f"{label}.result_refs references an unknown typed result")
+            raise ContractError(
+                f"{label}.result_refs references an unknown typed result"
+            )
         repeated_results = sorted(produced_result_ids.intersection(stage_results))
         if repeated_results:
             raise ContractError(
@@ -2904,8 +2984,15 @@ def validate_design(
             )
         ]
         if not set(stage_criteria).issubset(criterion_ids):
-            raise ContractError(f"{label}.criterion_refs references an unknown criterion")
-        if not stage_measurements and not stage_results and not stage_endpoints and not produces:
+            raise ContractError(
+                f"{label}.criterion_refs references an unknown criterion"
+            )
+        if (
+            not stage_measurements
+            and not stage_results
+            and not stage_endpoints
+            and not produces
+        ):
             raise ContractError(f"{label} must produce at least one reviewable result")
 
         outcome_rules = _object(stage["outcome_rules"], f"{label}.outcome_rules")
@@ -2933,7 +3020,13 @@ def validate_design(
         execution = _object(stage["execution"], f"{label}.execution")
         _exact(
             execution,
-            {"entry_file", "dependencies", "deterministic", "seed", "expected_artifacts"},
+            {
+                "entry_file",
+                "dependencies",
+                "deterministic",
+                "seed",
+                "expected_artifacts",
+            },
             f"{label}.execution",
         )
         if (
@@ -2941,7 +3034,9 @@ def validate_design(
             != "experiment.py"
         ):
             raise ContractError(f"{label}.execution.entry_file must be experiment.py")
-        _text_array(execution["dependencies"], f"{label}.execution.dependencies", 20, 100)
+        _text_array(
+            execution["dependencies"], f"{label}.execution.dependencies", 20, 100
+        )
         _boolean(execution["deterministic"], f"{label}.execution.deterministic")
         _integer(execution["seed"], f"{label}.execution.seed", 0, 2**31 - 1)
         stage_expected = set(
@@ -2961,13 +3056,15 @@ def validate_design(
 
     if produced_ids != artifact_ids:
         missing = sorted(artifact_ids - produced_ids)
-        raise ContractError(f"design.artifact_plan contains unproduced artifacts: {missing}")
+        raise ContractError(
+            f"design.artifact_plan contains unproduced artifacts: {missing}"
+        )
     if set(stage_ids[1:]) != targeted_stage_ids:
         missing = sorted(set(stage_ids[1:]) - targeted_stage_ids)
-        raise ContractError(f"design.experiment_stages contains unreachable stages: {missing}")
-    missing_comparison_artifacts = sorted(
-        comparison_artifacts - expected_artifacts
-    )
+        raise ContractError(
+            f"design.experiment_stages contains unreachable stages: {missing}"
+        )
+    missing_comparison_artifacts = sorted(comparison_artifacts - expected_artifacts)
     if missing_comparison_artifacts:
         raise ContractError(
             "design.paired_comparison_audits evidence artifacts must be expected: "
@@ -2996,8 +3093,7 @@ def validate_design(
         if missing_parameter_differences:
             raise ContractError(
                 "the request asks for condition-specific calibration-parameter differences, "
-                "but the plan omits: "
-                + ", ".join(missing_parameter_differences),
+                "but the plan omits: " + ", ".join(missing_parameter_differences),
                 error_code="requested_parameter_difference_missing",
                 field_path="design.measurement_plan",
                 suggestion=(
@@ -3082,12 +3178,9 @@ def validate_design(
         _text(policy[field], f"design.interpretation_policy.{field}")
     for field in ("null_rule", "uncertainty_rule", "partial_rule"):
         if (
-            (
-                HARD_NUMERIC_CUTOFF.search(policy[field]) is not None
-                or RELATIVE_DECISION_CUTOFF.search(policy[field]) is not None
-            )
-            and not _is_grounded_zero_direction_rule(policy[field], criteria)
-        ):
+            HARD_NUMERIC_CUTOFF.search(policy[field]) is not None
+            or RELATIVE_DECISION_CUTOFF.search(policy[field]) is not None
+        ) and not _is_grounded_zero_direction_rule(policy[field], criteria):
             raise ContractError(
                 "design.interpretation_policy contains an ungrounded numeric decision threshold",
                 error_code="ungrounded_interpretation_threshold",
@@ -3165,7 +3258,12 @@ def validate_design(
             )
         reader_texts.extend(
             (f"design.interpretation_policy.{field}", policy[field])
-            for field in ("primary_estimand", "null_rule", "uncertainty_rule", "partial_rule")
+            for field in (
+                "primary_estimand",
+                "null_rule",
+                "uncertainty_rule",
+                "partial_rule",
+            )
         )
         non_chinese = [
             label for label, text in reader_texts if CJK_TEXT.search(text) is None
@@ -3224,7 +3322,9 @@ def validate_worker_result(payload: dict[str, Any]) -> dict[str, Any]:
     }
     _exact(result, fields, "worker_result")
     if result["schema_version"] != WORKER_RESULT_VERSION:
-        raise ContractError(f"worker_result.schema_version must be {WORKER_RESULT_VERSION}")
+        raise ContractError(
+            f"worker_result.schema_version must be {WORKER_RESULT_VERSION}"
+        )
     _boolean(result["execution_completed"], "worker_result.execution_completed")
     measurements = _array(result["measurements"], "worker_result.measurements", 0, 200)
     names: set[str] = set()
@@ -3294,7 +3394,9 @@ def validate_worker_result(payload: dict[str, Any]) -> dict[str, Any]:
         _exact(row, {"path", "kind", "description"}, label)
         path = _text(row["path"], f"{label}.path", maximum=500)
         if path.replace("\\", "/").rstrip("/").rsplit("/", 1)[-1] == "result.json":
-            raise ContractError(f"{label}.path cannot use reserved worker protocol result.json")
+            raise ContractError(
+                f"{label}.path cannot use reserved worker protocol result.json"
+            )
         if path.startswith("/") or "\\" in path or ".." in path.split("/"):
             raise ContractError(f"{label}.path must be a safe relative POSIX path")
         if path in artifact_paths:
@@ -3328,7 +3430,9 @@ def validate_worker_result(payload: dict[str, Any]) -> dict[str, Any]:
                 f"{label}.source_artifact must reference a declared artifact"
             )
     _text_array(result["warnings"], "worker_result.warnings", 100)
-    endpoints = _array(result["endpoint_results"], "worker_result.endpoint_results", 0, 100)
+    endpoints = _array(
+        result["endpoint_results"], "worker_result.endpoint_results", 0, 100
+    )
     endpoint_ids: set[str] = set()
     for index, raw in enumerate(endpoints):
         row = _object(raw, f"worker_result.endpoint_results[{index}]")
@@ -3336,11 +3440,15 @@ def validate_worker_result(payload: dict[str, Any]) -> dict[str, Any]:
         _exact(row, {"id", "status", "summary"}, label)
         endpoint_id = _safe_id(row["id"], f"{label}.id")
         if endpoint_id in endpoint_ids:
-            raise ContractError(f"worker_result.endpoint_results duplicate id: {endpoint_id}")
+            raise ContractError(
+                f"worker_result.endpoint_results duplicate id: {endpoint_id}"
+            )
         endpoint_ids.add(endpoint_id)
         _enum(row["status"], ENDPOINT_STATUS, f"{label}.status")
         _text(row["summary"], f"{label}.summary")
-    scientific = _object(result["scientific_payload"], "worker_result.scientific_payload")
+    scientific = _object(
+        result["scientific_payload"], "worker_result.scientific_payload"
+    )
     _exact(
         scientific,
         {
@@ -3353,7 +3461,10 @@ def validate_worker_result(payload: dict[str, Any]) -> dict[str, Any]:
         },
         "worker_result.scientific_payload",
     )
-    _text(scientific["primary_estimand"], "worker_result.scientific_payload.primary_estimand")
+    _text(
+        scientific["primary_estimand"],
+        "worker_result.scientific_payload.primary_estimand",
+    )
     if scientific["estimate"] is not None:
         _number(scientific["estimate"], "worker_result.scientific_payload.estimate")
     for field in ("interval", "equivalence_bounds"):
@@ -3363,8 +3474,12 @@ def validate_worker_result(payload: dict[str, Any]) -> dict[str, Any]:
             low = _number(bounds[0], f"worker_result.scientific_payload.{field}[0]")
             high = _number(bounds[1], f"worker_result.scientific_payload.{field}[1]")
             if low > high:
-                raise ContractError(f"worker_result.scientific_payload.{field} must be ordered")
-    _nullable_text(scientific["sensitivity"], "worker_result.scientific_payload.sensitivity")
+                raise ContractError(
+                    f"worker_result.scientific_payload.{field} must be ordered"
+                )
+    _nullable_text(
+        scientific["sensitivity"], "worker_result.scientific_payload.sensitivity"
+    )
     _text_array(
         scientific["uncertainty_reasons"],
         "worker_result.scientific_payload.uncertainty_reasons",
@@ -3383,7 +3498,9 @@ def validate_scientific_assessment(
 ) -> dict[str, Any]:
     design = _object(design_payload, "design")
     worker = validate_worker_result(worker_payload)
-    assessment = clone(_object(payload, "scientific_assessment"), "scientific_assessment")
+    assessment = clone(
+        _object(payload, "scientific_assessment"), "scientific_assessment"
+    )
     if "stage_outcome" not in assessment:
         assessment["stage_outcome"] = (
             "completed"
@@ -3402,7 +3519,9 @@ def validate_scientific_assessment(
     }
     _exact(assessment, fields, "scientific_assessment")
     outcome = _enum(
-        assessment["proposed_outcome"], SCIENTIFIC_OUTCOMES, "scientific_assessment.proposed_outcome"
+        assessment["proposed_outcome"],
+        SCIENTIFIC_OUTCOMES,
+        "scientific_assessment.proposed_outcome",
     )
     stage_outcome = _enum(
         assessment["stage_outcome"],
@@ -3461,10 +3580,10 @@ def validate_scientific_assessment(
             "scientific_assessment.stage_outcome completed requires a completed "
             "or scientific-null proposed outcome"
         )
-    if (
-        stage_outcome != "completed"
-        and outcome not in {"partial_result", "high_uncertainty"}
-    ):
+    if stage_outcome != "completed" and outcome not in {
+        "partial_result",
+        "high_uncertainty",
+    }:
         raise ContractError(
             "an incomplete stage outcome requires partial_result or high_uncertainty"
         )
@@ -3482,16 +3601,25 @@ def validate_scientific_assessment(
             "worker_result.scientific_payload.primary_estimand must match the validated design"
         )
     seen: set[str] = set()
-    rows = _array(assessment["criterion_results"], "scientific_assessment.criterion_results", 0, 30)
+    rows = _array(
+        assessment["criterion_results"],
+        "scientific_assessment.criterion_results",
+        0,
+        30,
+    )
     for index, raw in enumerate(rows):
         row = _object(raw, f"scientific_assessment.criterion_results[{index}]")
         label = f"scientific_assessment.criterion_results[{index}]"
         _exact(row, {"criterion_id", "status", "explanation"}, label)
         criterion_id = _safe_id(row["criterion_id"], f"{label}.criterion_id")
         if criterion_id not in criterion_ids:
-            raise ContractError(f"{label}.criterion_id references an unknown design criterion")
+            raise ContractError(
+                f"{label}.criterion_id references an unknown design criterion"
+            )
         if criterion_id in seen:
-            raise ContractError(f"scientific_assessment has duplicate criterion result: {criterion_id}")
+            raise ContractError(
+                f"scientific_assessment has duplicate criterion result: {criterion_id}"
+            )
         seen.add(criterion_id)
         status = _enum(row["status"], CRITERION_STATUS, f"{label}.status")
         _text(row["explanation"], f"{label}.explanation")
@@ -3499,9 +3627,7 @@ def validate_scientific_assessment(
         missing_measurements = sorted(
             set(criterion["measurement_refs"]) - set(measurement_by_name)
         )
-        missing_results = sorted(
-            set(criterion["result_refs"]) - set(result_by_id)
-        )
+        missing_results = sorted(set(criterion["result_refs"]) - set(result_by_id))
         missing_endpoints = sorted(
             set(criterion["endpoint_refs"]) - set(endpoint_by_id)
         )
@@ -3527,7 +3653,9 @@ def validate_scientific_assessment(
             "scientific_assessment.criterion_results must evaluate every design criterion"
         )
     uncertainty = _text_array(
-        assessment["uncertainty_reasons"], "scientific_assessment.uncertainty_reasons", 30
+        assessment["uncertainty_reasons"],
+        "scientific_assessment.uncertainty_reasons",
+        30,
     )
     narrative = _object(
         assessment["report_narrative"],
@@ -3620,7 +3748,10 @@ def validate_scientific_assessment(
     reader_entries = [
         ("scientific_assessment.rationale", assessment["rationale"]),
         *[
-            (f"scientific_assessment.criterion_results[{index}].explanation", row["explanation"])
+            (
+                f"scientific_assessment.criterion_results[{index}].explanation",
+                row["explanation"],
+            )
             for index, row in enumerate(rows)
         ],
         *[
@@ -3633,16 +3764,15 @@ def validate_scientific_assessment(
     conflicting_outcomes = [
         claimed_outcome
         for claimed_outcome, marker in EXPLICIT_SCIENTIFIC_OUTCOME_CLAIMS.items()
-        if claimed_outcome != outcome and any(marker.search(text) for text in reader_texts)
+        if claimed_outcome != outcome
+        and any(marker.search(text) for text in reader_texts)
     ]
     if conflicting_outcomes:
         raise ContractError(
             "scientific_assessment reader text claims a scientific outcome that "
             "conflicts with proposed_outcome"
         )
-    actual_measurement_names = {
-        str(row["name"]) for row in worker["measurements"]
-    }
+    actual_measurement_names = {str(row["name"]) for row in worker["measurements"]}
     metric_support_texts = set(actual_measurement_names)
     for planned in design.get("measurement_plan", []):
         if planned.get("name") not in actual_measurement_names:
@@ -3707,10 +3837,7 @@ def validate_scientific_assessment(
             ],
         ]
     )
-    has_interval_basis = (
-        INTERVAL_BASIS_LANGUAGE.search(interval_basis_text) is not None
-        and INTERVAL_NONBASIS_LANGUAGE.search(interval_basis_text) is None
-    )
+    has_interval_basis = INTERVAL_BASIS_LANGUAGE.search(interval_basis_text) is not None
     if (
         worker["scientific_payload"].get("interval") is not None
         and not has_interval_basis
@@ -3727,8 +3854,7 @@ def validate_scientific_assessment(
             ),
         )
     has_inferential_support = (
-        has_interval_basis
-        and worker["scientific_payload"].get("interval") is not None
+        has_interval_basis and worker["scientific_payload"].get("interval") is not None
     )
     if not has_inferential_support and any(
         _unsupported_reader_claim(
@@ -3775,12 +3901,11 @@ def validate_scientific_assessment(
             field_path="scientific_assessment.report_narrative",
             suggestion="报告平均有符号误差的实际数值和方向，不声称系统偏差已被消除。",
         )
-    has_equivalence_basis = (
-        worker["scientific_payload"].get("equivalence_bounds") is not None
-        or any(
-            HARD_NUMERIC_CUTOFF.search(str(row.get("statement", ""))) is not None
-            for row in design.get("criteria", [])
-        )
+    has_equivalence_basis = worker["scientific_payload"].get(
+        "equivalence_bounds"
+    ) is not None or any(
+        HARD_NUMERIC_CUTOFF.search(str(row.get("statement", ""))) is not None
+        for row in design.get("criteria", [])
     )
     if not has_equivalence_basis and any(
         _unsupported_reader_claim(
@@ -3970,11 +4095,19 @@ def validate_scientific_assessment(
         for field in ("interval", "equivalence_bounds"):
             value = null_row[field]
             if value is not None:
-                bounds = _array(value, f"scientific_assessment.null_assessment.{field}", 2, 2)
-                low = _number(bounds[0], f"scientific_assessment.null_assessment.{field}[0]")
-                high = _number(bounds[1], f"scientific_assessment.null_assessment.{field}[1]")
+                bounds = _array(
+                    value, f"scientific_assessment.null_assessment.{field}", 2, 2
+                )
+                low = _number(
+                    bounds[0], f"scientific_assessment.null_assessment.{field}[0]"
+                )
+                high = _number(
+                    bounds[1], f"scientific_assessment.null_assessment.{field}[1]"
+                )
                 if low > high:
-                    raise ContractError(f"scientific_assessment.null_assessment.{field} must be ordered")
+                    raise ContractError(
+                        f"scientific_assessment.null_assessment.{field} must be ordered"
+                    )
         _nullable_text(
             null_row["power_or_sensitivity"],
             "scientific_assessment.null_assessment.power_or_sensitivity",
@@ -3995,7 +4128,9 @@ def validate_scientific_assessment(
         and not intermediate_completed_stage
         and not (completed and incomplete)
     ):
-        raise ContractError("partial_result requires both completed and incomplete endpoints")
+        raise ContractError(
+            "partial_result requires both completed and incomplete endpoints"
+        )
     if outcome == "high_uncertainty" and not uncertainty:
         raise ContractError("high_uncertainty requires explicit uncertainty reasons")
     if outcome == "scientific_null":
@@ -4010,6 +4145,9 @@ def validate_scientific_assessment(
             raise ContractError(
                 "scientific_null requires equivalence bounds or a power/sensitivity justification"
             )
-        if null_assessment["estimand"] != worker["scientific_payload"]["primary_estimand"]:
+        if (
+            null_assessment["estimand"]
+            != worker["scientific_payload"]["primary_estimand"]
+        ):
             raise ContractError("scientific_null estimand must match the worker result")
     return assessment

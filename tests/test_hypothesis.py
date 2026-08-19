@@ -452,6 +452,107 @@ class ResponseContractTests(unittest.TestCase):
         )
         self.assertEqual(validated["candidates"][0]["prior_version_id"], "old_h1")
 
+    def test_uncertain_experiment_caps_updated_hypothesis_at_low_confidence(self):
+        material = make_experiment_material(
+            outcome="uncertain",
+            metrics=[
+                {
+                    "name": "hypothesis_relation",
+                    "value_text": "uncertain",
+                    "definition": "预先声明的区间、样本外与影响诊断的合成判定",
+                }
+            ],
+            uncertainty_notes="交互区间覆盖零，且少量独立周期决定符号。",
+        )
+        request = make_request(
+            upstream_materials=[material],
+            prior_hypotheses=[
+                {
+                    "id": "old_h1",
+                    "statement": "周期长度对前兆关系存在负向调节。",
+                    "version": 1,
+                    "notes": "实验前候选",
+                }
+            ],
+        )
+        candidate = make_candidate(statement="负向调节尚未由当前周期样本支持。")
+        candidate["prior_version_id"] = "old_h1"
+        candidate["evidence_update"] = {
+            "summary": "区间覆盖零后将结论降为未决",
+            "reason": "样本外与影响诊断不能稳定支持原方向",
+        }
+        candidate["predictions"][0]["distinguishes_from"] = ["old_h1"]
+        candidate["next_test"]["candidate_ids_distinguished"] = ["cand_dynamo"]
+        candidate["confidence"] = {"level": "medium", "basis": "实验已经执行"}
+
+        with self.assertRaisesRegex(ContractError, "uncertain.*low"):
+            validate_hypothesis_response(
+                make_response(request, candidates=[candidate], distinctions=[]), request
+            )
+
+    def test_opposite_experiment_requires_statement_change(self):
+        material = make_experiment_material(
+            metrics=[
+                {
+                    "name": "hypothesis_relation",
+                    "value_text": "opposes",
+                    "definition": "预先声明的方向判定",
+                }
+            ]
+        )
+        old_statement = "周期长度对前兆关系存在负向调节。"
+        request = make_request(
+            upstream_materials=[material],
+            prior_hypotheses=[
+                {
+                    "id": "old_h1",
+                    "statement": old_statement,
+                    "version": 1,
+                    "notes": "实验前候选",
+                }
+            ],
+        )
+        candidate = make_candidate(statement=old_statement)
+        candidate["prior_version_id"] = "old_h1"
+        candidate["evidence_update"] = {
+            "summary": "实验方向与原候选相反",
+            "reason": "预先声明的方向判定为 opposes",
+        }
+        candidate["predictions"][0]["distinguishes_from"] = ["old_h1"]
+        candidate["next_test"]["candidate_ids_distinguished"] = ["cand_dynamo"]
+
+        with self.assertRaisesRegex(ContractError, "opposes.*statement"):
+            validate_hypothesis_response(
+                make_response(request, candidates=[candidate], distinctions=[]), request
+            )
+
+    def test_null_experiment_requires_statement_change(self):
+        old_statement = "周期长度对前兆关系存在负向调节。"
+        request = make_request(
+            upstream_materials=[make_experiment_material(outcome="null_result")],
+            prior_hypotheses=[
+                {
+                    "id": "old_h1",
+                    "statement": old_statement,
+                    "version": 1,
+                    "notes": "实验前候选",
+                }
+            ],
+        )
+        candidate = make_candidate(statement=old_statement)
+        candidate["prior_version_id"] = "old_h1"
+        candidate["evidence_update"] = {
+            "summary": "实验得到零结果",
+            "reason": "零结果不支持原方向",
+        }
+        candidate["predictions"][0]["distinguishes_from"] = ["old_h1"]
+        candidate["next_test"]["candidate_ids_distinguished"] = ["cand_dynamo"]
+
+        with self.assertRaisesRegex(ContractError, "null_result.*statement"):
+            validate_hypothesis_response(
+                make_response(request, candidates=[candidate], distinctions=[]), request
+            )
+
     def test_next_test_multi_candidate_must_include_self(self):
         candidate = make_candidate()
         candidate["next_test"]["candidate_ids_distinguished"] = [
@@ -1165,6 +1266,24 @@ class BriefTests(unittest.TestCase):
         self.assertIn("model_owned", brief)
         self.assertIn("harness_owned", brief)
         self.assertEqual(len(brief["request_sha256"]), 64)
+
+    def test_brief_exposes_scientific_quality_caps_as_scalar_enums(self):
+        brief = build_hypothesis_brief(make_request())
+        shape = brief["response_contract"]["response_shapes"]["hypotheses_ready"][
+            "candidates"
+        ][0]
+        caps = shape["scientific_quality"]["evidence_confidence_caps"]
+        self.assertEqual(set(caps), {"supporting", "opposing", "limiting", "unknown"})
+        for value in caps.values():
+            self.assertIsInstance(value, str)
+            self.assertIn("单个字符串", value)
+            self.assertIn("exploratory", value)
+            self.assertIn("evidence_constrained", value)
+            self.assertIn("release_candidate", value)
+        self.assertEqual(
+            brief["response_contract"]["allowed_values"]["evidence_confidence_cap"],
+            ["exploratory", "evidence_constrained", "release_candidate"],
+        )
 
 
 class RankingBoundaryTests(unittest.TestCase):

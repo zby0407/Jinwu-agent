@@ -62,6 +62,341 @@ def _error_json(tool_name: str, exc: Exception) -> str:
     )
 
 
+def _research_task_id(config: RunnableConfig | None) -> str:
+    configurable = config.get("configurable", {}) if isinstance(config, dict) else {}
+    thread_id = (
+        configurable.get("thread_id") if isinstance(configurable, dict) else None
+    )
+    if isinstance(thread_id, str) and thread_id.strip():
+        return thread_id.strip()
+    return workspace_root_from_config(config).name
+
+
+def _validated_task_metadata(
+    config: RunnableConfig | None,
+) -> tuple[Path, str, dict[str, object]]:
+    """Return task metadata only when runtime and persisted task IDs agree."""
+
+    root = workspace_root_from_config(config).resolve()
+    task_path = root / "task.json"
+    try:
+        task = json.loads(task_path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        raise RuntimeError("current task.json cannot be read") from exc
+    if not isinstance(task, dict):
+        raise RuntimeError("current task.json is not an object")
+    task_id = _research_task_id(config)
+    if task.get("thread_id") != task_id:
+        raise RuntimeError("runtime thread_id does not match the current task.json")
+    return root, task_id, task
+
+
+def _task_bound_research_question(
+    research_question: str | None, config: RunnableConfig | None
+) -> str:
+    """Load the current task question and reject a model-supplied substitute."""
+
+    _root, _task_id, task = _validated_task_metadata(config)
+    question = task.get("research_question")
+    if not isinstance(question, str) or not question:
+        raise RuntimeError("current task.json has no research_question")
+    if research_question not in (None, "", question):
+        raise ValueError("research_question must match the current task.json")
+    return question
+
+
+_SOLAR_DATA_OUTPUT_RECEIPT_CONTRACTS = {
+    ("research-dataset-receipt-v1", "silso_cycle_extrema_reproduction"),
+    ("solar-precursor-cycle-table-v1", "solar_precursor_cycle_table"),
+    ("solar-precursor-cycle-table-v2", "solar_precursor_cycle_table"),
+    ("solar-cycle-pair-analysis-table-v2", "solar_cycle_pair_analysis_table"),
+}
+_DATA_CONTEXT_TRANSIENT_FIELDS = {
+    "context_sha256",
+    "created_at",
+    "instruction",
+    "path_policy",
+    "produced_data_receipt_ref",
+    "receipt_ref",
+}
+
+
+def _recognized_receipt_declares_file(
+    payload: object, path: str, sha256: str, task_id: str
+) -> bool:
+    """Check one recognized top-level Data receipt output declaration."""
+
+    if not isinstance(payload, dict):
+        return False
+    contract = (payload.get("schema_version"), payload.get("receipt_type"))
+    if (
+        contract not in _SOLAR_DATA_OUTPUT_RECEIPT_CONTRACTS
+        or payload.get("producer") != "solar-data"
+        or payload.get("task_id") != task_id
+        or payload.get("status") != "verified"
+    ):
+        return False
+    outputs = payload.get("outputs")
+    if not isinstance(outputs, list):
+        return False
+    return any(
+        isinstance(output, dict)
+        and output.get("path") == path
+        and output.get("sha256") == sha256
+        for output in outputs
+    )
+
+
+def _is_receipted_solar_data_output(ref: str, root: Path, task_id: str) -> bool:
+    """Accept only current receipt-bound outputs below ``work/solar_data``."""
+
+    if not isinstance(ref, str) or Path(ref).is_absolute():
+        return False
+    root = root.resolve()
+    output_root = (root / "work" / "solar_data").resolve()
+    requested = root / ref
+    cursor = root
+    for part in Path(ref).parts:
+        cursor /= part
+        if cursor.is_symlink():
+            return False
+    candidate = requested.resolve()
+    if not candidate.is_relative_to(output_root) or not candidate.is_file():
+        return False
+    canonical_ref = candidate.relative_to(root).as_posix()
+    digest = _file_sha256(candidate)
+    receipts_root = (root / "receipts" / "datasets").resolve()
+    if not receipts_root.is_dir():
+        return False
+    for receipt_path in receipts_root.glob("*.json"):
+        if receipt_path.is_symlink() or not receipt_path.resolve().is_relative_to(
+            receipts_root
+        ):
+            continue
+        try:
+            receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeError, json.JSONDecodeError):
+            continue
+        if _recognized_receipt_declares_file(receipt, canonical_ref, digest, task_id):
+            return True
+    return False
+
+
+def _current_data_context(
+    root: Path, task_id: str, task: dict[str, object]
+) -> tuple[dict[str, object], dict[str, object] | None]:
+    """Load the newest valid deterministic Data context for the current task."""
+
+    receipts_root = (root / "receipts" / "datasets").resolve()
+    if not receipts_root.is_dir():
+        raise RuntimeError("current task has no deterministic Data context")
+    question = task.get("research_question")
+    task_path = root / "task.json"
+    input_manifest_path = root / "input_manifest.json"
+    try:
+        expected_task_sha256 = _file_sha256(task_path)
+        expected_input_manifest_sha256 = _file_sha256(input_manifest_path)
+    except OSError as exc:
+        raise RuntimeError(
+            "current Data context metadata files cannot be read"
+        ) from exc
+    expected_question_sha256 = hashlib.sha256(
+        str(question or "").encode("utf-8")
+    ).hexdigest()
+    candidates: list[tuple[str, str, dict[str, object], dict[str, object] | None]] = []
+    for path in receipts_root.glob("data-context-*.json"):
+        if path.is_symlink() or not path.resolve().is_relative_to(receipts_root):
+            continue
+        try:
+            context = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeError, json.JSONDecodeError):
+            continue
+        if (
+            not isinstance(context, dict)
+            or context.get("schema_version") != "solar-data-context-v1"
+            or context.get("task_id") != task_id
+        ):
+            continue
+        body = {
+            key: value
+            for key, value in context.items()
+            if key not in _DATA_CONTEXT_TRANSIENT_FIELDS
+        }
+        digest = _canonical_sha256(body)
+        if (
+            context.get("context_sha256") != digest
+            or path.name != f"data-context-{digest[:16]}.json"
+        ):
+            continue
+        if context.get("task_sha256") != expected_task_sha256:
+            continue
+        if context.get("research_question_sha256") != expected_question_sha256:
+            continue
+        if context.get("input_manifest_sha256") != expected_input_manifest_sha256:
+            continue
+        if (
+            context.get("status") != "inputs_available"
+            or context.get("must_stop") is True
+        ):
+            continue
+
+        plan: dict[str, object] | None = None
+        mode = context.get("context_mode")
+        if mode == "full_research":
+            plan_ref = context.get("plan_source_ref")
+            if not isinstance(plan_ref, str) or not plan_ref:
+                continue
+            unresolved_plan = root / plan_ref
+            plan_path = unresolved_plan.resolve()
+            if (
+                unresolved_plan.is_symlink()
+                or not plan_path.is_relative_to(root)
+                or not plan_path.is_file()
+                or context.get("plan_sha256") != _file_sha256(plan_path)
+            ):
+                continue
+            try:
+                loaded_plan = json.loads(plan_path.read_text(encoding="utf-8"))
+            except (OSError, UnicodeError, json.JSONDecodeError):
+                continue
+            if (
+                not isinstance(loaded_plan, dict)
+                or loaded_plan.get("schema_version") != "research-plan-v1"
+                or loaded_plan.get("research_question") != question
+            ):
+                continue
+            plan_data_steps = [
+                step
+                for step in loaded_plan.get("research_route", [])
+                if isinstance(step, dict) and step.get("stage") == "data"
+            ]
+            if not plan_data_steps or context.get("data_steps") != plan_data_steps:
+                continue
+            plan = loaded_plan
+        elif mode == "bounded_data":
+            if context.get("data_steps") not in (None, []):
+                continue
+        else:
+            continue
+        created_at = context.get("created_at")
+        if not isinstance(created_at, str) or not created_at:
+            continue
+        candidates.append((created_at, path.name, context, plan))
+    if not candidates:
+        raise RuntimeError("current task has no valid deterministic Data context")
+    _created_at, _name, context, plan = max(candidates)
+    return context, plan
+
+
+def _authoritative_data_focus(
+    focus: str | None,
+    *,
+    root: Path,
+    task_id: str,
+    task: dict[str, object],
+) -> str:
+    """Bind an optional model echo to the current question, plan, and Data step."""
+
+    context, plan = _current_data_context(root, task_id, task)
+    question = str(task["research_question"])
+    if plan is not None:
+        scope = plan.get("scope")
+        plan_objective = scope.get("objective") if isinstance(scope, dict) else None
+        data_objectives = [
+            str(step["objective"])
+            for step in context.get("data_steps", [])
+            if isinstance(step, dict)
+            and isinstance(step.get("objective"), str)
+            and str(step["objective"]).strip()
+        ]
+        if (
+            not isinstance(plan_objective, str)
+            or not plan_objective
+            or not data_objectives
+        ):
+            raise RuntimeError(
+                "current Data context has no authoritative plan objective"
+            )
+        data_objective = " | ".join(data_objectives)
+    else:
+        required_product = str(context.get("required_data_product") or "unspecified")
+        protocol = str(context.get("analysis_protocol") or "none")
+        plan_objective = f"Produce the bounded Data product {required_product}."
+        data_objective = f"Apply the current Data protocol {protocol}."
+    authoritative = (
+        f"Research question: {question}\n"
+        f"Plan objective: {plan_objective}\n"
+        f"Data objective: {data_objective}"
+    )
+    if focus not in (None, "", authoritative):
+        raise ValueError(
+            "focus must be omitted or exactly match the current deterministic Data focus"
+        )
+    return authoritative
+
+
+def _task_bound_harness_context(
+    research_question: str | None,
+    focus: str | None,
+    config: RunnableConfig | None,
+) -> tuple[Path, str, str, str]:
+    root, task_id, task = _validated_task_metadata(config)
+    question = task.get("research_question")
+    if not isinstance(question, str) or not question:
+        raise RuntimeError("current task.json has no research_question")
+    if research_question not in (None, "", question):
+        raise ValueError("research_question must match the current task.json")
+    bound_focus = _authoritative_data_focus(
+        focus, root=root, task_id=task_id, task=task
+    )
+    return root, task_id, question, bound_focus
+
+
+def _qwen_harness_client(model: str | None = None):
+    """Build the task-local Qwen Harness client without exposing credentials."""
+
+    from jw.config.settings import load_config
+    from jw.research_harness import QwenHarnessClient
+
+    settings = load_config()
+    base_url = os.environ.get("CUSTOM_OPENAI_BASE_URL", "") or str(
+        getattr(settings, "custom_openai_base_url", "")
+    )
+    api_key = os.environ.get("CUSTOM_OPENAI_API_KEY", "") or str(
+        getattr(settings, "custom_openai_api_key", "")
+    )
+    if not base_url or not api_key:
+        raise RuntimeError(
+            "custom-openai Harness requires the configured Base URL and API key"
+        )
+    return QwenHarnessClient(
+        base_url=base_url,
+        api_key=api_key,
+        model=model or "qwen3.8-max",
+    )
+
+
+def _harness_result_json(result: dict[str, object]) -> str:
+    receipt_ref = result.get("receipt_ref")
+    artifact_refs = [
+        str(item["path"])
+        for item in result.get("artifacts", [])
+        if isinstance(item, dict) and isinstance(item.get("path"), str)
+    ]
+    return _to_json(
+        {
+            "schema_version": "solar-data-harness-result-v1",
+            "status": result.get("status", "error"),
+            "task_id": result.get("task_id"),
+            "binding": result.get("binding", {}),
+            "artifact_refs": artifact_refs,
+            "receipt_refs": [receipt_ref] if isinstance(receipt_ref, str) else [],
+            "harness_evidence": result,
+            "limitations": result.get("limitations", []),
+        }
+    )
+
+
 def _task_chat_session(config: RunnableConfig | None):
     """Return a data session persisted only inside the current task workspace."""
 
@@ -162,6 +497,10 @@ def _eligible_input_records(config: RunnableConfig | None) -> list[dict[str, obj
             if (
                 not resolved.is_file()
                 or resolved.is_symlink()
+                or not isinstance(record.get("bytes"), int)
+                or isinstance(record.get("bytes"), bool)
+                or int(record["bytes"]) <= 0
+                or resolved.stat().st_size != int(record["bytes"])
                 or _file_sha256(resolved) != expected_sha256
             ):
                 continue
@@ -224,6 +563,236 @@ def _resolve_eligible_dataset_path(
     return resolved, record
 
 
+def _stage_project_input_for_harness(
+    virtual_ref: str,
+    record: dict[str, object],
+    *,
+    root: Path,
+    config: RunnableConfig | None,
+    task_id: str,
+) -> tuple[str, dict[str, object]]:
+    """Materialize one verified project input inside the task workspace.
+
+    The project mount is intentionally read-only and lives outside the task
+    root.  The Responses Harness accepts only task-local paths, so a requested
+    project input is copied after the manifest/hash checks have succeeded.  A
+    small receipt preserves the source-to-staged binding for downstream review.
+    """
+
+    if record.get("source_group") != "project_inputs":
+        raise ValueError("only project_inputs may use Harness staging")
+    expected_sha256 = record.get("sha256")
+    expected_bytes = record.get("bytes")
+    if not isinstance(expected_sha256, str) or len(expected_sha256) != 64:
+        raise PermissionError("project input has no valid manifest hash")
+    if not isinstance(expected_bytes, int) or isinstance(expected_bytes, bool):
+        raise PermissionError("project input has no valid manifest byte count")
+    source = resolve_scoped_path(virtual_ref, config, allow_project=True)
+    if source.is_symlink() or not source.is_file():
+        raise PermissionError("project input is not a regular file")
+    if (
+        source.stat().st_size != expected_bytes
+        or _file_sha256(source) != expected_sha256
+    ):
+        raise PermissionError("project input changed after manifest validation")
+
+    source_name = Path(virtual_ref).name
+    if not source_name or source_name in {".", ".."}:
+        raise ValueError("project input has no safe file name")
+    staged_ref = f"inputs/project/{expected_sha256[:16]}-{source_name}"
+    staged = (root / staged_ref).resolve()
+    inputs_root = (root / "inputs").resolve()
+    if not staged.is_relative_to(inputs_root):
+        raise ValueError("staged project input escaped the task workspace")
+    for parent in (inputs_root, staged.parent):
+        parent.mkdir(parents=True, exist_ok=True)
+    if staged.exists() or staged.is_symlink():
+        if staged.is_symlink() or not staged.is_file():
+            raise PermissionError("staged project input is not a regular file")
+        if (
+            staged.stat().st_size != expected_bytes
+            or _file_sha256(staged) != expected_sha256
+        ):
+            raise PermissionError(
+                "staged project input hash does not match the manifest"
+            )
+    else:
+        descriptor, temporary_name = tempfile.mkstemp(
+            dir=staged.parent, prefix=f".{staged.name}.", suffix=".tmp"
+        )
+        temporary = Path(temporary_name)
+        try:
+            with (
+                source.open("rb") as source_handle,
+                os.fdopen(descriptor, "wb") as target_handle,
+            ):
+                for chunk in iter(lambda: source_handle.read(1024 * 1024), b""):
+                    target_handle.write(chunk)
+                target_handle.flush()
+                os.fsync(target_handle.fileno())
+            if (
+                temporary.stat().st_size != expected_bytes
+                or _file_sha256(temporary) != expected_sha256
+            ):
+                raise PermissionError(
+                    "staged project input hash does not match the manifest"
+                )
+            os.replace(temporary, staged)
+        finally:
+            temporary.unlink(missing_ok=True)
+
+    receipt_body = {
+        "schema_version": "solar-harness-input-staging-v1",
+        "receipt_type": "project_input_staging",
+        "status": "verified",
+        "producer": "solar-data",
+        "task_id": task_id,
+        "source_ref": virtual_ref,
+        "staged_ref": staged_ref,
+        "sha256": expected_sha256,
+        "bytes": expected_bytes,
+    }
+    receipt_digest = _canonical_sha256(receipt_body)
+    receipt_ref = (
+        Path("receipts")
+        / "datasets"
+        / f"harness-input-staging-{receipt_digest[:16]}.json"
+    )
+    receipt_path = root / receipt_ref
+    if not receipt_path.exists():
+        _atomic_write_json(
+            receipt_path,
+            {
+                **receipt_body,
+                "receipt_sha256": receipt_digest,
+                "created_at": datetime.now(UTC).isoformat(),
+            },
+        )
+    return staged_ref, {
+        "source_ref": virtual_ref,
+        "staged_ref": staged_ref,
+        "sha256": expected_sha256,
+        "bytes": expected_bytes,
+        "receipt_ref": receipt_ref.as_posix(),
+    }
+
+
+@tool(parse_docstring=True)
+def solar_research_evidence(
+    queries: list[str],
+    focus: str = "",
+    research_question: str = "",
+    model: str = "qwen3.8-max",
+    config: RunnableConfig = None,
+) -> str:
+    """Collect task-bound web evidence with Qwen Search and Web Extractor.
+
+    Search results are persisted as external leads. Extracted pages retain
+    their URL and locator and remain subject to the independent Evidence
+    review; this tool never writes Wiki canonical claims.
+
+    Args:
+        queries: One or more bounded search queries for that focus.
+        focus: Optional exact echo of the deterministic Data focus; omit normally.
+        research_question: Optional model echo of the exact task question.
+        model: Qwen model used for the Responses Harness request.
+        config: Runtime-injected task workspace configuration.
+    """
+
+    try:
+        root, task_id, bound_question, bound_focus = _task_bound_harness_context(
+            research_question, focus, config
+        )
+        result = _qwen_harness_client(model).collect_evidence(
+            task_root=root,
+            task_id=task_id,
+            research_question=bound_question,
+            focus=bound_focus,
+            queries=queries,
+            model=model,
+        )
+        return _harness_result_json(result)
+    except Exception as exc:
+        return _error_json("solar_research_evidence", exc)
+
+
+@tool(parse_docstring=True)
+def solar_research_analysis(
+    input_refs: list[str],
+    instructions: str,
+    focus: str = "",
+    research_question: str = "",
+    model: str = "qwen3.8-max",
+    config: RunnableConfig = None,
+) -> str:
+    """Run a reproducible Qwen code-interpreter analysis on bound inputs.
+
+    Args:
+        input_refs: Task-local eligible or already-produced solar data paths.
+        instructions: Explicit calculation and output requirements.
+        focus: Optional exact echo of the deterministic Data focus; omit normally.
+        research_question: Optional model echo of the exact task question.
+        model: Qwen model used for the Responses Harness request.
+        config: Runtime-injected task workspace configuration.
+    """
+
+    try:
+        root, task_id, bound_question, bound_focus = _task_bound_harness_context(
+            research_question, focus, config
+        )
+        eligible_records = _eligible_input_records(config)
+        records_by_path = {
+            str(item["path"]): item
+            for item in eligible_records
+            if isinstance(item, dict) and isinstance(item.get("path"), str)
+        }
+        eligible_paths = set(records_by_path)
+        invalid = [
+            ref
+            for ref in input_refs
+            if ref not in eligible_paths
+            and not _is_receipted_solar_data_output(ref, root, task_id)
+        ]
+        if invalid:
+            raise PermissionError(
+                "analysis inputs must be hash-matching eligible inputs or "
+                "task solar artifacts declared by a current producer receipt: "
+                f"{', '.join(invalid)}"
+            )
+        harness_input_refs: list[str] = []
+        staging_bindings: list[dict[str, object]] = []
+        for ref in input_refs:
+            record = records_by_path.get(ref)
+            if record is not None and record.get("source_group") == "project_inputs":
+                staged_ref, binding = _stage_project_input_for_harness(
+                    ref,
+                    record,
+                    root=root,
+                    config=config,
+                    task_id=task_id,
+                )
+                harness_input_refs.append(staged_ref)
+                staging_bindings.append(binding)
+            else:
+                harness_input_refs.append(ref)
+        if not input_refs:
+            raise ValueError("input_refs must not be empty")
+        result = _qwen_harness_client(model).run_analysis(
+            task_root=root,
+            task_id=task_id,
+            research_question=bound_question,
+            focus=bound_focus,
+            input_refs=harness_input_refs,
+            instructions=instructions,
+            model=model,
+        )
+        if staging_bindings:
+            result["staged_input_bindings"] = staging_bindings
+        return _harness_result_json(result)
+    except Exception as exc:
+        return _error_json("solar_research_analysis", exc)
+
+
 def _parse_number(value: str) -> float | None:
     try:
         number = float(value)
@@ -240,7 +809,7 @@ def _build_solar_precursor_cycle_rows(
     import numpy as np
     from scipy.signal import find_peaks
 
-    monthly: list[tuple[int, int, float]] = []
+    monthly: list[tuple[int, int, float, float | None, int | None]] = []
     for line_number, raw in enumerate(
         sunspot_path.read_text(encoding="ascii").splitlines(), start=1
     ):
@@ -250,24 +819,48 @@ def _build_solar_precursor_cycle_rows(
         if len(fields) not in {6, 7}:
             raise ValueError(f"invalid SILSO row {line_number}")
         year, month, value = int(fields[0]), int(fields[1]), float(fields[3])
+        sigma = float(fields[4])
+        observation_count = int(fields[5])
         if not 1 <= month <= 12 or value < 0:
             raise ValueError(f"invalid SILSO semantics at row {line_number}")
-        monthly.append((year, month, value))
-    keys = [(year, month) for year, month, _ in monthly]
+        monthly.append(
+            (
+                year,
+                month,
+                value,
+                sigma if sigma >= 0 else None,
+                observation_count if observation_count > 0 else None,
+            )
+        )
+    keys = [(year, month) for year, month, *_rest in monthly]
     if len(monthly) < 3_200 or keys != sorted(keys) or len(keys) != len(set(keys)):
         raise ValueError("SILSO monthly series is incomplete or non-monotonic")
 
-    values = np.asarray([value for _, _, value in monthly], dtype=float)
-    weights = np.ones(13, dtype=float)
-    weights[[0, -1]] = 0.5
-    weights /= 12.0
+    values = np.asarray([value for _, _, value, *_rest in monthly], dtype=float)
+    raw_weights = np.ones(13, dtype=float)
+    raw_weights[[0, -1]] = 0.5
+    weights = raw_weights / raw_weights.sum()
     smoothed = np.convolve(values, weights, mode="same")
+    sigmas = np.asarray(
+        [sigma if sigma is not None else np.nan for *_, sigma, _count in monthly],
+        dtype=float,
+    )
+    valid_sigma = np.isfinite(sigmas)
+    weighted_variance = np.convolve(
+        np.where(valid_sigma, sigmas**2, 0.0), raw_weights, mode="same"
+    )
+    available_weight = np.convolve(valid_sigma.astype(float), raw_weights, mode="same")
+    with np.errstate(invalid="ignore", divide="ignore"):
+        smoothed_sigma = np.sqrt(weighted_variance / available_weight)
+    smoothed_sigma[available_weight < raw_weights.sum()] = np.nan
     smoothed[:6] = np.nan
     smoothed[-6:] = np.nan
+    smoothed_sigma[:6] = np.nan
+    smoothed_sigma[-6:] = np.nan
     search_indices = np.asarray(
         [
             index
-            for index, (year, _month, _value) in enumerate(monthly)
+            for index, (year, _month, _value, _sigma, _count) in enumerate(monthly)
             if year >= 1895 and np.isfinite(smoothed[index])
         ]
     )
@@ -307,60 +900,343 @@ def _build_solar_precursor_cycle_rows(
     for values_by_pole in observations.values():
         values_by_pole.sort(key=lambda item: item[0])
 
-    def latest_preminimum(
-        hemisphere: str, cutoff: float
-    ) -> tuple[float, float, float | None, str] | None:
-        eligible = [
-            item
-            for item in observations[hemisphere]
-            if item[0] <= cutoff and cutoff - item[0] <= 1.5
-        ]
-        return eligible[-1] if eligible else None
+    def window_mean(hemisphere: str, center: float) -> dict[str, object] | None:
+        eligible: list[tuple[float, float, float | None, str]] = []
+        for source in ("WSO", "MWO"):
+            eligible = [
+                item
+                for item in observations[hemisphere]
+                if item[3] == source and center - 0.5 <= item[0] <= center + 0.5
+            ]
+            if eligible:
+                break
+        window_complete = bool(eligible)
+        fallback = "none"
+        if not eligible:
+            for source in ("WSO", "MWO"):
+                prior = [
+                    item
+                    for item in observations[hemisphere]
+                    if item[3] == source
+                    and item[0] <= center
+                    and center - item[0] <= 1.5
+                ]
+                if prior:
+                    eligible = [prior[-1]]
+                    fallback = "latest_preminimum_within_1.5_years"
+                    break
+        if not eligible:
+            return None
+        field_mean = sum(abs(item[1]) for item in eligible) / len(eligible)
+        sem_values = [item[2] for item in eligible]
+        propagated_sem = (
+            math.sqrt(sum(float(value) ** 2 for value in sem_values)) / len(eligible)
+            if all(value is not None for value in sem_values)
+            else None
+        )
+        dates = [item[0] for item in eligible]
+        return {
+            "field_mean": field_mean,
+            "sem": propagated_sem,
+            "measurement_date": sum(dates) / len(dates),
+            "date_start": min(dates),
+            "date_end": max(dates),
+            "count": len(eligible) if window_complete else 0,
+            "source": "+".join(sorted({item[3] for item in eligible})),
+            "window_complete": window_complete,
+            "fallback": fallback,
+        }
 
-    result: list[dict[str, object]] = []
+    def minimum_sensitivity_interval(
+        previous_minimum: int, minimum: int, next_minimum: int
+    ) -> tuple[int, int]:
+        """Return the contiguous minimum basin compatible with SILSO dispersion.
+
+        The official smoothed-series sigma is an observational dispersion, not
+        a confidence interval.  We therefore expose a deterministic sensitivity
+        interval: adjacent months remain in the basin while their lower
+        one-sigma envelope overlaps the nominal minimum's upper envelope.  The
+        search is bounded by the neighboring cycle maxima.
+        """
+
+        left_peak = previous_minimum + int(
+            np.nanargmax(smoothed[previous_minimum:minimum])
+        )
+        right_peak = minimum + int(np.nanargmax(smoothed[minimum:next_minimum]))
+        minimum_sigma = float(smoothed_sigma[minimum])
+        if not math.isfinite(minimum_sigma):
+            return minimum, minimum
+        upper_envelope = float(smoothed[minimum]) + minimum_sigma
+
+        def compatible(index: int) -> bool:
+            sigma = float(smoothed_sigma[index])
+            return (
+                math.isfinite(sigma)
+                and float(smoothed[index]) - sigma <= upper_envelope
+            )
+
+        start = minimum
+        while start > left_peak and compatible(start - 1):
+            start -= 1
+        end = minimum
+        while end < right_peak and compatible(end + 1):
+            end += 1
+        return start, end
+
+    boundary_index = minima[0]
+    boundary_year, boundary_month, *_rest = monthly[boundary_index]
+    boundary_end = minima[1]
+    boundary_peak_index = boundary_index + int(
+        np.nanargmax(smoothed[boundary_index:boundary_end])
+    )
+    (
+        boundary_peak_year,
+        boundary_peak_month,
+        _boundary_peak_value,
+        _boundary_peak_sigma,
+        boundary_peak_count,
+    ) = monthly[boundary_peak_index]
+    boundary_peak_sigma = float(smoothed_sigma[boundary_peak_index])
+    result: list[dict[str, object]] = [
+        {
+            "row_role": "boundary",
+            "cycle_number": 14,
+            "minimum_date": f"{boundary_year:04d}-{boundary_month:02d}",
+            "minimum_smoothed_sunspot_number": None,
+            "maximum_date": (f"{boundary_peak_year:04d}-{boundary_peak_month:02d}"),
+            "peak_smoothed_sunspot_number": round(
+                float(smoothed[boundary_peak_index]), 6
+            ),
+            "peak_smoothed_sunspot_number_sigma": (
+                round(boundary_peak_sigma, 6)
+                if math.isfinite(boundary_peak_sigma)
+                else None
+            ),
+            "peak_center_month_observation_count": boundary_peak_count,
+            "minimum_date_sensitivity_start": None,
+            "minimum_date_sensitivity_end": None,
+            "minimum_date_sensitivity_span_months": None,
+            "polar_field_proxy_gauss": None,
+            "polar_field_proxy_sem_gauss": None,
+            "predictor_window_complete": None,
+            "predictor_fallback": None,
+            "predictor_window_start_decimal_year": None,
+            "predictor_window_end_decimal_year": None,
+            "north_window_observation_count": None,
+            "south_window_observation_count": None,
+            "north_measurement_date_start": None,
+            "north_measurement_date_end": None,
+            "north_measurement_date": None,
+            "north_source": None,
+            "south_measurement_date_start": None,
+            "south_measurement_date_end": None,
+            "south_measurement_date": None,
+            "south_source": None,
+            "predictor_cutoff_decimal_year": None,
+        }
+    ]
     for ordinal, (start, end) in enumerate(itertools.pairwise(minima)):
         cycle_number = 14 + ordinal
         if not 15 <= cycle_number <= 24:
             continue
-        start_year, start_month, _ = monthly[start]
-        cutoff = start_year + (start_month - 0.5) / 12.0
-        north = latest_preminimum("north", cutoff)
-        south = latest_preminimum("south", cutoff)
+        start_year, start_month, *_rest = monthly[start]
+        center = start_year + (start_month - 0.5) / 12.0
+        window_start = center - 0.5
+        window_end = center + 0.5
+        north = window_mean("north", center)
+        south = window_mean("south", center)
         if north is None or south is None:
             continue
         peak_offset = int(np.nanargmax(smoothed[start:end]))
         peak_index = start + peak_offset
-        peak_year, peak_month, _ = monthly[peak_index]
-        north_sem = north[2]
-        south_sem = south[2]
+        peak_year, peak_month, _peak_value, _peak_sigma, peak_count = monthly[
+            peak_index
+        ]
+        north_sem = north["sem"]
+        south_sem = south["sem"]
         proxy_sem = (
-            math.sqrt(north_sem**2 + south_sem**2) / 2
+            math.sqrt(float(north_sem) ** 2 + float(south_sem) ** 2) / 2
             if north_sem is not None and south_sem is not None
             else None
         )
+        sensitivity_start, sensitivity_end = minimum_sensitivity_interval(
+            minima[ordinal - 1], start, end
+        )
+        sensitivity_start_year, sensitivity_start_month, *_ = monthly[sensitivity_start]
+        sensitivity_end_year, sensitivity_end_month, *_ = monthly[sensitivity_end]
         result.append(
             {
+                "row_role": "analysis",
                 "cycle_number": cycle_number,
                 "minimum_date": f"{start_year:04d}-{start_month:02d}",
                 "minimum_smoothed_sunspot_number": round(float(smoothed[start]), 6),
                 "maximum_date": f"{peak_year:04d}-{peak_month:02d}",
                 "peak_smoothed_sunspot_number": round(float(smoothed[peak_index]), 6),
+                "peak_smoothed_sunspot_number_sigma": round(
+                    float(smoothed_sigma[peak_index]), 6
+                ),
+                "peak_center_month_observation_count": peak_count,
+                "minimum_date_sensitivity_start": (
+                    f"{sensitivity_start_year:04d}-{sensitivity_start_month:02d}"
+                ),
+                "minimum_date_sensitivity_end": (
+                    f"{sensitivity_end_year:04d}-{sensitivity_end_month:02d}"
+                ),
+                "minimum_date_sensitivity_span_months": (
+                    sensitivity_end - sensitivity_start
+                ),
                 "polar_field_proxy_gauss": round(
-                    (abs(north[1]) + abs(south[1])) / 2, 6
+                    (float(north["field_mean"]) + float(south["field_mean"])) / 2,
+                    6,
                 ),
                 "polar_field_proxy_sem_gauss": (
                     round(proxy_sem, 6) if proxy_sem is not None else None
                 ),
-                "north_measurement_date": north[0],
-                "north_source": north[3],
-                "south_measurement_date": south[0],
-                "south_source": south[3],
-                "predictor_cutoff_decimal_year": round(cutoff, 6),
+                "predictor_window_complete": bool(
+                    north["window_complete"] and south["window_complete"]
+                ),
+                "predictor_fallback": (
+                    "none"
+                    if north["fallback"] == south["fallback"] == "none"
+                    else "latest_preminimum_within_1.5_years"
+                ),
+                "predictor_window_start_decimal_year": round(window_start, 6),
+                "predictor_window_end_decimal_year": round(window_end, 6),
+                "north_window_observation_count": north["count"],
+                "south_window_observation_count": south["count"],
+                "north_measurement_date_start": north["date_start"],
+                "north_measurement_date_end": north["date_end"],
+                "north_measurement_date": round(float(north["measurement_date"]), 6),
+                "north_source": north["source"],
+                "south_measurement_date_start": south["date_start"],
+                "south_measurement_date_end": south["date_end"],
+                "south_measurement_date": round(float(south["measurement_date"]), 6),
+                "south_source": south["source"],
+                "predictor_cutoff_decimal_year": round(window_end, 6),
             }
         )
-    if [row["cycle_number"] for row in result] != list(range(15, 25)):
-        raise RuntimeError("curated inputs did not yield complete cycles 15 through 24")
+    if [row["cycle_number"] for row in result] != list(range(14, 25)):
+        raise RuntimeError(
+            "curated inputs did not yield cycle-14 boundary plus cycles 15 through 24"
+        )
     return result
+
+
+_SOLAR_PRECURSOR_COLUMN_SCHEMA = [
+    {"name": "row_role", "type": "string", "nullable": False},
+    {"name": "cycle_number", "type": "integer", "nullable": False},
+    {"name": "minimum_date", "type": "year_month", "nullable": False},
+    {
+        "name": "minimum_smoothed_sunspot_number",
+        "type": "number",
+        "nullable": True,
+    },
+    {"name": "maximum_date", "type": "year_month", "nullable": True},
+    {
+        "name": "peak_smoothed_sunspot_number",
+        "type": "number",
+        "nullable": True,
+    },
+    {
+        "name": "peak_smoothed_sunspot_number_sigma",
+        "type": "number",
+        "nullable": True,
+    },
+    {
+        "name": "peak_center_month_observation_count",
+        "type": "integer",
+        "nullable": True,
+    },
+    {
+        "name": "minimum_date_sensitivity_start",
+        "type": "year_month",
+        "nullable": True,
+    },
+    {
+        "name": "minimum_date_sensitivity_end",
+        "type": "year_month",
+        "nullable": True,
+    },
+    {
+        "name": "minimum_date_sensitivity_span_months",
+        "type": "integer",
+        "nullable": True,
+    },
+    {"name": "polar_field_proxy_gauss", "type": "number", "nullable": True},
+    {
+        "name": "polar_field_proxy_sem_gauss",
+        "type": "number",
+        "nullable": True,
+    },
+    {
+        "name": "predictor_window_complete",
+        "type": "boolean",
+        "nullable": True,
+    },
+    {"name": "predictor_fallback", "type": "string", "nullable": True},
+    {
+        "name": "predictor_window_start_decimal_year",
+        "type": "decimal_year",
+        "nullable": True,
+    },
+    {
+        "name": "predictor_window_end_decimal_year",
+        "type": "decimal_year",
+        "nullable": True,
+    },
+    {
+        "name": "north_window_observation_count",
+        "type": "integer",
+        "nullable": True,
+    },
+    {
+        "name": "south_window_observation_count",
+        "type": "integer",
+        "nullable": True,
+    },
+    {
+        "name": "north_measurement_date_start",
+        "type": "decimal_year",
+        "nullable": True,
+    },
+    {
+        "name": "north_measurement_date_end",
+        "type": "decimal_year",
+        "nullable": True,
+    },
+    {"name": "north_measurement_date", "type": "decimal_year", "nullable": True},
+    {"name": "north_source", "type": "string", "nullable": True},
+    {
+        "name": "south_measurement_date_start",
+        "type": "decimal_year",
+        "nullable": True,
+    },
+    {
+        "name": "south_measurement_date_end",
+        "type": "decimal_year",
+        "nullable": True,
+    },
+    {"name": "south_measurement_date", "type": "decimal_year", "nullable": True},
+    {"name": "south_source", "type": "string", "nullable": True},
+    {
+        "name": "predictor_cutoff_decimal_year",
+        "type": "decimal_year",
+        "nullable": True,
+    },
+]
+_SOLAR_REQUESTED_PAIR_IDS = [f"{cycle}->{cycle + 1}" for cycle in range(14, 24)]
+_SOLAR_TEMPORAL_ORDERING_RULE = (
+    "For each N->N+1 pair: start minimum < all polar-window observations <= "
+    "prediction issue cutoff at ending minimum plus six months < target peak "
+    "< target availability."
+)
+_SOLAR_PRECURSOR_GAPS: list[dict[str, object]] = []
+
+
+def _required_dataset_ids_for_protocol(analysis_protocol: str) -> list[str]:
+    from jw.research_protocols import required_dataset_ids_for_protocol
+
+    return list(required_dataset_ids_for_protocol(analysis_protocol))
 
 
 # ---------------------------------------------------------------------------
@@ -375,12 +1251,7 @@ def open_bounded_solar_data_context(
 ) -> dict[str, object]:
     """Open a plan-free, hash-bound context for one bounded Data request."""
 
-    from jw.research_protocols import (
-        SILSO_CYCLE_REPRODUCTION_DATASET_IDS,
-        SILSO_CYCLE_REPRODUCTION_PROTOCOL,
-        SOLAR_POLAR_PRECURSOR_PROTOCOL,
-        required_data_product_for_protocol,
-    )
+    from jw.research_protocols import required_data_product_for_protocol
     from jw.research_review import store_from_config
 
     root = workspace_root_from_config(config)
@@ -395,12 +1266,7 @@ def open_bounded_solar_data_context(
         raise RuntimeError("bounded data task metadata is not bound to this task")
 
     eligible_inputs = _eligible_input_records(config)
-    if analysis_protocol == SILSO_CYCLE_REPRODUCTION_PROTOCOL:
-        required_ids = list(SILSO_CYCLE_REPRODUCTION_DATASET_IDS)
-    elif analysis_protocol == SOLAR_POLAR_PRECURSOR_PROTOCOL:
-        required_ids = ["silso-monthly-total-v2", "mwo-wso-polar-field-v2"]
-    else:
-        required_ids = []
+    required_ids = _required_dataset_ids_for_protocol(analysis_protocol)
     available_ids = {
         str(item.get("dataset_id"))
         for item in eligible_inputs
@@ -412,6 +1278,7 @@ def open_bounded_solar_data_context(
         if missing_ids or (not eligible_inputs and not required_ids)
         else "inputs_available"
     )
+    must_stop = status == "input_missing"
     body: dict[str, object] = {
         "schema_version": "solar-data-context-v1",
         "context_mode": "bounded_data",
@@ -434,6 +1301,7 @@ def open_bounded_solar_data_context(
         "planned_outputs": [],
         "eligible_inputs": eligible_inputs,
         "status": status,
+        "must_stop": must_stop,
     }
     digest = _canonical_sha256(body)
     receipt: dict[str, object] = {
@@ -453,7 +1321,6 @@ def open_bounded_solar_data_context(
         loaded = json.loads(receipt_path.read_text(encoding="utf-8"))
         if isinstance(loaded, dict):
             receipt = loaded
-    must_stop = status == "input_missing"
     receipt.update(
         {
             "receipt_ref": relative_path.as_posix(),
@@ -498,7 +1365,11 @@ def solar_data_open_context(
     """
 
     try:
-        from jw.research_protocols import required_data_product_for_protocol
+        from jw.research_protocols import (
+            detect_analysis_protocol,
+            required_data_product_for_protocol,
+            resolve_required_dataset_ids,
+        )
         from jw.research_review import store_from_config
 
         root = workspace_root_from_config(config)
@@ -535,11 +1406,38 @@ def solar_data_open_context(
         if not isinstance(plan, dict):
             raise RuntimeError("canonical research plan is not an object")
 
+        task_path = root / "task.json"
+        task = json.loads(task_path.read_text(encoding="utf-8"))
+        if not isinstance(task, dict) or task.get("thread_id") != store.task_id:
+            raise RuntimeError("task metadata is not bound to the current Data task")
+        research_question = str(task.get("research_question") or "")
+        expected_protocol = detect_analysis_protocol(research_question)
+        if analysis_protocol != expected_protocol:
+            raise ValueError(
+                "Data semantics conflict: analysis protocol does not match the "
+                "task-bound research question"
+            )
         input_manifest_path = root / "input_manifest.json"
         input_manifest = json.loads(input_manifest_path.read_text(encoding="utf-8"))
         if not isinstance(input_manifest, dict):
             raise RuntimeError("task input manifest is not an object")
         eligible_inputs = _eligible_input_records(config)
+        required_dataset_ids = list(
+            resolve_required_dataset_ids(plan, analysis_protocol)
+        )
+        available_dataset_ids = {
+            str(item.get("dataset_id"))
+            for item in eligible_inputs
+            if isinstance(item.get("dataset_id"), str)
+        }
+        missing_required_dataset_ids = [
+            dataset_id
+            for dataset_id in required_dataset_ids
+            if dataset_id not in available_dataset_ids
+        ]
+        must_stop = bool(missing_required_dataset_ids) or (
+            not eligible_inputs and not required_dataset_ids
+        )
 
         route = plan.get("research_route", [])
         data_steps = [
@@ -580,14 +1478,21 @@ def solar_data_open_context(
                 ),
                 None,
             ),
+            "task_sha256": hashlib.sha256(task_path.read_bytes()).hexdigest(),
+            "research_question_sha256": hashlib.sha256(
+                str(task.get("research_question") or "").encode("utf-8")
+            ).hexdigest(),
             "input_manifest_sha256": hashlib.sha256(
                 input_manifest_path.read_bytes()
             ).hexdigest(),
             "required_datasets": plan.get("required_datasets", []),
+            "required_dataset_ids": required_dataset_ids,
+            "missing_required_dataset_ids": missing_required_dataset_ids,
             "data_steps": data_steps,
             "planned_outputs": planned_outputs,
             "eligible_inputs": eligible_inputs,
-            "status": "inputs_available" if eligible_inputs else "input_missing",
+            "status": "input_missing" if must_stop else "inputs_available",
+            "must_stop": must_stop,
         }
         digest = _canonical_sha256(body)
         receipt = {
@@ -611,13 +1516,19 @@ def solar_data_open_context(
             {
                 **receipt,
                 "receipt_ref": relative_path.as_posix(),
-                "must_stop": not bool(eligible_inputs),
                 "instruction": (
                     "Audit only the returned eligible_inputs and persist their "
                     "verified semantics before engineering features."
-                    if eligible_inputs
-                    else "No eligible immutable data is bound. Return input_missing "
-                    "now; do not search guessed paths or fabricate an output."
+                    if not must_stop
+                    else (
+                        "Required registered datasets are missing: "
+                        + ", ".join(missing_required_dataset_ids)
+                        + ". Return input_missing now; do not fabricate or download "
+                        "unregistered evidence."
+                        if missing_required_dataset_ids
+                        else "No eligible immutable data is bound. Return input_missing "
+                        "now; do not search guessed paths or fabricate an output."
+                    )
                 ),
             }
         )
@@ -839,9 +1750,42 @@ def prepare_solar_precursor_cycle_table(
         writer.writeheader()
         writer.writerows(rows)
         _atomic_write_text(table_path, buffer.getvalue())
+        cycle_numbers = [int(row["cycle_number"]) for row in rows]
+        available_pairs = [
+            pair_id
+            for pair_id in _SOLAR_REQUESTED_PAIR_IDS
+            if all(
+                cycle in cycle_numbers
+                for cycle in (int(pair_id.split("->")[0]), int(pair_id.split("->")[1]))
+            )
+        ]
+        incomplete_window_cycles = [
+            int(row["cycle_number"])
+            for row in rows
+            if row.get("row_role") == "analysis"
+            and row.get("predictor_window_complete") is not True
+        ]
+        gaps = [dict(item) for item in _SOLAR_PRECURSOR_GAPS]
+        if incomplete_window_cycles:
+            gaps.append(
+                {
+                    "code": "PREDICTOR_WINDOW_PARTIAL_COVERAGE",
+                    "status": "limited",
+                    "cycle_numbers": incomplete_window_cycles,
+                    "fallback": "latest_preminimum_within_1.5_years",
+                    "details": (
+                        "At least one hemisphere has no observation inside the "
+                        "plus/minus six-month window for these minima. The "
+                        "declared preminimum fallback preserves temporal order."
+                    ),
+                }
+            )
         receipt = {
-            "schema_version": "solar-precursor-cycle-table-v1",
+            "schema_version": "solar-precursor-cycle-table-v2",
+            "receipt_type": "solar_precursor_cycle_table",
             "status": "verified",
+            "producer": "solar-data",
+            "task_id": _validated_task_metadata(config)[1],
             "input_refs": [
                 {
                     "path": sunspot_record["path"],
@@ -856,6 +1800,33 @@ def prepare_solar_precursor_cycle_table(
                     "provenance_ref": polar_record.get("provenance_ref"),
                 },
             ],
+            "dataset_ids": [
+                "silso-monthly-total-v2",
+                "mwo-wso-polar-field-v2",
+            ],
+            "column_schema": _SOLAR_PRECURSOR_COLUMN_SCHEMA,
+            "units": {
+                "minimum_smoothed_sunspot_number": "international_sunspot_number",
+                "peak_smoothed_sunspot_number": "international_sunspot_number",
+                "peak_smoothed_sunspot_number_sigma": ("international_sunspot_number"),
+                "minimum_date_sensitivity_span_months": "month",
+                "polar_field_proxy_gauss": "gauss",
+                "polar_field_proxy_sem_gauss": "gauss",
+                "predictor_window_start_decimal_year": "decimal_year",
+                "predictor_window_end_decimal_year": "decimal_year",
+                "north_measurement_date": "decimal_year",
+                "south_measurement_date": "decimal_year",
+                "predictor_cutoff_decimal_year": "decimal_year",
+            },
+            "sign_convention": {
+                "polar_field_proxy_gauss": (
+                    "unsigned non-negative magnitude: mean absolute north/south field"
+                ),
+                "basis": (
+                    "The source north/south signs encode polarity; this product uses "
+                    "their absolute magnitudes for the precursor proxy."
+                ),
+            },
             "method": {
                 "cycle_label_smoothing": (
                     "centered 13-month tapered boxcar, endpoint weights 0.5, "
@@ -866,18 +1837,71 @@ def prepare_solar_precursor_cycle_table(
                     "cycle 14 anchored to the detected 1902 minimum"
                 ),
                 "predictor": (
-                    "mean absolute north/south calibrated polar field; latest "
-                    "hemispheric measurement at or before nominal minimum and "
-                    "no older than 1.5 years"
+                    "mean absolute north/south calibrated polar field from all "
+                    "observations within plus/minus 6 months of the nominal "
+                    "minimum, available at the six-month prediction issue date; "
+                    "when one hemisphere has no in-window observation, use its "
+                    "latest preminimum value no older than 1.5 years and flag "
+                    "that cycle explicitly"
                 ),
                 "target": "maximum centered-smoothed sunspot number before next minimum",
+                "target_uncertainty": (
+                    "SILSO 13-month smoothed observational sigma at the selected "
+                    "peak, computed as the square root of the weighted mean of "
+                    "the 13 monthly variances"
+                ),
+                "minimum_date_uncertainty": (
+                    "contiguous sensitivity basin whose lower one-sigma envelope "
+                    "overlaps the nominal minimum's upper envelope, bounded by "
+                    "neighboring cycle maxima; this is not a confidence interval"
+                ),
+                "uncertainty_source": "https://www.sidc.be/SILSO/infosnmstot",
             },
             "row_count": len(rows),
-            "cycle_numbers": [row["cycle_number"] for row in rows],
+            "cycle_numbers": cycle_numbers,
+            "analysis_cycle_numbers": list(range(15, 25)),
+            "boundary_cycle_numbers": [14],
+            "pair_coverage": {
+                "requested_pairs": _SOLAR_REQUESTED_PAIR_IDS,
+                "available_pairs": available_pairs,
+                "unavailable_pairs": sorted(
+                    set(_SOLAR_REQUESTED_PAIR_IDS) - set(available_pairs)
+                ),
+            },
+            "sample_size": {
+                "independent_sample_unit": "adjacent_solar_cycle_pair",
+                "independent_sample_count": len(available_pairs),
+                "n_eff_upper_bound": len(available_pairs),
+                "n_eff_status": "bounded_not_estimated",
+                "dependence_note": (
+                    "Adjacent pairs share cycle-boundary construction and span "
+                    "the MWO/WSO measurement-regime transition, so effective "
+                    "sample size may be smaller than the row count."
+                ),
+            },
+            "temporal_ordering_rule": _SOLAR_TEMPORAL_ORDERING_RULE,
+            "uncertainty_fields": {
+                "reported": [
+                    "polar_field_proxy_sem_gauss",
+                    "peak_smoothed_sunspot_number_sigma",
+                    "minimum_date_sensitivity_start",
+                    "minimum_date_sensitivity_end",
+                    "minimum_date_sensitivity_span_months",
+                ],
+                "interpretation": (
+                    "SILSO sigma and the minimum-date sensitivity basin quantify "
+                    "observational dispersion and label sensitivity; neither is "
+                    "a calibrated confidence interval because monthly values are "
+                    "serially correlated."
+                ),
+                "not_computed": ["dependence_adjusted_n_eff"],
+            },
+            "gaps": gaps,
             "limitations": [
                 "Centered smoothing is retrospective labeling and confirms a nominal minimum only after a six-month lag.",
                 "MWO facular counts are a calibrated proxy, not direct pre-1976 magnetograph measurements.",
-                "Ten completed cycles remain a small dependent sample; uncertainty and rolling-origin evaluation are mandatory.",
+                "Ten completed cycle pairs remain a small dependent sample; n_eff is bounded above by 10 and must not be assumed equal to 10.",
+                "The SILSO smoothed sigma and minimum-date sensitivity basin are not confidence intervals; serial correlation remains for downstream uncertainty analysis.",
             ],
             "outputs": [
                 {
@@ -897,6 +1921,9 @@ def prepare_solar_precursor_cycle_table(
                 "row_count": len(rows),
                 "cycle_numbers": receipt["cycle_numbers"],
                 "table_sha256": receipt["outputs"][0]["sha256"],
+                "sample_size": receipt["sample_size"],
+                "uncertainty_fields": receipt["uncertainty_fields"],
+                "gaps": receipt["gaps"],
                 "limitations": receipt["limitations"],
             }
         )
@@ -1029,6 +2056,7 @@ def reproduce_silso_cycle_extrema(
             "status": "verified",
             "analysis_protocol": SILSO_CYCLE_REPRODUCTION_PROTOCOL,
             "producer": "solar-data",
+            "task_id": _validated_task_metadata(config)[1],
             "inputs": inputs,
             "outputs": outputs,
             "cycle_numbers": selected,
@@ -1042,6 +2070,7 @@ def reproduce_silso_cycle_extrema(
                 and existing.get("inputs") == inputs
                 and existing.get("outputs") == outputs
                 and existing.get("cycle_numbers") == selected
+                and existing.get("task_id") == receipt["task_id"]
             ):
                 receipt = existing
             else:
@@ -1142,6 +2171,8 @@ def bind_f107_dataset_semantics(
 
 SOLAR_FEATURE_TOOLS = [
     solar_data_open_context,
+    solar_research_evidence,
+    solar_research_analysis,
     audit_solar_data_quality,
     engineer_solar_features,
     prepare_solar_experiment,

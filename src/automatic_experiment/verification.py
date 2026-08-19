@@ -53,9 +53,7 @@ class AssessmentRequired(VerificationError):
         paired_comparison_evidence: list[dict[str, Any]],
         stage_id: str,
     ) -> None:
-        inventory = {
-            row["path"]: row for row in facts.get("output_inventory", [])
-        }
+        inventory = {row["path"]: row for row in facts.get("output_inventory", [])}
         verified_artifacts = []
         artifact_evidence = []
         for artifact in worker_result["artifacts"]:
@@ -87,8 +85,14 @@ class AssessmentRequired(VerificationError):
                 "started_at": facts["started_at"],
                 "ended_at": facts["ended_at"],
                 "wall_seconds": facts["wall_seconds"],
+                "execution_backend": facts.get(
+                    "execution_backend", "windows_wsl_bridge"
+                ),
+                "host_process_exit_code": facts.get(
+                    "host_process_exit_code", facts.get("windows_process_exit_code")
+                ),
                 "sandbox_exit_code": facts["sandbox_exit_code"],
-                "windows_process_exit_code": facts["windows_process_exit_code"],
+                "windows_process_exit_code": facts.get("windows_process_exit_code"),
                 "stop_reason": facts["stop_reason"],
             },
         }
@@ -149,7 +153,10 @@ def _immutable_input_basis_texts(
                 source.relative_to(inputs_root)
             except ValueError:
                 continue
-            if not source.is_file() or source.suffix.casefold() not in TEXTUAL_INPUT_SUFFIXES:
+            if (
+                not source.is_file()
+                or source.suffix.casefold() not in TEXTUAL_INPUT_SUFFIXES
+            ):
                 continue
             expected_size = file_row.get("size_bytes")
             observed_size = source.stat().st_size
@@ -199,7 +206,9 @@ def _unrequested_inferential_output_errors(
     for artifact in worker_result.get("artifacts", []):
         path = str(artifact.get("path", ""))
         source = artifact_sources.get(path)
-        if source is None or (artifact.get("kind") != "json" and source.suffix.lower() != ".json"):
+        if source is None or (
+            artifact.get("kind") != "json" and source.suffix.lower() != ".json"
+        ):
             continue
         if P_VALUE_PLAN.search(path):
             errors.append(f"unrequested p-value output path: {path}")
@@ -218,9 +227,7 @@ def _unrequested_inferential_output_errors(
             field for field in _json_field_paths(parsed) if P_VALUE_PLAN.search(field)
         )
         if leaked_fields:
-            errors.append(
-                f"unrequested p-value fields in {path}: {leaked_fields}"
-            )
+            errors.append(f"unrequested p-value fields in {path}: {leaked_fields}")
     return errors
 
 
@@ -308,9 +315,16 @@ def _attempt_history(
                         "started_at": execution["started_at"],
                         "ended_at": execution["ended_at"],
                         "wall_seconds": execution["wall_seconds"],
-                        "windows_process_exit_code": execution[
+                        "execution_backend": execution.get(
+                            "execution_backend", "windows_wsl_bridge"
+                        ),
+                        "host_process_exit_code": execution.get(
+                            "host_process_exit_code",
+                            execution.get("windows_process_exit_code"),
+                        ),
+                        "windows_process_exit_code": execution.get(
                             "windows_process_exit_code"
-                        ],
+                        ),
                         "sandbox_exit_code": execution["sandbox_exit_code"],
                         "stop_reason": execution["stop_reason"],
                     }
@@ -345,15 +359,21 @@ def _read_text_bounded(path: Path, maximum: int = 2 * 1024 * 1024) -> str:
 def _secret_scan(attempt_root: Path, inventory: list[dict[str, Any]]) -> None:
     for row in inventory:
         relative = row["path"]
-        if relative.lower().endswith((".png", ".jpg", ".jpeg", ".gif", ".pdf", ".npy", ".npz")):
+        if relative.lower().endswith(
+            (".png", ".jpg", ".jpeg", ".gif", ".pdf", ".npy", ".npz")
+        ):
             continue
         path = attempt_root / "output" / Path(*relative.split("/"))
         if SECRET_CONTENT.search(_read_text_bounded(path)):
-            raise VerificationError("output contains secret-like content and cannot be released")
+            raise VerificationError(
+                "output contains secret-like content and cannot be released"
+            )
     for name in ("stdout.txt", "stderr.txt"):
         path = attempt_root / name
         if path.is_file() and SECRET_CONTENT.search(_read_text_bounded(path)):
-            raise VerificationError("execution log contains secret-like content and cannot be released")
+            raise VerificationError(
+                "execution log contains secret-like content and cannot be released"
+            )
 
 
 def _bounded_artifact_evidence(
@@ -370,7 +390,9 @@ def _bounded_artifact_evidence(
         try:
             row["parsed_json"] = json.loads(path.read_text(encoding="utf-8"))
         except (UnicodeDecodeError, json.JSONDecodeError):
-            row["parse_error"] = "JSON artifact could not be parsed for scientific review."
+            row["parse_error"] = (
+                "JSON artifact could not be parsed for scientific review."
+            )
     elif artifact["kind"] in {"csv", "text", "markdown"}:
         text = _read_text_bounded(path, 32 * 1024)
         if text:
@@ -384,12 +406,8 @@ def _criterion_evidence(
     worker_result: dict[str, Any],
     stage_id: str | None = None,
 ) -> list[dict[str, Any]]:
-    measurement_by_name = {
-        row["name"]: row for row in worker_result["measurements"]
-    }
-    endpoint_by_id = {
-        row["id"]: row for row in worker_result["endpoint_results"]
-    }
+    measurement_by_name = {row["name"]: row for row in worker_result["measurements"]}
+    endpoint_by_id = {row["id"]: row for row in worker_result["endpoint_results"]}
     result_by_id = {row["id"]: row for row in worker_result.get("result_items", [])}
     rows: list[dict[str, Any]] = []
     stage_criterion_ids = (
@@ -483,14 +501,14 @@ def _measurement_artifact_errors(
         source = verified_artifact_sources.get(source_ref)
         if source is None or source.stat().st_size > 2 * 1024 * 1024:
             if source_ref not in unavailable:
-                errors.append(f"reported values cannot be checked against JSON artifact {source_ref}")
+                errors.append(
+                    f"reported values cannot be checked against JSON artifact {source_ref}"
+                )
                 unavailable.add(source_ref)
             continue
         if source_ref not in parsed_json:
             try:
-                parsed_json[source_ref] = json.loads(
-                    source.read_text(encoding="utf-8")
-                )
+                parsed_json[source_ref] = json.loads(source.read_text(encoding="utf-8"))
             except (UnicodeDecodeError, json.JSONDecodeError):
                 errors.append(f"{source_ref} is not valid UTF-8 JSON")
                 unavailable.add(source_ref)
@@ -552,10 +570,9 @@ def _comparison_consistency_errors(
                 continue
             baseline = measurements[baseline_name]
             candidate = measurements[candidate_name]
-            if (
-                baseline.get("unit") != candidate.get("unit")
-                or baseline.get("unit") != improvement.get("unit")
-            ):
+            if baseline.get("unit") != candidate.get("unit") or baseline.get(
+                "unit"
+            ) != improvement.get("unit"):
                 continue
             if declared["delta_formula"] == "baseline_minus_candidate":
                 expected = float(baseline["value"]) - float(candidate["value"])
@@ -612,9 +629,9 @@ def _comparison_consistency_errors(
         raw_name, calibrated_name = pair
         raw = measurements[raw_name]
         calibrated = measurements[calibrated_name]
-        if raw.get("unit") != calibrated.get("unit") or raw.get("unit") != improvement.get(
+        if raw.get("unit") != calibrated.get("unit") or raw.get(
             "unit"
-        ):
+        ) != improvement.get("unit"):
             continue
         expected = float(raw["value"]) - float(calibrated["value"])
         observed = float(improvement["value"])
@@ -656,7 +673,10 @@ def _read_csv_rows(path: Path, label: str) -> tuple[list[str], list[dict[str, st
 def _metric_value(metric: str, predictions: list[float], targets: list[float]) -> float:
     if not predictions or len(predictions) != len(targets):
         raise VerificationError("paired comparison requires one or more aligned rows")
-    errors = [prediction - target for prediction, target in zip(predictions, targets, strict=True)]
+    errors = [
+        prediction - target
+        for prediction, target in zip(predictions, targets, strict=True)
+    ]
     if metric == "mae":
         return sum(abs(value) for value in errors) / len(errors)
     if metric == "rmse":
@@ -845,9 +865,10 @@ def _paired_comparison_audit_errors(
                     "the immutable input"
                 )
                 audit_failed = True
-            if (
-                audit["comparison_kind"] == "source_baseline_vs_candidate"
-                and not _close_measurement(evidence_baseline, source_baseline)
+            if audit[
+                "comparison_kind"
+            ] == "source_baseline_vs_candidate" and not _close_measurement(
+                evidence_baseline, source_baseline
             ):
                 errors.append(
                     f"{audit_id}: baseline value for row {row_id!r} does not match "
@@ -863,7 +884,9 @@ def _paired_comparison_audit_errors(
             candidates.append(evidence_candidate)
         if audit_failed or not targets:
             if not targets:
-                errors.append(f"{audit_id}: paired comparison evidence contains no valid rows")
+                errors.append(
+                    f"{audit_id}: paired comparison evidence contains no valid rows"
+                )
             continue
         baseline_value = _metric_value(audit["metric"], baselines, targets)
         candidate_value = _metric_value(audit["metric"], candidates, targets)
@@ -1169,7 +1192,10 @@ def _execution_outcome(facts: dict[str, Any]) -> tuple[str | None, str | None]:
         return "budget_stopped", f"执行触发资源预算：{reason}。"
     if reason is not None:
         return "technical_failure", f"执行触发安全或输出策略：{reason}。"
-    if facts.get("windows_process_exit_code") != 0 or facts.get("sandbox_exit_code") != 0:
+    host_exit = facts.get(
+        "host_process_exit_code", facts.get("windows_process_exit_code")
+    )
+    if host_exit != 0 or facts.get("sandbox_exit_code") != 0:
         return "technical_failure", "沙箱进程以非零状态退出。"
     return None, None
 
@@ -1198,7 +1224,9 @@ def _exact_replay_reproduction_errors(
         return ["exact replay source record changed after replay preparation"]
     source_stage_record = source_record
     for row in source_record.get("stage_history", []):
-        if row.get("stage_id") != stage_id or not isinstance(row.get("record_path"), str):
+        if row.get("stage_id") != stage_id or not isinstance(
+            row.get("record_path"), str
+        ):
             continue
         candidate = source_root / Path(*row["record_path"].split("/"))
         if candidate.is_file():
@@ -1228,7 +1256,9 @@ def _exact_replay_reproduction_errors(
         errors.append("deterministic replay measurements differ from the source run")
     source_typed_results = source_worker.get("result_items", [])
     current_typed_results = worker_result.get("result_items", [])
-    if canonical_sha256(source_typed_results) != canonical_sha256(current_typed_results):
+    if canonical_sha256(source_typed_results) != canonical_sha256(
+        current_typed_results
+    ):
         errors.append("deterministic replay typed results differ from the source run")
     source_artifacts = {
         row["path"]: row
@@ -1240,8 +1270,7 @@ def _exact_replay_reproduction_errors(
         source_rows = [
             row
             for path, row in source_artifacts.items()
-            if path == f"public/{artifact_path}"
-            or path.endswith(f"/{artifact_path}")
+            if path == f"public/{artifact_path}" or path.endswith(f"/{artifact_path}")
         ]
         current_path = verified_artifact_sources.get(artifact_path)
         if len(source_rows) != 1 or current_path is None:
@@ -1295,7 +1324,9 @@ def _record_replay_metadata(
             read_json(manifest_path)
         )
         result["current_input_fingerprint"] = state.get("input_fingerprint")
-    attempt = read_json(run_root / "attempts" / state["current_attempt"] / "attempt.json")
+    attempt = read_json(
+        run_root / "attempts" / state["current_attempt"] / "attempt.json"
+    )
     result["current_code_bundle_sha256"] = attempt.get("code_bundle_sha256")
     stage_attempts = {
         row["stage_id"]: row["attempt_id"]
@@ -1326,8 +1357,7 @@ def _record_replay_metadata(
                 == result.get("current_design_sha256")
             ),
             "code_sha256_match": (
-                result.get("source_code_sha256")
-                == result.get("current_code_sha256")
+                result.get("source_code_sha256") == result.get("current_code_sha256")
             ),
             "parameters_sha256_match": (
                 result.get("source_parameters_sha256")
@@ -1371,7 +1401,9 @@ def verify_attempt(
     facts = read_json(attempt_root / "execution.json")
     attempt = read_json(attempt_root / "attempt.json")
     if attempt.get("stage_id") != stage_id:
-        raise VerificationError("attempt stage identity does not match the active stage")
+        raise VerificationError(
+            "attempt stage identity does not match the active stage"
+        )
     stage = experiment_stage(design, stage_id)
     execution = stage_execution(design, stage_id)
     active_design = _active_stage_design(design, stage_id)
@@ -1430,16 +1462,24 @@ def verify_attempt(
         if not result_path.is_file():
             outcome = "technical_failure"
             reason = "沙箱退出成功但没有产生受信任的 result.json。"
-            verification_checks.append({"check": "worker_result_present", "passed": False})
+            verification_checks.append(
+                {"check": "worker_result_present", "passed": False}
+            )
         else:
-            verification_checks.append({"check": "worker_result_present", "passed": True})
+            verification_checks.append(
+                {"check": "worker_result_present", "passed": True}
+            )
             try:
                 worker_result = validate_worker_result(
                     json.loads(result_path.read_text(encoding="utf-8"))
                 )
-                verification_checks.append({"check": "worker_result_contract", "passed": True})
+                verification_checks.append(
+                    {"check": "worker_result_contract", "passed": True}
+                )
             except (json.JSONDecodeError, ValueError) as exc:
-                verification_checks.append({"check": "worker_result_contract", "passed": False})
+                verification_checks.append(
+                    {"check": "worker_result_contract", "passed": False}
+                )
                 outcome = "technical_failure"
                 reason = f"worker result 未通过合同检查：{exc}"
     if outcome is None and worker_result is not None:
@@ -1563,9 +1603,7 @@ def verify_attempt(
             for row in design["measurement_plan"]
             if row["name"] in set(stage["measurement_refs"])
         }
-        observed_by_name = {
-            row["name"]: row for row in worker_result["measurements"]
-        }
+        observed_by_name = {row["name"]: row for row in worker_result["measurements"]}
         measurement_plan_errors: list[str] = []
         for name in sorted(set(planned_by_name) - set(observed_by_name)):
             measurement_plan_errors.append(f"planned measurement is missing: {name}")
@@ -1607,7 +1645,9 @@ def verify_attempt(
         for result_id in sorted(set(planned_results) - set(observed_results)):
             result_plan_errors.append(f"planned typed result is missing: {result_id}")
         for result_id in sorted(set(observed_results) - set(planned_results)):
-            result_plan_errors.append(f"unplanned typed result was emitted: {result_id}")
+            result_plan_errors.append(
+                f"unplanned typed result was emitted: {result_id}"
+            )
         for result_id in sorted(set(planned_results) & set(observed_results)):
             planned = planned_results[result_id]
             observed = observed_results[result_id]
@@ -1739,7 +1779,9 @@ def verify_attempt(
         )
         outcome = assessment["proposed_outcome"]
         reason = assessment["rationale"]
-        verification_checks.append({"check": "scientific_assessment_contract", "passed": True})
+        verification_checks.append(
+            {"check": "scientific_assessment_contract", "passed": True}
+        )
     if outcome is None or reason is None:
         raise VerificationError("verification did not resolve a terminal outcome")
 
@@ -1765,7 +1807,9 @@ def verify_attempt(
             target = release_root / Path(*artifact["path"].split("/"))
             target.parent.mkdir(parents=True, exist_ok=True)
             if target.exists():
-                raise VerificationError(f"public artifact would overwrite an existing file: {artifact['path']}")
+                raise VerificationError(
+                    f"public artifact would overwrite an existing file: {artifact['path']}"
+                )
             shutil.copyfile(source, target)
             public_rows.append(
                 {
@@ -1812,7 +1856,8 @@ def verify_attempt(
         "stage_id": stage_id,
         "execution_state": (
             "completed"
-            if outcome in {
+            if outcome
+            in {
                 "completed_interpretable",
                 "partial_result",
                 "scientific_null",
@@ -1937,9 +1982,7 @@ def create_early_record(
         "response_sha256": (
             canonical_sha256(response) if response is not None else None
         ),
-        "design_sha256": (
-            canonical_sha256(design) if design is not None else None
-        ),
+        "design_sha256": (canonical_sha256(design) if design is not None else None),
         "final_stage_id": state.get("current_stage_id"),
         "stage_history": state.get("stage_history", []),
         "artifact_lineage": state.get("artifact_lineage", []),

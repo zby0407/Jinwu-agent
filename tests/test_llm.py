@@ -587,6 +587,8 @@ class TestThirdPartyRouting:
         call_kwargs = mock_init.call_args.kwargs
         assert call_kwargs["stream_chunk_timeout"] == 300.0
         assert call_kwargs["timeout"] == 300.0
+        # The Qwen middleware owns the single transport retry so the SDK does
+        # not multiply it with a second middleware-level attempt.
         assert call_kwargs["max_retries"] == 0
 
     @patch("jw.llm.models.init_chat_model")
@@ -685,6 +687,7 @@ class TestThirdPartyRouting:
         """DashScope provider should route through OpenAI with correct base_url."""
         mock_init.return_value = "mock_model"
         monkeypatch.setenv("DASHSCOPE_API_KEY", "ds-key-456")
+        monkeypatch.delenv("JW_DASHSCOPE_MAX_RETRIES", raising=False)
 
         get_chat_model("qwen-max", provider="dashscope")
 

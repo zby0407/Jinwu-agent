@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import re
 import shutil
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -32,6 +33,7 @@ from .contracts import (
     TERMINAL_STAGE_TARGETS,
     UNCALIBRATED_BASELINE_LANGUAGE,
     ContractError,
+    _has_explicit_condition_measurement,
     _linked_sensitivity_roles,
     _loss_delta_direction_conflicts,
     _paired_measurements_requiring_audit,
@@ -56,16 +58,18 @@ from .paths import (
     snapshot_input_previews,
     snapshot_inputs,
 )
-from .policy import validate_code_files, verify_dependencies
+from .policy import CodePolicyError, validate_code_files, verify_dependencies
 from .reporting import finalize_report
 from .state import (
     atomic_write_json,
     checkpoint,
     create_run,
+    exclusive_file_lock,
     file_sha256,
     latest_run_id,
     load_state,
     read_json,
+    runs_root,
     save_state,
     utc_now,
 )
@@ -74,6 +78,17 @@ from .verification import AssessmentRequired, create_early_record, verify_attemp
 
 class ServiceError(RuntimeError):
     """The requested lifecycle transition is invalid."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        error_code: str | None = None,
+        run_id: str | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.error_code = error_code
+        self.run_id = run_id
 
 
 _LOG_SECRET = re.compile(
@@ -160,6 +175,7 @@ def _remaining_run_seconds(
 
 
 def _require_run_budget(
+    root: Path,
     state: dict[str, Any],
     request: dict[str, Any],
     *,
@@ -170,9 +186,11 @@ def _require_run_budget(
         require_unallocated_attempt and state.get("remaining_attempts", 0) <= 0
     )
     if remaining <= 0 or attempts_exhausted:
-        raise ServiceError(
-            "本次运行的总时间或总尝试预算已用尽；系统将保留现有证据并生成报告。"
-        )
+        reason = "本次运行的总时间或总尝试预算已用尽；系统将保留现有证据并生成报告。"
+        state["outcome"] = "budget_stopped"
+        state["last_error"] = reason
+        save_state(root, state)
+        raise ServiceError(reason)
     return remaining
 
 
@@ -361,7 +379,7 @@ def _authoring_guide() -> dict[str, Any]:
                 "criterion_item": {
                     "id": "safe id",
                     "statement": "reader-facing text",
-                    "basis_kind": "user_request|located_source|data_derived|method_standard|qualitative_no_fixed_threshold",
+                    "basis_kind": "user_request|located_source|data_derived|method_standard|bounded_pragmatic_choice|qualitative_no_fixed_threshold",
                     "basis_text": "text including provenance for every numeric cutoff",
                     "source_refs": [],
                     "artifact_refs": ["artifact paths, not ids"],
@@ -454,9 +472,7 @@ def _authoring_guide() -> dict[str, Any]:
             },
             "stage_outcomes": sorted(STAGE_OUTCOMES),
             "terminal_targets": sorted(TERMINAL_STAGE_TARGETS),
-            "paired_comparison_rule": (
-                "Use [] unless rows are paired."
-            ),
+            "paired_comparison_rule": "Use [] unless paired.",
             "rules": [
                 "Use one to five forward-only stages and only methods this task needs.",
                 "Each stage creates scientific output; no verify, report, or reformat-only stages.",
@@ -603,9 +619,7 @@ def _stage_worker_output_guide(
     """Expose the active stage's exact output identifiers in one compact block."""
 
     stage = experiment_stage(design, stage_id)
-    artifact_paths = {
-        row["id"]: row["path"] for row in design.get("artifact_plan", [])
-    }
+    artifact_paths = {row["id"]: row["path"] for row in design.get("artifact_plan", [])}
     expected_artifacts = list(stage["execution"]["expected_artifacts"])
     json_artifacts = [
         artifact_paths[artifact_id]
@@ -760,9 +774,9 @@ def _design_schema_issues(
         label = f"design.paired_comparison_audits[{index}]"
         for field in ("baseline_fit_condition", "candidate_fit_condition"):
             field_value = audit.get(field)
-            if isinstance(field_value, str) and AMBIGUOUS_FLAGGED_RETENTION_LANGUAGE.search(
-                field_value
-            ):
+            if isinstance(
+                field_value, str
+            ) and AMBIGUOUS_FLAGGED_RETENTION_LANGUAGE.search(field_value):
                 issues.append(
                     {
                         "field_path": f"{label}.{field}",
@@ -858,17 +872,14 @@ def _design_schema_issues(
                     "suggestion": "明确写成“包含被标记观测的拟合”或“排除被标记观测的拟合”；不要用“仅保留标记观测”表示保留其余正常观测。",
                 }
             )
-        if (
-            re.search(
-                r"(?:^|_)mse(?:_|$)|\bMSE\b",
-                f"{row.get('name', '')} {row.get('display_name', '')}",
-                re.IGNORECASE,
-            )
-            and re.search(
-                r"(?:平均有符号|平均符号|mean\s+signed)",
-                reader_text,
-                re.IGNORECASE,
-            )
+        if re.search(
+            r"(?:^|_)mse(?:_|$)|\bMSE\b",
+            f"{row.get('name', '')} {row.get('display_name', '')}",
+            re.IGNORECASE,
+        ) and re.search(
+            r"(?:平均有符号|平均符号|mean\s+signed)",
+            reader_text,
+            re.IGNORECASE,
         ):
             issues.append(
                 {
@@ -908,9 +919,7 @@ def _design_schema_issues(
                 condition_measurement = str(
                     condition_audit.get(f"{side}_measurement", "")
                 )
-                source_measurement = str(
-                    source_audit.get("candidate_measurement", "")
-                )
+                source_measurement = str(source_audit.get("candidate_measurement", ""))
                 link_key = (condition_measurement, source_measurement)
                 if (
                     condition_measurement
@@ -928,7 +937,9 @@ def _design_schema_issues(
                     )
                 if (
                     condition_measurement == source_measurement
-                    and str(condition_audit.get("evaluation_scope", "")).strip().casefold()
+                    and str(condition_audit.get("evaluation_scope", ""))
+                    .strip()
+                    .casefold()
                     != str(source_audit.get("evaluation_scope", "")).strip().casefold()
                 ):
                     issues.append(
@@ -957,9 +968,7 @@ def _design_schema_issues(
         result_refs = criterion.get("result_refs")
         endpoint_refs = criterion.get("endpoint_refs")
         if isinstance(refs, list):
-            referenced_measurements.update(
-                ref for ref in refs if isinstance(ref, str)
-            )
+            referenced_measurements.update(ref for ref in refs if isinstance(ref, str))
         if isinstance(result_refs, list):
             referenced_results.update(
                 ref for ref in result_refs if isinstance(ref, str)
@@ -1002,12 +1011,9 @@ def _design_schema_issues(
                         "suggestion": "删除无来源阈值并采用方向性判据；只有用户要求、已提供资料或可复算数据明确支持时才能保留。",
                     }
                 )
-            elif (
-                basis_kind in {"located_source", "data_derived"}
-                and (
-                    not isinstance(source_refs, list)
-                    or not any(isinstance(ref, str) and ref for ref in source_refs)
-                )
+            elif basis_kind in {"located_source", "data_derived"} and (
+                not isinstance(source_refs, list)
+                or not any(isinstance(ref, str) and ref for ref in source_refs)
             ):
                 issues.append(
                     {
@@ -1016,10 +1022,14 @@ def _design_schema_issues(
                         "suggestion": "用 source_refs 指向阈值来源或推导所用数据；若没有可追溯来源，删除该阈值。",
                     }
                 )
-            elif basis_kind == "data_derived" and isinstance(basis_text, str) and re.search(
-                r"(?:近似|大约|约为|粗略|approximately|roughly)",
-                basis_text,
-                re.IGNORECASE,
+            elif (
+                basis_kind == "data_derived"
+                and isinstance(basis_text, str)
+                and re.search(
+                    r"(?:近似|大约|约为|粗略|approximately|roughly)",
+                    basis_text,
+                    re.IGNORECASE,
+                )
             ):
                 issues.append(
                     {
@@ -1063,10 +1073,11 @@ def _design_schema_issues(
                 str(basis_text or ""),
             )
         )
-        if (
+        requires_condition_contrast = bool(
             SENSITIVITY_CONTEXT.search(criterion_semantics)
-            and (len(condition_refs) < 2 or not delta_refs)
-        ):
+            and _has_explicit_condition_measurement(refs, measurement_plan)
+        )
+        if requires_condition_contrast and (len(condition_refs) < 2 or not delta_refs):
             issues.append(
                 {
                     "field_path": f"design.criteria[{index}].measurement_refs",
@@ -1074,7 +1085,7 @@ def _design_schema_issues(
                     "suggestion": "敏感性判据同时引用条件 A、条件 B 和二者差值，并保持同一单位与统计口径。",
                 }
             )
-        elif SENSITIVITY_CONTEXT.search(criterion_semantics) and not any(
+        elif requires_condition_contrast and not any(
             isinstance(audit, dict)
             and audit.get("comparison_kind") == "candidate_vs_candidate"
             and {
@@ -1090,11 +1101,7 @@ def _design_schema_issues(
                     "suggestion": "为保留与排除两种拟合条件声明 candidate_vs_candidate 成对比较，并在同一批评价观测上核对两侧估计量。",
                 }
             )
-        elif (
-            CONTRAST_PROMISE.search(statement)
-            and len(refs) >= 2
-            and not delta_refs
-        ):
+        elif CONTRAST_PROMISE.search(statement) and len(refs) >= 2 and not delta_refs:
             issues.append(
                 {
                     "field_path": f"design.criteria[{index}].measurement_refs",
@@ -1177,12 +1184,16 @@ def _design_schema_issues(
                     "suggestion": "把原始列名或类别代码改写成自然语言科研名称。",
                 }
             )
-        result_reader_text = " ".join(
-            (
-                str(result.get("display_name", "")),
-                str(result.get("scientific_meaning", "")),
+        result_reader_text = (
+            " ".join(
+                (
+                    str(result.get("display_name", "")),
+                    str(result.get("scientific_meaning", "")),
+                )
             )
-        ) if isinstance(result, dict) else ""
+            if isinstance(result, dict)
+            else ""
+        )
         if result_reader_text and AMBIGUOUS_FLAGGED_RETENTION_LANGUAGE.search(
             result_reader_text
         ):
@@ -1436,9 +1447,7 @@ def _design_schema_issues(
             if not isinstance(refs, list):
                 continue
             unknown = sorted(
-                str(ref)
-                for ref in refs
-                if isinstance(ref, str) and ref not in known
+                str(ref) for ref in refs if isinstance(ref, str) and ref not in known
             )
             if unknown:
                 issues.append(
@@ -1468,9 +1477,7 @@ def _design_schema_issues(
             if not isinstance(refs, list):
                 continue
             unknown = sorted(
-                str(ref)
-                for ref in refs
-                if isinstance(ref, str) and ref not in known
+                str(ref) for ref in refs if isinstance(ref, str) and ref not in known
             )
             if unknown:
                 issues.append(
@@ -1512,9 +1519,10 @@ def _design_schema_issues(
                 str(baseline_plan.get("scientific_meaning", "")),
             )
         )
-        if (
-            audit.get("comparison_kind") == "candidate_vs_candidate"
-            and UNCALIBRATED_BASELINE_LANGUAGE.search(baseline_reader_text)
+        if audit.get(
+            "comparison_kind"
+        ) == "candidate_vs_candidate" and UNCALIBRATED_BASELINE_LANGUAGE.search(
+            baseline_reader_text
         ):
             issues.append(
                 {
@@ -1565,21 +1573,159 @@ def _design_schema_issues(
     return issues
 
 
-def bind_request(payload: dict[str, Any]) -> dict[str, Any]:
+def _normalized_research_scope(scope: dict[str, Any]) -> dict[str, Any]:
+    fields = {
+        "schema_version",
+        "task_id",
+        "stage",
+        "accepted_upstream_refs",
+        "revision_review_id",
+        "design_validation_limit",
+    }
+    if set(scope) != fields:
+        raise ServiceError("research experiment scope has unexpected fields")
+    if scope["schema_version"] != "research-experiment-scope-v1":
+        raise ServiceError("research experiment scope version is unsupported")
+    task_id = scope["task_id"]
+    if not isinstance(task_id, str) or not task_id.strip():
+        raise ServiceError("research experiment scope requires task_id")
+    stage = scope["stage"]
+    if stage not in {"experiment_design", "experiment_result"}:
+        raise ServiceError("research experiment scope has an invalid stage")
+    if scope["design_validation_limit"] != 3:
+        raise ServiceError("research design validation limit must be 3")
+    revision_review_id = scope["revision_review_id"]
+    if revision_review_id is not None and (
+        not isinstance(revision_review_id, str) or not revision_review_id.strip()
+    ):
+        raise ServiceError("revision_review_id must be non-empty text or null")
+    raw_refs = scope["accepted_upstream_refs"]
+    if not isinstance(raw_refs, list):
+        raise ServiceError("accepted_upstream_refs must be an array")
+    refs: list[dict[str, Any]] = []
+    seen: set[tuple[str, int, str, str]] = set()
+    for raw_ref in raw_refs:
+        if not isinstance(raw_ref, dict) or set(raw_ref) != {
+            "artifact_id",
+            "version",
+            "artifact_sha256",
+            "stage",
+        }:
+            raise ServiceError("accepted upstream artifact ref is invalid")
+        artifact_id = raw_ref["artifact_id"]
+        version = raw_ref["version"]
+        artifact_sha256 = raw_ref["artifact_sha256"]
+        artifact_stage = raw_ref["stage"]
+        if not isinstance(artifact_id, str) or not artifact_id.strip():
+            raise ServiceError("accepted upstream artifact_id is invalid")
+        if not isinstance(version, int) or isinstance(version, bool) or version < 1:
+            raise ServiceError("accepted upstream artifact version is invalid")
+        if (
+            not isinstance(artifact_sha256, str)
+            or re.fullmatch(r"[0-9a-f]{64}", artifact_sha256) is None
+        ):
+            raise ServiceError("accepted upstream artifact hash is invalid")
+        if not isinstance(artifact_stage, str) or not artifact_stage:
+            raise ServiceError("accepted upstream artifact stage is invalid")
+        identity = (artifact_id, version, artifact_sha256, artifact_stage)
+        if identity in seen:
+            raise ServiceError("accepted upstream artifact refs contain a duplicate")
+        seen.add(identity)
+        refs.append(
+            {
+                "artifact_id": artifact_id,
+                "version": version,
+                "artifact_sha256": artifact_sha256,
+                "stage": artifact_stage,
+            }
+        )
+    refs.sort(
+        key=lambda ref: (
+            ref["stage"],
+            ref["artifact_id"],
+            ref["version"],
+            ref["artifact_sha256"],
+        )
+    )
+    return {
+        "schema_version": "research-experiment-scope-v1",
+        "task_id": task_id,
+        "stage": stage,
+        "accepted_upstream_refs": refs,
+        "revision_review_id": revision_review_id,
+        "design_validation_limit": 3,
+    }
+
+
+def _run_bound_to_research_scope(scope_identity: str) -> str | None:
+    root = runs_root()
+    if not root.is_dir():
+        return None
+    for path in sorted(root.glob("*/state.json")):
+        state = read_json(path)
+        if state.get("research_scope_identity") == scope_identity:
+            return path.parent.name
+    return None
+
+
+def bind_request(
+    payload: dict[str, Any],
+    *,
+    research_scope: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     allowed = {"request", "request_input"}
     if not set(payload).issubset(allowed) or (
         ("request" in payload) == ("request_input" in payload)
     ):
         raise ServiceError("bind request accepts either request or request_input")
+    normalized_scope = (
+        _normalized_research_scope(research_scope)
+        if research_scope is not None
+        else None
+    )
+    if (
+        normalized_scope is not None
+        and normalized_scope["stage"] == "experiment_result"
+    ):
+        raise ServiceError(
+            "experiment_result must resume the accepted run_id; binding a new run is forbidden",
+            error_code="RESEARCH_EXPERIMENT_RESULT_REBIND_FORBIDDEN",
+        )
+    scope_identity = (
+        canonical_sha256(normalized_scope) if normalized_scope is not None else None
+    )
     request = _request_from_payload(payload)
     request_fingerprint = _request_fingerprint(request)
     input_fingerprint = fingerprint_input_references(request)["input_fingerprint"]
-    run_id, root, state = create_run(
-        request,
-        request_fingerprint=request_fingerprint,
-    )
-    state["input_fingerprint"] = input_fingerprint
-    save_state(root, state)
+    if scope_identity is not None:
+        with exclusive_file_lock(runs_root() / ".research-scope.lock"):
+            prior_run_id = _run_bound_to_research_scope(scope_identity)
+            if prior_run_id is not None:
+                raise ServiceError(
+                    "this research experiment scope is already bound; resume the existing run",
+                    error_code="RESEARCH_EXPERIMENT_SCOPE_ALREADY_BOUND",
+                    run_id=prior_run_id,
+                )
+            run_id, root, state = create_run(
+                request,
+                request_fingerprint=request_fingerprint,
+            )
+            state["input_fingerprint"] = input_fingerprint
+            state["research_scope"] = normalized_scope
+            state["research_scope_identity"] = scope_identity
+            state["design_validation_budget"] = {
+                "limit": normalized_scope["design_validation_limit"],
+                "used": 0,
+                "remaining": normalized_scope["design_validation_limit"],
+            }
+            save_state(root, state)
+    else:
+        run_id, root, state = create_run(
+            request,
+            request_fingerprint=request_fingerprint,
+        )
+        state["input_fingerprint"] = input_fingerprint
+        save_state(root, state)
     return {
         "schema_version": "automatic-experiment-brief-v1",
         "status": "request_bound",
@@ -1595,14 +1741,20 @@ def bind_request(payload: dict[str, Any]) -> dict[str, Any]:
             RECORD_VERSION,
             ENTRY_RESULT_VERSION,
         ],
-        "response_kinds": ["experiment_ready", "clarification_required", "execution_blocked"],
+        "response_kinds": [
+            "experiment_ready",
+            "clarification_required",
+            "execution_blocked",
+        ],
         "terminal_outcomes": sorted(OUTCOMES),
         "design_contract": DESIGN_VERSION,
         "authoring_guide": _authoring_guide(),
     }
 
 
-def _attempt_code_files(root: Path, attempt_id: str) -> tuple[dict[str, Any], list[dict[str, str]]]:
+def _attempt_code_files(
+    root: Path, attempt_id: str
+) -> tuple[dict[str, Any], list[dict[str, str]]]:
     attempt_root = root / "attempts" / attempt_id
     attempt = read_json(attempt_root / "attempt.json")
     verify_attempt_immutable(attempt_root, attempt)
@@ -1681,23 +1833,20 @@ def _validate_replay_source(source_run_id: str) -> dict[str, Any]:
     entry = read_json(root / "entry_result.json")
     entry_payload = dict(entry)
     stored_entry_sha = entry_payload.pop("entry_sha256", None)
-    if (
-        not isinstance(stored_entry_sha, str)
-        or stored_entry_sha != canonical_sha256(entry_payload)
+    if not isinstance(stored_entry_sha, str) or stored_entry_sha != canonical_sha256(
+        entry_payload
     ):
         raise ServiceError("replay source entry hash is invalid")
     if entry.get("record_sha256") != file_sha256(root / "record.json"):
         raise ServiceError("replay source record file changed after finalization")
-    if (
-        entry.get("report_sha256") != file_sha256(root / "report.md")
-        or state.get("report_sha256") != entry.get("report_sha256")
-    ):
+    if entry.get("report_sha256") != file_sha256(root / "report.md") or state.get(
+        "report_sha256"
+    ) != entry.get("report_sha256"):
         raise ServiceError("replay source report changed after finalization")
     if isinstance(entry.get("audit_path"), str):
         audit_path = root / entry["audit_path"]
-        if (
-            not audit_path.is_file()
-            or entry.get("audit_sha256") != file_sha256(audit_path)
+        if not audit_path.is_file() or entry.get("audit_sha256") != file_sha256(
+            audit_path
         ):
             raise ServiceError("replay source audit changed after finalization")
     for asset in entry.get("report_assets", []):
@@ -1733,7 +1882,9 @@ def _validate_replay_source(source_run_id: str) -> dict[str, Any]:
         if not isinstance(stage_id, str) or not isinstance(attempt_id, str):
             raise ServiceError("replay source stage history lacks an attempt identity")
         if stage_id in stage_code_files:
-            raise ServiceError("replay source contains more than one terminal attempt for a stage")
+            raise ServiceError(
+                "replay source contains more than one terminal attempt for a stage"
+            )
         attempt, code_files = _attempt_code_files(root, attempt_id)
         if (
             attempt.get("design_sha256") != canonical_sha256(design)
@@ -1819,9 +1970,7 @@ def prepare_replay(source_run_id: str) -> dict[str, Any]:
     destination_inputs = root / "inputs"
     for input_row in source["manifest"].get("inputs", []):
         for file_row in input_row.get("files", []):
-            source_path = source["root"] / "inputs" / Path(
-                *file_row["path"].split("/")
-            )
+            source_path = source["root"] / "inputs" / Path(*file_row["path"].split("/"))
             target_path = destination_inputs / Path(*file_row["path"].split("/"))
             target_path.parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(source_path, target_path)
@@ -1869,8 +2018,7 @@ def prepare_replay(source_run_id: str) -> dict[str, Any]:
     replay_code_sha = {
         row["path"].removeprefix("code/"): row["sha256"]
         for row in prepared["attempt"]["files"]
-        if row["path"].startswith("code/")
-        and row["path"] != "code/worker_request.json"
+        if row["path"].startswith("code/") and row["path"] != "code/worker_request.json"
     }
     if replay_code_sha != lineage["source_code_sha256"][first_stage_id]:
         raise ServiceError("prepared replay code does not match the source code hashes")
@@ -1905,7 +2053,9 @@ def _prepare_next_exact_replay_stage(
         )
     observed_hashes = {row["path"]: row["sha256"] for row in code_files}
     if observed_hashes != expected_hashes:
-        raise ServiceError("exact replay source code hashes changed before the next stage")
+        raise ServiceError(
+            "exact replay source code hashes changed before the next stage"
+        )
     return prepare(
         run_id,
         [{"path": row["path"], "content": row["content"]} for row in code_files],
@@ -1919,12 +2069,28 @@ def inspect_inputs(run_id: str) -> dict[str, Any]:
     if state["phase"] != "request_bound":
         if (root / "input_snapshot.json").is_file():
             manifest = read_json(root / "input_snapshot.json")
-            return {
+            result = {
                 "status": "already_snapshotted",
                 "run_id": run_id,
                 "input_snapshot": manifest,
                 "input_previews": snapshot_input_previews(root, manifest),
             }
+            request = _load_request(root)
+            result["remaining_run_seconds"] = _remaining_run_seconds(state, request)
+            stage_id = state.get("current_stage_id")
+            design_path = state.get("design_path")
+            if (
+                isinstance(stage_id, str)
+                and isinstance(design_path, str)
+                and (root / design_path).is_file()
+            ):
+                design = read_json(root / design_path)
+                result["current_stage_id"] = stage_id
+                result["required_worker_outputs"] = _stage_worker_output_guide(
+                    design,
+                    stage_id,
+                )
+            return result
         raise ServiceError("inputs can only be snapshotted after request binding")
     request = _load_request(root)
     try:
@@ -2025,7 +2191,449 @@ def _kb_grounding_warnings(design: dict[str, Any]) -> list[dict[str, Any]]:
         return []
 
 
+def _compact_single_stage_design(
+    request: dict[str, Any],
+    response: dict[str, Any],
+    compact: dict[str, Any],
+) -> dict[str, Any]:
+    """Expand model-authored scientific content into the stable design envelope.
+
+    The model still chooses the question, estimands, outputs, method, artifacts,
+    and interpretation rules.  The host supplies lifecycle boilerplate that is
+    identical for every one-stage experiment, avoiding repeated schema repair
+    turns that add no scientific content.
+    """
+
+    input_ids = [str(row["id"]) for row in request["input_refs"]]
+    measurements = [dict(row) for row in compact.get("measurements", [])]
+    results = [dict(row) for row in compact.get("results", [])]
+    artifacts = [dict(row) for row in compact.get("artifacts", [])]
+    artifact_plan = [
+        {
+            "id": f"analysis_artifact_{index:03d}",
+            "path": row.get("path"),
+            "kind": row.get("kind"),
+            "description": row.get("description"),
+            "producer_stage_id": "analysis_stage",
+        }
+        for index, row in enumerate(artifacts, start=1)
+    ]
+    artifact_paths = [str(row.get("path") or "") for row in artifacts]
+    measurement_refs = [str(row.get("name") or "") for row in measurements]
+    result_refs = [str(row.get("id") or "") for row in results]
+    primary_question = str(compact.get("primary_question") or request["task"]).strip()
+    method_outline = str(compact.get("method_outline") or "").strip()
+    input_evidence_by_id = {
+        str(row.get("input_id")): dict(row)
+        for row in compact.get("input_evidence", [])
+        if isinstance(row, dict) and row.get("input_id")
+    }
+    input_evidence = []
+    for input_id in input_ids:
+        supplied = input_evidence_by_id.get(input_id, {})
+        input_evidence.append(
+            {
+                "input_id": input_id,
+                "role": supplied.get("role") or "本次分析的声明输入",
+                "intended_use": supplied.get("intended_use")
+                or "提供当前研究问题所需的观测或上游结果。",
+                "limitations": supplied.get("limitations")
+                or "其覆盖范围限制本次结果可以外推的范围。",
+            }
+        )
+    criteria = compact.get("criteria")
+    if not isinstance(criteria, list) or not criteria:
+        criteria = [
+            {
+                "id": "analysis_result",
+                "statement": compact.get("criterion_statement")
+                or "报告预先声明的估计量、非数值判断和不确定性，并保留与输入范围相符的解释。",
+                "basis_kind": compact.get("criterion_basis_kind") or "data_derived",
+                "basis_text": compact.get("criterion_basis_text")
+                or "判断依据来自声明输入上实际计算的结果及其不确定性分析。",
+                "source_refs": input_ids,
+                "artifact_refs": artifact_paths,
+                "measurement_refs": measurement_refs,
+                "result_refs": result_refs,
+                "endpoint_refs": ["analysis_endpoint"],
+            }
+        ]
+    else:
+        criteria = [dict(row) for row in criteria]
+    method_decisions = compact.get("method_decisions")
+    if not isinstance(method_decisions, list) or not method_decisions:
+        method_decisions = [
+            {
+                "id": "analysis_method",
+                "decision_key": "analysis_method",
+                "decision": method_outline,
+                "rationale": compact.get("method_rationale")
+                or "该方法直接估计当前问题声明的量，并允许报告适用的不确定性。",
+                "basis_kind": compact.get("method_basis_kind") or "method_standard",
+                "source_refs": input_ids,
+                "alternatives": list(compact.get("method_alternatives") or []),
+                "claim_limit": compact.get("method_claim_limit")
+                or "该方法不支持超出声明输入、样本单位和观测截止范围的结论。",
+            }
+        ]
+    else:
+        method_decisions = [dict(row) for row in method_decisions]
+    return {
+        "schema_version": DESIGN_VERSION,
+        "task_name": request["task_name"],
+        "normalized_task": response["normalized_task"],
+        "design_summary": str(
+            compact.get("design_summary") or response["design_summary"]
+        ).strip(),
+        "method_fit": "suitable",
+        "input_ids": input_ids,
+        "research_frame": {
+            "primary_question": primary_question,
+            "analysis_mode": str(
+                compact.get("analysis_mode") or "有界计算分析。"
+            ).strip(),
+            "claim_scope": str(
+                compact.get("claim_scope") or "结果只适用于声明输入及其样本和时间范围。"
+            ).strip(),
+            "input_evidence": input_evidence,
+            "supported_questions": list(
+                compact.get("supported_questions") or [primary_question]
+            ),
+            "deferred_questions": list(compact.get("deferred_questions") or []),
+            "assumptions": list(compact.get("assumptions") or []),
+            "threats_to_validity": list(
+                compact.get("threats_to_validity")
+                or ["声明输入的覆盖范围限制结果的精度和可推广范围。"]
+            ),
+            "literature_basis": str(
+                compact.get("literature_basis") or "本实验设计不据此新增外部文献主张。"
+            ).strip(),
+        },
+        "paired_comparison_audits": list(compact.get("paired_comparison_audits") or []),
+        "measurement_plan": measurements,
+        "result_plan": results,
+        "method_decisions": method_decisions,
+        "criteria": criteria,
+        "artifact_plan": artifact_plan,
+        "experiment_stages": [
+            {
+                "id": "analysis_stage",
+                "objective": str(compact.get("objective") or primary_question).strip(),
+                "input_ids": input_ids,
+                "consumes_artifact_ids": [],
+                "produces_artifact_ids": [row["id"] for row in artifact_plan],
+                "prerequisite_stage_ids": [],
+                "join_policy": "all",
+                "method_outline": method_outline,
+                "measurement_refs": measurement_refs,
+                "result_refs": result_refs,
+                "endpoint_ids": ["analysis_endpoint"],
+                "criterion_refs": [str(row.get("id") or "") for row in criteria],
+                "outcome_rules": {
+                    "completed": "声明的分析输出均已计算并通过结果核验。",
+                    "inconclusive": "计算有效，但数据或不确定性不足以判定研究问题。",
+                    "input_missing": "完成分析所必需的声明输入不可用。",
+                    "evidence_conflict": "已核验输出之间存在无法消解的冲突。",
+                    "method_invalid": "实际样本或数据结构不满足声明方法的适用条件。",
+                    "technical_failure": "程序执行或结果产物未通过技术核验。",
+                    "budget_reached": "总运行时间或尝试次数已经用尽。",
+                },
+                "transitions": {
+                    "completed": "completed_interpretable",
+                    "inconclusive": "high_uncertainty",
+                    "input_missing": "input_missing",
+                    "evidence_conflict": "high_uncertainty",
+                    "method_invalid": "method_mismatch",
+                    "technical_failure": "technical_failure",
+                    "budget_reached": "budget_stopped",
+                },
+                "execution": {
+                    "entry_file": "experiment.py",
+                    "dependencies": list(compact.get("dependencies") or []),
+                    "deterministic": True,
+                    "seed": int(compact.get("seed") or 1729),
+                    "expected_artifacts": artifact_paths,
+                },
+            }
+        ],
+        "interpretation_policy": {
+            "primary_estimand": str(compact.get("primary_estimand") or "").strip(),
+            "null_rule": str(
+                compact.get("null_rule")
+                or "缺少相应区间或等效性依据时，不把未拒绝写成无效应证明。"
+            ).strip(),
+            "uncertainty_rule": str(
+                compact.get("uncertainty_rule")
+                or "不确定性或敏感性不足时维持未决，并说明具体原因。"
+            ).strip(),
+            "partial_rule": str(
+                compact.get("partial_rule")
+                or "仅当部分预先声明的输出完成而其他输出未完成时报告部分结果。"
+            ).strip(),
+        },
+    }
+
+
+def _design_validation_budget_stopped(
+    root: Path,
+    state: dict[str, Any],
+) -> dict[str, Any] | None:
+    budget = state.get("design_validation_budget")
+    if not isinstance(budget, dict):
+        return None
+    with exclusive_file_lock(root / ".design-validation.lock"):
+        current = read_json(root / "state.json")
+        current_budget = current.get("design_validation_budget")
+        if (
+            not isinstance(current_budget, dict)
+            or int(current_budget.get("remaining", 1)) > 0
+        ):
+            return None
+        reason = (
+            "The research experiment design validation budget is exhausted; "
+            "preserve the current run and stop instead of rebinding."
+        )
+        current["outcome"] = "budget_stopped"
+        current["last_error"] = reason
+        save_state(root, current)
+        return {
+            "schema_version": "automatic-experiment-design-check-v1",
+            "status": "budget_stopped",
+            "run_id": current["run_id"],
+            "outcome": "budget_stopped",
+            "remaining": 0,
+            "must_stop": True,
+            "message": reason,
+        }
+
+
+def _design_invalid_result(
+    root: Path,
+    state: dict[str, Any],
+    *,
+    issues: list[dict[str, str]],
+    message: str,
+    authoring_guide: dict[str, Any],
+) -> dict[str, Any]:
+    result: dict[str, Any] = {
+        "schema_version": "automatic-experiment-design-check-v1",
+        "status": "design_invalid",
+        "run_id": state["run_id"],
+        "issues": issues,
+        "message": message,
+        "authoring_guide": authoring_guide,
+    }
+    budget = state.get("design_validation_budget")
+    if not isinstance(budget, dict):
+        return result
+    with exclusive_file_lock(root / ".design-validation.lock"):
+        current = read_json(root / "state.json")
+        current_budget = current["design_validation_budget"]
+        used = min(int(current_budget["limit"]), int(current_budget["used"]) + 1)
+        remaining = max(0, int(current_budget["limit"]) - used)
+        current["design_validation_budget"] = {
+            "limit": int(current_budget["limit"]),
+            "used": used,
+            "remaining": remaining,
+        }
+        save_state(root, current)
+    result.update(
+        {
+            "design_validation_limit": int(current_budget["limit"]),
+            "design_validation_used": used,
+            "remaining": remaining,
+            "must_stop": remaining == 0,
+        }
+    )
+    return result
+
+
+def _compact_payload_issues(compact: dict[str, Any]) -> list[dict[str, str]]:
+    issues: list[dict[str, str]] = []
+    for field in (
+        "measurements",
+        "results",
+        "artifacts",
+        "criteria",
+        "method_decisions",
+        "input_evidence",
+        "paired_comparison_audits",
+    ):
+        if field not in compact:
+            continue
+        rows = compact[field]
+        if not isinstance(rows, list):
+            issues.append(
+                {
+                    "field_path": f"analysis.{field}",
+                    "message": f"{field} must be an array",
+                    "suggestion": "Submit this compact-design field as a JSON array.",
+                }
+            )
+            continue
+        for index, row in enumerate(rows):
+            if not isinstance(row, dict):
+                issues.append(
+                    {
+                        "field_path": f"analysis.{field}[{index}]",
+                        "message": f"{field} entries must be objects",
+                        "suggestion": "Replace this entry with one JSON object using the advertised item fields.",
+                    }
+                )
+    return issues
+
+
+def build_and_store_single_stage_design(
+    run_id: str,
+    response_payload: dict[str, Any],
+    compact_payload: dict[str, Any],
+) -> dict[str, Any]:
+    root, state = load_state(run_id)
+    if isinstance(state.get("design_validation_budget"), dict):
+        with exclusive_file_lock(root / ".design-validation.lock"):
+            return _build_and_store_single_stage_design_unlocked(
+                run_id,
+                response_payload,
+                compact_payload,
+            )
+    return _build_and_store_single_stage_design_unlocked(
+        run_id,
+        response_payload,
+        compact_payload,
+    )
+
+
+def _build_and_store_single_stage_design_unlocked(
+    run_id: str,
+    response_payload: dict[str, Any],
+    compact_payload: dict[str, Any],
+) -> dict[str, Any]:
+    """Compile one model-authored analysis stage and run normal validation."""
+
+    root, state = load_state(run_id)
+    stopped = _design_validation_budget_stopped(root, state)
+    if stopped is not None:
+        return stopped
+    started = time.perf_counter()
+    result: dict[str, Any] | None = None
+    error = ""
+    try:
+        request = _load_request(root)
+        response_candidate = dict(response_payload)
+        response_candidate["schema_version"] = RESPONSE_VERSION
+        response_candidate["task_name"] = request["task_name"]
+        response_candidate["task"] = request["task"]
+        if not str(response_candidate.get("normalized_task") or "").strip():
+            response_candidate["normalized_task"] = request["task"]
+        try:
+            response = validate_response(response_candidate, request)
+        except ContractError:
+            result = validate_and_store_design(run_id, response_candidate, None)
+            return result
+        compact_issues = (
+            _compact_payload_issues(compact_payload)
+            if isinstance(state.get("design_validation_budget"), dict)
+            else []
+        )
+        if compact_issues:
+            result = _design_invalid_result(
+                root,
+                state,
+                issues=compact_issues,
+                message="紧凑实验设计包含可修正的字段结构问题；请按 issues 修改后重试。",
+                authoring_guide=_authoring_guide()["design"],
+            )
+            return result
+        try:
+            design = _compact_single_stage_design(request, response, compact_payload)
+        except (TypeError, ValueError) as exc:
+            if not isinstance(state.get("design_validation_budget"), dict):
+                raise
+            conversion_issues = [
+                {
+                    "field_path": "analysis",
+                    "message": f"{type(exc).__name__}: {exc}",
+                    "suggestion": (
+                        "按 compact analysis 写作指南修正字段类型和值后，"
+                        "在同一 run_id 下重新提交。"
+                    ),
+                }
+            ]
+            result = _design_invalid_result(
+                root,
+                state,
+                issues=conversion_issues,
+                message="紧凑实验设计包含可修正的字段值或类型问题；请按 issues 修改后重试。",
+                authoring_guide=_authoring_guide()["design"],
+            )
+            return result
+        result = validate_and_store_design(run_id, response, design)
+        return result
+    except Exception as exc:
+        error = f"{type(exc).__name__}: {exc}"
+        raise
+    finally:
+        summary: dict[str, Any] = {}
+        if isinstance(compact_payload, dict):
+            for key in (
+                "measurements",
+                "results",
+                "criteria",
+                "method_decisions",
+                "artifacts",
+                "paired_comparison_audits",
+            ):
+                value = compact_payload.get(key)
+                summary[f"{key}_count"] = (
+                    len(value) if isinstance(value, list) else None
+                )
+        issue_paths = []
+        if isinstance(result, dict) and isinstance(result.get("issues"), list):
+            issue_paths = [
+                str(row.get("field_path") or "")
+                for row in result["issues"]
+                if isinstance(row, dict)
+            ]
+        record = {
+            "schema_version": "automatic-experiment-compact-design-attempt-v1",
+            "created_at": utc_now(),
+            "duration_seconds": round(time.perf_counter() - started, 6),
+            "status": (
+                str(result.get("status") or "unknown")
+                if isinstance(result, dict)
+                else "error"
+            ),
+            "summary": summary,
+            "issue_paths": issue_paths,
+            "error": error,
+        }
+        with (root / "compact_design_attempts.jsonl").open(
+            "a", encoding="utf-8"
+        ) as handle:
+            handle.write(json.dumps(record, ensure_ascii=False, sort_keys=True) + "\n")
+
+
 def validate_and_store_design(
+    run_id: str,
+    response_payload: dict[str, Any],
+    design_payload: dict[str, Any] | None,
+) -> dict[str, Any]:
+    root, state = load_state(run_id)
+    if isinstance(state.get("design_validation_budget"), dict):
+        with exclusive_file_lock(root / ".design-validation.lock"):
+            return _validate_and_store_design_unlocked(
+                run_id,
+                response_payload,
+                design_payload,
+            )
+    return _validate_and_store_design_unlocked(
+        run_id,
+        response_payload,
+        design_payload,
+    )
+
+
+def _validate_and_store_design_unlocked(
     run_id: str,
     response_payload: dict[str, Any],
     design_payload: dict[str, Any] | None,
@@ -2033,6 +2641,9 @@ def validate_and_store_design(
     root, state = load_state(run_id)
     if state["phase"] not in {"request_bound", "inputs_snapshotted"}:
         raise ServiceError("design can only be checked before attempts are prepared")
+    stopped = _design_validation_budget_stopped(root, state)
+    if stopped is not None:
+        return stopped
     request = _load_request(root)
     response_candidate = dict(response_payload)
     response_candidate["schema_version"] = RESPONSE_VERSION
@@ -2043,11 +2654,10 @@ def validate_and_store_design(
     try:
         response = validate_response(response_candidate, request)
     except ContractError as exc:
-        return {
-            "schema_version": "automatic-experiment-design-check-v1",
-            "status": "design_invalid",
-            "run_id": run_id,
-            "issues": [
+        return _design_invalid_result(
+            root,
+            state,
+            issues=[
                 {
                     "field_path": exc.field_path or "response",
                     "message": str(exc),
@@ -2057,9 +2667,9 @@ def validate_and_store_design(
                     ),
                 }
             ],
-            "message": "实验响应仍有一项需要修正；请按说明调整后重新提交。",
-            "authoring_guide": _authoring_guide()["response"],
-        }
+            message="实验响应仍有一项需要修正；请按说明调整后重新提交。",
+            authoring_guide=_authoring_guide()["response"],
+        )
     snapshot = (
         read_json(root / "input_snapshot.json")
         if (root / "input_snapshot.json").is_file()
@@ -2067,12 +2677,26 @@ def validate_and_store_design(
             "schema_version": "automatic-experiment-input-snapshot-v1",
             "created_at": None,
             "total_bytes": 0,
-            "missing_required_ids": [row["id"] for row in request["input_refs"] if row["required"]],
+            "missing_required_ids": [
+                row["id"] for row in request["input_refs"] if row["required"]
+            ],
             "inputs": [],
         }
     )
     atomic_write_json(root / "response.json", response)
     state["response_path"] = "response.json"
+    if _remaining_run_seconds(state, request) <= 0:
+        reason = "本次实验设计超过了已声明的总运行时限；现有响应与输入快照已保留。"
+        state["outcome"] = "budget_stopped"
+        state["last_error"] = reason
+        save_state(root, state)
+        return {
+            "schema_version": "automatic-experiment-design-check-v1",
+            "status": "terminal",
+            "run_id": run_id,
+            "outcome": "budget_stopped",
+            "blockers": [reason],
+        }
     if (
         response["response_kind"] == "experiment_ready"
         and not request["input_refs"]
@@ -2093,7 +2717,10 @@ def validate_and_store_design(
             "outcome": "input_missing",
             "blockers": [reason],
         }
-    if request["resource_budget"]["gpu_count"] != 0 or request["resource_budget"]["gpu_memory_mb"] != 0:
+    if (
+        request["resource_budget"]["gpu_count"] != 0
+        or request["resource_budget"]["gpu_memory_mb"] != 0
+    ):
         reason = (
             "GPU execution is boundary-blocked in V1 because per-run device and "
             "memory isolation is not proven."
@@ -2107,7 +2734,9 @@ def validate_and_store_design(
             "outcome": "boundary_blocked",
             "blockers": [reason],
         }
-    if state.get("outcome") == "boundary_blocked" and isinstance(state.get("last_error"), str):
+    if state.get("outcome") == "boundary_blocked" and isinstance(
+        state.get("last_error"), str
+    ):
         reason = state["last_error"].removeprefix("input_policy: ").strip()
         save_state(root, state)
         return {
@@ -2160,14 +2789,13 @@ def validate_and_store_design(
     design_candidate["normalized_task"] = response["normalized_task"]
     shape_issues = _design_schema_issues(design_candidate, request)
     if shape_issues:
-        return {
-            "schema_version": "automatic-experiment-design-check-v1",
-            "status": "design_invalid",
-            "run_id": run_id,
-            "issues": shape_issues,
-            "message": "实验设计有多项结构问题；请按 issues 一次性修正后重新提交。",
-            "authoring_guide": _design_repair_guide(shape_issues),
-        }
+        return _design_invalid_result(
+            root,
+            state,
+            issues=shape_issues,
+            message="实验设计有多项结构问题；请按 issues 一次性修正后重新提交。",
+            authoring_guide=_design_repair_guide(shape_issues),
+        )
     try:
         design = validate_design(design_candidate, request, response)
     except ContractError as exc:
@@ -2176,21 +2804,39 @@ def validate_and_store_design(
                 "field_path": exc.field_path or "design",
                 "message": str(exc),
                 "suggestion": (
-                    exc.suggestion
-                    or "按当前问题的科研需要修正该设计关系后重新提交。"
+                    exc.suggestion or "按当前问题的科研需要修正该设计关系后重新提交。"
                 ),
             }
         ]
-        return {
-            "schema_version": "automatic-experiment-design-check-v1",
-            "status": "design_invalid",
-            "run_id": run_id,
-            "issues": semantic_issues,
-            "message": "实验设计仍有一项科研关系需要修正；请按说明调整后重新提交。",
-            "authoring_guide": _design_repair_guide(semantic_issues),
-        }
-    for stage in design["experiment_stages"]:
-        verify_dependencies(stage["execution"]["dependencies"])
+        return _design_invalid_result(
+            root,
+            state,
+            issues=semantic_issues,
+            message="实验设计仍有一项科研关系需要修正；请按说明调整后重新提交。",
+            authoring_guide=_design_repair_guide(semantic_issues),
+        )
+    try:
+        for stage in design["experiment_stages"]:
+            verify_dependencies(stage["execution"]["dependencies"])
+    except CodePolicyError as exc:
+        if not isinstance(state.get("design_validation_budget"), dict):
+            raise
+        dependency_issues = [
+            {
+                "field_path": "design.experiment_stages[*].execution.dependencies",
+                "message": str(exc),
+                "suggestion": (
+                    "只保留已公布为可用的依赖；标准库模块无需写入 dependencies。"
+                ),
+            }
+        ]
+        return _design_invalid_result(
+            root,
+            state,
+            issues=dependency_issues,
+            message="实验设计请求了未审查的执行依赖；请按说明修正后重新提交。",
+            authoring_guide=_design_repair_guide(dependency_issues),
+        )
     atomic_write_json(root / "design.json", design)
     state["design_path"] = "design.json"
     state["current_stage_id"] = design["experiment_stages"][0]["id"]
@@ -2262,8 +2908,13 @@ def prepare(
         "stage_transitioned",
         "verification_finished",
     }:
-        raise ServiceError("attempts require a validated design or a verified technical failure")
-    if state["phase"] == "verification_finished" and state["outcome"] != "technical_failure":
+        raise ServiceError(
+            "attempts require a validated design or a verified technical failure"
+        )
+    if (
+        state["phase"] == "verification_finished"
+        and state["outcome"] != "technical_failure"
+    ):
         raise ServiceError("only technical_failure permits a repair attempt")
     request = _load_request(root)
     # A design validated in an earlier (design-phase) session carries a wall budget
@@ -2279,7 +2930,7 @@ def prepare(
         state["created_at"] = utc_now()
         state["execution_budget_reset_at"] = state["created_at"]
         save_state(root, state)
-    _require_run_budget(state, request)
+    _require_run_budget(root, state, request)
     design = read_json(root / "design.json")
     stage_id = state.get("current_stage_id")
     if not isinstance(stage_id, str):
@@ -2290,9 +2941,7 @@ def prepare(
             "当前阶段的技术修复次数已达到上限；请保留现有结果并进入该阶段的预算终态。"
         )
     if parent_attempt is not None:
-        parent_metadata = read_json(
-            root / "attempts" / parent_attempt / "attempt.json"
-        )
+        parent_metadata = read_json(root / "attempts" / parent_attempt / "attempt.json")
         if parent_metadata.get("stage_id") != stage_id:
             raise ServiceError("a repair parent must belong to the current stage")
     attempt_id, metadata = prepare_attempt(
@@ -2341,6 +2990,7 @@ def execute(run_id: str, attempt_id: str) -> dict[str, Any]:
     # *unallocated* attempts left here; execution must only enforce the time
     # budget for that already-allocated current attempt.
     remaining = _require_run_budget(
+        root,
         state,
         request,
         require_unallocated_attempt=False,
@@ -2411,9 +3061,7 @@ def _freeze_stage_artifacts(
         planned = artifact_by_id[artifact_id]
         relative = planned["path"]
         verified = verified_by_suffix.get(relative)
-        source = root / "attempts" / attempt_id / "output" / Path(
-            *relative.split("/")
-        )
+        source = root / "attempts" / attempt_id / "output" / Path(*relative.split("/"))
         if verified is None or not source.is_file():
             raise ServiceError(
                 f"verified stage artifact is unavailable for read-only handoff: {artifact_id}"
@@ -2490,9 +3138,7 @@ def _aggregate_stage_record(
             "budget_usage": {
                 **state["budget_usage"],
                 "elapsed_wall_seconds": round(_elapsed_run_seconds(state), 3),
-                "total_wall_limit_seconds": request["run_budget"][
-                    "total_wall_seconds"
-                ],
+                "total_wall_limit_seconds": request["run_budget"]["total_wall_seconds"],
                 "attempt_limit": request["run_budget"]["max_total_attempts"],
             },
             "attempt_history": attempt_history,
@@ -2788,9 +3434,10 @@ def verify(
         record,
     )
     state["artifact_lineage"].extend(frozen)
-    target = direct_terminal or experiment_stage(design, stage_id)["transitions"][
-        stage_outcome
-    ]
+    target = (
+        direct_terminal
+        or experiment_stage(design, stage_id)["transitions"][stage_outcome]
+    )
     stage_row = {
         "stage_id": stage_id,
         "attempt_id": attempt_id,
@@ -2801,12 +3448,8 @@ def verify(
         "verified_at": record["verified_at"],
         "artifacts": [row["artifact_id"] for row in frozen],
         "result_summary": {
-            "measurements": (record.get("worker_result") or {}).get(
-                "measurements", []
-            ),
-            "result_items": (record.get("worker_result") or {}).get(
-                "result_items", []
-            ),
+            "measurements": (record.get("worker_result") or {}).get("measurements", []),
+            "result_items": (record.get("worker_result") or {}).get("result_items", []),
             "endpoint_results": (record.get("worker_result") or {}).get(
                 "endpoint_results", []
             ),
@@ -2925,9 +3568,7 @@ def _knowledge_writeback(root: Path, state: dict[str, Any]) -> dict[str, Any]:
 
         run_id = str(state["run_id"])
         record = (
-            read_json(root / "record.json")
-            if (root / "record.json").is_file()
-            else {}
+            read_json(root / "record.json") if (root / "record.json").is_file() else {}
         )
         assessment = record.get("scientific_assessment") or {}
         narrative = assessment.get("report_narrative") or {}
@@ -2948,7 +3589,9 @@ def _knowledge_writeback(root: Path, state: dict[str, Any]) -> dict[str, Any]:
         }
         limitations = narrative.get("limitations")
         if isinstance(limitations, list) and limitations:
-            content["uncertainty"] = "; ".join(str(item) for item in limitations[:3])[:1_000]
+            content["uncertainty"] = "; ".join(str(item) for item in limitations[:3])[
+                :1_000
+            ]
         store = KnowledgeStore()
         try:
             existing = store.find_entry_by_source(run_id, title)
@@ -2986,7 +3629,9 @@ def finalize(run_id: str) -> dict[str, Any]:
             entry["knowledge_writeback"] = _knowledge_writeback(root, state)
             return entry
         if state["phase"] != "verification_finished":
-            raise ServiceError("entry_result.json exists before finalization was eligible")
+            raise ServiceError(
+                "entry_result.json exists before finalization was eligible"
+            )
         recovered = _validated_finalized_entry(
             root,
             state,
@@ -3065,10 +3710,7 @@ def finalize_interrupted(
     root, state = load_state(run_id)
     if state["phase"] == "report_finalized":
         return _validated_finalized_entry(root, state)
-    if (
-        state["phase"] == "verification_finished"
-        and (root / "record.json").is_file()
-    ):
+    if state["phase"] == "verification_finished" and (root / "record.json").is_file():
         return finalize(run_id)
     request = _load_request(root)
     response = (
@@ -3169,9 +3811,8 @@ def _validated_finalized_entry(
     entry = read_json(entry_path)
     payload = dict(entry)
     stored_entry_sha = payload.pop("entry_sha256", None)
-    if (
-        not isinstance(stored_entry_sha, str)
-        or stored_entry_sha != canonical_sha256(payload)
+    if not isinstance(stored_entry_sha, str) or stored_entry_sha != canonical_sha256(
+        payload
     ):
         raise ServiceError("finalized entry result hash is invalid")
     if (
@@ -3185,9 +3826,8 @@ def _validated_finalized_entry(
         raise ServiceError("finalized entry result identity is invalid")
     record_path = root / "record.json"
     report_path = root / "report.md"
-    if (
-        not record_path.is_file()
-        or entry.get("record_sha256") != file_sha256(record_path)
+    if not record_path.is_file() or entry.get("record_sha256") != file_sha256(
+        record_path
     ):
         raise ServiceError("finalized record is missing or changed")
     if (

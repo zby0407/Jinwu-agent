@@ -1207,6 +1207,26 @@ class ContractTests(unittest.TestCase):
             )
         self.assertEqual(raised.exception.error_code, "unsupported_interval_basis")
 
+    def test_declared_interval_survives_a_subset_no_interval_limit(self) -> None:
+        req = request(task="Estimate a mean with a predeclared bootstrap interval.")
+        des = design(req)
+        des["research_frame"]["analysis_mode"] = "Inferential bootstrap analysis."
+        des["method_decisions"][0]["decision"] = (
+            "Use a reproducible bootstrap confidence interval for the primary estimate."
+        )
+        des["method_decisions"][0]["claim_limit"] = (
+            "A small descriptive subset has no interval and is not used for inference."
+        )
+        worker = simple_worker_result()
+        worker["scientific_payload"]["interval"] = [2.45, 2.55]
+
+        validate_scientific_assessment(
+            assessment(),
+            des,
+            worker,
+            task_text=req["task"],
+        )
+
     def test_completed_answer_allows_no_forced_limitations_or_next_steps(self) -> None:
         req = request(task="Compute the deterministic mean of the supplied values.")
         proposed = assessment()

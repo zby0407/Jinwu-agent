@@ -117,7 +117,24 @@ def make_hyp_request(**overrides):
         "schema_version": HYP_REQUEST_VERSION,
         "task_name": "test_kb_gate",
         "research_question": "极区磁场前兆能否解释相邻活动周振幅差异？",
-        "upstream_materials": [],
+        "upstream_materials": [
+            {
+                "id": "mat_src1",
+                "material_kind": "data_feature",
+                "title": "极区磁场逐周期特征",
+                "locator": "runs/test/polar_features.json",
+                "content_notes": "极区磁场与下一周振幅存在对应关系",
+                "experiment_summary": None,
+            },
+            {
+                "id": "mat_lit1",
+                "material_kind": "literature_note",
+                "title": "极区磁场先兆知识条目",
+                "locator": "knowledge_base/concepts/polar_precursor.json",
+                "content_notes": "极区磁场与下一周振幅存在对应关系",
+                "experiment_summary": None,
+            }
+        ],
         "prior_hypotheses": [],
         "max_candidates": 4,
     }
@@ -130,6 +147,22 @@ def make_candidate(cid="cand_a", supporting=None, gaps=None):
         "id": cid,
         "statement": "极小期极区磁场减弱导致下一活动周振幅下降",
         "applicability": "仅适用于以极区磁场为先兆因子的活动周振幅评估",
+        "scope_conditions": {
+            "target_system": "按同一口径定义的相邻太阳活动周",
+            "temporal_scope": "前一活动周极小期至后一活动周峰值",
+            "spatial_scope": "全日面汇总量；不据此推断半球差异",
+            "data_scope": "同一版本和处理口径的极区磁场与黑子数产品",
+            "method_scope": "使用一致的极小期与峰值定义进行逐周期比较",
+            "holds_when": ["跨活动周的观测与处理口径保持一致"],
+            "does_not_apply_when": ["仪器或数据口径变化未得到校正"],
+            "generalization_limits": ["不得外推到未纳入比较的活动周或数据产品"],
+        },
+        "epistemic_status": {
+            "claim": "exploratory_hypothesis",
+            "mechanism": "exploratory_inference",
+            "empirical_support": "none",
+            "basis": "当前仅绑定机制设想或有限知识库线索，仍需逐周期检验",
+        },
         "mechanism": {
             "summary": "极区磁场经发电机过程决定下一周种子场强",
             "physical_basis": "通量传输发电机框架下的先兆关系",
@@ -157,6 +190,11 @@ def make_candidate(cid="cand_a", supporting=None, gaps=None):
             "expected_signals": ["极小期磁场与振幅同向变化"],
             "candidate_ids_distinguished": [cid],
         },
+        "uncertainty": {
+            "sources": ["极小期定义、观测误差和有限活动周样本"],
+            "implications": "这些不确定性可能改变效应方向并削弱机制判别力",
+            "reduction_strategy": "固定数据版本与定义后开展口径敏感性分析",
+        },
         "confidence": {"level": "low", "basis": "仅有机制设想与有限文献线索"},
         "evidence_update": None,
         "prior_version_id": None,
@@ -180,7 +218,7 @@ def bind(register, evidence_id, kind="upstream", role="supports"):
         {
             "evidence_id": evidence_id,
             "evidence_kind": kind,
-            "material_id": "mat_src1",
+            "material_id": "mat_lit1" if kind == "literature" else "mat_src1",
             "excerpt": "极区磁场与下一周振幅存在对应关系",
             "verified_support": True,
             "role": role,

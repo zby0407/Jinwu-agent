@@ -547,7 +547,7 @@ def test_novelty_bundle_deduplicates_families_and_preserves_coverage_gap(
     axes = [
         "polar field transport mechanism 极区场输运机制",
         "polar field observable cycle amplitude 极区场与活动周振幅",
-        "measurement drift statistical null 测量漂移统计零假设",
+        "polar field measurement drift statistical null 极区场测量漂移统计零假设",
     ]
 
     def fake_build(
@@ -558,8 +558,12 @@ def test_novelty_bundle_deduplicates_families_and_preserves_coverage_gap(
         feed_ids,
         limit,
         run_id,
+        ranking_focus,
+        required_anchor_phrases,
     ):
-        index = axes.index(focus)
+        index = next(index for index, axis in enumerate(axes) if focus.endswith(axis))
+        assert ranking_focus == axes[index]
+        assert required_anchor_phrases == ["polar field"]
         sources = [
             {
                 "source_id": f"source-{index}-{offset}",
@@ -577,11 +581,27 @@ def test_novelty_bundle_deduplicates_families_and_preserves_coverage_gap(
             "sources": sources,
         }
 
+    search_calls = []
+
+    def fake_search(store, query, **kwargs):
+        search_calls.append((query, kwargs))
+        return {
+            "status": "ok",
+            "providers_queried": ["openalex", "arxiv", "crossref"],
+            "provider_diagnostics": [],
+            "count": 3,
+        }
+
     monkeypatch.setattr(knowledge_tools, "_get_store", lambda: object())
     monkeypatch.setattr(
         knowledge_tools.literature,
         "build_literature_task_bundle",
         fake_build,
+    )
+    monkeypatch.setattr(
+        knowledge_tools.literature,
+        "search_literature",
+        fake_search,
     )
     outcome = json.loads(
         hypothesis_tools.scientific_hypothesis_build_novelty_bundle.invoke(
@@ -591,6 +611,9 @@ def test_novelty_bundle_deduplicates_families_and_preserves_coverage_gap(
     )
 
     assert outcome["schema_version"] == "scientific-hypothesis-novelty-bundle-v1"
+    assert [call[0] for call in search_calls] == axes
+    assert all(call[1]["source"] == "all" for call in search_calls)
+    assert len(outcome["search_receipts"]) == 3
     assert outcome["status"] == "coverage_gap"
     assert outcome["searched_family_count"] == 7
     assert len(outcome["axis_results"]) == 3

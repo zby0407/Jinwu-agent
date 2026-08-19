@@ -15,6 +15,10 @@ SILSO_CYCLE_REPRODUCTION_PROTOCOL = "silso_cycle_reproduction_v1"
 SILSO_CYCLE_EXTREMA_DATA_PRODUCT = "silso_cycle_extrema_v1"
 SOLAR_POLAR_PRECURSOR_PROTOCOL = "solar_polar_precursor_v1"
 SOLAR_POLAR_PRECURSOR_DATA_PRODUCT = "solar_polar_precursor_table_v1"
+SOLAR_POLAR_PRECURSOR_DATASET_IDS: tuple[str, ...] = (
+    "silso-monthly-total-v2",
+    "mwo-wso-polar-field-v2",
+)
 SILSO_CYCLE_REPRODUCTION_DATASET_IDS: tuple[str, ...] = (
     "silso-monthly-total-v2",
     "silso-monthly-smoothed-v2",
@@ -58,12 +62,12 @@ _SILSO_CYCLE_ENGLISH_PATTERN = re.compile(
     re.IGNORECASE | re.DOTALL,
 )
 _POLAR_FIELD_PATTERN = re.compile(
-    r"(?:polar[\s-]?field|polar precursor|MWO|WSO|极区磁场|极地磁场)",
+    r"(?:polar[\s-]?field|polar precursor|MWO|WSO|极区磁场|极地磁场|极区场强)",
     re.IGNORECASE,
 )
 _POLAR_PRECURSOR_INTENT_PATTERN = re.compile(
     r"(?:precursor|predictor|following cycle|next cycle|near minimum|"
-    r"前兆|预测因子|下一周期|极小附近)",
+    r"前兆|预测因子|下一周期|下一(?:太阳)?活动周|极小附近|预测关系)",
     re.IGNORECASE,
 )
 _POLAR_EXCLUSION_PATTERN = re.compile(
@@ -99,6 +103,54 @@ def required_data_product_for_protocol(protocol: str) -> str:
         SILSO_CYCLE_REPRODUCTION_PROTOCOL: SILSO_CYCLE_EXTREMA_DATA_PRODUCT,
         SOLAR_POLAR_PRECURSOR_PROTOCOL: SOLAR_POLAR_PRECURSOR_DATA_PRODUCT,
     }.get(protocol, GENERIC_DATA_PRODUCT)
+
+
+def required_dataset_ids_for_protocol(protocol: str) -> tuple[str, ...]:
+    """Return the registered dataset IDs required by one stable protocol."""
+
+    return {
+        SILSO_CYCLE_REPRODUCTION_PROTOCOL: SILSO_CYCLE_REPRODUCTION_DATASET_IDS,
+        SOLAR_POLAR_PRECURSOR_PROTOCOL: SOLAR_POLAR_PRECURSOR_DATASET_IDS,
+    }.get(protocol, ())
+
+
+def selected_dataset_ids_from_plan(plan: Mapping[str, Any]) -> tuple[str, ...]:
+    """Return the accepted plan's non-empty dataset selections in plan order."""
+
+    return tuple(
+        dict.fromkeys(
+            str(item["selected_source_id"]).strip()
+            for item in plan.get("required_datasets", [])
+            if isinstance(item, Mapping)
+            and isinstance(item.get("selected_source_id"), str)
+            and str(item["selected_source_id"]).strip()
+        )
+    )
+
+
+def resolve_required_dataset_ids(
+    plan: Mapping[str, Any], protocol: str
+) -> tuple[str, ...]:
+    """Resolve plan-first dataset authority and reject protocol conflicts."""
+
+    selected = selected_dataset_ids_from_plan(plan)
+    protocol_ids = required_dataset_ids_for_protocol(protocol)
+    if selected and protocol_ids and set(selected) != set(protocol_ids):
+        raise ValueError(
+            "Data semantics conflict: accepted plan dataset selections do not "
+            f"match the {protocol} protocol mapping"
+        )
+    return selected or protocol_ids
+
+
+def plan_dataset_selection_conflicts_protocol(
+    plan: Mapping[str, Any], protocol: str
+) -> bool:
+    """Return whether explicit plan selections conflict with protocol authority."""
+
+    selected = selected_dataset_ids_from_plan(plan)
+    protocol_ids = required_dataset_ids_for_protocol(protocol)
+    return bool(selected and protocol_ids and set(selected) != set(protocol_ids))
 
 
 def render_silso_cycle_reproduction_markdown(payload: Mapping[str, Any]) -> str:
@@ -237,6 +289,31 @@ def f107_discontinuity_directive() -> str:
     )
 
 
+def solar_polar_precursor_directive() -> str:
+    """Return the experiment contract for cycle-level polar precursor tests."""
+
+    return (
+        "Treat one solar cycle pair as the independent sample unit. Pair the "
+        "polar-field predictor observed near the minimum of cycle N with the "
+        "amplitude of cycle N+1, and derive the length of cycle N only from its "
+        "adjacent minima. Record the observation cutoff, prediction issue time, "
+        "and information set; monthly rows must never inflate the cycle-level "
+        "sample count. For a proposed interaction, compare the interaction model "
+        "with its additive counterpart and a persistence or other defensible "
+        "baseline. Report the interaction estimate and interval, a cycle-level "
+        "permutation or bootstrap alternative appropriate to the small sample, "
+        "leave-one-cycle direction and influential cycles, and a genuine "
+        "rolling-origin evaluation with fold errors, MAE and RMSE. Check predictor "
+        "collinearity, MWO proxy versus WSO magnetograph regimes, minimum-date and "
+        "smoothing lag, influential cycles, and whether a linear interaction is "
+        "adequate. Reduce model complexity or return uncertain when the independent "
+        "sample cannot support the model. Conflicting MAE and RMSE, an interval "
+        "covering zero, sign instability, or no out-of-sample improvement must "
+        "downgrade the incoming hypothesis. Do not preselect the interaction sign "
+        "or retain a claim that conflicts with the computed result."
+    )
+
+
 def sha256_file(path: Path) -> str:
     """Hash one immutable artifact without loading it fully into memory."""
 
@@ -295,11 +372,17 @@ __all__ = [
     "SILSO_CYCLE_REPRODUCTION_DATASET_IDS",
     "SILSO_CYCLE_REPRODUCTION_PROTOCOL",
     "SOLAR_POLAR_PRECURSOR_DATA_PRODUCT",
+    "SOLAR_POLAR_PRECURSOR_DATASET_IDS",
     "SOLAR_POLAR_PRECURSOR_PROTOCOL",
     "DatasetSemanticManifest",
     "detect_analysis_protocol",
     "f107_discontinuity_directive",
     "render_silso_cycle_reproduction_markdown",
     "required_data_product_for_protocol",
+    "required_dataset_ids_for_protocol",
+    "plan_dataset_selection_conflicts_protocol",
+    "resolve_required_dataset_ids",
+    "selected_dataset_ids_from_plan",
     "sha256_file",
+    "solar_polar_precursor_directive",
 ]

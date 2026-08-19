@@ -231,6 +231,9 @@ def build_natural_hypothesis_request(research_question: str) -> dict[str, Any]:
 def _compact_response_contract() -> dict[str, Any]:
     """返回完整的字段类型指引，不嵌入 JSON Schema 机制。"""
 
+    confidence_cap_shape = (
+        "单个字符串：exploratory、evidence_constrained 或 release_candidate"
+    )
     candidate_shape = {
         "id": "id",
         "statement": "string（精确、可被证据削弱的假设主张）",
@@ -252,6 +255,50 @@ def _compact_response_contract() -> dict[str, Any]:
             "mechanism": "supported_inference、exploratory_inference 或 unknown",
             "empirical_support": "verified、partial 或 none",
             "basis": "string（解释为何这样分级，事实必须指向已绑定证据）",
+        },
+        "scientific_quality": {
+            "contribution_type": (
+                "known_baseline、mechanism_extension、new_prediction、"
+                "new_data_linkage、new_method_application、"
+                "measurement_or_null_explanation 或 not_assessed"
+            ),
+            "novelty_status": (
+                "known_baseline、incremental_extension、potentially_novel 或 "
+                "novelty_not_assessed"
+            ),
+            "novelty_delta": "string（相对最近既有工作的具体差异；不能声称首次）",
+            "nearest_prior_art": [
+                {
+                    "source_ref": "string",
+                    "existing_claim": "string",
+                    "overlap": "string",
+                    "difference": "string",
+                    "duplication_risk": "string",
+                }
+            ],
+            "query_axes": ["string（保留目标观测量与机制组合的检索轴）"],
+            "searched_family_count": "非负整数",
+            "search_cutoff": "ISO-8601 字符串或 null",
+            "coverage_gaps": ["string"],
+            "causal_chain": {
+                "cause": "string",
+                "mediator": "string",
+                "observable": "string",
+                "cycle_index": "string",
+            },
+            "identifiability": {
+                "association_only": "string",
+                "mechanism_support_requires": "string",
+            },
+            "evidence_confidence_caps": {
+                "supporting": confidence_cap_shape,
+                "opposing": confidence_cap_shape,
+                "limiting": confidence_cap_shape,
+                "unknown": confidence_cap_shape,
+            },
+            "outcome_branches": [
+                {"outcome": "string", "claim_update": "string"}
+            ],
         },
         "mechanism": {
             "summary": "string（可能机制，不等于可观测预测）",
@@ -351,6 +398,11 @@ def _compact_response_contract() -> dict[str, Any]:
         ),
         "allowed_values": {
             "confidence_level": ["high", "medium", "low"],
+            "evidence_confidence_cap": [
+                "exploratory",
+                "evidence_constrained",
+                "release_candidate",
+            ],
             "blocker_code": [
                 "unsupported_scope",
                 "missing_indispensable_evidence",
@@ -364,6 +416,7 @@ def _compact_response_contract() -> dict[str, Any]:
             "所有 id 以字母开头；所有证据引用必须指向已绑定且核验通过的 evidence_id。",
             "候选数量由问题复杂度决定；禁止同义改写；多个候选时每个候选必须出现在 pairwise_distinctions 中。",
             "科学表述保持简洁、面向读者；不要在正文中出现 schema 名、枚举名、工具调用或保存机制等工程语言。",
+            "scientific_quality.evidence_confidence_caps 的四个字段都是单个字符串，值必须逐字来自 allowed_values.evidence_confidence_cap；不得写成数组。",
         ],
     }
 
@@ -385,6 +438,7 @@ def build_hypothesis_brief(request_payload: dict[str, Any]) -> dict[str, Any]:
                 "applicability",
                 "scope_conditions",
                 "epistemic_status",
+                "scientific_quality",
                 "mechanism",
                 "assumptions",
                 "predictions",

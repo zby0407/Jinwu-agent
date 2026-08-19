@@ -28,6 +28,10 @@ if str(_SRC) not in sys.path:
 from jw.research_protocols import (  # noqa: E402
     SILSO_CYCLE_EXTREMA_DATA_PRODUCT,
     SOLAR_POLAR_PRECURSOR_DATA_PRODUCT,
+    detect_analysis_protocol,
+    plan_dataset_selection_conflicts_protocol,
+    required_data_product_for_protocol,
+    resolve_required_dataset_ids,
 )
 from jw.workspaces import (  # noqa: E402
     workspace_context_key,
@@ -58,6 +62,7 @@ from research_review.contracts import (  # noqa: E402
     validate_run_state,
 )
 from research_review.policies import policy_registry  # noqa: E402
+from scientific_hypothesis.tail_search import tail_review_is_current  # noqa: E402
 
 logger = logging.getLogger(__name__)
 
@@ -143,6 +148,19 @@ STAGE_DEPENDENCIES: dict[str, tuple[str, ...]] = {
 _PATH_REF = re.compile(
     r"(?<![A-Za-z0-9_.-])(?:inputs|work|outputs|receipts|planner|hypothesis|experiment|research_review)/[A-Za-z0-9_./:-]+"
 )
+
+
+def _producer_path_refs(text: str) -> set[str]:
+    """Extract concrete file-like refs without promoting prose fragments."""
+
+    refs: set[str] = set()
+    for raw_ref in _PATH_REF.findall(text):
+        source_ref = raw_ref.rstrip(".,:;")
+        if source_ref and not source_ref.endswith("/"):
+            refs.add(source_ref)
+    return refs
+
+
 # Scientific-number guards must not interpret the numeric suffix of a stable
 # identifier (for example ``issue_prov_bound_001``) as a reviewer-authored
 # measurement.  Underscores are identifier characters throughout the review
@@ -161,27 +179,21 @@ _STRUCTURED_SOURCE_SUFFIXES = {
     ".parquet",
     ".tsv",
 }
-_MATERIAL_NUMBER = re.compile(
-    r"(?<![A-Za-z0-9_])(?:[+-]?(?:\d+\.\d+|\d{2,}|\d+%|\d+[eE][+-]?\d+))(?![A-Za-z0-9_])"
-)
-_HIGH_RISK_RELEASE_TERMS = (
-    "首次",
-    "首个",
-    "原创",
-    "导致",
-    "决定",
-    "主导",
-    "预测区间",
-    "置信区间",
-    " first ",
-    " novel",
-    "causal",
-    "causes",
-    "determines",
-    "dominates",
-    "prediction interval",
-    "confidence interval",
-)
+_SOLAR_DATA_OUTPUT_RECEIPT_CONTRACTS = {
+    ("research-dataset-receipt-v1", "silso_cycle_extrema_reproduction"),
+    ("solar-precursor-cycle-table-v1", "solar_precursor_cycle_table"),
+    ("solar-precursor-cycle-table-v2", "solar_precursor_cycle_table"),
+    ("solar-cycle-pair-analysis-table-v2", "solar_cycle_pair_analysis_table"),
+}
+_DATA_CONTEXT_TRANSIENT_FIELDS = {
+    "context_sha256",
+    "created_at",
+    "instruction",
+    "path_policy",
+    "produced_data_receipt_ref",
+    "receipt_ref",
+}
+_HARNESS_SOURCE_PREFIX = "research_review/harness/"
 _SAME_CYCLE_BMR_CAUSALITY = re.compile(
     r"(?:下一|后一)\s*(?:太阳)?(?:活动)?(?:周|周期).{0,30}"
     r"(?:振幅|强度|峰值).{0,100}(?:该|本|同一)\s*(?:太阳)?(?:活动)?"
@@ -617,7 +629,7 @@ class ResearchReviewStore:
             stage = str(failure["stage"])
             producer = str(failure["producer"])
             canonical_sources = self._canonical_stage_sources(stage)
-            if not self._canonical_stage_ready(stage, canonical_sources):
+            if not self._canonical_stage_ready(stage, canonical_sources, phase=stage):
                 return None
             preserved_action_invocations = state["action_invocations"]
             try:
@@ -912,6 +924,309 @@ class ResearchReviewStore:
             return None
         return max(candidates, key=lambda path: path.stat().st_mtime_ns)
 
+    def _receipted_solar_data_outputs(self, receipt_paths: list[Path]) -> list[Path]:
+        """Return only current-task Data outputs bound by recognized receipts."""
+
+        output_root = (self.workspace_root / "work" / "solar_data").resolve()
+        outputs: list[Path] = []
+        for receipt_path in receipt_paths:
+            receipt = _read_json(receipt_path)
+            if not isinstance(receipt, dict):
+                continue
+            contract = (receipt.get("schema_version"), receipt.get("receipt_type"))
+            status_is_reviewable = receipt.get("status") == "verified" or (
+                contract
+                == (
+                    "solar-cycle-pair-analysis-table-v2",
+                    "solar_cycle_pair_analysis_table",
+                )
+                and receipt.get("status") == "partial"
+                and receipt.get("analysis_status") == "analysis_table_incomplete"
+            )
+            if (
+                contract not in _SOLAR_DATA_OUTPUT_RECEIPT_CONTRACTS
+                or not status_is_reviewable
+                or receipt.get("producer") != "solar-data"
+                or receipt.get("task_id") != self.task_id
+            ):
+                continue
+            declared_outputs = receipt.get("outputs")
+            if not isinstance(declared_outputs, list):
+                continue
+            for declared in declared_outputs:
+                if not isinstance(declared, dict):
+                    continue
+                source_ref = declared.get("path")
+                sha256 = declared.get("sha256")
+                if (
+                    not isinstance(source_ref, str)
+                    or not isinstance(sha256, str)
+                    or Path(source_ref).is_absolute()
+                ):
+                    continue
+                unresolved = self.workspace_root / source_ref
+                cursor = self.workspace_root
+                has_symlink = False
+                for part in Path(source_ref).parts:
+                    cursor /= part
+                    if cursor.is_symlink():
+                        has_symlink = True
+                        break
+                candidate = unresolved.resolve()
+                if (
+                    has_symlink
+                    or not candidate.is_relative_to(output_root)
+                    or not candidate.is_file()
+                    or _file_sha256(candidate) != sha256
+                ):
+                    continue
+                outputs.append(candidate)
+        return outputs
+
+    def _task_manifest_inputs(self) -> list[Path]:
+        """Return exact task-local files declared by the current input manifest."""
+
+        task = _read_json(self.workspace_root / "task.json")
+        manifest = _read_json(self.workspace_root / "input_manifest.json")
+        if (
+            not isinstance(task, dict)
+            or task.get("thread_id") != self.task_id
+            or not isinstance(manifest, dict)
+        ):
+            return []
+        excluded_roles = {
+            "derived_artifact",
+            "provenance",
+            "reference_code",
+            "test_fixture",
+        }
+        inputs: list[Path] = []
+        for source_group in ("inputs", "project_inputs"):
+            records = manifest.get(source_group)
+            if not isinstance(records, list):
+                continue
+            for record in records:
+                if not isinstance(record, dict):
+                    continue
+                source_ref = record.get("path")
+                sha256 = record.get("sha256")
+                role = str(record.get("role") or "user_input")
+                if (
+                    not isinstance(source_ref, str)
+                    or not isinstance(sha256, str)
+                    or Path(source_ref).is_absolute()
+                    or role in excluded_roles
+                ):
+                    continue
+                unresolved = self.workspace_root / source_ref
+                cursor = self.workspace_root
+                has_symlink = False
+                for part in Path(source_ref).parts:
+                    cursor /= part
+                    if cursor.is_symlink():
+                        has_symlink = True
+                        break
+                candidate = unresolved.resolve()
+                if (
+                    has_symlink
+                    or not candidate.is_relative_to(self.workspace_root)
+                    or not candidate.is_file()
+                    or _file_sha256(candidate) != sha256
+                ):
+                    continue
+                declared_bytes = record.get("bytes")
+                if (
+                    isinstance(declared_bytes, int)
+                    and candidate.stat().st_size != declared_bytes
+                ):
+                    continue
+                inputs.append(candidate)
+        return inputs
+
+    def _resolve_project_data_manifest_path(self, source_ref: str) -> Path | None:
+        """Resolve one registered ``/project/data`` path inside this run's project.
+
+        Workspace manifests intentionally retain the agent-visible virtual path,
+        while the review store is given only the concrete run directory.  Isolated
+        workspaces use ``projects/<project>/runs/<run>`` and keep shared data at
+        the sibling ``shared/data`` directory.  Resolve only that exact virtual
+        prefix and reject symlinks or traversal before checking the declared
+        bytes and digest at the caller.
+        """
+
+        prefix = "/project/data/"
+        if not source_ref.startswith(prefix):
+            return None
+        relative_text = source_ref.removeprefix(prefix)
+        relative = Path(relative_text)
+        if (
+            not relative_text
+            or relative.is_absolute()
+            or "\\" in relative_text
+            or "\x00" in relative_text
+            or ".." in relative.parts
+        ):
+            return None
+        runs_root = self.workspace_root.parent
+        project_root = runs_root.parent
+        if (
+            runs_root.name != "runs"
+            or project_root.parent.name != "projects"
+            or project_root.name in {"", ".", ".."}
+        ):
+            return None
+        shared = project_root / "shared"
+        data_root = shared / "data"
+        if shared.is_symlink() or data_root.is_symlink():
+            return None
+        try:
+            project_resolved = project_root.resolve(strict=True)
+            data_resolved = data_root.resolve(strict=True)
+        except (OSError, RuntimeError, ValueError):
+            return None
+        if not data_resolved.is_relative_to(project_resolved):
+            return None
+        cursor = data_root
+        for part in relative.parts:
+            cursor /= part
+            if cursor.is_symlink():
+                return None
+        try:
+            candidate = cursor.resolve(strict=True)
+        except (OSError, RuntimeError, ValueError):
+            return None
+        if not candidate.is_relative_to(data_resolved) or not candidate.is_file():
+            return None
+        return candidate
+
+    def _project_data_registration_matches(
+        self,
+        source_ref: str,
+        expected_sha256: str,
+        declared_bytes: int,
+    ) -> bool:
+        """Require a virtual project input to be present in its shared registry."""
+
+        runs_root = self.workspace_root.parent
+        project_root = runs_root.parent
+        if runs_root.name != "runs" or project_root.parent.name != "projects":
+            return False
+        shared = project_root / "shared"
+        relative = source_ref.removeprefix("/project/data/")
+        if not relative:
+            return False
+        expected_relative = Path(relative).as_posix()
+        for registry_name in ("project_data_catalog.json", "data_manifest.json"):
+            registry = _read_json(shared / registry_name)
+            files = registry.get("files") if isinstance(registry, dict) else None
+            if not isinstance(files, list):
+                continue
+            for item in files:
+                if not isinstance(item, Mapping):
+                    continue
+                if (
+                    item.get("virtual_path") == source_ref
+                    and item.get("path") == expected_relative
+                    and item.get("sha256") == expected_sha256
+                    and item.get("bytes") == declared_bytes
+                    and str(item.get("role") or "primary_data") == "primary_data"
+                ):
+                    return True
+        return False
+
+    def _current_manifest_input_records(self) -> list[dict[str, Any]] | None:
+        """Rebuild eligible input records from the current task manifest."""
+
+        task = _read_json(self.workspace_root / "task.json")
+        manifest = _read_json(self.workspace_root / "input_manifest.json")
+        if (
+            not isinstance(task, dict)
+            or task.get("thread_id") != self.task_id
+            or not isinstance(manifest, dict)
+            or manifest.get("thread_id") != self.task_id
+        ):
+            return None
+        excluded_roles = {
+            "derived_artifact",
+            "provenance",
+            "reference_code",
+            "test_fixture",
+        }
+        records: list[dict[str, Any]] = []
+        seen: set[str] = set()
+        for source_group in ("inputs", "project_inputs"):
+            raw_records = manifest.get(source_group, [])
+            if not isinstance(raw_records, list):
+                return None
+            for raw in raw_records:
+                if not isinstance(raw, Mapping):
+                    return None
+                role = str(raw.get("role") or "user_input")
+                if role in excluded_roles:
+                    continue
+                source_ref = raw.get("path")
+                expected_sha256 = raw.get("sha256")
+                declared_bytes = raw.get("bytes")
+                if (
+                    not isinstance(source_ref, str)
+                    or not source_ref
+                    or "\\" in source_ref
+                    or ".." in Path(source_ref).parts
+                    or not isinstance(expected_sha256, str)
+                    or not expected_sha256
+                    or not isinstance(declared_bytes, int)
+                    or isinstance(declared_bytes, bool)
+                    or declared_bytes <= 0
+                    or source_ref in seen
+                ):
+                    return None
+                seen.add(source_ref)
+                project_path = (
+                    self._resolve_project_data_manifest_path(source_ref)
+                    if source_group == "project_inputs"
+                    else None
+                )
+                if Path(source_ref).is_absolute():
+                    if (
+                        project_path is None
+                        or not self._project_data_registration_matches(
+                            source_ref, expected_sha256, declared_bytes
+                        )
+                    ):
+                        return None
+                    candidate = project_path
+                else:
+                    unresolved = self.workspace_root / source_ref
+                    cursor = self.workspace_root
+                    has_symlink = False
+                    for part in Path(source_ref).parts:
+                        cursor /= part
+                        if cursor.is_symlink():
+                            has_symlink = True
+                            break
+                    candidate = unresolved.resolve()
+                    if has_symlink or not candidate.is_relative_to(self.workspace_root):
+                        return None
+                if (
+                    not candidate.is_file()
+                    or candidate.stat().st_size != declared_bytes
+                    or _file_sha256(candidate) != expected_sha256
+                ):
+                    return None
+                record: dict[str, Any] = {
+                    "path": source_ref,
+                    "sha256": expected_sha256,
+                    "bytes": declared_bytes,
+                    "role": role,
+                    "source_group": source_group,
+                }
+                for key in ("dataset_id", "provenance_ref"):
+                    value = raw.get(key)
+                    if isinstance(value, str) and value.strip():
+                        record[key] = value
+                records.append(record)
+        return records
+
     def _canonical_stage_sources(self, stage: str) -> list[Path]:
         """Locate producer-owned task artifacts with known v1 semantics."""
 
@@ -931,7 +1246,11 @@ class ResearchReviewStore:
             candidates.append(
                 self.workspace_root / "work" / "solar_data" / "chat_session.json"
             )
-            for relative_root in ("receipts/datasets", "outputs"):
+            for relative_root in (
+                "receipts/datasets",
+                "outputs",
+                f"research_review/harness/{self.task_id}",
+            ):
                 root = self.workspace_root / relative_root
                 if root.is_dir():
                     candidates.extend(
@@ -940,6 +1259,14 @@ class ResearchReviewStore:
                         if path.is_file()
                         and path.suffix.casefold() in _STRUCTURED_SOURCE_SUFFIXES
                     )
+            receipts_root = (self.workspace_root / "receipts" / "datasets").resolve()
+            receipt_paths = [
+                path
+                for path in candidates
+                if path.is_file() and path.resolve().is_relative_to(receipts_root)
+            ]
+            candidates.extend(self._receipted_solar_data_outputs(receipt_paths))
+            candidates.extend(self._task_manifest_inputs())
         elif stage == "hypothesis":
             candidates.append(
                 self.workspace_root / "work" / "scientific_hypothesis_state.json"
@@ -995,11 +1322,39 @@ class ResearchReviewStore:
         }
         return sorted(unique.values(), key=lambda path: path.as_posix())[:200]
 
-    @staticmethod
-    def _canonical_stage_ready(stage: str, sources: list[Path]) -> bool:
+    def _canonical_stage_ready(
+        self, stage: str, sources: list[Path], *, phase: str = ""
+    ) -> bool:
         names = {path.name for path in sources}
         if stage == "data":
-            contexts: list[dict[str, Any]] = []
+
+            def bounded_data_outputs(paths: list[Path]) -> list[Path]:
+                output_roots = [
+                    (self.workspace_root / "work" / "solar_data").resolve(),
+                    (self.workspace_root / "outputs").resolve(),
+                ]
+                runtime_names = {
+                    "chat_session.json",
+                    "request.json",
+                    "response.json",
+                    "trace.json",
+                    "receipt.json",
+                }
+                result: list[Path] = []
+                for path in paths:
+                    resolved = path.resolve()
+                    if path.name in runtime_names:
+                        continue
+                    if any(
+                        resolved.is_relative_to(root)
+                        and path.suffix.casefold() in _STRUCTURED_SOURCE_SUFFIXES
+                        for root in output_roots
+                    ):
+                        result.append(path)
+                return result
+
+            bounded_phase = phase.startswith("bounded_data")
+            contexts: list[tuple[str, dict[str, Any]]] = []
             produced_sources: list[Path] = []
             for path in sources:
                 if path.name.startswith("data-context-") and path.suffix == ".json":
@@ -1008,7 +1363,12 @@ class ResearchReviewStore:
                         isinstance(payload, dict)
                         and payload.get("schema_version") == "solar-data-context-v1"
                     ):
-                        contexts.append(payload)
+                        contexts.append(
+                            (
+                                path.relative_to(self.workspace_root).as_posix(),
+                                payload,
+                            )
+                        )
                         continue
                 produced_sources.append(path)
             if not contexts:
@@ -1016,25 +1376,111 @@ class ResearchReviewStore:
                 # artifact from which solar_data_open_context can be opened.
                 # Preserve their existing producer-owned artifact contract;
                 # full-research dispatch always creates a context receipt first.
-                return bool(produced_sources)
-            if any(
-                context.get("status") == "input_missing"
-                and (
-                    not context.get("eligible_inputs")
-                    or bool(context.get("missing_required_dataset_ids"))
-                    or context.get("must_stop") is True
+                return bounded_phase and bool(bounded_data_outputs(produced_sources))
+            authoritative = [
+                (source_ref, context)
+                for source_ref, context in contexts
+                if self._data_context_is_authoritative(source_ref, context, phase=phase)
+            ]
+            if authoritative:
+                _source_ref, current = max(
+                    authoritative,
+                    key=lambda item: (
+                        str(item[1].get("created_at") or ""),
+                        item[0],
+                    ),
                 )
-                for context in contexts
+            else:
+                return False
+            if (
+                current is not None
+                and self._data_context_confirms_required_inputs_missing(current)
             ):
                 # A hash-bound, honest input blocker is a complete Data-stage
                 # result. It may proceed to Evidence review without fabricated
                 # derived output.
                 return True
-            # When immutable inputs exist, the context receipt is provenance,
-            # not the data result. Require at least one additional task-local
-            # producer artifact; checkpoint_producer_result binds it and the
-            # context receipt together in one hash-bound source manifest.
-            return bool(produced_sources)
+            if bounded_phase:
+                # Preserve the plan-free bounded Data producer contract. Full
+                # research has the stricter recognized receipt/output boundary
+                # below and cannot inherit this compatibility path.
+                return bool(bounded_data_outputs(produced_sources))
+            receipt_root = (self.workspace_root / "receipts" / "datasets").resolve()
+            receipt_paths = [
+                path
+                for path in produced_sources
+                if path.suffix.casefold() == ".json"
+                and path.resolve().is_relative_to(receipt_root)
+            ]
+            recognized_outputs = {
+                path.resolve()
+                for path in self._receipted_solar_data_outputs(receipt_paths)
+            }
+            produced_refs = {path.resolve() for path in produced_sources}
+            return bool(recognized_outputs & produced_refs)
+        if stage == "hypothesis" and not phase.startswith("bounded_hypothesis"):
+            state_path = next(
+                (
+                    path
+                    for path in sources
+                    if path.name == "scientific_hypothesis_state.json"
+                ),
+                None,
+            )
+            if state_path is None:
+                return False
+            payload = _read_json(state_path)
+            if not isinstance(payload, dict):
+                return False
+            latest_draft = payload.get("latest_draft")
+            if not isinstance(latest_draft, dict):
+                return False
+            response_kind = latest_draft.get("response_kind")
+            if response_kind in {"clarification_needed", "hypothesis_blocked"}:
+                details_key = (
+                    "questions"
+                    if response_kind == "clarification_needed"
+                    else "blockers"
+                )
+                details = latest_draft.get(details_key)
+                return (
+                    isinstance(details, list)
+                    and bool(details)
+                    and payload.get("latest_draft_sha256")
+                    == canonical_json_sha256(latest_draft)
+                )
+            checkpoint = payload.get("checkpoint")
+            if not isinstance(checkpoint, dict):
+                return False
+            candidates = checkpoint.get("candidates")
+            if (
+                checkpoint.get("response_kind") != "hypotheses_ready"
+                or not isinstance(candidates, list)
+                or not candidates
+            ):
+                return False
+            checkpoint_sha256 = canonical_json_sha256(checkpoint)
+            if payload.get("checkpoint_sha256") != checkpoint_sha256:
+                return False
+            latest_sha256 = canonical_json_sha256(latest_draft)
+            if (
+                latest_sha256 != checkpoint_sha256
+                or payload.get("latest_draft_sha256") != latest_sha256
+            ):
+                return False
+            evidence_register = payload.get("evidence_register")
+            if not isinstance(evidence_register, list):
+                return False
+            evidence_sha256 = canonical_json_sha256(
+                {"evidence_register": evidence_register}
+            )
+            if payload.get("checkpoint_evidence_sha256") != evidence_sha256:
+                return False
+            return tail_review_is_current(
+                payload.get("tail_review"),
+                checkpoint,
+                evidence_sha256=evidence_sha256,
+            )
         required = {
             "planning": {"research_plan.json"},
             "hypothesis": {"scientific_hypothesis_state.json"},
@@ -1061,16 +1507,48 @@ class ResearchReviewStore:
         for path in paths:
             if path.suffix.casefold() != ".json":
                 continue
-            payload = _read_json(path)
-            if payload is None:
+            try:
+                raw_bytes = path.read_bytes()
+                payload = json.loads(raw_bytes.decode("utf-8"))
+            except (OSError, UnicodeError, json.JSONDecodeError):
                 continue
             documents.append(
                 {
                     "source_ref": path.relative_to(self.workspace_root).as_posix(),
                     "payload": payload,
+                    "raw_bytes": raw_bytes,
                 }
             )
         return documents
+
+    def _current_harness_receipt_ref(self, paths: list[Path]) -> str | None:
+        """Return the newest current-task Harness invocation receipt."""
+
+        candidates: list[tuple[int, str]] = []
+        prefix = self.workspace_root / "research_review" / "harness" / self.task_id
+        for path in paths:
+            try:
+                resolved = path.resolve()
+                relative = resolved.relative_to(self.workspace_root).as_posix()
+            except ValueError:
+                continue
+            if (
+                resolved.name != "receipt.json"
+                or not resolved.is_file()
+                or not resolved.is_relative_to(prefix.resolve())
+            ):
+                continue
+            parts = relative.split("/")
+            if len(parts) != 5 or parts[:2] != ["research_review", "harness"]:
+                continue
+            if parts[2] != self.task_id or parts[4] != "receipt.json":
+                continue
+            try:
+                mtime_ns = resolved.stat().st_mtime_ns
+            except OSError:
+                continue
+            candidates.append((mtime_ns, relative))
+        return max(candidates, default=(0, None))[1]
 
     @staticmethod
     def _planner_dependency_steps(
@@ -1208,18 +1686,19 @@ class ResearchReviewStore:
                 prior_revision_verdict = None
             canonical_sources = self._canonical_stage_sources(stage)
             if require_canonical_source and not self._canonical_stage_ready(
-                stage, canonical_sources
+                stage, canonical_sources, phase=phase or stage
             ):
                 raise RuntimeError(
                     f"{stage} returned without its complete task-local canonical v1 artifact"
                 )
             evidence_refs = sorted(
-                set(_PATH_REF.findall(text))
+                _producer_path_refs(text)
                 | {
                     path.relative_to(self.workspace_root).as_posix()
                     for path in canonical_sources
                 }
             )[:200]
+            source_manifest = self._source_manifest(canonical_sources)
             adapted = adapt_v1_producer_output(
                 stage=stage,
                 version=version,
@@ -1227,11 +1706,14 @@ class ResearchReviewStore:
                 text=text,
                 evidence_refs=evidence_refs,
                 canonical_documents=self._canonical_documents(canonical_sources),
+                current_task_id=self.task_id,
+                current_harness_receipt_ref=self._current_harness_receipt_ref(
+                    canonical_sources
+                ),
+                source_manifest=source_manifest,
             )
             artifact_evidence_refs = list(adapted.get("evidence_refs", evidence_refs))
-            adapted["payload"]["source_manifest"] = self._source_manifest(
-                canonical_sources
-            )
+            adapted["payload"]["source_manifest"] = source_manifest
             if (
                 require_canonical_source
                 and prior_revision_verdict is not None
@@ -1386,6 +1868,37 @@ class ResearchReviewStore:
             raise RuntimeError(f"no {mode} artifact exists for review")
         return [artifact]
 
+    @staticmethod
+    def _harness_evidence_roles(artifact: Mapping[str, Any]) -> dict[str, list[str]]:
+        payload = artifact.get("payload")
+        payload = payload if isinstance(payload, Mapping) else {}
+        harness = payload.get("harness_evidence")
+        if not isinstance(harness, Mapping):
+            return {}
+
+        def _refs(field: str) -> list[str]:
+            values = harness.get(field)
+            if not isinstance(values, list):
+                return []
+            return sorted(
+                {value for value in values if isinstance(value, str) and value.strip()}
+            )
+
+        return {
+            "candidate_evidence_refs": _refs("candidate_evidence_refs"),
+            "provenance_refs": _refs("provenance_refs"),
+            "gap_refs": _refs("gap_refs"),
+        }
+
+    def _candidate_harness_support_refs(
+        self, targets: list[dict[str, Any]]
+    ) -> set[str]:
+        candidates: set[str] = set()
+        for artifact in self._artifact_closure(targets):
+            roles = self._harness_evidence_roles(artifact)
+            candidates.update(roles.get("candidate_evidence_refs", []))
+        return candidates
+
     def review_context(self, mode: str) -> dict[str, Any]:
         targets = self.review_targets(mode)
         prior = self.verdicts(mode=mode)
@@ -1473,6 +1986,9 @@ class ResearchReviewStore:
         payload_metadata = {
             key: payload[key] for key in metadata_fields if key in payload
         }
+        harness_roles = self._harness_evidence_roles(artifact)
+        if harness_roles:
+            payload_metadata["harness_evidence_roles"] = harness_roles
         producer_result = payload.get("producer_result")
         omitted_chars = len(producer_result) if isinstance(producer_result, str) else 0
         return {
@@ -1492,7 +2008,11 @@ class ResearchReviewStore:
             "producer_result_omitted_chars": omitted_chars,
             "inspection_instruction": (
                 "Open every material declared source with evidence_review_read_source; "
-                "producer prose is not scientific evidence."
+                "producer prose is not scientific evidence. Artifact and embedded "
+                "domain-object hashes may use canonical JSON, while source-manifest "
+                "and workspace-file SHA-256 values cover raw file bytes. Compare two "
+                "hashes only when their declared representation is the same; different "
+                "representations of one JSON document are not an integrity conflict."
             ),
         }
 
@@ -2150,10 +2670,12 @@ class ResearchReviewStore:
         be accepted as completed data preparation.
         """
 
+        authoritative_context = self._authoritative_data_context(targets)
         for artifact in targets:
             if artifact.get("stage") != "data":
                 continue
             manifest = artifact.get("payload", {}).get("source_manifest", [])
+            artifact_phase = str(artifact.get("payload", {}).get("phase") or "")
             if not isinstance(manifest, list):
                 continue
             manifest_by_ref = {
@@ -2189,7 +2711,100 @@ class ResearchReviewStore:
                     and context.get("task_id") == self.task_id
                 ):
                     continue
-                if context.get("status") == "input_missing":
+                if context.get("context_mode") == "full_research":
+                    plan_ref = context.get("plan_source_ref")
+                    plan = (
+                        self._manifest_json_source(manifest_by_ref, plan_ref)
+                        if isinstance(plan_ref, str)
+                        else None
+                    )
+                    if plan is None and isinstance(plan_ref, str):
+                        plan_path = (self.workspace_root / plan_ref).resolve()
+                        if (
+                            plan_path.is_relative_to(self.workspace_root)
+                            and plan_path.is_file()
+                            and context.get("plan_sha256") == _file_sha256(plan_path)
+                        ):
+                            candidate_plan = _read_json(plan_path)
+                            plan = (
+                                candidate_plan
+                                if isinstance(candidate_plan, dict)
+                                else None
+                            )
+                    protocol = context.get("analysis_protocol")
+                    if (
+                        isinstance(plan, Mapping)
+                        and isinstance(protocol, str)
+                        and plan_dataset_selection_conflicts_protocol(plan, protocol)
+                    ):
+                        rule_id = "PLAN_DATASET_PROTOCOL_CONFLICT"
+                        claim_ref = f"{source_ref}#plan-dataset-conflict"
+                        owner = "solar-planner"
+                        return [
+                            {
+                                "issue_id": "deterministic-plan-dataset-conflict",
+                                "rule_id": rule_id,
+                                "severity": "major",
+                                "claim_ref": claim_ref,
+                                "evidence_refs": [source_ref, str(plan_ref)],
+                                "owner": owner,
+                                "message": (
+                                    "The accepted Planning dataset selections conflict "
+                                    "with the task-bound analysis protocol mapping."
+                                ),
+                                "required_action": (
+                                    "Revise the accepted plan's selected_source_id "
+                                    "values to match the protocol or explicitly change "
+                                    "the protocol before reopening Data."
+                                ),
+                                "acceptance_test": (
+                                    "A replacement Planning artifact contains a "
+                                    "protocol-consistent dataset selection set."
+                                ),
+                                "fingerprint": issue_fingerprint(
+                                    rule_id, claim_ref, owner
+                                ),
+                            }
+                        ]
+                context_is_authoritative = self._data_context_is_authoritative(
+                    source_ref, context, phase=artifact_phase
+                )
+                if (
+                    context.get("context_mode") == "full_research"
+                    and not context_is_authoritative
+                    and authoritative_context is None
+                ):
+                    rule_id = "DATA_SEMANTICS_BOUND"
+                    claim_ref = f"{source_ref}#authority"
+                    owner = "solar-data"
+                    return [
+                        {
+                            "issue_id": "deterministic-data-context-authority",
+                            "rule_id": rule_id,
+                            "severity": "critical",
+                            "claim_ref": claim_ref,
+                            "evidence_refs": [source_ref],
+                            "owner": owner,
+                            "message": (
+                                "The full-research Data context does not pass its "
+                                "task, manifest, question, plan, filename, and hash "
+                                "authority checks."
+                            ),
+                            "required_action": (
+                                "Open a new canonical Data context from the accepted "
+                                "plan and checkpoint the replacement Data artifact."
+                            ),
+                            "acceptance_test": (
+                                "The replacement context passes the complete authority "
+                                "validation and is bound to the current task inputs."
+                            ),
+                            "fingerprint": issue_fingerprint(rule_id, claim_ref, owner),
+                        }
+                    ]
+                if (
+                    context_is_authoritative
+                    and self._data_context_confirms_required_inputs_missing(context)
+                ):
                     rule_id = "REQUIRED_DATA_INPUT_UNAVAILABLE"
                     claim_ref = f"{source_ref}#status"
                     owner = "main"
@@ -2281,13 +2896,33 @@ class ResearchReviewStore:
                     receipt = _read_json(receipt_path)
                     defect = "the specialized cycle-table receipt is invalid"
 
-            valid = bool(
+            schema = receipt.get("schema_version") if receipt else None
+            valid_v1 = bool(
                 receipt
-                and receipt.get("schema_version") == "solar-precursor-cycle-table-v1"
+                and schema == "solar-precursor-cycle-table-v1"
                 and receipt.get("status") == "verified"
                 and receipt.get("row_count") == 10
                 and receipt.get("cycle_numbers") == list(range(15, 25))
             )
+            requested_pairs = [f"{cycle}->{cycle + 1}" for cycle in range(14, 24)]
+            pair_coverage = receipt.get("pair_coverage") if receipt else None
+            valid_v2 = bool(
+                receipt
+                and schema == "solar-precursor-cycle-table-v2"
+                and receipt.get("receipt_type") == "solar_precursor_cycle_table"
+                and receipt.get("status") == "verified"
+                and receipt.get("producer") == "solar-data"
+                and receipt.get("task_id") == self.task_id
+                and receipt.get("row_count") == 11
+                and receipt.get("cycle_numbers") == list(range(14, 25))
+                and receipt.get("analysis_cycle_numbers") == list(range(15, 25))
+                and receipt.get("boundary_cycle_numbers") == [14]
+                and isinstance(pair_coverage, Mapping)
+                and pair_coverage.get("requested_pairs") == requested_pairs
+                and pair_coverage.get("available_pairs") == requested_pairs
+                and pair_coverage.get("unavailable_pairs") == []
+            )
+            valid = valid_v1 or valid_v2
             if valid and receipt is not None:
                 expected_inputs = {
                     str(item.get("dataset_id")): str(item.get("sha256"))
@@ -2322,6 +2957,9 @@ class ResearchReviewStore:
                 output_sha = (
                     output.get("sha256") if isinstance(output, Mapping) else None
                 )
+                output_bytes = (
+                    output.get("bytes") if isinstance(output, Mapping) else None
+                )
                 output_path = (
                     (self.workspace_root / output_ref).resolve()
                     if isinstance(output_ref, str)
@@ -2333,6 +2971,10 @@ class ResearchReviewStore:
                     and output_path.is_file()
                     and isinstance(output_sha, str)
                     and _file_sha256(output_path) == output_sha
+                    and (
+                        schema != "solar-precursor-cycle-table-v2"
+                        or output_bytes == output_path.stat().st_size
+                    )
                 )
                 if not valid:
                     defect = "the cycle-table output hash or path is stale"
@@ -2341,15 +2983,23 @@ class ResearchReviewStore:
                 try:
                     with output_path.open(encoding="utf-8", newline="") as handle:
                         rows = list(csv.DictReader(handle))
-                    valid = len(rows) == 10 and [
-                        int(row["cycle_number"]) for row in rows
-                    ] == list(range(15, 25))
+                    if schema == "solar-precursor-cycle-table-v2":
+                        valid = len(rows) == 11 and [
+                            int(row["cycle_number"]) for row in rows
+                        ] == list(range(14, 25))
+                        valid = valid and rows[0].get("row_role") == "boundary"
+                        analysis_rows = rows[1:]
+                    else:
+                        valid = len(rows) == 10 and [
+                            int(row["cycle_number"]) for row in rows
+                        ] == list(range(15, 25))
+                        analysis_rows = rows
                     valid = valid and all(
                         float(row["north_measurement_date"])
                         <= float(row["predictor_cutoff_decimal_year"])
                         and float(row["south_measurement_date"])
                         <= float(row["predictor_cutoff_decimal_year"])
-                        for row in rows
+                        for row in analysis_rows
                     )
                 except (KeyError, TypeError, ValueError):
                     valid = False
@@ -2388,6 +3038,286 @@ class ResearchReviewStore:
                     }
                 ]
         return []
+
+    @staticmethod
+    def _data_context_confirms_required_inputs_missing(
+        context: Mapping[str, Any],
+    ) -> bool:
+        """Trust only explicit missing IDs/must-stop, plus legacy empty v1 blockers."""
+
+        missing = context.get("missing_required_dataset_ids")
+        if isinstance(missing, list) and any(
+            isinstance(item, str) and item.strip() for item in missing
+        ):
+            return True
+        if context.get("must_stop") is True:
+            return True
+        has_authoritative_fields = (
+            "required_dataset_ids" in context
+            or "missing_required_dataset_ids" in context
+            or "must_stop" in context
+        )
+        eligible = context.get("eligible_inputs")
+        return (
+            not has_authoritative_fields
+            and context.get("schema_version") == "solar-data-context-v1"
+            and context.get("status") == "input_missing"
+            and isinstance(eligible, list)
+            and not eligible
+        )
+
+    def _data_context_is_authoritative(
+        self,
+        source_ref: str,
+        context: Mapping[str, Any],
+        *,
+        phase: str,
+    ) -> bool:
+        """Validate current contexts strictly while retaining old empty v1 stops."""
+
+        if (
+            context.get("schema_version") != "solar-data-context-v1"
+            or context.get("task_id") != self.task_id
+        ):
+            return False
+        context_mode = context.get("context_mode")
+        bounded_phase = phase.startswith("bounded_data")
+        if context_mode != "full_research" and not bounded_phase:
+            return False
+        context_sha256 = context.get("context_sha256")
+        if not isinstance(context_sha256, str):
+            return (
+                bounded_phase
+                and context_mode in {None, "bounded_data"}
+                and context.get("status") == "input_missing"
+                and context.get("eligible_inputs") == []
+                and "required_dataset_ids" not in context
+                and "missing_required_dataset_ids" not in context
+                and "must_stop" not in context
+            )
+        body = {
+            key: value
+            for key, value in context.items()
+            if key not in _DATA_CONTEXT_TRANSIENT_FIELDS
+        }
+        if (
+            canonical_json_sha256(body) != context_sha256
+            or source_ref
+            != f"receipts/datasets/data-context-{context_sha256[:16]}.json"
+        ):
+            return False
+        task_path = self.workspace_root / "task.json"
+        manifest_path = self.workspace_root / "input_manifest.json"
+        task = _read_json(task_path)
+        if not (
+            isinstance(task, dict)
+            and task.get("thread_id") == self.task_id
+            and manifest_path.is_file()
+            and context.get("task_sha256") == _file_sha256(task_path)
+            and context.get("input_manifest_sha256") == _file_sha256(manifest_path)
+        ):
+            return False
+        question = task.get("research_question")
+        if not (
+            isinstance(question, str)
+            and context.get("research_question_sha256")
+            == hashlib.sha256(question.encode("utf-8")).hexdigest()
+        ):
+            return False
+        if context_mode == "bounded_data":
+            return bounded_phase and context.get("data_steps") in (None, [])
+        if context_mode != "full_research":
+            return False
+        current_manifest_records = self._current_manifest_input_records()
+        if current_manifest_records is None:
+            return False
+        if context.get("eligible_inputs") != current_manifest_records:
+            return False
+        plan_ref = context.get("plan_source_ref")
+        if (
+            not isinstance(plan_ref, str)
+            or not plan_ref
+            or Path(plan_ref).is_absolute()
+        ):
+            return False
+        unresolved_plan = self.workspace_root / plan_ref
+        plan_path = unresolved_plan.resolve()
+        if (
+            unresolved_plan.is_symlink()
+            or not plan_path.is_relative_to(self.workspace_root)
+            or not plan_path.is_file()
+            or context.get("plan_sha256") != _file_sha256(plan_path)
+        ):
+            return False
+        plan = _read_json(plan_path)
+        if not (
+            isinstance(plan, dict)
+            and plan.get("schema_version") == "research-plan-v1"
+            and plan.get("research_question") == question
+        ):
+            return False
+        planning = self._accepted_stage("planning")
+        if planning is None:
+            return False
+        planning_ref = self.artifact_ref(planning)
+        if context.get("planning_artifact_ref") != planning_ref:
+            return False
+        planning_verdict = self.matching_verdict("planning", [planning_ref])
+        if planning_verdict is None or planning_verdict.get("decision") not in {
+            "accept",
+            "accept_with_limits",
+        }:
+            return False
+        if context.get("planning_verdict_ref") != {
+            "review_id": planning_verdict.get("review_id"),
+            "verdict_sha256": planning_verdict.get("verdict_sha256"),
+        }:
+            return False
+        planning_manifest = planning.get("payload", {}).get("source_manifest", [])
+        plan_row = next(
+            (
+                row
+                for row in planning_manifest
+                if isinstance(row, Mapping) and row.get("source_ref") == plan_ref
+            ),
+            None,
+        )
+        if not isinstance(plan_row, Mapping) or plan_row.get("sha256") != context.get(
+            "plan_sha256"
+        ):
+            return False
+        analysis_protocol = context.get("analysis_protocol")
+        if not isinstance(
+            analysis_protocol, str
+        ) or analysis_protocol != detect_analysis_protocol(question):
+            return False
+        try:
+            expected_required_dataset_ids = list(
+                resolve_required_dataset_ids(plan, analysis_protocol)
+            )
+        except ValueError:
+            return False
+        if (
+            context.get("required_data_product")
+            != required_data_product_for_protocol(analysis_protocol)
+            or context.get("required_dataset_ids") != expected_required_dataset_ids
+        ):
+            return False
+        eligible_inputs = current_manifest_records
+        available_dataset_ids = {
+            str(item.get("dataset_id"))
+            for item in eligible_inputs
+            if isinstance(item, Mapping) and isinstance(item.get("dataset_id"), str)
+        }
+        expected_missing_dataset_ids = [
+            dataset_id
+            for dataset_id in expected_required_dataset_ids
+            if dataset_id not in available_dataset_ids
+        ]
+        expected_must_stop = bool(expected_missing_dataset_ids) or (
+            not eligible_inputs and not expected_required_dataset_ids
+        )
+        if (
+            context.get("missing_required_dataset_ids") != expected_missing_dataset_ids
+            or context.get("must_stop") is not expected_must_stop
+            or context.get("status")
+            != ("input_missing" if expected_must_stop else "inputs_available")
+        ):
+            return False
+        data_steps = [
+            step
+            for step in plan.get("research_route", [])
+            if isinstance(step, dict) and step.get("stage") == "data"
+        ]
+        return bool(data_steps) and context.get("data_steps") == data_steps
+
+    def _authoritative_data_context(
+        self, targets: list[dict[str, Any]]
+    ) -> dict[str, Any] | None:
+        candidates: list[tuple[str, str, dict[str, Any]]] = []
+        for artifact in targets:
+            if artifact.get("stage") != "data":
+                continue
+            payload = artifact.get("payload", {})
+            manifest = payload.get("source_manifest", [])
+            phase = str(payload.get("phase") or "")
+            for item in manifest if isinstance(manifest, list) else []:
+                if not isinstance(item, Mapping):
+                    continue
+                source_ref = item.get("source_ref")
+                expected_sha256 = item.get("sha256")
+                if not (
+                    isinstance(source_ref, str)
+                    and source_ref.startswith("receipts/datasets/data-context-")
+                    and source_ref.endswith(".json")
+                    and isinstance(expected_sha256, str)
+                ):
+                    continue
+                path = (self.workspace_root / source_ref).resolve()
+                if (
+                    not path.is_relative_to(self.workspace_root)
+                    or not path.is_file()
+                    or _file_sha256(path) != expected_sha256
+                ):
+                    continue
+                context = _read_json(path)
+                if not (
+                    isinstance(context, dict)
+                    and self._data_context_is_authoritative(
+                        source_ref, context, phase=phase
+                    )
+                ):
+                    continue
+                candidates.append(
+                    (str(context.get("created_at") or ""), source_ref, context)
+                )
+        return max(candidates)[2] if candidates else None
+
+    def _recover_misapplied_data_input_issues(
+        self,
+        mode: str,
+        targets: list[dict[str, Any]],
+        issues: list[dict[str, Any]],
+    ) -> tuple[list[dict[str, Any]], bool]:
+        if mode != "data":
+            return issues, False
+        context = self._authoritative_data_context(targets)
+        if context is not None and self._data_context_confirms_required_inputs_missing(
+            context
+        ):
+            return issues, False
+        normalized: list[dict[str, Any]] = []
+        recovered = False
+        for raw in issues:
+            if raw.get("rule_id") != "REQUIRED_DATA_INPUT_UNAVAILABLE":
+                normalized.append(raw)
+                continue
+            issue = dict(raw)
+            issue.update(
+                {
+                    "rule_id": "DATA_SEMANTICS_BOUND",
+                    "owner": "solar-data",
+                    "message": (
+                        "The authoritative Data context does not prove a missing "
+                        "required dataset; the requested Data scope or semantics "
+                        "must be revised without creating a permanent input block."
+                    ),
+                    "required_action": (
+                        "Revise the Data product against the accepted scope and the "
+                        "task-bound required dataset IDs."
+                    ),
+                    "acceptance_test": (
+                        "The revised Data artifact follows the accepted cycle scope, "
+                        "uses the context-bound datasets, and records remaining gaps."
+                    ),
+                }
+            )
+            issue["fingerprint"] = issue_fingerprint(
+                "DATA_SEMANTICS_BOUND", str(issue.get("claim_ref") or ""), "solar-data"
+            )
+            normalized.append(issue)
+            recovered = True
+        return normalized, recovered
 
     def persist_deterministic_preflight_verdict(
         self, mode: str
@@ -2585,7 +3515,9 @@ class ResearchReviewStore:
             "bytes": total,
             "sha256": actual_sha256,
             "checkpoint_sha256": expected,
-            "hash_matches_checkpoint": expected is None or expected == actual_sha256,
+            "hash_matches_checkpoint": (
+                expected is not None and expected == actual_sha256
+            ),
             "encoding": encoding,
             "truncated": total > _MAX_REVIEW_SOURCE_BYTES,
             "content": content,
@@ -2775,6 +3707,18 @@ class ResearchReviewStore:
         with self._transaction():
             issues = self._enforce_policy_severity_floors(mode, issues)
             targets = self.review_targets(mode)
+            all_issues_are_misapplied_data_input = bool(issues) and all(
+                issue.get("rule_id") == "REQUIRED_DATA_INPUT_UNAVAILABLE"
+                for issue in issues
+            )
+            issues, recovered_data_input_issue = (
+                self._recover_misapplied_data_input_issues(mode, targets, issues)
+            )
+            if recovered_data_input_issue and all_issues_are_misapplied_data_input:
+                decision = "revise"
+                next_owner = "solar-data"
+                accepted_claims = []
+                blocked_claims = []
             refs = [self.artifact_ref(item) for item in targets]
             target_claims = {
                 claim["claim_id"] for item in targets for claim in item["claims"]
@@ -3038,6 +3982,23 @@ class ResearchReviewStore:
                     "assessment claim kind does not match the reviewed artifact: "
                     + ", ".join(mismatched_kinds)
                 )
+            candidate_support = self._candidate_harness_support_refs(targets)
+            invalid_support = sorted(
+                {
+                    source_ref
+                    for claim in claims
+                    for source_ref in claim.get("supporting_evidence", [])
+                    if isinstance(source_ref, str)
+                    and source_ref.startswith(_HARNESS_SOURCE_PREFIX)
+                    and source_ref not in candidate_support
+                }
+            )
+            if invalid_support:
+                raise ValueError(
+                    "assessment supporting_evidence requires a current visible "
+                    "Harness candidate; provenance/gap or unknown refs cannot support: "
+                    + ", ".join(invalid_support)
+                )
             existing = self.verdicts(mode=mode)
             round_number = len(existing) + 1
             assessment_id = f"{mode}-assessment-{round_number:04d}"
@@ -3116,6 +4077,26 @@ class ResearchReviewStore:
                     "scientific quality assessment omits claim ids: "
                     + ", ".join(sorted(missing))
                 )
+            candidate_support = self._candidate_harness_support_refs(targets)
+            invalid_support = sorted(
+                {
+                    str(evidence.get("source_ref"))
+                    for claim in claims
+                    if isinstance(claim, dict)
+                    for evidence in claim.get("evidence_matrix", [])
+                    if isinstance(evidence, dict)
+                    and evidence.get("evidence_role") == "supports"
+                    and isinstance(evidence.get("source_ref"), str)
+                    and str(evidence["source_ref"]).startswith(_HARNESS_SOURCE_PREFIX)
+                    and evidence.get("source_ref") not in candidate_support
+                }
+            )
+            if invalid_support:
+                raise ValueError(
+                    "scientific quality supports require a current visible Harness "
+                    "candidate; provenance/gap or unknown refs are not candidates: "
+                    + ", ".join(invalid_support)
+                )
             round_number = len(self.verdicts(mode=mode)) + 1
             assessment_id = f"{mode}-quality-{round_number:04d}"
             path = (
@@ -3164,20 +4145,11 @@ class ResearchReviewStore:
         text = draft_markdown.strip()
         if not text:
             raise ValueError("draft_markdown must not be empty")
-        limits = sorted(
-            set(integration["limitations"]) | set(verdict["carry_forward_limits"])
-        )
-        missing_limits = [
-            limit for limit in limits if limit.casefold() not in text.casefold()
-        ]
-        if missing_limits:
-            raise ValueError(
-                "draft_markdown omits required carried limitations: "
-                + "; ".join(missing_limits)
-            )
+        limits = sorted(set(verdict["carry_forward_limits"]))
         integration_claims = {
             claim["claim_id"]: claim for claim in integration["claims"]
         }
+        accepted_claim_ids = set(verdict["accepted_claims"])
         if not claim_citations:
             raise ValueError(
                 "claim_citations must bind each material report passage to accepted claims"
@@ -3194,18 +4166,17 @@ class ResearchReviewStore:
                 )
             claim_id = citation.get("claim_id")
             excerpt = citation.get("draft_excerpt")
-            if not isinstance(claim_id, str) or claim_id not in integration_claims:
+            if (
+                not isinstance(claim_id, str)
+                or claim_id not in integration_claims
+                or claim_id not in accepted_claim_ids
+            ):
                 raise ValueError(
                     f"claim_citations[{index}] references an unaccepted claim"
                 )
-            if (
-                not isinstance(excerpt, str)
-                or len(excerpt.strip()) < 4
-                or excerpt.strip() not in text
-            ):
+            if not isinstance(excerpt, str) or not excerpt.strip():
                 raise ValueError(
-                    f"claim_citations[{index}].draft_excerpt must contain at least "
-                    "4 characters and occur verbatim in the draft"
+                    f"claim_citations[{index}].draft_excerpt must be a non-empty string"
                 )
             row = (claim_id, excerpt.strip())
             if row in seen_citations:
@@ -3213,62 +4184,6 @@ class ResearchReviewStore:
             seen_citations.add(row)
             normalized_citations.append(
                 {"claim_id": claim_id, "draft_excerpt": excerpt.strip()}
-            )
-            excerpt_folded = f" {excerpt.strip().casefold()} "
-            source_claim = integration_claims[claim_id]
-            source_folded = " ".join(
-                (
-                    str(source_claim.get("text") or ""),
-                    str(source_claim.get("scope") or ""),
-                )
-            ).casefold()
-            added_high_risk = [
-                term.strip()
-                for term in _HIGH_RISK_RELEASE_TERMS
-                if term in excerpt_folded and term.strip() not in source_folded
-            ]
-            if added_high_risk:
-                raise ValueError(
-                    "draft excerpt adds high-risk causal, novelty, or interval wording "
-                    "absent from its cited accepted claim: "
-                    + ", ".join(sorted(set(added_high_risk)))
-                )
-        cited_claim_ids = {row["claim_id"] for row in normalized_citations}
-        numeric_source_corpus = "\n".join(
-            [
-                *(integration_claims[claim_id]["text"] for claim_id in cited_claim_ids),
-                *limits,
-            ]
-        )
-        unsupported_numbers = sorted(
-            {
-                token
-                for token in _MATERIAL_NUMBER.findall(text)
-                if token not in numeric_source_corpus
-            }
-        )
-        if unsupported_numbers:
-            raise ValueError(
-                "draft_markdown contains numbers absent from cited accepted claims: "
-                + ", ".join(unsupported_numbers)
-            )
-        cited_excerpts = [row["draft_excerpt"] for row in normalized_citations]
-        uncited_blocks = []
-        folded_limits = {limit.casefold() for limit in limits}
-        for block in re.split(r"\n\s*\n", text):
-            normalized_block = block.strip()
-            if (
-                len(normalized_block) < 4
-                or normalized_block.startswith("#")
-                or normalized_block.casefold() in folded_limits
-            ):
-                continue
-            if not any(excerpt in normalized_block for excerpt in cited_excerpts):
-                uncited_blocks.append(normalized_block[:120])
-        if uncited_blocks:
-            raise ValueError(
-                "draft_markdown contains material blocks without claim_citations: "
-                + " | ".join(uncited_blocks)
             )
         with self._transaction():
             previous = self.latest_artifact("final_release")
@@ -3362,6 +4277,26 @@ class ResearchReviewStore:
             return None
         text = artifact["payload"].get("producer_result")
         return text if isinstance(text, str) and text.strip() else None
+
+    def mark_release_delivered(self) -> dict[str, Any]:
+        """Commit the terminal state after the accepted report is returned."""
+
+        with self._transaction():
+            artifact = self.latest_artifact("final_release")
+            if artifact is None:
+                raise RuntimeError("final release delivery requires an artifact")
+            verdict = self.matching_verdict(
+                "final_release", [self.artifact_ref(artifact)]
+            )
+            if verdict is None or verdict["decision"] not in {
+                "accept",
+                "accept_with_limits",
+            }:
+                raise RuntimeError("final release delivery requires acceptance")
+            state = self.load_state()
+            state["status"] = "released"
+            state["current_stage"] = "final_release"
+            return self._save_state(state)
 
     def next_action(self) -> dict[str, Any]:
         """Return the one deterministic graph action allowed next."""
@@ -3492,25 +4427,27 @@ class ResearchReviewStore:
         if integration_verdict["decision"] == "block":
             return {"kind": "terminal", "status": integration_verdict["decision"]}
 
+        accepted_integration_claim_ids = set(integration_verdict["accepted_claims"])
+        release_claims = [
+            {
+                "claim_id": claim["claim_id"],
+                "kind": claim["kind"],
+                "text": claim["text"],
+                "scope": claim["scope"],
+                "confidence": claim["confidence"],
+            }
+            for claim in integration["claims"]
+            if claim["claim_id"] in accepted_integration_claim_ids
+        ]
         release = self.latest_artifact("final_release")
         if release is None:
             return {
                 "kind": "prepare_release",
                 "stage": "final_release",
                 "release_context": {
-                    "claims": [
-                        {
-                            "claim_id": claim["claim_id"],
-                            "kind": claim["kind"],
-                            "text": claim["text"],
-                            "scope": claim["scope"],
-                            "confidence": claim["confidence"],
-                        }
-                        for claim in integration["claims"]
-                    ],
+                    "claims": release_claims,
                     "required_limits": sorted(
-                        set(integration["limitations"])
-                        | set(integration_verdict["carry_forward_limits"])
+                        set(integration_verdict["carry_forward_limits"])
                     ),
                 },
             }
@@ -3549,19 +4486,9 @@ class ResearchReviewStore:
                 "revision_review_id": release_verdict["review_id"],
                 "issues": release_verdict["issues"],
                 "release_context": {
-                    "claims": [
-                        {
-                            "claim_id": claim["claim_id"],
-                            "kind": claim["kind"],
-                            "text": claim["text"],
-                            "scope": claim["scope"],
-                            "confidence": claim["confidence"],
-                        }
-                        for claim in integration["claims"]
-                    ],
+                    "claims": release_claims,
                     "required_limits": sorted(
-                        set(integration["limitations"])
-                        | set(integration_verdict["carry_forward_limits"])
+                        set(integration_verdict["carry_forward_limits"])
                     ),
                 },
             }

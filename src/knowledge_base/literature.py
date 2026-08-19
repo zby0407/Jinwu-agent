@@ -167,6 +167,21 @@ def _significant_terms(value: str) -> set[str]:
     return terms
 
 
+def compound_focus_phrases(value: str) -> set[str]:
+    """Return concrete adjacent English concepts from a bilingual query."""
+
+    normalized = value.casefold().replace("-", " ").replace("_", " ")
+    tokens = re.findall(r"[a-z][a-z0-9]{2,}", normalized)
+    phrases: set[str] = set()
+    for width in (2, 3):
+        for index in range(max(0, len(tokens) - width + 1)):
+            window = tokens[index : index + width]
+            if all(token in _GENERIC_ENGLISH_TERMS for token in window):
+                continue
+            phrases.add(" ".join(window))
+    return phrases
+
+
 def _shared_terms(left: str, right: str) -> list[str]:
     return sorted(_significant_terms(left) & _significant_terms(right))
 
@@ -1314,6 +1329,8 @@ def build_literature_task_bundle(
     feed_ids: list[str] | None = None,
     limit: int = 3,
     run_id: str = "",
+    ranking_focus: str | None = None,
+    required_anchor_phrases: list[str] | None = None,
 ) -> dict[str, Any]:
     """Freeze a bounded, directly relevant set of cached source snapshots."""
 
@@ -1323,13 +1340,29 @@ def build_literature_task_bundle(
         {str(feed_id).strip() for feed_id in (feed_ids or []) if str(feed_id).strip()}
     )
     question_terms = _significant_terms(bound["research_question"])
-    focus_terms = _significant_terms(bound["distill_focus"])
+    ranking_focus_text = (
+        _bounded_text(ranking_focus, "ranking_focus", max_length=500)
+        if ranking_focus is not None
+        else bound["distill_focus"]
+    )
+    focus_terms = _significant_terms(ranking_focus_text)
+    anchors = sorted(
+        {
+            " ".join(str(phrase).casefold().replace("-", " ").split())
+            for phrase in (required_anchor_phrases or [])
+            if str(phrase).strip()
+        }
+    )
     ranked: list[tuple[tuple[int, int, int, int, str, str], dict[str, Any]]] = []
     for source in store.list_preferred_lit_sources(feed_ids=normalized_feed_ids):
         abstract = " ".join(str(source.get("abstract") or "").split())
         if not abstract or bool(source.get("is_retracted")):
             continue
         source_text = " ".join((str(source.get("title") or ""), abstract))
+        source_compounds = compound_focus_phrases(source_text)
+        matched_anchor_phrases = sorted(set(anchors) & source_compounds)
+        if anchors and not matched_anchor_phrases:
+            continue
         source_terms = _significant_terms(source_text)
         focus_overlap = sorted(focus_terms & source_terms)
         question_overlap = sorted(question_terms & source_terms)
@@ -1361,6 +1394,7 @@ def build_literature_task_bundle(
             "is_retracted": False,
             "abstract": abstract[:6000],
             "matched_focus_terms": focus_overlap,
+            "matched_focus_phrases": matched_anchor_phrases,
             "matched_question_terms": question_overlap,
             "relevance_score": score[0],
         }
@@ -1397,6 +1431,8 @@ def build_literature_task_bundle(
         "binding_id": bound["binding_id"],
         "research_question": bound["research_question"],
         "focus": bound["distill_focus"],
+        "ranking_focus": ranking_focus_text,
+        "required_anchor_phrases": anchors,
         "feed_ids": normalized_feed_ids,
         "source_count": len(snapshots),
         "sources": snapshots,

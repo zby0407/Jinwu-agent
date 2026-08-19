@@ -334,6 +334,136 @@ def test_design_repair_guide_includes_stage_contract_only_when_needed() -> None:
     assert "stage_nested_shapes" in guide
 
 
+def test_compact_design_accepts_preregistered_bounded_numeric_rule() -> None:
+    request = default_request(
+        "Analyze inputs/cycles.csv with a pre-registered small-sample comparison."
+    )
+    response = {
+        "schema_version": RESPONSE_VERSION,
+        "task_name": request["task_name"],
+        "task": request["task"],
+        "response_kind": "experiment_ready",
+        "normalized_task": request["task"],
+        "design_summary": "比较两个逐周期预测模型并报告不确定性。",
+        "clarifications": [],
+        "blockers": [],
+        "method_fit": "suitable",
+    }
+    compact = {
+        "design_summary": response["design_summary"],
+        "primary_question": "加入交互项是否改善逐周期预测？",
+        "analysis_mode": "逐周期小样本比较分析。",
+        "claim_scope": "结论只适用于声明的完整活动周转换对。",
+        "method_outline": (
+            "按时间顺序拟合加性模型和交互模型，报告交互估计、"
+            "逐折预测误差、留一影响和周期级置换结果。"
+        ),
+        "measurements": [
+            {
+                "name": "interaction_estimate",
+                "display_name": "交互作用估计",
+                "role": "primary",
+                "unit": "标准化振幅",
+                "scientific_meaning": "周期长度变化对应的前兆预测斜率改变量。",
+            },
+            {
+                "name": "additive_mae",
+                "display_name": "加性模型平均绝对误差",
+                "role": "secondary",
+                "unit": "太阳黑子数",
+                "scientific_meaning": "按时间顺序逐折预测的加性模型绝对误差平均值。",
+            },
+            {
+                "name": "interaction_mae",
+                "display_name": "交互模型平均绝对误差",
+                "role": "secondary",
+                "unit": "太阳黑子数",
+                "scientific_meaning": "按时间顺序逐折预测的交互模型绝对误差平均值。",
+            },
+            {
+                "name": "mae_difference",
+                "display_name": "两模型平均绝对误差之差",
+                "role": "secondary",
+                "unit": "太阳黑子数",
+                "scientific_meaning": "交互模型误差减去加性模型误差。",
+            },
+        ],
+        "results": [
+            {
+                "id": "conclusion_branch",
+                "display_name": "结论类别",
+                "value_kind": "category",
+                "role": "primary",
+                "unit": "",
+                "scientific_meaning": "支持、削弱或样本不足三类预先声明结论之一。",
+            }
+        ],
+        "criteria": [
+            {
+                "id": "predictive_comparison",
+                "statement": (
+                    "交互模型平均绝对误差至多比加性模型高 5%，"
+                    "才满足预先声明的不劣条件。"
+                ),
+                "basis_kind": "bounded_pragmatic_choice",
+                "basis_text": (
+                    "5% 是在查看结果前固定的有界比较约定；"
+                    "它不代表领域通用显著性标准，结论同时受样本量和稳健性检查限制。"
+                ),
+                "source_refs": [],
+                "artifact_refs": ["analysis_summary.json"],
+                "measurement_refs": [
+                    "additive_mae",
+                    "interaction_mae",
+                    "mae_difference",
+                ],
+                "result_refs": ["conclusion_branch"],
+                "endpoint_refs": ["analysis_endpoint"],
+            },
+            {
+                "id": "interaction_direction",
+                "statement": "报告交互作用方向及其不确定性，不预设方向成立。",
+                "basis_kind": "qualitative_no_fixed_threshold",
+                "basis_text": "方向和区间直接由声明输入上的计算得到。",
+                "source_refs": [],
+                "artifact_refs": ["analysis_summary.json"],
+                "measurement_refs": ["interaction_estimate"],
+                "result_refs": ["conclusion_branch"],
+                "endpoint_refs": ["analysis_endpoint"],
+            },
+        ],
+        "method_decisions": [
+            {
+                "id": "comparison_tolerance",
+                "decision_key": "comparison_tolerance",
+                "decision": "在查看结果前固定百分之五的不劣容差。",
+                "rationale": "九个独立周期对不足以支持精细调参，固定容差避免事后选择。",
+                "basis_kind": "bounded_pragmatic_choice",
+                "source_refs": [],
+                "alternatives": ["仅比较误差方向，不设置容差"],
+                "claim_limit": "该容差只用于本次探索性分类，不构成领域标准。",
+            }
+        ],
+        "artifacts": [
+            {
+                "path": "analysis_summary.json",
+                "kind": "json",
+                "description": "估计量、逐折误差、诊断和结论类别。",
+            }
+        ],
+        "primary_estimand": "周期长度对前兆预测斜率的交互作用估计。",
+        "threats_to_validity": ["独立周期对很少，单个周期可能改变估计方向。"],
+        "literature_basis": "knowledge_gap：本设计不据此新增文献结论。",
+    }
+
+    design = service._compact_single_stage_design(request, response, compact)
+    assert service._design_schema_issues(design, request) == []
+    assert (
+        service.validate_design(design, request, response)["criteria"][0]["basis_kind"]
+        == "bounded_pragmatic_choice"
+    )
+
+
 def test_structured_bind_rejects_work_or_ad_hoc_data_paths() -> None:
     with pytest.raises(ValueError, match="must be staged under inputs"):
         _request_from_model_object(

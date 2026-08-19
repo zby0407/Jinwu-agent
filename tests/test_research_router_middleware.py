@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
@@ -23,6 +24,7 @@ from jw.middleware.research_router import (
     _successful_specialists,
     _with_analysis_protocol,
 )
+from jw.research_protocols import SOLAR_POLAR_PRECURSOR_PROTOCOL
 
 
 def _tool(name: str):
@@ -136,6 +138,25 @@ def test_current_observation_hypothesis_adds_bounded_data_stage() -> None:
     assert route["needs_computation"] is True
 
 
+def test_quantitative_observational_hypothesis_enters_full_research_without_stage_hints() -> (
+    None
+):
+    prompt = (
+        "在太阳活动周15至24的逐周期观测中，上一活动周较长是否会削弱极小期"
+        "极区场强对下一活动周振幅的预测关系？请提出一个最值得检验、可证伪的"
+        "交互作用假设，并说明现有证据与最强零假设。"
+    )
+
+    route = _with_analysis_protocol(_fallback_route(prompt), text=prompt)
+
+    assert route["mode"] == "full_research"
+    assert route["source_mode"] == "mixed"
+    assert route["needs_computation"] is True
+    assert route["task_intent"] == "general"
+    assert route["required_specialist"] == "none"
+    assert route["required_analysis_protocol"] == "solar_polar_precursor_v1"
+
+
 def test_current_observation_hypothesis_starts_with_data_producer(monkeypatch) -> None:
     middleware = _middleware(monkeypatch)
     route = {
@@ -168,6 +189,192 @@ def test_current_observation_hypothesis_starts_with_data_producer(monkeypatch) -
     assert response.result[0].content == ""
     assert call["args"]["subagent_type"] == "solar-data"
     fake_store.bounded_sequence_action.assert_called_with(("data", "hypothesis"))
+
+
+def test_data_producer_suppresses_optional_tools_after_verified_precursor_table(
+    monkeypatch,
+) -> None:
+    """A verified deterministic table ends the Data tool loop for this protocol."""
+
+    middleware = _middleware(monkeypatch)
+    monkeypatch.setattr(
+        "jw.middleware.research_router._bounded_stage_action",
+        lambda _request, _stage: {
+            "kind": "producer",
+            "stage": "data",
+            "producer": "solar-data",
+        },
+    )
+    route = {
+        **_route(
+            "verified_analysis",
+            source_mode="local",
+            needs_computation=True,
+            task_intent="data_preparation",
+            required_specialist="solar-data",
+        ),
+        "required_analysis_protocol": SOLAR_POLAR_PRECURSOR_PROTOCOL,
+    }
+    messages = [
+        HumanMessage("[RESEARCH_PRODUCER_V2] stage=data", id="data-turn"),
+        AIMessage(
+            content="",
+            tool_calls=[
+                {
+                    "name": "prepare_solar_precursor_cycle_table",
+                    "args": {},
+                    "id": "prepare-1",
+                }
+            ],
+        ),
+        ToolMessage(
+            content='{"status":"verified","output_ref":"work/solar_data/table.csv"}',
+            tool_call_id="prepare-1",
+            name="prepare_solar_precursor_cycle_table",
+        ),
+    ]
+
+    prepared = _prepared(
+        middleware,
+        _request(
+            route=route,
+            messages=messages,
+            tools=[
+                _tool("task"),
+                _tool("prepare_solar_precursor_cycle_table"),
+                _tool("solar_research_analysis"),
+                _tool("dataset_statistics"),
+            ],
+        ),
+    )
+
+    assert prepared.tools == []
+
+
+@pytest.mark.parametrize("receipt_status", ["partial", "error"])
+def test_data_producer_keeps_tools_after_nonverified_precursor_receipt(
+    monkeypatch, receipt_status: str
+) -> None:
+    middleware = _middleware(monkeypatch)
+    monkeypatch.setattr(
+        "jw.middleware.research_router._bounded_stage_action",
+        lambda _request, _stage: {
+            "kind": "producer",
+            "stage": "data",
+            "producer": "solar-data",
+        },
+    )
+    route = {
+        **_route(
+            "verified_analysis",
+            source_mode="local",
+            needs_computation=True,
+            task_intent="data_preparation",
+            required_specialist="solar-data",
+        ),
+        "required_analysis_protocol": SOLAR_POLAR_PRECURSOR_PROTOCOL,
+    }
+    messages = [
+        HumanMessage("[RESEARCH_PRODUCER_V2] stage=data", id="data-turn"),
+        AIMessage(
+            content="",
+            tool_calls=[
+                {
+                    "name": "prepare_solar_precursor_cycle_table",
+                    "args": {},
+                    "id": "prepare-1",
+                }
+            ],
+        ),
+        ToolMessage(
+            content=json.dumps({"status": receipt_status}),
+            tool_call_id="prepare-1",
+            name="prepare_solar_precursor_cycle_table",
+        ),
+    ]
+    tools = [
+        _tool("task"),
+        _tool("prepare_solar_precursor_cycle_table"),
+        _tool("solar_research_analysis"),
+        _tool("dataset_statistics"),
+    ]
+
+    prepared = _prepared(
+        middleware,
+        _request(route=route, messages=messages, tools=tools),
+    )
+
+    assert [tool.name for tool in prepared.tools] == [tool.name for tool in tools]
+
+
+def test_full_research_data_message_suppresses_tools_after_verified_precursor_table(
+    monkeypatch,
+) -> None:
+    """The full-research task description identifies its nested Data producer."""
+
+    middleware = _middleware(monkeypatch)
+    fake_store = MagicMock()
+    fake_store.next_action.return_value = {
+        "kind": "producer",
+        "stage": "data",
+        "producer": "solar-data",
+        "phase": "data",
+    }
+    monkeypatch.setattr(
+        "jw.middleware.research_router.store_from_config", lambda _config: fake_store
+    )
+    route = {
+        **_route(
+            "full_research",
+            source_mode="mixed",
+            needs_computation=True,
+        ),
+        "required_analysis_protocol": SOLAR_POLAR_PRECURSOR_PROTOCOL,
+    }
+    messages = [
+        HumanMessage(
+            "\n".join(
+                [
+                    "[RESEARCH_PRODUCER_V2]",
+                    "phase=data",
+                    "stage=data",
+                    'deterministic_data_context={"required_data_product":'
+                    '"solar_polar_precursor_table_v1"}',
+                ]
+            ),
+            id="nested-data-turn",
+        ),
+        AIMessage(
+            content="",
+            tool_calls=[
+                {
+                    "name": "prepare_solar_precursor_cycle_table",
+                    "args": {},
+                    "id": "prepare-full-1",
+                }
+            ],
+        ),
+        ToolMessage(
+            content='{"status":"verified","output_ref":"work/solar_data/table.csv"}',
+            tool_call_id="prepare-full-1",
+            name="prepare_solar_precursor_cycle_table",
+        ),
+    ]
+
+    prepared = middleware._prepare_request(
+        _request(
+            route=route,
+            messages=messages,
+            tools=[
+                _tool("task"),
+                _tool("prepare_solar_precursor_cycle_table"),
+                _tool("solar_research_analysis"),
+                _tool("dataset_statistics"),
+            ],
+        )
+    )
+
+    assert prepared.tools == []
 
 
 def test_fallback_preserves_explicit_bounded_planning_route() -> None:
@@ -352,6 +559,73 @@ def test_router_recovers_legacy_bounded_stage_on_explicit_continuation(
     assert route["reason"] == (
         "recovered bounded hypothesis graph from same-thread trace"
     )
+    middleware._model.with_structured_output.assert_not_called()
+
+
+def test_router_recovers_full_graph_after_release_prepare_attempt(
+    monkeypatch,
+) -> None:
+    middleware = _middleware(monkeypatch)
+    state = {
+        "messages": [
+            HumanMessage("提出太阳活动周竞争假设", id="original-turn"),
+            AIMessage(
+                "",
+                tool_calls=[
+                    {
+                        "name": "task",
+                        "args": {"subagent_type": "solar-hypothesis"},
+                        "id": "prior-hypothesis",
+                    }
+                ],
+            ),
+            ToolMessage(
+                "persisted hypothesis update",
+                tool_call_id="prior-hypothesis",
+                name="task",
+            ),
+            AIMessage(
+                "",
+                tool_calls=[
+                    {
+                        "name": "research_release_prepare",
+                        "args": {
+                            "draft_markdown": "# Draft",
+                            "claim_citations": [],
+                        },
+                        "id": "release-attempt",
+                    }
+                ],
+            ),
+            ToolMessage(
+                '{"ok": false, "status": "error"}',
+                tool_call_id="release-attempt",
+                name="research_release_prepare",
+            ),
+            HumanMessage(
+                "继续完成上述完整科研闭环。",
+                id="turn-release-continue",
+            ),
+        ],
+        "research_route": {
+            **_route(
+                "verified_analysis",
+                source_mode="local",
+                task_intent="hypothesis_update",
+                required_specialist="solar-hypothesis",
+            ),
+            "reason": "recovered bounded hypothesis graph from same-thread trace",
+        },
+        "research_route_turn": "older-turn",
+    }
+
+    update = middleware.before_agent(state, runtime=SimpleNamespace(config={}))
+
+    route = update["research_route"]
+    assert route["mode"] == "full_research"
+    assert route["task_intent"] == "general"
+    assert route["required_specialist"] == "none"
+    assert route["reason"] == "recovered full research graph from same-thread trace"
     middleware._model.with_structured_output.assert_not_called()
 
 
@@ -1382,6 +1656,64 @@ def test_full_research_missing_graph_tool_does_not_release_model_prose(
     assert "unreviewed draft" not in str(response.result[0].content)
 
 
+def test_final_release_generation_keeps_only_original_question_and_latest_request(
+    monkeypatch,
+) -> None:
+    middleware = _middleware(monkeypatch)
+    route = _route("full_research", source_mode="mixed", needs_computation=True)
+    fake_store = MagicMock()
+    fake_store.next_action.return_value = {
+        "kind": "prepare_release",
+        "stage": "final_release",
+        "release_context": {
+            "claims": [
+                {
+                    "claim_id": "accepted-claim",
+                    "kind": "observation",
+                    "text": "accepted integration claim",
+                    "scope": "test",
+                    "confidence": "low",
+                }
+            ],
+            "required_limits": ["State the finite-sample limitation."],
+        },
+    }
+    monkeypatch.setattr(
+        "jw.middleware.research_router.store_from_config", lambda _config: fake_store
+    )
+    original = HumanMessage(
+        "上一太阳活动周长度是否调制极区场对下一周期振幅的预测关系？",
+        id="original-question",
+    )
+    latest = HumanMessage(
+        "继续完成上述完整科研闭环。",
+        id="latest-request",
+    )
+    prepared = _prepared(
+        middleware,
+        _request(
+            route=route,
+            messages=[
+                original,
+                AIMessage("old failed release draft with embedded JSON"),
+                ToolMessage(
+                    '{"status":"error","message":"verbatim validation failed"}',
+                    tool_call_id="old-release-attempt",
+                    name="research_release_prepare",
+                ),
+                HumanMessage("继续。", id="older-continuation"),
+                AIMessage("another failed draft"),
+                latest,
+            ],
+            tools=[_tool("research_release_prepare")],
+        ),
+    )
+
+    assert prepared.messages == [original, latest]
+    assert "concise scientific report" in str(prepared.system_message.content)
+    assert "raw JSON" in str(prepared.system_message.content)
+
+
 def test_full_research_prepare_release_routes_draft_through_gate(monkeypatch) -> None:
     middleware = _middleware(monkeypatch)
     route = _route("full_research", source_mode="mixed", needs_computation=True)
@@ -1519,6 +1851,23 @@ def test_release_state_failure_does_not_release_model_prose(monkeypatch) -> None
     assert "RESEARCH REVIEW BLOCKED" in content
     assert "unreviewed final report" not in content
     assert "private state detail" not in content
+
+
+def test_accepted_release_delivery_marks_the_full_graph_released(monkeypatch) -> None:
+    route = _route("full_research", source_mode="mixed", needs_computation=True)
+    fake_store = MagicMock()
+    fake_store.accepted_release_markdown.return_value = "# Accepted report"
+    monkeypatch.setattr(
+        "jw.middleware.research_router.store_from_config", lambda _config: fake_store
+    )
+
+    response = _passthrough_accepted_release(
+        _request(route=route),
+        ModelResponse(result=[AIMessage("model draft")]),
+    )
+
+    assert response.result[0].content == "# Accepted report"
+    fake_store.mark_release_delivered.assert_called_once_with()
 
 
 def test_hypothesis_state_failure_does_not_release_model_prose(monkeypatch) -> None:

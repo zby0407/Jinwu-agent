@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+from collections.abc import Mapping
 from typing import Any, Literal
 
 from langchain_core.runnables import RunnableConfig
@@ -331,6 +332,58 @@ def _string_list(value: Any, label: str) -> list[str]:
     return rows
 
 
+def _normalize_quality_submission(
+    claims: list[dict[str, Any] | BaseModel],
+) -> tuple[list[dict[str, Any]], list[str]]:
+    """Apply only safety-preserving repairs before the strict quality contract.
+
+    Reviewers sometimes attach a made-up path to a gap or leave a release cap
+    on a row that explicitly records a gap. Those repairs only remove an
+    unsupported reference or lower the claim ceiling; they never upgrade an
+    evidence row or add support.
+    """
+
+    normalized: list[dict[str, Any]] = []
+    notes: list[str] = []
+    for index, raw in enumerate(claims):
+        row = raw.model_dump() if isinstance(raw, BaseModel) else dict(raw)
+        matrix = row.get("evidence_matrix")
+        if not isinstance(matrix, list):
+            normalized.append(row)
+            continue
+        repaired_matrix: list[dict[str, Any]] = []
+        has_gap = False
+        for evidence_index, raw_evidence in enumerate(matrix):
+            evidence = (
+                dict(raw_evidence)
+                if isinstance(raw_evidence, Mapping)
+                else raw_evidence
+            )
+            if isinstance(evidence, dict) and evidence.get("evidence_role") == "gap":
+                has_gap = True
+                if evidence.get("source_ref") is not None:
+                    evidence["source_ref"] = None
+                    notes.append(
+                        f"claims[{index}].evidence_matrix[{evidence_index}] gap source_ref cleared"
+                    )
+            repaired_matrix.append(evidence)
+        row["evidence_matrix"] = repaired_matrix
+        if has_gap and row.get("conclusion_cap") == "release_candidate":
+            row["conclusion_cap"] = "evidence_constrained"
+            notes.append(f"claims[{index}] conclusion_cap downgraded for declared gap")
+        if has_gap and row.get("quality_status") == "release_candidate":
+            row["quality_status"] = "evidence_constrained"
+            notes.append(f"claims[{index}] quality_status downgraded for declared gap")
+        if (
+            row.get("quality_status") == "release_candidate"
+            and row.get("conclusion_cap") != "release_candidate"
+        ):
+            row["quality_status"] = row["conclusion_cap"]
+            notes.append(f"claims[{index}] quality_status aligned with conclusion_cap")
+        normalized.append(row)
+    return normalized, notes
+
+
 @tool(parse_docstring=True)
 def evidence_review_open_context(
     review_mode: str,
@@ -642,6 +695,7 @@ def evidence_review_submit_round(
     logger.info("Evidence atomic round submission started for mode=%s", review_mode)
     store = None
     pending_round = None
+    sidecar_backups: dict[Any, bytes | None] = {}
     try:
         if review_mode not in ALL_REVIEW_MODES:
             raise ValueError(f"unsupported review_mode: {review_mode}")
@@ -654,6 +708,17 @@ def evidence_review_submit_round(
             )
         store = store_from_config(config)
         pending_round = len(store.verdicts(mode=review_mode)) + 1
+        sidecar_paths = (
+            store.root
+            / "assessments"
+            / f"{review_mode}-assessment-{pending_round:04d}.json",
+            store.root
+            / "scientific_quality_assessments"
+            / f"{review_mode}-quality-{pending_round:04d}.json",
+        )
+        sidecar_backups = {
+            path: path.read_bytes() if path.exists() else None for path in sidecar_paths
+        }
         normalized_assessment_claims = _normalize_assessment_claims(assessment_claims)
         reviewed_kinds = {
             claim["claim_id"]: claim["kind"]
@@ -672,21 +737,27 @@ def evidence_review_submit_round(
             else row
             for row in normalized_assessment_claims
         ]
+        accepted_claim_list = _string_list(accepted_claims, "accepted_claims")
+        if decision in {"accept", "accept_with_limits"} and not accepted_claim_list:
+            raise ValueError("an accepting verdict must name accepted_claims")
         assessment = store.record_assessment(
             mode=review_mode,
             assessment_review_mode=requested_mode,
             claims=normalized_assessment_claims,
             replace_uncommitted=True,
         )
-        quality = store.record_scientific_quality_assessment(
-            mode=review_mode,
-            assessment_review_mode=requested_mode,
-            claims=[
+        normalized_quality_claims, normalization_notes = _normalize_quality_submission(
+            [
                 row.model_dump() if isinstance(row, BaseModel) else row
                 for row in _json_arg(
                     scientific_quality_claims, "scientific_quality_claims", list
                 )
-            ],
+            ]
+        )
+        quality = store.record_scientific_quality_assessment(
+            mode=review_mode,
+            assessment_review_mode=requested_mode,
+            claims=normalized_quality_claims,
             replace_uncommitted=True,
         )
         _require_current_assessment(store, review_mode)
@@ -695,7 +766,7 @@ def evidence_review_submit_round(
             mode=review_mode,
             decision=decision,
             issues=_normalize_issues(issues),
-            accepted_claims=_string_list(accepted_claims, "accepted_claims"),
+            accepted_claims=accepted_claim_list,
             blocked_claims=_string_list(blocked_claims, "blocked_claims"),
             carry_forward_limits=_string_list(
                 carry_forward_limits, "carry_forward_limits"
@@ -721,19 +792,16 @@ def evidence_review_submit_round(
                 "assessment": assessment,
                 "scientific_quality_assessment": quality,
                 "verdict": verdict,
+                "normalization_notes": normalization_notes,
             }
         )
     except Exception as exc:
-        if store is not None and pending_round is not None:
-            for path in (
-                store.root
-                / "assessments"
-                / f"{review_mode}-assessment-{pending_round:04d}.json",
-                store.root
-                / "scientific_quality_assessments"
-                / f"{review_mode}-quality-{pending_round:04d}.json",
-            ):
+        for path, original_bytes in sidecar_backups.items():
+            if original_bytes is None:
                 path.unlink(missing_ok=True)
+            else:
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_bytes(original_bytes)
         logger.warning(
             "Evidence atomic round submission rejected for mode=%s: %s: %s",
             review_mode,
@@ -753,8 +821,9 @@ def research_release_prepare(
 
     Args:
         draft_markdown: Reader-facing report synthesized only from accepted claims.
-        claim_citations: JSON list binding each material draft_excerpt verbatim
-            to one accepted integration claim_id.
+        claim_citations: JSON list binding each material draft passage to one
+            accepted integration claim_id; semantic adequacy is decided by the
+            final Evidence review.
 
     Returns:
         A hash-bound final_release ResearchArtifactV2 awaiting Evidence review.
