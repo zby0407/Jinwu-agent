@@ -4,16 +4,18 @@ import React from "react";
 import { Button } from "@/components/ui/button";
 import { Bot, ChevronDown, ChevronUp, Loader2 } from "lucide-react";
 import type { SubAgent } from "@/app/types/types";
+import { isSubAgentRunning } from "@/lib/runLifecycle";
 
 interface SubAgentIndicatorProps {
   subAgent: SubAgent;
   onClick: () => void;
   isExpanded?: boolean;
+  isLoading?: boolean;
 }
 
 export const SubAgentIndicator = React.memo<SubAgentIndicatorProps>(
-  ({ subAgent, onClick, isExpanded = true }) => {
-    const running = subAgent.status === "pending";
+  ({ subAgent, onClick, isExpanded = true, isLoading = false }) => {
+    const running = isSubAgentRunning(subAgent.status, isLoading);
     return (
       <div className="w-fit max-w-[70vw] overflow-hidden rounded-lg bg-card">
         <Button

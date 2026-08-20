@@ -28,6 +28,10 @@ import {
   MODEL_OVERRIDE_METADATA_KEY,
   type ModelOverride,
 } from "@/lib/modelCommand";
+import {
+  isTerminalRunStatus,
+  resumableRunStorageKey,
+} from "@/lib/runLifecycle";
 import { setThreadModelOverride } from "@/app/hooks/useThreads";
 
 export type StateType = {
@@ -58,6 +62,7 @@ const EMPTY_TODOS: TodoItem[] = [];
 const EMPTY_FILES: Record<string, string> = {};
 const EMPTY_ASYNC_TASKS: Record<string, unknown> = {};
 const BRANCH_HISTORY_LIMIT = 10;
+const RUN_STATUS_POLL_MS = 5_000;
 
 /**
  * Keep only state channels the WebUI reads.
@@ -508,6 +513,11 @@ export function useChat({
   const activeRunRef = useRef<{ run_id: string; thread_id: string } | null>(
     null
   );
+  const [activeRun, setActiveRun] = useState<{
+    run_id: string;
+    thread_id: string;
+  } | null>(null);
+  const streamStopRef = useRef<(() => Promise<void>) | null>(null);
   const stoppedMessagesRef = useRef<{
     threadId: string;
     messages: Message[];
@@ -552,12 +562,18 @@ export function useChat({
       if (!run || activeRunRef.current?.run_id === run.run_id) {
         activeRunRef.current = null;
       }
+      setActiveRun((current) =>
+        !run || current?.run_id === run.run_id ? null : current
+      );
       onHistoryRevalidate?.();
     },
     onError: (error, run) => {
       if (!run || activeRunRef.current?.run_id === run.run_id) {
         activeRunRef.current = null;
       }
+      setActiveRun((current) =>
+        !run || current?.run_id === run.run_id ? null : current
+      );
       onHistoryRevalidate?.();
       if (hasHttpStatus(error, 404) && threadId) {
         recoverMissingThread(threadId);
@@ -567,6 +583,7 @@ export function useChat({
     },
     onCreated: (run) => {
       activeRunRef.current = run;
+      setActiveRun(run);
       if (stoppedMessagesRef.current?.threadId === run.thread_id) {
         stoppedMessagesRef.current = null;
       }
@@ -597,6 +614,86 @@ export function useChat({
     },
     experimental_thread: hydratedThread,
   });
+  streamStopRef.current = stream.stop;
+
+  // `useStream` resumes a run from sessionStorage without firing `onCreated`,
+  // so restore the exact run identity for the reconciliation loop below.
+  useEffect(() => {
+    if (!stream.isLoading || !threadId || activeRun) return;
+    try {
+      const runId = window.sessionStorage.getItem(
+        resumableRunStorageKey(threadId)
+      );
+      if (runId) {
+        const resumedRun = { run_id: runId, thread_id: threadId };
+        activeRunRef.current = resumedRun;
+        setActiveRun(resumedRun);
+      }
+    } catch {
+      // Restricted storage only disables reload recovery; newly created runs
+      // are still tracked by `onCreated`.
+    }
+  }, [activeRun, stream.isLoading, threadId]);
+
+  // A resumable SSE connection can occasionally miss its terminal tail even
+  // though LangGraph has already settled the run. In that case the SDK's local
+  // StreamManager never leaves `isLoading=true`, so the composer, activity
+  // panel, and stale tool calls remain locked forever. Reconcile against the
+  // exact run captured by `onCreated`; never infer completion from workspace
+  // files or an empty checkpoint while the run is still pending/running.
+  useEffect(() => {
+    if (
+      !stream.isLoading ||
+      !threadId ||
+      !activeRun ||
+      activeRun.thread_id !== threadId
+    ) {
+      return;
+    }
+
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const reconcile = async () => {
+      try {
+        const persistedRun = await client.runs.get(
+          activeRun.thread_id,
+          activeRun.run_id
+        );
+        if (cancelled) return;
+        if (isTerminalRunStatus(persistedRun.status)) {
+          // `useStream.stop()` aborts the stale local reader. Its wrapper also
+          // cancels the run named in sessionStorage, so remove that marker only
+          // after the server has independently confirmed this exact run is
+          // terminal. This avoids sending a redundant cancellation request.
+          try {
+            window.sessionStorage.removeItem(
+              resumableRunStorageKey(activeRun.thread_id)
+            );
+          } catch {
+            // Storage can be unavailable in restricted browser contexts. The
+            // local abort is still necessary; cancelling a terminal run is a
+            // harmless no-op on supported LangGraph servers.
+          }
+          await streamStopRef.current?.();
+          onHistoryRevalidate?.();
+          return;
+        }
+      } catch (error) {
+        // A transient status read must not unlock or cancel a live run. Existing
+        // stream error handling remains responsible for user-visible failures.
+        if (hasHttpStatus(error, 404)) return;
+      }
+      if (!cancelled) {
+        timer = setTimeout(reconcile, RUN_STATUS_POLL_MS);
+      }
+    };
+
+    timer = setTimeout(reconcile, RUN_STATUS_POLL_MS);
+    return () => {
+      cancelled = true;
+      if (timer) clearTimeout(timer);
+    };
+  }, [activeRun, client, onHistoryRevalidate, stream.isLoading, threadId]);
 
   // --- Resilient pending-state fallback ------------------------------------
   // The live SSE stream can end (isLoading flips false) BEFORE the run actually
@@ -1436,6 +1533,7 @@ export function useChat({
       );
     } finally {
       activeRunRef.current = null;
+      setActiveRun(null);
       setServerPending(false);
       setStopState("stopped");
       onHistoryRevalidate?.();

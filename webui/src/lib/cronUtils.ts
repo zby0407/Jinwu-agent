@@ -1,5 +1,7 @@
 /** Cron expression helpers for the Scheduled Tasks panel. */
 
+import { validateFivePartCron } from "./cronValidation.js";
+
 export type Frequency = "daily" | "weekly" | "monthly" | "custom";
 
 export interface ScheduleSpec {
@@ -39,13 +41,7 @@ function clampNumber(value: number, min: number, max: number): number {
 }
 
 export function validateCronExpression(cron: string): string | null {
-  const trimmed = cron.trim();
-  if (!trimmed) return "请输入 Cron 表达式。";
-  const parts = trimmed.split(/\s+/);
-  if (parts.length !== 5) {
-    return "请使用五段 Cron 字段：分钟、小时、日期、月份、星期。";
-  }
-  return null;
+  return validateFivePartCron(cron);
 }
 
 export function specToCron(spec: ScheduleSpec): string {

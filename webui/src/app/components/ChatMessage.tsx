@@ -730,6 +730,7 @@ export const ChatMessage = React.memo<ChatMessageProps>(
                         subAgent={subAgent}
                         onClick={() => toggleSubAgent(subAgent.id)}
                         isExpanded={isSubAgentExpanded(subAgent.id)}
+                        isLoading={isLoading ?? false}
                       />
                     </div>
                   </div>
