@@ -112,13 +112,19 @@ export function RealtimeActivityBridge() {
   );
 
   const subAgents = useMemo<ActiveSubAgent[]>(() => {
+    if (!isLoading) return [];
     return Object.entries(subAgentActivity).map(([key, steps]) => ({
       key,
       name: key.split("|").pop() || key,
       steps,
       latestStep: steps[steps.length - 1],
     }));
-  }, [subAgentActivity]);
+  }, [isLoading, subAgentActivity]);
+
+  const visibleTodos = useMemo(
+    () => (isLoading ? todos : []),
+    [isLoading, todos]
+  );
 
   const hasInterrupt = !!interrupt;
   const interruptType = (interrupt?.value as { type?: string } | undefined)
@@ -136,7 +142,7 @@ export function RealtimeActivityBridge() {
       interruptType,
       activeToolCalls,
       subAgents,
-      todos,
+      todos: visibleTodos,
     };
     setState((prev) => (sameActivityState(prev, next) ? prev : next));
   }, [
@@ -145,7 +151,7 @@ export function RealtimeActivityBridge() {
     interruptType,
     activeToolCalls,
     subAgents,
-    todos,
+    visibleTodos,
     setState,
   ]);
 
