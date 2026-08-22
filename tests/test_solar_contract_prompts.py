@@ -208,7 +208,9 @@ def test_experiment_result_prompts_state_scientific_payload_scalar_types():
 
     for text in (specialist, orchestration):
         assert "estimate must be a finite number or null" in text
-        assert "interval and equivalence_bounds must each be [low, high] or null" in text
+        assert (
+            "interval and equivalence_bounds must each be [low, high] or null" in text
+        )
         assert "sensitivity must be text or null" in text
         assert "uncertainty_reasons must be an array of strings" in text
 

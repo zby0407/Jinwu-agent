@@ -14,7 +14,9 @@ if TYPE_CHECKING:
     from langchain.agents.middleware.types import ToolCallRequest
 
 
-def _terminal_payload(request: ToolCallRequest, result: object) -> dict[str, Any] | None:
+def _terminal_payload(
+    request: ToolCallRequest, result: object
+) -> dict[str, Any] | None:
     name = str(request.tool_call.get("name") or "")
     if not name.startswith("automatic_experiment_") or not isinstance(
         result, ToolMessage
@@ -66,9 +68,7 @@ def _end(result: ToolMessage, payload: Mapping[str, Any]) -> Command[Any]:
     )
 
 
-class AutomaticExperimentTerminalGuardMiddleware(
-    AgentMiddleware[Any, Any, Any]
-):
+class AutomaticExperimentTerminalGuardMiddleware(AgentMiddleware[Any, Any, Any]):
     """Turn ``must_stop=true`` tool results into a terminal graph transition."""
 
     def wrap_tool_call(
@@ -83,9 +83,7 @@ class AutomaticExperimentTerminalGuardMiddleware(
     async def awrap_tool_call(
         self,
         request: ToolCallRequest,
-        handler: Callable[
-            [ToolCallRequest], Awaitable[ToolMessage | Command[Any]]
-        ],
+        handler: Callable[[ToolCallRequest], Awaitable[ToolMessage | Command[Any]]],
     ) -> ToolMessage | Command[Any]:
         result = await handler(request)
         payload = _terminal_payload(request, result)

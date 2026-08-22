@@ -1186,8 +1186,7 @@ def _get_default_middleware(
             *([TaskCancellationMiddleware()] if for_async_subagent else []),
             *(
                 [AutomaticExperimentTerminalGuardMiddleware()]
-                if for_async_subagent
-                and memory_source_agent == "solar-experiment"
+                if for_async_subagent and memory_source_agent == "solar-experiment"
                 else []
             ),
             VirtualPathCodeGuardMiddleware(),

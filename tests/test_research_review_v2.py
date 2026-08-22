@@ -2341,10 +2341,7 @@ def test_full_data_readiness_accepts_cycle_26_readiness_inventory(
         must_stop=False,
     )
     output = (
-        tmp_path
-        / "work"
-        / "solar_data"
-        / "solar_cycle_26_readiness_inventory.json"
+        tmp_path / "work" / "solar_data" / "solar_cycle_26_readiness_inventory.json"
     )
     output.parent.mkdir(parents=True)
     output.write_text(
@@ -2357,10 +2354,7 @@ def test_full_data_readiness_accepts_cycle_26_readiness_inventory(
         encoding="utf-8",
     )
     receipt = (
-        tmp_path
-        / "receipts"
-        / "datasets"
-        / "solar_cycle_26_readiness_inventory.json"
+        tmp_path / "receipts" / "datasets" / "solar_cycle_26_readiness_inventory.json"
     )
     receipt.write_text(
         json.dumps(

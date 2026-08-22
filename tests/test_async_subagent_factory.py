@@ -155,14 +155,11 @@ def test_terminal_guard_is_scoped_to_solar_experiment_subagent(
 
     _inject_subagent_middleware(subs, workspace_dir=workspace)
 
-    _single_middleware(
-        subs[0], "AutomaticExperimentTerminalGuardMiddleware"
-    )
+    _single_middleware(subs[0], "AutomaticExperimentTerminalGuardMiddleware")
     assert not [
         middleware
         for middleware in subs[1]["middleware"]
-        if type(middleware).__name__
-        == "AutomaticExperimentTerminalGuardMiddleware"
+        if type(middleware).__name__ == "AutomaticExperimentTerminalGuardMiddleware"
     ]
 
 
@@ -456,11 +453,13 @@ def test_deployed_solar_experiment_includes_terminal_guard(
         memory_source_agent="solar-experiment",
     )
 
-    assert len(
-        [
-            item
-            for item in middleware
-            if type(item).__name__
-            == "AutomaticExperimentTerminalGuardMiddleware"
-        ]
-    ) == 1
+    assert (
+        len(
+            [
+                item
+                for item in middleware
+                if type(item).__name__ == "AutomaticExperimentTerminalGuardMiddleware"
+            ]
+        )
+        == 1
+    )
