@@ -650,6 +650,40 @@ def _comparison_consistency_errors(
     return errors
 
 
+def _hypothesis_relation_consistency_errors(
+    worker_result: dict[str, Any],
+) -> list[str]:
+    """Reject a supporting relation that contradicts declared diagnostics."""
+
+    results = {
+        str(row.get("id")): row.get("value")
+        for row in worker_result.get("result_items", [])
+        if isinstance(row, dict) and isinstance(row.get("id"), str)
+    }
+    if results.get("hypothesis_relation") != "supports":
+        return []
+    required = {
+        "main_effect_direction_confirmed": True,
+        "out_of_sample_complete": True,
+        "leave_one_unit_direction_stable": True,
+        "influential_unit_changes_conclusion": False,
+        "independent_sample_adequate": True,
+        "interaction_survives_amplitude_adjustment": True,
+        "complexity_fallback_used": False,
+    }
+    conflicts = [
+        f"{result_id}={str(results[result_id]).lower()}"
+        for result_id, expected in required.items()
+        if result_id in results and results[result_id] is not expected
+    ]
+    if not conflicts:
+        return []
+    return [
+        "hypothesis_relation=supports conflicts with declared diagnostics: "
+        + ", ".join(conflicts)
+    ]
+
+
 def _finite_csv_number(value: object, label: str) -> float:
     try:
         result = float(str(value).strip())
@@ -1677,6 +1711,10 @@ def verify_attempt(
         consistency_errors.extend(
             _comparison_consistency_errors(worker_result, active_design)
         )
+        relation_consistency_errors = _hypothesis_relation_consistency_errors(
+            worker_result
+        )
+        consistency_errors.extend(relation_consistency_errors)
         paired_errors, paired_comparison_evidence = _paired_comparison_audit_errors(
             run_root,
             active_design,
@@ -1690,6 +1728,10 @@ def verify_attempt(
             paired_comparison_evidence,
         )
         consistency_errors.extend(directional_result_errors)
+        typed_result_errors = [
+            *relation_consistency_errors,
+            *directional_result_errors,
+        ]
         verification_checks.append(
             {
                 "check": "measurement_consistency",
@@ -1708,8 +1750,8 @@ def verify_attempt(
         verification_checks.append(
             {
                 "check": "typed_result_scientific_consistency",
-                "passed": not directional_result_errors,
-                "errors": directional_result_errors,
+                "passed": not typed_result_errors,
+                "errors": typed_result_errors,
             }
         )
         if consistency_errors:

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from automatic_experiment.service import _stage_worker_output_guide
 from jw.tools import get_tool_bundles
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -33,6 +34,140 @@ def test_solar_planner_supports_explore_checkpoint_and_publish_modes():
     assert "planner/runs/<run_id>/" in text
 
 
+def test_solar_planner_states_the_exact_analysis_claim_shape():
+    text = _read("jw/subagents/solar/solar_planner.yaml")
+    required_fields = {
+        "schema_version",
+        "estimand",
+        "independent_sample_unit",
+        "independent_sample_count",
+        "observation_cutoff",
+        "information_set",
+        "primary_analysis",
+        "baseline",
+        "validation_design",
+        "decision_rule",
+        "missingness",
+        "censoring",
+        "data_revision",
+        "measurement_regime",
+        "measurement_kind",
+        "effect_size",
+        "uncertainty_interval",
+        "sensitivity_analysis",
+        "influence_analysis",
+        "outcome_branches",
+    }
+    for field in required_fields:
+        assert f'"{field}"' in text
+    assert '"schema_version": "analysis-claim-contract-v1"' in text
+    assert '"measurement_kind": "not_assessed"' in text
+    assert '"outcome": "...", "claim_update": "..."' in text
+    assert "Do not add any other fields" in text
+
+
+def test_hypothesis_and_experiment_agents_state_the_exact_analysis_claim_shape():
+    required_fields = {
+        "schema_version",
+        "estimand",
+        "independent_sample_unit",
+        "independent_sample_count",
+        "observation_cutoff",
+        "information_set",
+        "primary_analysis",
+        "baseline",
+        "validation_design",
+        "decision_rule",
+        "missingness",
+        "censoring",
+        "data_revision",
+        "measurement_regime",
+        "measurement_kind",
+        "effect_size",
+        "uncertainty_interval",
+        "sensitivity_analysis",
+        "influence_analysis",
+        "outcome_branches",
+    }
+    for relative in (
+        "jw/subagents/solar/solar_hypothesis.yaml",
+        "jw/subagents/solar/solar_experiment.yaml",
+    ):
+        text = _read(relative)
+        for field in required_fields:
+            assert f'"{field}"' in text
+        assert '"schema_version": "analysis-claim-contract-v1"' in text
+        assert '"measurement_kind": "not_assessed"' in text
+        assert '"outcome": "...", "claim_update": "..."' in text
+        assert "Do not add any other fields" in text
+
+
+def test_worker_output_guide_distinguishes_outputs_from_prior_artifacts():
+    guide = _stage_worker_output_guide(
+        {
+            "measurement_plan": [
+                {
+                    "name": "interaction_estimate",
+                    "unit": "standardized amplitude",
+                    "role": "primary",
+                }
+            ],
+            "result_plan": [
+                {
+                    "id": "hypothesis_relation",
+                    "display_name": "Hypothesis relation",
+                    "value_kind": "category",
+                    "unit": "",
+                    "role": "primary",
+                }
+            ],
+            "artifact_plan": [
+                {"id": "fold_errors", "path": "fold_errors.csv", "kind": "csv"}
+            ],
+            "experiment_stages": [
+                {
+                    "id": "analysis",
+                    "measurement_refs": ["interaction_estimate"],
+                    "result_refs": ["hypothesis_relation"],
+                    "endpoint_ids": [],
+                    "produces_artifact_ids": ["fold_errors"],
+                    "execution": {"expected_artifacts": ["fold_errors.csv"]},
+                }
+            ],
+            "interpretation_policy": {
+                "primary_estimand": "registered interaction effect"
+            },
+        },
+        "analysis",
+    )
+
+    assert guide["artifact_output_paths"] == {
+        "fold_errors.csv": "context['output_dir'] / 'fold_errors.csv'"
+    }
+    assert "never context['artifact_path_by_id']" in guide["artifact_output_rule"]
+    assert guide["primary_estimand"] == "registered interaction effect"
+    assert "module-level string constant" in guide["primary_estimand_rule"]
+    assert "function-local constant" in guide["primary_estimand_rule"]
+    assert "module-level string constant" in guide["source_artifact_rule"]
+    assert "function-local constant" in guide["source_artifact_rule"]
+    assert guide["measurement_contracts"] == [
+        {
+            "name": "interaction_estimate",
+            "unit": "standardized amplitude",
+            "role": "primary",
+        }
+    ]
+    assert guide["result_item_contracts"] == [
+        {
+            "id": "hypothesis_relation",
+            "display_name": "Hypothesis relation",
+            "value_kind": "category",
+            "unit": "",
+            "role": "primary",
+        }
+    ]
+
+
 def test_runtime_planning_directive_prefers_compact_empirical_plan():
     text = _read("jw/middleware/research_review_orchestration.py")
     planning = text.split('"planning": (', 1)[1].split('    "data": (', 1)[0]
@@ -45,6 +180,50 @@ def test_parent_accepts_partial_results_and_bounds_repair():
     assert "valid outcome" in text
     assert "Exploratory work may" in text
     assert "If it recurs, stop the loop" in text
+
+
+def test_experiment_agent_stops_cleanly_when_design_budget_is_exhausted():
+    text = _read("jw/subagents/solar/solar_experiment.yaml")
+    assert "only after design_validated" in text
+    assert "must_stop=true" in text
+    assert "do not call research_quality_record_analysis_claim" in text
+    assert "do not call automatic_experiment_finalize" in text
+    assert "context['output_dir'] / '<artifact path>'" in text
+    assert "never obtain output paths from context['artifact_path_by_id']" in text
+
+
+def test_experiment_agent_repairs_condition_comparison_measurement_refs_locally():
+    text = _read("jw/subagents/solar/solar_experiment.yaml")
+
+    assert "design.criteria[i].measurement_refs" in text
+    assert "条件 A 估计、条件 B 估计及二者差值" in text
+    assert "删除差异判定文字" in text
+
+
+def test_experiment_agent_centers_interaction_predictors_without_fold_leakage():
+    text = _read("jw/subagents/solar/solar_experiment.yaml")
+
+    assert "交互模型若需解释主效应" in text
+    assert "连续预测量做均值中心化" in text
+    assert "每个滚动起源折只用训练行计算中心" in text
+    assert "同一训练中心应用到留出行" in text
+
+
+def test_experiment_agent_keeps_weakening_interaction_direction_consistent():
+    text = _read("jw/subagents/solar/solar_experiment.yaml")
+
+    assert "负交互支持削弱" in text
+    assert "正交互反驳削弱" in text
+    assert "不得在最终摘要中颠倒方向" in text
+
+
+def test_experiment_agent_maps_results_to_the_registered_models_and_rules():
+    text = _read("jw/subagents/solar/solar_experiment.yaml")
+
+    assert "每个 measurement 必须由其 scientific_meaning 指定的模型产生" in text
+    assert "不得用对照模型系数替代主模型系数" in text
+    assert "置换统计量和单侧或双侧尾部必须与 design 完全一致" in text
+    assert "supports 只有在所有已登记必要条件同时成立时才能返回" in text
 
 
 def test_solar_data_requires_hash_bound_inputs_before_discovery():
@@ -64,6 +243,20 @@ def test_solar_data_requires_hash_bound_inputs_before_discovery():
     assert "peak_smoothed_sunspot_number_sigma" in text
     assert "minimum_date_sensitivity" in text
     assert "must_stop=true" in text
+    assert "MWO facular proxy-era cycles 15-20" in text
+    assert "WSO magnetograph-era cycles 21-24" in text
+    assert "`pair_coverage` 中每个周对的左端点" in text
+    assert "不得把 14→15 至 23→24 改写为 15→16 至 24→25" in text
+
+
+def test_solar_specialists_preserve_receipt_bound_cycle_pair_mapping():
+    planner = _read("jw/subagents/solar/solar_planner.yaml")
+    hypothesis = _read("jw/subagents/solar/solar_hypothesis.yaml")
+
+    assert "不能从问题中的周期标签自行推算周对数量" in planner
+    assert "pair_coverage 是样本编号的唯一权威" in hypothesis
+    assert "目标周期是周对右端点" in hypothesis
+    assert "前一周期是周对左端点" in hypothesis
 
 
 def test_knowledge_agent_is_read_only_and_reports_maintenance_gaps():

@@ -1629,7 +1629,7 @@ def test_research_experiment_scope_is_loaded_from_host_workspace(
             }
         ],
         "revision_review_id": None,
-        "design_validation_limit": 3,
+        "design_validation_limit": 4,
     }
     scope_path = workspace / "research_review" / "experiment_scope.json"
     scope_path.parent.mkdir(parents=True, exist_ok=True)
@@ -1657,9 +1657,9 @@ def test_research_experiment_scope_is_loaded_from_host_workspace(
     )
     assert run_state["research_scope"] == scope
     assert run_state["design_validation_budget"] == {
-        "limit": 3,
+        "limit": 4,
         "used": 0,
-        "remaining": 3,
+        "remaining": 4,
     }
 
 
@@ -1697,7 +1697,7 @@ def test_research_experiment_scope_is_active_before_stage_artifact_exists(
             }
         ],
         "revision_review_id": None,
-        "design_validation_limit": 3,
+        "design_validation_limit": 4,
     }
     scope_path = workspace / "research_review" / "experiment_scope.json"
     scope_path.write_text(json.dumps(scope), encoding="utf-8")

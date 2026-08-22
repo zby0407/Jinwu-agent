@@ -1837,12 +1837,22 @@ def prepare_solar_precursor_cycle_table(
                     "cycle 14 anchored to the detected 1902 minimum"
                 ),
                 "predictor": (
-                    "mean absolute north/south calibrated polar field from all "
-                    "observations within plus/minus 6 months of the nominal "
-                    "minimum, available at the six-month prediction issue date; "
+                    "arithmetic mean of the absolute north/south calibrated polar-"
+                    "field means, where each hemisphere mean uses all observations "
+                    "from one preferred source within plus/minus 6 months of the "
+                    "nominal minimum; gauss is the measurement unit and does not "
+                    "denote Gaussian weighting; the predictor is available at the "
+                    "six-month prediction issue date; "
                     "when one hemisphere has no in-window observation, use its "
                     "latest preminimum value no older than 1.5 years and flag "
                     "that cycle explicitly"
+                ),
+                "predictor_uncertainty": (
+                    "within each hemisphere, propagate reported observation SEMs "
+                    "as sqrt(sum(sem_i^2)) / n; combine the north and south "
+                    "hemisphere means as sqrt(north_sem^2 + south_sem^2) / 2. "
+                    "This propagated SEM convention is not a calibrated confidence "
+                    "interval"
                 ),
                 "target": "maximum centered-smoothed sunspot number before next minimum",
                 "target_uncertainty": (

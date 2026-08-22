@@ -41,6 +41,11 @@ def prepare_attempt(
     execution = stage_execution(design, stage_id)
     verify_dependencies(execution["dependencies"])
     required_measurements = set(stage["measurement_refs"])
+    required_measurement_contracts = {
+        row["name"]: {field: row[field] for field in ("unit", "role")}
+        for row in design["measurement_plan"]
+        if row["name"] in required_measurements
+    }
     stage_result_ids = set(stage["result_refs"])
     required_result_contracts = {
         row["id"]: {
@@ -60,6 +65,7 @@ def prepare_attempt(
         files,
         execution["dependencies"],
         required_measurements=required_measurements,
+        required_measurement_contracts=required_measurement_contracts,
         required_results=stage_result_ids,
         required_result_contracts=required_result_contracts,
         required_endpoints=required_endpoints,
@@ -71,7 +77,9 @@ def prepare_attempt(
         parent_code_root = run_root / "attempts" / parent_attempt / "code"
         generated_by_path = {row["path"]: row["content"] for row in generated}
         parent_by_path = {
-            path.relative_to(parent_code_root).as_posix(): path.read_text(encoding="utf-8")
+            path.relative_to(parent_code_root).as_posix(): path.read_text(
+                encoding="utf-8"
+            )
             for path in parent_code_root.rglob("*")
             if path.is_file() and path.name != "worker_request.json"
         }
@@ -132,9 +140,12 @@ def prepare_attempt(
                 )
             )
             if len(diff_text.encode("utf-8")) > 64 * 1024:
-                diff_text = diff_text.encode("utf-8")[: 64 * 1024].decode(
-                    "utf-8", errors="ignore"
-                ) + "\n... diff truncated ...\n"
+                diff_text = (
+                    diff_text.encode("utf-8")[: 64 * 1024].decode(
+                        "utf-8", errors="ignore"
+                    )
+                    + "\n... diff truncated ...\n"
+                )
         code_changes.append(
             {
                 "path": item["path"],
@@ -267,5 +278,8 @@ def verify_attempt_immutable(attempt_root: Path, metadata: dict[str, Any]) -> No
         path = attempt_root / Path(*row["path"].split("/"))
         if not path.is_file():
             raise AttemptError(f"attempt file is missing: {row['path']}")
-        if path.stat().st_size != row["size_bytes"] or file_sha256(path) != row["sha256"]:
+        if (
+            path.stat().st_size != row["size_bytes"]
+            or file_sha256(path) != row["sha256"]
+        ):
             raise AttemptError(f"attempt file changed after preparation: {row['path']}")

@@ -1,10 +1,14 @@
 from __future__ import annotations
 
+import hashlib
+import json
 import math
 
 import pytest
 
 from jw.solar_data_catalog import (
+    _acquire_polar_field,
+    _acquire_silso,
     _validate_polar_field,
     _validate_silso_extrema,
     _validate_silso_monthly,
@@ -32,6 +36,24 @@ def test_silso_validator_requires_long_monotonic_monthly_record() -> None:
 def test_silso_validator_rejects_short_or_duplicate_record() -> None:
     with pytest.raises(ValueError, match="coverage is too short"):
         _validate_silso_monthly(b"1749 01 1749.042 1.0 0.1 1\n")
+
+
+def test_silso_acquisition_does_not_downgrade_to_plain_http_mirror(
+    monkeypatch,
+) -> None:
+    attempted_urls: list[str] = []
+
+    def unavailable(url: str, *, timeout: float = 20.0):
+        del timeout
+        attempted_urls.append(url)
+        raise OSError("authority unavailable")
+
+    monkeypatch.setattr("jw.solar_data_catalog._fetch", unavailable)
+
+    with pytest.raises(OSError, match="authority unavailable"):
+        _acquire_silso()
+
+    assert attempted_urls == ["https://www.sidc.be/SILSO/DATA/SN_m_tot_V2.0.txt"]
 
 
 def test_silso_smoothed_validator_binds_official_series_semantics() -> None:
@@ -91,6 +113,57 @@ def test_polar_validator_binds_columns_and_century_coverage() -> None:
 
     assert result["columns"] == 12
     assert result["north_coverage"] == [1906.7, 2023.8]
+
+
+def test_polar_acquisition_persists_stable_dataverse_locator(monkeypatch) -> None:
+    rows = [
+        f"{year}.7,1,0.1,NaN,NaN,NaN,{year}.2,-1,0.1,NaN,NaN,NaN"
+        for year in range(1906, 2024)
+    ]
+    payload = ("\n".join(rows) + "\n").encode()
+    file_id = 42
+    stable_url = f"https://dataverse.harvard.edu/api/access/datafile/{file_id}"
+    metadata = {
+        "data": {
+            "latestVersion": {
+                "versionNumber": 5,
+                "versionMinorNumber": 0,
+                "releaseTime": "2023-10-17T11:58:06Z",
+                "license": {"name": "CC0 1.0"},
+                "files": [
+                    {
+                        "restricted": False,
+                        "dataFile": {
+                            "id": file_id,
+                            "filename": "e_PField_MWO_WSO.csv",
+                            "checksum": {
+                                "type": "MD5",
+                                "value": hashlib.md5(
+                                    payload, usedforsecurity=False
+                                ).hexdigest(),
+                            },
+                        },
+                    }
+                ],
+            }
+        }
+    }
+
+    def fake_fetch(url: str, *, timeout: float = 20.0):
+        del timeout
+        if "/api/datasets/:persistentId/" in url:
+            return json.dumps(metadata).encode(), url
+        assert url == stable_url
+        return payload, "https://download.example.test/object?X-Amz-Signature=temporary"
+
+    monkeypatch.setattr("jw.solar_data_catalog._fetch", fake_fetch)
+
+    acquired, provenance = _acquire_polar_field()
+
+    assert acquired == payload
+    assert provenance["retrieval_url"] == stable_url
+    assert provenance["data_file_id"] == file_id
+    assert "?" not in provenance["retrieval_url"]
 
 
 def test_precursor_cycle_builder_uses_complete_cycles_and_uncertainty_fields(
@@ -291,6 +364,11 @@ def test_precursor_receipt_is_self_describing_and_hash_binds_boundary_table(
     assert "TARGET_AMPLITUDE_UNCERTAINTY_NOT_COMPUTED" not in gap_codes
     assert "MINIMUM_DATE_UNCERTAINTY_NOT_COMPUTED" not in gap_codes
     assert "plus/minus 6 months" in receipt["method"]["predictor"]
+    assert "arithmetic mean" in receipt["method"]["predictor"]
+    assert (
+        "sqrt(north_sem^2 + south_sem^2) / 2"
+        in receipt["method"]["predictor_uncertainty"]
+    )
     assert "not a confidence interval" in receipt["method"]["minimum_date_uncertainty"]
     assert result["sample_size"] == receipt["sample_size"]
     assert result["uncertainty_fields"] == receipt["uncertainty_fields"]

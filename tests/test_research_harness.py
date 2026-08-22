@@ -938,6 +938,32 @@ def test_local_python_executor_cannot_read_files_outside_workspace(
     assert outputs == []
 
 
+@pytest.mark.skipif(shutil.which("bwrap") is None, reason="bubblewrap is required")
+def test_local_python_executor_follows_multihop_runtime_symlink(
+    monkeypatch, tmp_path: Path
+) -> None:
+    import jw.research_harness as harness
+
+    real_python = Path(harness.sys.executable).resolve()
+    fake_prefix = tmp_path / "linked-venv"
+    fake_bin = fake_prefix / "bin"
+    fake_bin.mkdir(parents=True)
+    (fake_bin / "python").symlink_to(real_python)
+    (fake_bin / "python3").symlink_to("python")
+    monkeypatch.setattr(harness.sys, "prefix", str(fake_prefix))
+    monkeypatch.setattr(harness.sys, "executable", str(fake_bin / "python3"))
+
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    execution, outputs = harness._run_local_python(
+        "print(2 + 2)", workspace=workspace, input_relpaths=set()
+    )
+
+    assert execution["status"] == "completed"
+    assert execution["stdout"].strip() == "4"
+    assert outputs == []
+
+
 def test_analysis_without_derived_calculation_is_partial(
     monkeypatch, tmp_path: Path
 ) -> None:

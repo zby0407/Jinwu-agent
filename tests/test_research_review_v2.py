@@ -18,8 +18,9 @@ from langgraph.types import Command
 
 from jw import paths
 from jw.middleware.research_review_orchestration import (
-    ResearchReviewOrchestrationMiddleware,
     _CANONICAL_CHECKPOINT_DIRECTIVE,
+    ResearchReviewOrchestrationMiddleware,
+    _data_pair_mapping_note,
     _ensure_solar_cycle_pair_analysis_table,
     _persist_solar_cycle_pair_analysis_table,
     _solar_cycle_pair_analysis_from_path,
@@ -314,6 +315,27 @@ def test_hypothesis_request_declares_accepted_data_as_verified_material(
     assert "not predictive skill or a causal mechanism" in material["content_notes"]
 
 
+def test_data_pair_mapping_note_keeps_target_cycles_on_pair_right_endpoints() -> None:
+    note = _data_pair_mapping_note(
+        {
+            "payload": {
+                "data_result_summary": {
+                    "pair_coverage": {
+                        "available_pairs": [
+                            f"{cycle}->{cycle + 1}" for cycle in range(14, 24)
+                        ]
+                    }
+                }
+            }
+        }
+    )
+
+    assert "14->15 through 23->24" in note
+    assert "predictor/previous cycles are 14-23" in note
+    assert "target cycles are 15-24" in note
+    assert "must not shift this mapping to cycle 25" in note
+
+
 def test_post_experiment_hypothesis_request_binds_verified_result_and_prior(
     tmp_path: Path,
 ) -> None:
@@ -462,6 +484,63 @@ def test_experiment_adapter_projects_verified_measurements_into_claim() -> None:
     assert "interaction_coefficient=-0.42 standardized" in claim["text"]
     assert claim["supporting_evidence"] == [source_ref]
     assert adapted["payload"]["experiment_result_summary"]["outcome"] == "uncertain"
+
+
+@pytest.mark.parametrize("raw_outcome", ["technical_failure", "budget_stopped"])
+def test_experiment_adapter_drops_metrics_from_non_scientific_terminal(
+    raw_outcome: str,
+) -> None:
+    source_ref = "experiment/runs/run-failed/record.json"
+    adapted = adapt_v1_producer_output(
+        stage="experiment_result",
+        version=1,
+        phase="experiment_result",
+        text=source_ref,
+        evidence_refs=[source_ref],
+        canonical_documents=[
+            {
+                "source_ref": source_ref,
+                "payload": {
+                    "schema_version": "automatic-experiment-record-v1",
+                    "outcome": raw_outcome,
+                    "outcome_reason": "实验记录已终止，未形成合同通过的科学结果。",
+                    "task": "通用交互分析",
+                    "worker_result": {
+                        "execution_completed": True,
+                        "measurements": [
+                            {
+                                "name": "interaction_coefficient",
+                                "value": 2.7,
+                                "unit": "gauss",
+                                "role": "primary",
+                                "source_artifact": "summary.json",
+                            }
+                        ],
+                        "result_items": [
+                            {
+                                "id": "hypothesis_relation",
+                                "display_name": "Hypothesis relation",
+                                "value": "supports",
+                                "role": "primary",
+                                "source_artifact": "summary.json",
+                            }
+                        ],
+                    },
+                    "scientific_assessment": {
+                        "proposed_outcome": raw_outcome,
+                        "uncertainty_reasons": ["结果合同未通过。"],
+                    },
+                },
+            }
+        ],
+    )
+
+    summary = adapted["payload"]["experiment_result_summary"]
+    assert summary["execution_completed"] is False
+    assert summary["outcome"] == "technical_failure"
+    assert summary["metrics"] == []
+    assert "Verified results" not in adapted["claims"][0]["text"]
+    assert "interaction_coefficient" not in adapted["claims"][0]["text"]
 
 
 @pytest.mark.parametrize(
@@ -1027,6 +1106,92 @@ def test_full_context_rebuilds_eligible_inputs_from_current_manifest(
         json.loads(forged_path.read_text(encoding="utf-8")),
         phase="data",
     )
+
+
+def test_data_review_uses_authoritative_context_when_stale_receipt_remains(
+    tmp_path: Path,
+) -> None:
+    task_id = "authoritative-context-selection"
+    context_path, store, _planning, _verdict = _write_strict_full_data_context(
+        tmp_path, task_id
+    )
+    context = json.loads(context_path.read_text(encoding="utf-8"))
+
+    output_ref = "work/solar_data/solar_precursor_cycle_features.csv"
+    output = tmp_path / output_ref
+    output.parent.mkdir(parents=True, exist_ok=True)
+    _write_complete_boundary_cycle_table(output, include_uncertainty=True)
+    requested_pairs = [f"{cycle}->{cycle + 1}" for cycle in range(14, 24)]
+    receipt = tmp_path / "receipts/datasets/solar_precursor_cycle_table.json"
+    receipt.write_text(
+        json.dumps(
+            {
+                "schema_version": "solar-precursor-cycle-table-v2",
+                "receipt_type": "solar_precursor_cycle_table",
+                "status": "verified",
+                "producer": "solar-data",
+                "task_id": task_id,
+                "row_count": 11,
+                "cycle_numbers": list(range(14, 25)),
+                "analysis_cycle_numbers": list(range(15, 25)),
+                "boundary_cycle_numbers": [14],
+                "pair_coverage": {
+                    "requested_pairs": requested_pairs,
+                    "available_pairs": requested_pairs,
+                    "unavailable_pairs": [],
+                },
+                "input_refs": context["eligible_inputs"],
+                "outputs": [
+                    {
+                        "path": output_ref,
+                        "bytes": output.stat().st_size,
+                        "sha256": hashlib.sha256(output.read_bytes()).hexdigest(),
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    current_ref = context_path.relative_to(tmp_path).as_posix()
+    current_name = context_path.name
+    stale_body = {
+        key: value
+        for key, value in context.items()
+        if key not in {"context_sha256", "created_at"}
+    }
+    stale_body.update(
+        {
+            "eligible_inputs": [],
+            "missing_required_dataset_ids": context["required_dataset_ids"],
+            "status": "input_missing",
+            "must_stop": True,
+            "input_manifest_sha256": "0" * 64,
+        }
+    )
+    for nonce in range(1000):
+        stale_body["planned_outputs"] = [{"nonce": nonce}]
+        stale_sha256 = canonical_json_sha256(stale_body)
+        stale_name = f"data-context-{stale_sha256[:16]}.json"
+        if stale_name > current_name:
+            break
+    else:
+        raise AssertionError("could not construct a later stale context receipt")
+    stale = context_path.with_name(stale_name)
+    stale.write_text(
+        json.dumps({**stale_body, "context_sha256": stale_sha256}),
+        encoding="utf-8",
+    )
+
+    artifact = store.checkpoint_producer_result(
+        stage="data",
+        producer="solar-data",
+        content=f"{current_ref}; {receipt.relative_to(tmp_path).as_posix()}",
+        phase="data",
+        require_canonical_source=True,
+    )
+
+    assert store._deterministic_semantic_issues("data", [artifact]) == []
 
 
 def test_full_context_rebuilds_registered_project_inputs_from_virtual_paths(
@@ -3350,6 +3515,28 @@ def test_experiment_result_is_bound_to_the_accepted_design_run(
         )
 
 
+def test_experiment_design_manifest_excludes_mutable_run_state(tmp_path: Path) -> None:
+    store = ResearchReviewStore(tmp_path, "task-1")
+    run_root = tmp_path / "experiment" / "runs" / "accepted-run"
+    run_root.mkdir(parents=True)
+    for name in ("state.json", "request.json", "response.json", "design.json"):
+        (run_root / name).write_text(json.dumps({"source": name}), encoding="utf-8")
+
+    artifact = store.checkpoint_producer_result(
+        stage="experiment_design",
+        producer="solar-experiment",
+        content="experiment/runs/accepted-run/design.json",
+        phase="bounded_experiment_design",
+        require_canonical_source=True,
+    )
+
+    source_refs = {row["source_ref"] for row in artifact["payload"]["source_manifest"]}
+    assert "experiment/runs/accepted-run/design.json" in source_refs
+    assert "experiment/runs/accepted-run/request.json" in source_refs
+    assert "experiment/runs/accepted-run/response.json" in source_refs
+    assert "experiment/runs/accepted-run/state.json" not in source_refs
+
+
 def test_experiment_result_context_keeps_accepted_run_id_before_truncation(
     tmp_path: Path,
 ) -> None:
@@ -3969,6 +4156,67 @@ def test_orchestration_binds_exact_user_question_into_planner_dispatch(
     assert "Plan this exact task-bound question" in description
 
 
+def test_full_research_hypothesis_dispatch_ignores_parent_free_form_summary(
+    tmp_path: Path, monkeypatch
+) -> None:
+    thread_id = "hypothesis-canonical-dispatch"
+    config = _config(tmp_path, monkeypatch, thread_id)
+    workspace = Path(ensure_thread_workspace(thread_id, tmp_path).workspace)
+    question = "上一活动周长度是否调制极区场对下一活动周振幅的前兆关系？"
+    (workspace / "task.json").write_text(
+        json.dumps({"research_question": question}, ensure_ascii=False),
+        encoding="utf-8",
+    )
+    store = ResearchReviewStore(workspace, thread_id)
+    store.checkpoint_producer_result(
+        stage="planning",
+        producer="solar-planner",
+        content="按活动周对检验极区场与上一活动周长度的交互。",
+        phase="planning",
+    )
+    _accept(store, "planning")
+    data = store.checkpoint_producer_result(
+        stage="data",
+        producer="solar-data",
+        content=(
+            "MWO 光斑代理覆盖活动周 15 至 20，WSO 磁图覆盖活动周 21 至 24；"
+            "两个时代分别报告。"
+        ),
+        phase="data",
+    )
+    store.submit_verdict(
+        mode="data",
+        decision="accept_with_limits",
+        issues=[],
+        accepted_claims=[data["claims"][0]["claim_id"]],
+        carry_forward_limits=["MWO 与 WSO 两个测量时代必须分别报告。"],
+    )
+    misleading_parent_summary = (
+        "No pre-magnetogram polar-field proxy series was located for cycles 15-20."
+    )
+    request = _Request(
+        {
+            "name": "task",
+            "id": "call-hypothesis",
+            "args": {
+                "subagent_type": "solar-hypothesis",
+                "description": misleading_parent_summary,
+            },
+        },
+        {"research_route": {"mode": "full_research"}},
+        _Runtime(config),
+    )
+
+    rewritten, action, early = ResearchReviewOrchestrationMiddleware()._prepare(request)
+
+    assert early is None
+    assert action["stage"] == "hypothesis"
+    description = rewritten.tool_call["args"]["description"]
+    assert misleading_parent_summary not in description
+    assert "bound_hypothesis_request=@" in description
+    assert "accepted_upstream=" in description
+
+
 def test_orchestration_registers_planner_evidence_revision_before_delegation(
     tmp_path: Path, monkeypatch
 ) -> None:
@@ -4168,6 +4416,75 @@ def test_data_dispatch_opens_and_injects_deterministic_context_once(
     assert "persist at least one additional task-local data artifact" in description
 
 
+def test_data_preflight_acquires_curated_inputs_for_natural_language_task(
+    tmp_path: Path, monkeypatch
+) -> None:
+    from jw.middleware import research_review_orchestration as orchestration
+
+    config = _config(tmp_path, monkeypatch, "data-preflight-acquisition")
+    acquisition_calls: list[tuple[Path, str, tuple[str, ...]]] = []
+
+    def acquire(
+        base_workspace,
+        *,
+        project_id="default",
+        dataset_ids=None,
+    ):
+        selected = tuple(dataset_ids or ())
+        acquisition_calls.append((Path(base_workspace), project_id, selected))
+        records = []
+        for dataset_id in selected:
+            source = tmp_path / f"{dataset_id}.csv"
+            source.write_text(f"source={dataset_id}\n", encoding="utf-8")
+            records.append(
+                register_project_data_file(
+                    base_workspace,
+                    source,
+                    f"curated/{dataset_id}/{source.name}",
+                    dataset_id=dataset_id,
+                    provenance={"authority_url": f"https://example.test/{source.name}"},
+                    project_id=project_id,
+                )
+            )
+        return records
+
+    monkeypatch.setattr(
+        "jw.solar_data_catalog.acquire_authoritative_solar_data", acquire
+    )
+
+    context = orchestration._open_data_context_preflight(
+        config,
+        route_kind="bounded",
+        analysis_protocol="solar_polar_precursor_v1",
+    )
+    repeated = orchestration._open_data_context_preflight(
+        config,
+        route_kind="bounded",
+        analysis_protocol="solar_polar_precursor_v1",
+    )
+
+    assert context["status"] == "inputs_available"
+    assert context["must_stop"] is False
+    assert {item["dataset_id"] for item in context["eligible_inputs"]} == {
+        "silso-monthly-total-v2",
+        "mwo-wso-polar-field-v2",
+    }
+    assert repeated["status"] == "inputs_available"
+    assert acquisition_calls == [
+        (
+            tmp_path,
+            "default",
+            ("silso-monthly-total-v2", "mwo-wso-polar-field-v2"),
+        )
+    ]
+    context_receipts = [
+        json.loads(path.read_text(encoding="utf-8"))
+        for path in tmp_path.rglob("data-context-*.json")
+    ]
+    assert context_receipts
+    assert {receipt["status"] for receipt in context_receipts} == {"inputs_available"}
+
+
 def test_experiment_input_staging_failure_is_explicit(
     tmp_path: Path, monkeypatch
 ) -> None:
@@ -4308,7 +4625,7 @@ def test_experiment_dispatch_persists_host_owned_research_scope(
             },
         ],
         "revision_review_id": "review-experiment-design-2",
-        "design_validation_limit": 3,
+        "design_validation_limit": 4,
     }
 
 
@@ -4379,8 +4696,8 @@ def test_concurrent_experiment_scope_publish_uses_unique_atomic_temporary_files(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
-    from jw.middleware import research_review_orchestration as orchestration
     from jw import research_review as review_store_module
+    from jw.middleware import research_review_orchestration as orchestration
 
     root = tmp_path / "research_review"
     store = SimpleNamespace(
@@ -5943,8 +6260,18 @@ def test_precursor_and_pair_receipts_project_structured_data_claim(
         stage="data",
         version=1,
         phase="data",
-        text="Let me inspect the produced artifacts via shell.",
-        evidence_refs=[precursor_ref, pair_ref, precursor_output, pair_output],
+        text=(
+            "Let me inspect the produced artifacts via shell. "
+            "A proposed but unpersisted record would be at "
+            "receipts/datasets/solar_precursor_semantics.json."
+        ),
+        evidence_refs=[
+            precursor_ref,
+            pair_ref,
+            precursor_output,
+            pair_output,
+            "receipts/datasets/solar_precursor_semantics.json",
+        ],
         canonical_documents=documents,
         current_task_id="structured-data-claim",
         source_manifest=[
@@ -5969,6 +6296,13 @@ def test_precursor_and_pair_receipts_project_structured_data_claim(
         precursor_output,
         pair_output,
     }
+    assert adapted["evidence_refs"] == [
+        pair_ref,
+        precursor_ref,
+        pair_output,
+        precursor_output,
+    ]
+    assert "solar_precursor_semantics.json" not in adapted["evidence_refs"]
     assert adapted["payload"]["data_result_summary"] == summary
 
 

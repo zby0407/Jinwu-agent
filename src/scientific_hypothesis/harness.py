@@ -296,9 +296,7 @@ def _compact_response_contract() -> dict[str, Any]:
                 "limiting": confidence_cap_shape,
                 "unknown": confidence_cap_shape,
             },
-            "outcome_branches": [
-                {"outcome": "string", "claim_update": "string"}
-            ],
+            "outcome_branches": [{"outcome": "string", "claim_update": "string"}],
         },
         "mechanism": {
             "summary": "string（可能机制，不等于可观测预测）",
@@ -597,9 +595,8 @@ def collect_hypothesis_semantic_errors(
                     )
 
     # 3. 技术失败的实验记录不得作为支持或反对证据（绑定层已挡指标，语义层再挡角色）。
-    material_kinds = {
-        material["id"]: material["material_kind"]
-        for material in request.get("upstream_materials", [])
+    materials_by_id = {
+        material["id"]: material for material in request.get("upstream_materials", [])
     }
     for candidate in candidates:
         for family, links in (
@@ -612,10 +609,24 @@ def collect_hypothesis_semantic_errors(
                     continue
                 if entry["evidence_kind"] == "experiment":
                     material_id = entry["material_id"]
-                    if material_kinds.get(material_id) != "experiment_result":
+                    material = materials_by_id.get(material_id)
+                    if (
+                        not isinstance(material, dict)
+                        or material.get("material_kind") != "experiment_result"
+                    ):
                         errors.append(
                             f"候选 {candidate['id']} 的{family} {link['evidence_id']} 声称来自实验，"
                             f"但材料 {material_id} 不是实验执行记录"
+                        )
+                        continue
+                    summary = material.get("experiment_summary")
+                    if (
+                        isinstance(summary, dict)
+                        and summary.get("outcome") == "technical_failure"
+                    ):
+                        errors.append(
+                            f"候选 {candidate['id']} 的{family} {link['evidence_id']} 来自"
+                            "技术失败记录；该记录只能说明实验未形成科学结果，不能支持或反对候选"
                         )
 
     # 4. 候选去重：陈述不得逐字重复；多候选时不得共用完全相同的机制摘要。

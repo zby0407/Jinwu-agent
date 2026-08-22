@@ -930,6 +930,7 @@ def test_hypothesis_task_execution_rewrites_generic_delegation_to_specialist(
     assert "tail_review_scoring_guide" in args["description"]
     assert "violated_guidelines" in args["description"]
     assert "pass if and only if that list is empty" in args["description"]
+    assert "A `_gauss` suffix is a measurement unit" in args["description"]
     assert result.content == "# 科学假设组合\n\n研究者摘要"
     assert result.additional_kwargs["research_router_specialist"] == "solar-hypothesis"
     assert (

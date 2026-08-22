@@ -636,13 +636,36 @@ def _stage_worker_output_guide(
         == "json"
     ]
     exact_value_ids = [*stage["measurement_refs"], *stage["result_refs"]]
+    stage_measurements = set(stage["measurement_refs"])
+    stage_results = set(stage["result_refs"])
     return {
         "schema_version": "automatic-experiment-worker-result-v1",
         "execution_completed": True,
         "measurement_names": list(stage["measurement_refs"]),
         "result_item_ids": list(stage["result_refs"]),
+        "measurement_contracts": [
+            {field: row[field] for field in ("name", "unit", "role")}
+            for row in design["measurement_plan"]
+            if row["name"] in stage_measurements
+        ],
+        "result_item_contracts": [
+            {
+                field: row[field]
+                for field in ("id", "display_name", "value_kind", "unit", "role")
+            }
+            for row in design["result_plan"]
+            if row["id"] in stage_results
+        ],
         "endpoint_ids": list(stage["endpoint_ids"]),
         "artifact_paths": expected_artifacts,
+        "artifact_output_paths": {
+            path: f"context['output_dir'] / {path!r}" for path in expected_artifacts
+        },
+        "artifact_output_rule": (
+            "Write each declared output below context['output_dir'] using its exact "
+            "relative artifact path; never context['artifact_path_by_id'], which contains "
+            "read-only prior-stage artifacts only."
+        ),
         "json_artifact_paths": json_artifacts,
         "json_traceability": {
             "exact_value_keys": exact_value_ids,
@@ -652,9 +675,17 @@ def _stage_worker_output_guide(
                 "The key may appear at any nesting level; do not duplicate the value."
             ),
         },
+        "primary_estimand": design["interpretation_policy"]["primary_estimand"],
+        "primary_estimand_rule": (
+            "Copy this exact string into scientific_payload.primary_estimand, either "
+            "directly or through a module-level string constant or function-local "
+            "constant; "
+            "do not concatenate, format, or compute it."
+        ),
         "source_artifact_rule": (
-            "Use an exact artifact-path string literal, a local constant assigned that literal, "
-            "or null; reject helpers, expressions, and computed paths."
+            "Use an exact artifact-path string literal, a module-level string constant "
+            "or function-local constant assigned that literal, or null; reject helpers, "
+            "expressions, and computed paths."
         ),
     }
 
@@ -699,6 +730,34 @@ def _design_repair_guide(issues: list[dict[str, Any]]) -> dict[str, Any]:
     if "experiment_stages" in paths:
         guide["stage_fields"] = full["stage_fields"]
         guide["stage_nested_shapes"] = full["stage_nested_shapes"]
+    issue_messages = " ".join(
+        str(row.get("message") or "") for row in issues
+    ).casefold()
+    if (
+        "fitted-condition sensitivity lacks a same-row candidate comparison"
+        in issue_messages
+    ):
+        guide["paired_comparison_repair"] = {
+            "required_comparison_kind": "candidate_vs_candidate",
+            "audit_action": (
+                "append one candidate_vs_candidate audit for the two fitted "
+                "conditions and their declared delta; keep other required audits"
+            ),
+            "evaluation_rule": (
+                "both fitted conditions must be compared on the same evaluation rows, "
+                "with the inclusion or exclusion difference written only in their "
+                "fit-condition fields"
+            ),
+            "measurement_rule": (
+                "baseline_measurement and candidate_measurement name the two condition "
+                "metrics; delta_measurement names their declared difference and follows "
+                "delta_formula"
+            ),
+            "non_substitution_rule": (
+                "an existing source_baseline_vs_candidate audit does not satisfy this "
+                "candidate_vs_candidate requirement"
+            ),
+        }
     return guide
 
 
@@ -1592,8 +1651,8 @@ def _normalized_research_scope(scope: dict[str, Any]) -> dict[str, Any]:
     stage = scope["stage"]
     if stage not in {"experiment_design", "experiment_result"}:
         raise ServiceError("research experiment scope has an invalid stage")
-    if scope["design_validation_limit"] != 3:
-        raise ServiceError("research design validation limit must be 3")
+    if scope["design_validation_limit"] not in {3, 4}:
+        raise ServiceError("research design validation limit must be 3 or 4")
     revision_review_id = scope["revision_review_id"]
     if revision_review_id is not None and (
         not isinstance(revision_review_id, str) or not revision_review_id.strip()
@@ -1653,7 +1712,7 @@ def _normalized_research_scope(scope: dict[str, Any]) -> dict[str, Any]:
         "stage": stage,
         "accepted_upstream_refs": refs,
         "revision_review_id": revision_review_id,
-        "design_validation_limit": 3,
+        "design_validation_limit": scope["design_validation_limit"],
     }
 
 
@@ -1782,11 +1841,17 @@ def _validate_stage_code(
     code_files: list[dict[str, str]],
 ) -> None:
     stage = experiment_stage(design, stage_id)
+    stage_measurement_ids = set(stage["measurement_refs"])
     stage_result_ids = set(stage["result_refs"])
     validate_code_files(
         [{"path": row["path"], "content": row["content"]} for row in code_files],
         stage_execution(design, stage_id)["dependencies"],
-        required_measurements=set(stage["measurement_refs"]),
+        required_measurements=stage_measurement_ids,
+        required_measurement_contracts={
+            row["name"]: {field: row[field] for field in ("unit", "role")}
+            for row in design["measurement_plan"]
+            if row["name"] in stage_measurement_ids
+        },
         required_results=stage_result_ids,
         required_result_contracts={
             row["id"]: {

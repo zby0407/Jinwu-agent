@@ -1304,10 +1304,19 @@ class ResearchReviewStore:
             if run is None:
                 run = self._latest_run_root("experiment/runs")
             if run is not None:
-                names = ["state.json", "request.json", "response.json", "design.json"]
+                # state.json is a mutable lifecycle ledger.  Freezing it into the
+                # design artifact would make every legitimate execution update
+                # invalidate the already-reviewed design at integration time.
+                names = ["request.json", "response.json", "design.json"]
                 if stage == "experiment_result":
                     names.extend(
-                        ["record.json", "entry_result.json", "report.md", "audit.md"]
+                        [
+                            "state.json",
+                            "record.json",
+                            "entry_result.json",
+                            "report.md",
+                            "audit.md",
+                        ]
                     )
                 candidates.extend(run / name for name in names)
         quality_contract = (
@@ -2837,7 +2846,10 @@ class ResearchReviewStore:
                             "fingerprint": issue_fingerprint(rule_id, claim_ref, owner),
                         }
                     ]
-                if context.get("required_data_product") in {
+                if (
+                    context_is_authoritative
+                    or context.get("context_mode") != "full_research"
+                ) and context.get("required_data_product") in {
                     SILSO_CYCLE_EXTREMA_DATA_PRODUCT,
                     SOLAR_POLAR_PRECURSOR_DATA_PRODUCT,
                 }:

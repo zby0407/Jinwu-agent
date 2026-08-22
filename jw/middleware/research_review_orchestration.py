@@ -131,8 +131,9 @@ _CANONICAL_CHECKPOINT_DIRECTIVE = {
         "context['output_dir'] joined with the / operator (they are pathlib.Path "
         "objects), never from string literals or os.path. Each measurement and "
         "result_item must carry name/id, value, unit, role (primary|secondary|"
-        "diagnostic), and source_artifact (an exact artifact-path string literal or "
-        "null, no computed path). Call prepare_attempt once with files as a JSON "
+        "diagnostic), and source_artifact (an exact artifact-path string literal, "
+        "a module-level or function-local string constant assigned that literal, "
+        "or null; no computed path). Call prepare_attempt once with files as a JSON "
         "object, then execute_attempt on the attempt id that prepare returned; do "
         "not re-prepare after a successful prepare, and do not call execute before a "
         "prepare succeeds. Before automatic_experiment_prepare_attempt, call "
@@ -500,11 +501,55 @@ def _persist_experiment_scope(
         "revision_review_id": (
             revision_review_id if isinstance(revision_review_id, str) else None
         ),
-        "design_validation_limit": 3,
+        "design_validation_limit": 4,
     }
     path = store.root / "experiment_scope.json"
     _atomic_write_json(path, scope)
     return scope
+
+
+def _data_pair_mapping_note(artifact: Mapping[str, Any]) -> str:
+    """Render the receipt-bound predictor/target cycle mapping for Hypothesis."""
+
+    payload = artifact.get("payload")
+    summary = (
+        payload.get("data_result_summary") if isinstance(payload, Mapping) else None
+    )
+    coverage = summary.get("pair_coverage") if isinstance(summary, Mapping) else None
+    raw_pairs = (
+        coverage.get("available_pairs") if isinstance(coverage, Mapping) else None
+    )
+    if not isinstance(raw_pairs, list) or not raw_pairs:
+        return ""
+    parsed: list[tuple[int, int]] = []
+    for raw_pair in raw_pairs:
+        match = re.fullmatch(r"([0-9]+)->([0-9]+)", str(raw_pair))
+        if match is None:
+            return ""
+        parsed.append((int(match.group(1)), int(match.group(2))))
+
+    def cycle_range(values: list[int]) -> str:
+        ordered = list(dict.fromkeys(values))
+        if len(ordered) > 1 and ordered == list(range(ordered[0], ordered[-1] + 1)):
+            return f"{ordered[0]}-{ordered[-1]}"
+        return ",".join(str(value) for value in ordered)
+
+    pair_span = (
+        raw_pairs[0]
+        if len(raw_pairs) == 1
+        else f"{raw_pairs[0]} through {raw_pairs[-1]}"
+    )
+    predictors = cycle_range([left for left, _right in parsed])
+    targets = cycle_range([right for _left, right in parsed])
+    next_unavailable = max(right for _left, right in parsed) + 1
+    return (
+        "Authoritative sample mapping from the accepted Data receipt: exact "
+        f"available pairs are {pair_span}; predictor/previous cycles are "
+        f"{predictors}; target cycles are {targets}. Candidate statements, scope, "
+        "predictions, and null hypotheses must preserve the pair left endpoints "
+        "as predictor/previous cycles and right endpoints as target cycles, and "
+        f"must not shift this mapping to cycle {next_unavailable}."
+    )
 
 
 def _write_hypothesis_request(store: ResearchReviewStore) -> str:
@@ -541,6 +586,9 @@ def _write_hypothesis_request(store: ResearchReviewStore) -> str:
                 "provenance boundary. This establishes the inspected feature "
                 "product, not predictive skill or a causal mechanism.\n\n" + claim_text
             )
+            mapping_note = _data_pair_mapping_note(artifact)
+            if mapping_note:
+                notes += "\n\n" + mapping_note
             material_kind = "data_feature"
             summary = None
         else:
@@ -853,7 +901,13 @@ def _open_data_context_preflight(
     mandatory first data action.
     """
 
+    from ..research_protocols import (
+        SILSO_CYCLE_REPRODUCTION_PROTOCOL,
+        SOLAR_POLAR_PRECURSOR_PROTOCOL,
+        required_dataset_ids_for_protocol,
+    )
     from ..tools.solar_feature import (
+        _eligible_input_records,
         open_bounded_solar_data_context,
         solar_data_open_context,
     )
@@ -866,15 +920,59 @@ def _open_data_context_preflight(
             binding.base_workspace,
             project_id=binding.project_id,
         )
-    if route_kind == "full":
-        raw = solar_data_open_context.func(
-            analysis_protocol=analysis_protocol, config=config
-        )
-        payload = json.loads(raw)
-    else:
-        payload = open_bounded_solar_data_context(
-            config, analysis_protocol=analysis_protocol
-        )
+
+    def open_context() -> dict[str, Any]:
+        if route_kind == "full":
+            raw = solar_data_open_context.func(
+                analysis_protocol=analysis_protocol, config=config
+            )
+            opened = json.loads(raw)
+        else:
+            opened = open_bounded_solar_data_context(
+                config, analysis_protocol=analysis_protocol
+            )
+        if not isinstance(opened, dict):
+            raise RuntimeError("solar_data_open_context returned a non-object payload")
+        return opened
+
+    supported_protocols = {
+        SILSO_CYCLE_REPRODUCTION_PROTOCOL,
+        SOLAR_POLAR_PRECURSOR_PROTOCOL,
+    }
+    if (
+        binding is not None
+        and not binding.legacy
+        and analysis_protocol in supported_protocols
+    ):
+        available_ids = {
+            str(item.get("dataset_id"))
+            for item in _eligible_input_records(config)  # type: ignore[arg-type]
+            if isinstance(item.get("dataset_id"), str)
+        }
+        missing_ids = [
+            dataset_id
+            for dataset_id in required_dataset_ids_for_protocol(analysis_protocol)
+            if dataset_id not in available_ids
+        ]
+        if missing_ids:
+            from ..solar_data_catalog import acquire_authoritative_solar_data
+
+            try:
+                acquire_authoritative_solar_data(
+                    binding.base_workspace,
+                    project_id=binding.project_id,
+                    dataset_ids=missing_ids,
+                )
+            except (OSError, ValueError, RuntimeError) as exc:
+                raise RuntimeError(
+                    "authoritative solar data acquisition failed before Data dispatch"
+                ) from exc
+            ensure_thread_workspace(
+                binding.thread_id,
+                binding.base_workspace,
+                project_id=binding.project_id,
+            )
+    payload = open_context()
     if not isinstance(payload, dict):
         raise RuntimeError("solar_data_open_context returned a non-object payload")
     if payload.get("status") == "error":
@@ -1887,6 +1985,17 @@ class ResearchReviewOrchestrationMiddleware(AgentMiddleware[Any, Any, Any]):
                 "ReviewVerdictV2. Never edit the producer artifact."
             )
         else:
+            if action["stage"] == "hypothesis":
+                # A Supervisor-generated task description is routing prose, not
+                # accepted scientific evidence.  Rebuild Hypothesis dispatch
+                # from the canonical request below so a stale or contradictory
+                # parent summary cannot compete with the reviewed Data material.
+                description = (
+                    "Produce the task-bound Hypothesis result from the canonical "
+                    "request and accepted upstream material supplied below. Treat "
+                    "those bound records as authoritative; do not inherit factual "
+                    "claims from any parent free-form task summary."
+                )
             revision_capsule = None
             planner_revision_checkpoint = None
             data_context: dict[str, Any] | None = None

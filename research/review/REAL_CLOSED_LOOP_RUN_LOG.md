@@ -60,6 +60,19 @@
 | CL-20260817-22 | 2026-08-17 | 仓库外 WebUI 闭环 | EXT-POLAR-LENGTH-FULL-01 / r22 | `runtime_error` | Planning、Data 各完成一轮 `accept_with_limits`；无 Hypothesis artifact | Hypothesis 长调用发生 `APIConnectionError`；Harness 同时暴露空分析输出状态缺口 | 保留完整失败现场；修复、重启后以全新 r23 复验 |
 | CL-20260817-24 | 2026-08-17 19:10–20:27 | 仓库外 WebUI 闭环 | EXT-POLAR-LENGTH-FULL-01 / r24 | `blocked` | 未形成 assessment、quality assessment 或科学结论 | Qwen 同家族审查在 Data 路径重复触发工具选择兼容失败，最终 `REQUIRED_SPECIALIST_FAILED_TWICE` | 保留失败现场；修复兼容路径后重新 fresh 复验 |
 | CL-20260818-25 | 2026-08-17 19:28–20:37 | WebUI 自主主任务 | MAIN-SC26-B06 | `blocked` | Planning `accept_with_limits`；仅形成 Data 回执与 11 行历史表，未形成新的科学结论 | Data canonical artifact 不完整；千问 thinking 模式拒绝 `tool_choice=required/object` | 保留失败现场；修复后必须以全新 headed production WebUI 会话复验 |
+| CL-20260821-27 | 2026-08-20 16:12–16:30 UTC | 全新克隆 WebUI 主验收 / r40 | EXT-POLAR-LENGTH-FULL-01 | `blocked` | Planning 接受；Data 证明项目无合格输入并阻断 | 初次部署不能自主取得已定义的公开观测数据 | 保留诚实阻断；增加受控数据获取后 fresh 复验 |
+| CL-20260821-28 | 2026-08-20 16:45 UTC | WebUI 主验收 / r41 | EXT-POLAR-LENGTH-FULL-01 | `runtime_error` | 尚未进入 Data，科学状态未评估 | 预登记来源记录包含临时下载定位信息 | 立即停止；修复长期来源定位后 fresh 复验 |
+| CL-20260821-29 | 2026-08-20 之后 | 隔离 WebUI 主验收 / r42 | EXT-POLAR-LENGTH-FULL-01 | `partial` | 自主取得两项输入并形成已核验周期表；无科学结论 | Data 审查误选获取前的旧上下文并连续返修 | 保留失败现场；修复当前上下文选择后 fresh 复验 |
+| CL-20260821-30 | 2026-08-20 17:21 UTC | WebUI 启动复验 / r43 | EXT-POLAR-LENGTH-FULL-01 | `runtime_error` | 未进入模型或科研阶段 | 启动前未创建基础 workspace 目录，前端绑定轮询返回 400 | 修正启动环境后 fresh 复验 |
+| CL-20260821-31 | 2026-08-20 17:22–20:41 UTC | 隔离 WebUI 主验收 / r44 | EXT-POLAR-LENGTH-FULL-01 | `blocked` | Data 与 Hypothesis 接受；没有实验结果 | 实验设计三次返修后只剩一项问题，但校验次数已经用完 | 将正式科研设计校验次数调为 4 后 fresh 复验 |
+| CL-20260822-32 | 2026-08-21 | WebUI 主验收 / r45 | EXT-POLAR-LENGTH-FULL-01 | `partial` | 设计已进入自动实验交接 | 实验服务与上层校验次数不一致，同时暴露统计量语义漂移；无完整终态回执 | 保留 observer 和后端日志，统一设计合同后 fresh 复验 |
+| CL-20260822-33 | 2026-08-21 | WebUI 主验收 / r46 | EXT-POLAR-LENGTH-FULL-01 | `runtime_interrupted` | 实验设计第 4 次校验后只剩 1 项问题 | 质量主张调用重复 35 次，未执行实验 | 修复成对比较记录和预算用尽后停止路由 |
+| CL-20260822-34 | 2026-08-21 | WebUI 主验收 / r47 | EXT-POLAR-LENGTH-FULL-01 | `runtime_interrupted` | AnalysisClaim 第 15 次尝试后最终写入 | Planning 正式工件未提交，无实验和科学结果 | 在模型可见提示中给出完整 AnalysisClaim 字段与预测验证规则后 fresh 复验 |
+| CL-20260822-35 | 2026-08-21 19:30–22:44 UTC | WebUI 主验收 / r48 | EXT-POLAR-LENGTH-FULL-01 | `blocked` | 至 Experiment Result 共完成 7 个审查轮次，每轮三件套完整 | 实验输出路径使用错误导致执行失败；Integration 又因固定来源中包含可变状态而阻断；无科学测量 | 修复输出目录指引与设计来源范围后 fresh 复验 |
+| CL-20260822-36 | 2026-08-22 | WebUI 诊断 / r49 | EXT-POLAR-LENGTH-FULL-01 | `incomplete` | 保留 headed 会话和后端过程记录 | 无完整 harness metadata 或科研终态 | 不纳入闭环成功证据 |
+| CL-20260822-37 | 2026-08-22 | WebUI 主验收 / r50 | EXT-POLAR-LENGTH-FULL-01 | `budget_stopped` | 实验审查为 `revise`，阻止不符合测量计划的数值进入下游 | 未形成已验证测量；工作进程指标不是科学结果 | 修正失败投影与假设证据门后 fresh 复验 |
+| CL-20260822-38 | 2026-08-22 06:03 UTC | WebUI 启动复验 / r51 | EXT-POLAR-LENGTH-FULL-01 | `runtime_error` | 用户问题未提交 | 基础 workspace 目录未创建，绑定返回 HTTP 400 | 创建隔离目录后重新启动 |
+| CL-20260822-39 | 2026-08-22 06:05–07:33 UTC | 隔离 WebUI 主验收 / r52 | EXT-POLAR-LENGTH-FULL-01 | `provider_error` | Planning、Data、Hypothesis 各一轮 `accept_with_limits`，每轮三件套完整 | 实验设计三次提交后仍剩一项测量引用问题；Qwen 周配额耗尽；无实验结果 | 修正周期对映射与局部设计返修指引，配额恢复后 fresh 复验 |
 
 此外，2026-08-12 的 36 次可见集成回归作为批次记录保留：21 次完成且有回答、
 2 次完成但无回答、13 次 runtime error；assessment coverage、核心签名稳定性和
@@ -802,6 +815,176 @@ Final Release 的 ReviewAssessment 将正文主张评为有高置信支持，但
 `3668 passed, 13 skipped, 6 warnings, 8 subtests passed`，WebUI Node 为 `25/25`，production build、
 Python 编译及根仓库与 8.12.1 工作区的差异格式检查均通过。检查完成后停止本轮后端和 WebUI，
 `6174`、`4717`、`9239` 均无监听；运行目录与失败记录未删除。
+
+## 全新克隆与自主数据入口复验：CL-20260821-27 至 31
+
+本组运行在新克隆目录 `8.20.4` 中使用同一 B3 主验收问题。headed production WebUI 只接收原始
+自然语言问题，运行器不提供数据文件、阶段指令、统计数值或预设结论。各轮失败均保留，后续修复
+不回写已有运行。
+
+### r40：无项目数据时在 Data 阶段诚实阻断
+
+- 线程：`01a01ff2-587e-7c81-b82b-ef2ddff0f6db`；
+- 时间：2026-08-20 16:12:41–16:30:40 UTC；耗时 1078.437 秒；
+- 入口：全新 headed production WebUI，会话开始时任务输入和项目共享输入均为 0；
+- 终态：`research_blocked`，持久化状态为 `blocked/data`，无最终回答，用户干预为 0。
+
+Planning 形成完整的 assessment、scientific quality assessment 和 verdict，最终为 `accept`。Data
+上下文随后确认两项必需数据均缺失，Data 只形成 `block` verdict，没有形成完整审查三件套；Hypothesis
+至 Final Release 全部未启动。该轮没有实验、样本外指标或太阳物理结论。它证明当时系统能诚实停止，
+也证明初次部署尚不能从公开权威来源自主取得协议已经明确规定的数据。
+
+观察回执位于 `research/review/evals/runs/next_stage_polar_length.full.r40/`。本轮的科研阻断状态与
+浏览器停止后的任务空闲状态属于不同层次；后者只表示程序已结束，不能改写 `blocked/data`。
+
+### r41：来源定位问题触发主动停止
+
+r41 在运行前由操作者预登记公开数据，因此即使继续也只能检验“项目已有数据”条件，不能证明
+Data Agent 自主获取。检查长期来源记录时发现，其中一项记录误用了下载过程中的临时重定向地址。
+运行在 Planning 阶段停止，科学状态为 `not_assessed`，没有进入 Data，也没有产生科学结论。
+
+随后将长期记录改为 Dataverse 持久标识、稳定元数据接口、稳定文件接口和 file ID，并增加回归测试；
+临时重定向地址不进入文档、提交或后续运行回执。r41 的停止回执位于
+`research/review/evals/runs/next_stage_polar_length.full.r41/interruption.json`。
+
+### r42：自主获取成功并暴露上下文选择缺陷
+
+r42 使用隔离且初始为空的项目根启动，项目数据目录不存在，也没有隐式加载旧任务。系统在 Data
+入口自主取得并登记 `silso-monthly-total-v2` 与 `mwo-wso-polar-field-v2`，生成的前兆表状态为
+`verified`，包含 1 行边界周期和周期 15–24 共 10 行分析周期；两项来源记录均只保留稳定定位信息。
+
+该轮随后连续两次收到同一 Data 返修意见。复核确认，Data 入口先写入了获取前的 `input_missing`
+上下文，获取后又写入 `inputs_available` 上下文；审查器在两份记录并存时误选旧记录，因而把已经与
+当前输入一致的表判断为上下文不一致。运行在 Data 阶段停止，没有 Hypothesis、实验、整合、发布或
+科学结论。中断回执位于
+`research/review/evals/runs/next_stage_polar_length.full.r42/interruption.json`。
+
+修复后，缺失检查发生在正式上下文写入之前，受支持协议完成按需获取和项目刷新后只写入一次当前
+上下文；正式研究模式的专用数据审查只使用通过当前任务、计划和输入清单检查的上下文。相关定向
+回归及既有有界上下文兼容测试均通过，仍需由下一次全新 headed 会话确认真实路径。
+
+### r43：启动环境错误
+
+r43 在模型调用前失败。启动参数指向的基础 workspace 目录尚未创建，前端 workspace 绑定轮询因而
+返回 HTTP 400 并超时。该结果归类为启动环境 `runtime_error`，不评价 Planning、Data Agent 或主
+科学问题。原始失败回执位于
+`research/review/evals/runs/next_stage_polar_length.full.r43/harness_failure.json`。后续启动在运行器
+执行前显式创建隔离 workspace、bindings 和运行数据目录。
+
+### r44：自主数据与假设通过，实验设计在最后一项返修前停止
+
+r44 从另一个初始为空的项目根和全新 headed production WebUI 会话启动。页面只提交原始研究问题，
+没有阶段说明、数据路径、统计答案、人工批准或追加指导。线程为
+`01a02032-37ce-7fc3-9cc8-11a1c7813e7e`；后端运行约 3 小时 19 分钟后结束，持久化状态为
+`blocked/experiment_design`，没有最终科学回答。
+
+系统自主取得并登记 SILSO 月度总黑子数与 MWO/WSO 极区场两项必需数据。本轮只写入一份当前
+`inputs_available` 上下文，缺失列表为空；前兆表包含周期 14 边界行和周期 15–24 的 10 行分析记录，
+周期对表包含 14→15 至 23→24 共 10 对。Data 审查第 1 轮为 `accept_with_limits`，保留了 MWO 代理与
+WSO 磁强计测量制度差异、14→15 南半球窗口覆盖不足、时间序列相关性及小样本限制。该结果验证了
+自主获取、来源登记、数据表生成与 Data 交接，不构成交互作用的实证支持。
+
+Hypothesis 阶段形成两个候选及其证据关系，独立审查第 1 轮为 `accept_with_limits`。主候选把
+周期 15→16 至 23→24 的 9 对作为主要分析样本，把 14→15 仅留作标注敏感性分析；同时预先保留
+有效独立样本数不足、MWO/WSO 制度切换、文献缺口和机制解释仅属探索性等限制。一次模型连接错误
+经同一次任务的有界重试恢复，没有改写候选方向或数据范围。
+
+实验设计随后连续提交三版。需修正项从首版的 23 项缩减到第二版的 2 项，第三版只剩同一批评价
+观测上的成对比较记录未补齐；此时正式科研设计的三次校验机会已经用完，设计文件没有通过并落盘。
+后续调度再次进入设计 Agent，但既不能新建同一范围的运行，也不能继续修改已停止的运行，最终诚实
+阻断。目录中只有请求、输入快照、响应和三次设计尝试记录，没有 `design.json`、实验执行记录、
+整合或最终发布。因此响应中的交互模型、置换、重抽样和滚动验证均只是未获接受的预登记方案，
+不能描述为已经执行。
+
+根因修复只调整正式科研编排：把设计校验机会由 3 次改为 4 次，使真实运行中已经收敛到单项问题的
+设计可以完成一次最终修正；底层默认路径和停止机制保持不变。该修改先由失败测试确认，再通过定向
+回归。r44 原始阻断目录与日志保留，修复效果必须由全新 r45 会话验证。
+
+## 设计交接、质量合同与实验输出复验：CL-20260822-32 至 35
+
+四次运行均使用 `EXT-POLAR-LENGTH-FULL-01` 问题原文、全新 headed production
+WebUI 会话与 `two_pass` 审查；批准和操作者指导均为 0。它们用于验证新克隆
+中的自主数据获取、设计交接、真实执行与审查路径，不沿用 r34–r39 的科学
+数值或任务状态。
+
+### r45–r47：收敛前的运行边界
+
+r45 从实验设计继续进入自动实验交接，但只保存了 observer 与后端日志，没有完整
+harness metadata。本轮暴露两个工程问题：正式编排允许的设计校验次数已提高，实验
+服务却仍按旧上限拒绝；模型生成的分析还把预登记统计量转换成了另一种计算。后续
+修复统一了服务与编排合同，并在请求与回执中保留已预登记的算术平均值及其标准误定义。
+
+r46 已用完 4 次设计校验，最后只剩 1 项设计记录问题；之后质量主张记录连续调用
+35 次而未停止，运行被中止在 `experiment_design`。这不是科学阴性结果，也没有
+执行实验。修复后，校验预算用尽会形成明确停止动作，不再进入无信息增益的质量循环。
+
+r47 在 Planning 阶段反复修正 AnalysisClaim 结构，第 15 次尝试后虽已写入记录，但没有
+提交 Planning 正式工件，也没有执行实验。修复将完整字段骨架、独立样本单位、缺失处理、
+影响分析和时间顺序样本外验证规则直接提供给 Planning、Hypothesis 与 Experiment 生产者。
+
+### r48：完整审查链下的技术失败
+
+r48 线程为 `01a025ce-19ca-7c91-a637-8672829cd5d4`，观察地址为
+<http://127.0.0.1:4717/?threadId=01a025ce-19ca-7c91-a637-8672829cd5d4>。运行从
+2026-08-21 19:30:55 UTC 至 22:44:18 UTC，耗时 11602.713 秒，终态为
+`research_blocked/integration`，没有最终回答。
+
+Planning、Data、Hypothesis 第 1 轮、Hypothesis 第 2 轮、Experiment Design、Experiment
+Result 和 Integration 共保存 7 个审查轮次，每轮均且仅有一份 ReviewAssessment、
+ScientificQualityAssessment 和 ReviewVerdict。前六个阶段判定为 `accept_with_limits`，
+Integration 因 1 项关键问题判定为 `block`。
+
+该轮 Experiment Result 并未产生科学测量。实验工作进程已生成分析代码，但在打开首个
+预期输出 `fold_errors.csv` 时错把上游工件索引当作本轮输出路径，立即产生 `KeyError`。
+结果阶段如实保留了该技术失败，没有伪造统计数值。Integration 阶段又发现，设计的固定来源
+清单中包含了运行中会合法更新的状态文件，因而把正常状态变化判为来源不一致。
+
+修复后，生产者可见上下文显式列出本轮输出文件对应的运行输出目录，并明确禁止从上游工件
+索引取得未来输出；Experiment Design 的固定来源范围仅保留设计请求、响应与已接受设计，
+实验状态仍作为 Experiment Result 的运行证据。两项修复和 AnalysisClaim 提示修复已通过
+定向回归，真实闭环效果由下一次全新会话评价。r48 的原始阻断、完整审查记录与无科学
+测量边界均保留，不因修复改写。
+
+## 失败证据投影与供应商中断：CL-20260822-36 至 39
+
+r49 运行到 Hypothesis 过程后被中止，只保留 observer 与后端过程记录，没有完整
+harness metadata、最终回答或可发布科研状态，因而只作诊断记录。
+
+r50 使用全新 headed production WebUI 会话，线程为
+`01a0279f-d157-73c0-a8f3-d4bbe68f6a77`。实验工作进程在资源预算终止前返回了一批指标，
+但实验审查记录为 `revise`：35 项测量的名称、角色或单位与已接受设计不一致，工作进程未从
+周期特征表重新推导活动周长度并与周期对表交叉检查，也没有形成经核验的测量。该轮不提供任何可引用
+的数值结论。
+
+复核还发现，旧的实验投影优先读取审查中的拟定结果，并可能把工作进程指标描述为已验证结果。
+修复后，最终运行记录的结果类型优先；只有工作进程真实完成且结果属于 `completed_interpretable`、
+`scientific_null`、`high_uncertainty` 或 `partial_result` 时才投影测量。`technical_failure`、
+`budget_stopped` 及其他未完成状态统一保留为技术失败边界，测量列表为空。Hypothesis 合同同时拒绝将
+指向这类运行的实验证据写入支持或反对证据。对 r50 真实 `record.json` 的新投影结果为
+`execution_completed=false`、`outcome=technical_failure`、`metrics=[]`，并保留测量计划不一致原因。
+
+r51 在提交用户问题前因基础 workspace 目录不存在而超时，前端绑定返回 HTTP 400。
+这是启动环境失败，不评价系统功能或科学有效性。
+
+r52 使用隔离的运行数据、workspace 与 bindings 目录，headed production WebUI 线程为
+`01a02812-b492-7e20-b919-f6b21de69161`，观察地址为
+<http://127.0.0.1:4719/?threadId=01a02812-b492-7e20-b919-f6b21de69161>。Harness 记录显示只有一条用户消息，
+为 88 字的原始自然语言问题；人工批准与追加指导均为 0。
+
+Planning、Data 和 Hypothesis 各完成一轮 `accept_with_limits`，对应的 ReviewAssessment、
+ScientificQualityAssessment 与 ReviewVerdict 数量一致。Data 阶段生成 11 行周期特征表与 10 行
+周期对表；权威范围为 14→15 至 23→24，左端点是预测周期 14–23，右端点是目标周期 15–24，
+不包含周期 25。Data 审查保留了混合测量制度、有效独立样本上限、代理变量语义与回顾性平滑等限制。
+Hypothesis 的交互作用候选没有支持或反对证据，四条 Data 证据均按限制材料绑定，方向只作待验探索。
+
+实验设计连续提交三次，第三次只剩 `criteria[15].measurement_refs` 未同时引用两个条件估计及差值；
+此时设计尚未通过，实验也未执行。第四次修订前，Qwen 返回周配额耗尽，Harness 终态为
+`provider_error`，持久化科研状态仍为 active。它不是科学终态，也不是设计拒绝结论。
+
+后续修复将 `pair_coverage` 映射作为 Planning、Data、Hypothesis 和实验交接的统一依据，并要求
+对 `design.criteria[i].measurement_refs` 的条件比较局部返修同时引用条件 A、条件 B 与已声明差值。
+这些修复已通过定向测试；完整真实闭环仍需在供应商配额恢复后，以另一个全新 headed production
+WebUI 会话复验。
 
 ## 新运行条目模板
 

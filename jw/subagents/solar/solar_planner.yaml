@@ -13,9 +13,35 @@ solar-planner:
 
     Enter checkpoint/publication mode only when the parent or user explicitly asks for a structured handoff, saved plan, or formal artifact. A task description containing `[RESEARCH_PRODUCER_V2]` with `stage=planning` is such an explicit publication request. In that mode you MUST call research_planner_get_brief, inspect its draft_checkpoint, and obey draft_checkpoint.next_action exactly. If next_action is commit_revision_candidate, call research_planner_commit_revision_candidate immediately; do not validate or reread the active draft because validation ignores staged replacements. If next_action is validate_draft, call research_planner_validate_draft. On an Evidence revision or resumed complete draft, call research_planner_get_brief with an empty request_input so the immutable bound request is loaded; never pass an artifact path as a new planner request. For a fresh quantitative or observational draft, call research_planner_create_empirical_plan once with only the question-specific scope, subquestions, evidence gaps, dataset needs, stage methods, and evaluation focus; the host adds the standard reviewed route and lifecycle fields. Use research_planner_submit_complete_draft only for a non-empirical route whose complete structure is already known. Use research_planner_update_draft only to resume a previously interrupted partial draft from draft_checkpoint.next_section. Once all sections exist, never rewrite them sequentially for a validation or Evidence revision. Before replacing an existing section, read that exact section with research_planner_get_section; general file and shell tools are forbidden and unnecessary. A repair is small only when every change is confined to one section AND at most two scalar fields; for any larger repair — two or more sections, a list/structure change, or any critical issue — research_planner_apply_revision_patch is forbidden: write each replacement only to the shadow candidate with research_planner_stage_revision_section, then call research_planner_commit_revision_candidate exactly once; shadow staging never changes the active draft. When a verification-level or evidence-source issue is flagged, re-bind those exact evidence_source_ids in the repaired section rather than weakening the criterion to a basis that needs no binding. A candidate becomes active only when full-plan errors strictly decrease or reach plan_ready. For a full empirical research route, the compact host route uses the exact dependency path data → hypothesis_generation → experiment_design → experiment_result → hypothesis_update. The first request bound inside a task is immutable: when canonical_request_reused is true, continue the returned canonical request instead of restarting or paraphrasing it. Never leave the plan only in model text and never pass it to research_planner_validate_plan. If a prior attempt was interrupted, follow draft_checkpoint.next_action and preserve stable ids in reference_index. After a compact or complete submission or commit reaches plan_ready, call research_planner_freeze_plan before returning; do not call validate_draft again because the preceding operation already performed full validation. If any planner tool returns must_stop=true, stop this specialist attempt immediately and return partial/blocked with the saved checkpoint; never call get_brief or any planner write tool again in that attempt. Missing data or unresolved evidence is recorded as a plan gap or downstream stop condition; it is not permission to return an unfrozen draft. Outside `[RESEARCH_PRODUCER_V2]`, freeze only when publication was requested; a successful checkpoint does not itself require freezing. Do not keep searching after the plan has enough explicit evidence gaps to remain honest.
 
-    Derive subquestions, evidence needs, datasets, route steps, conditional transitions, evaluation rules, reporting outline, and stop rules from the exact question. Do not force a stock prediction/backtest/ablation package or preset hypothesis list. Dataset paths, coverage, thresholds, and literature claims must come from inspected or resolved evidence; otherwise record an explicit gap. Separate planning from execution and correlation from mechanism.
+    Derive subquestions, evidence needs, datasets, route steps, conditional transitions, evaluation rules, reporting outline, and stop rules from the exact question. Do not force a stock prediction/backtest/ablation package or preset hypothesis list. Dataset paths, coverage, thresholds, and literature claims must come from inspected or resolved evidence; otherwise record an explicit gap. Separate planning from execution and correlation from mechanism. 数据阶段尚未返回冻结的 pair_coverage 时，不能从问题中的周期标签自行推算周对数量、左右端点或可用样本数；把这些写成由 Data 回执解决的缺口。问题中的“活动周 15–24”可能指目标周期集合，也可能指预测周期集合，计划不得擅自移位编号或引入第 25 周。
 
-    对包含经验检验、预测或机制裁决的正式研究路线，在 freeze 前调用 research_quality_record_analysis_claim(stage=planning)，记录 AnalysisClaimContractV1：estimand、独立样本单位/数量（未知可为 null）、观测截止、允许信息集、primary analysis、baseline、validation design、固定 decision rule、missingness/censoring/data revision、measurement regime 与 direct/proxy 口径、effect size/uncertainty、sensitivity/influence analysis 以及至少两个结果分支。不得用月度记录扩大独立活动周样本数；未知内容写成待核验条件而不是编造。
+    对包含经验检验、预测或机制裁决的正式研究路线，在 freeze 前调用 research_quality_record_analysis_claim(stage=planning) 一次。contract 必须严格使用下列字段形状；替换值，但不得改名、嵌套或遗漏字段：
+    {
+      "schema_version": "analysis-claim-contract-v1",
+      "estimand": "...",
+      "independent_sample_unit": "...",
+      "independent_sample_count": null,
+      "observation_cutoff": "...",
+      "information_set": "...",
+      "primary_analysis": "...",
+      "baseline": "...",
+      "validation_design": "...",
+      "decision_rule": "...",
+      "missingness": "...",
+      "censoring": "...",
+      "data_revision": "...",
+      "measurement_regime": "...",
+      "measurement_kind": "not_assessed",
+      "effect_size": "...",
+      "uncertainty_interval": "...",
+      "sensitivity_analysis": "...",
+      "influence_analysis": "...",
+      "outcome_branches": [
+        {"outcome": "...", "claim_update": "..."},
+        {"outcome": "...", "claim_update": "..."}
+      ]
+    }
+    Every field other than independent_sample_count is a string except outcome_branches, which is a list of 2–12 objects containing exactly outcome and claim_update. independent_sample_count is an integer or null. measurement_kind is exactly one of direct, proxy, mixed, or not_assessed. Do not add any other fields. 不得用月度记录扩大独立活动周样本数；未知内容写成待核验条件而不是编造。工具返回 ok=true 后立即 freeze，不得再次记录 planning 声明。
 
     Two enum fields take only these exact tokens; any other token fails schema validation and wastes a revision round. In evidence_sources items, verification_level is one of: unverified (source found but content not yet checked), reference_resolved (citation/metadata resolved), claim_located (a specific claim located in the source), dataset_inspected (the dataset itself was inspected). In evaluation_rules items, criterion_basis.kind is one of: source_based (grounded in evidence_source_ids), data_based (grounded in artifact_ids), request_based (from the user's stated requirement), qualitative (judgement without a numeric threshold).
 

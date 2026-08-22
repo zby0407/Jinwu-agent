@@ -1087,6 +1087,36 @@ class SemanticCheckTests(unittest.TestCase):
         )
         self.assertTrue(any("不是实验执行记录" in error for error in errors))
 
+    def test_technical_failure_record_cannot_support_a_candidate(self):
+        request = make_request(
+            upstream_materials=[
+                make_experiment_material(
+                    metrics=[], execution_completed=False, outcome="technical_failure"
+                )
+            ]
+        )
+        register = EvidenceRegister()
+        bind_evidence(register, evidence_kind="experiment")
+        candidate = make_candidate()
+        candidate["supporting_evidence"] = [
+            {"evidence_id": "ev_exp1", "relation_note": "支持"}
+        ]
+        candidate["confidence"] = {"level": "medium", "basis": "有一项证据"}
+        candidate["evidence_gaps"] = []
+
+        errors = collect_hypothesis_semantic_errors(
+            request,
+            validate_hypothesis_response(
+                make_response(
+                    request, candidates=[candidate, make_measure_candidate()]
+                ),
+                request,
+            ),
+            register,
+        )
+
+        self.assertTrue(any("技术失败记录" in error for error in errors), errors)
+
     def test_same_material_bound_with_directional_roles(self):
         # 同一材料的结论削弱一个候选、同时增强另一候选时，
         # 应按方向分别绑定 opposes 与 supports，而不是退化为 gap 规避冲突。

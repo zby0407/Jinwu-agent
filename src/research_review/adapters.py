@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-import json
 import hashlib
+import json
 import posixpath
 import re
 from typing import Any
@@ -726,6 +726,17 @@ def adapt_v1_producer_output(
     )
     if data_projection is not None:
         summary = data_projection["summary"]
+        verified_data_refs = {
+            ref for ref in data_projection["supporting_refs"] if isinstance(ref, str)
+        }
+        verified_data_refs.update(
+            row["source_ref"]
+            for row in documents
+            if isinstance(row.get("source_ref"), str)
+        )
+        projected_evidence_refs = sorted(
+            ref for ref in projected_evidence_refs if ref in verified_data_refs
+        )
         claims = [
             _claim(
                 claim_id=f"data-structured-v{version}",
@@ -843,6 +854,12 @@ def _experiment_projection(
 ) -> dict[str, Any] | None:
     """Project only verified fields already persisted by Automatic Experiment."""
 
+    scientific_outcomes = {
+        "completed_interpretable",
+        "scientific_null",
+        "high_uncertainty",
+        "partial_result",
+    }
     outcome_map = {
         "completed_interpretable": "completed",
         "scientific_null": "null_result",
@@ -850,6 +867,7 @@ def _experiment_projection(
         "partial_result": "uncertain",
         "technical_failure": "technical_failure",
         "budget_reached": "technical_failure",
+        "budget_stopped": "technical_failure",
     }
     for row in documents:
         source_ref = row.get("source_ref")
@@ -865,8 +883,17 @@ def _experiment_projection(
         worker = worker if isinstance(worker, dict) else {}
         assessment = payload.get("scientific_assessment")
         assessment = assessment if isinstance(assessment, dict) else {}
+        raw_outcome = str(
+            payload.get("outcome") or assessment.get("proposed_outcome") or ""
+        )
+        scientific_result_available = raw_outcome in scientific_outcomes and bool(
+            worker.get("execution_completed")
+        )
         measurements: list[dict[str, str]] = []
-        for measurement in worker.get("measurements") or []:
+        worker_measurements = (
+            worker.get("measurements") or [] if scientific_result_available else []
+        )
+        for measurement in worker_measurements:
             if not isinstance(measurement, dict) or not measurement.get("name"):
                 continue
             unit = str(measurement.get("unit") or "").strip()
@@ -884,9 +911,15 @@ def _experiment_projection(
                     "definition": "; ".join(definition_parts)[:500],
                 }
             )
-        result_items = [
-            item for item in worker.get("result_items") or [] if isinstance(item, dict)
-        ]
+        result_items = (
+            [
+                item
+                for item in worker.get("result_items") or []
+                if isinstance(item, dict)
+            ]
+            if scientific_result_available
+            else []
+        )
         for item in result_items:
             if not isinstance(item, dict) or not item.get("id"):
                 continue
@@ -906,20 +939,19 @@ def _experiment_projection(
             if isinstance(worker.get("scientific_payload"), dict)
             else None,
         ):
-            for value in source or []:
+            for value in source if isinstance(source, list) else []:
                 text = str(value).strip()
                 if text and text not in uncertainty:
                     uncertainty.append(text)
         reason = str(payload.get("outcome_reason") or "").strip()
         if reason and reason not in uncertainty:
             uncertainty.insert(0, reason)
-        raw_outcome = str(
-            assessment.get("proposed_outcome") or payload.get("outcome") or ""
+        execution_completed = scientific_result_available
+        outcome = (
+            outcome_map.get(raw_outcome, "technical_failure")
+            if scientific_result_available
+            else "technical_failure"
         )
-        execution_completed = bool(worker.get("execution_completed"))
-        outcome = outcome_map.get(raw_outcome)
-        if outcome is None:
-            outcome = "completed" if execution_completed else "technical_failure"
         result_by_id = {
             str(item.get("id")): item
             for item in result_items

@@ -8,7 +8,11 @@ import pytest
 
 from automatic_experiment import service
 from automatic_experiment.contracts import RESPONSE_VERSION, default_request
-from automatic_experiment.policy import CodePolicyError, scan_python
+from automatic_experiment.policy import (
+    CodePolicyError,
+    scan_python,
+    validate_code_files,
+)
 from automatic_experiment.state import task_workspace
 from jw.middleware import closed_loop_orchestration as guard_module
 from jw.middleware.closed_loop_orchestration import (
@@ -334,6 +338,26 @@ def test_design_repair_guide_includes_stage_contract_only_when_needed() -> None:
     assert "stage_nested_shapes" in guide
 
 
+def test_design_repair_guide_disambiguates_fitted_condition_pairing() -> None:
+    guide = service._design_repair_guide(
+        [
+            {
+                "field_path": "design.paired_comparison_audits",
+                "message": (
+                    "fitted-condition sensitivity lacks a same-row candidate comparison"
+                ),
+                "suggestion": "add a candidate_vs_candidate comparison",
+            }
+        ]
+    )
+
+    repair = guide["paired_comparison_repair"]
+    assert repair["required_comparison_kind"] == "candidate_vs_candidate"
+    assert "append" in repair["audit_action"]
+    assert "same evaluation rows" in repair["evaluation_rule"]
+    assert "source_baseline_vs_candidate" in repair["non_substitution_rule"]
+
+
 def test_compact_design_accepts_preregistered_bounded_numeric_rule() -> None:
     request = default_request(
         "Analyze inputs/cycles.csv with a pre-registered small-sample comparison."
@@ -522,3 +546,117 @@ def run_experiment(context):
     message = str(caught.value)
     assert "broad exception handling" in message
     assert "centered rolling windows" in message
+
+
+def test_experiment_policy_accepts_module_level_static_worker_constants() -> None:
+    estimand = "周期长度对前兆预测斜率的交互作用估计。"
+    source = f"""\
+SUMMARY_ARTIFACT = "summary.json"
+PRIMARY_ESTIMAND = {estimand!r}
+
+def run_experiment(context):
+    return {{
+        "schema_version": "automatic-experiment-worker-result-v1",
+        "execution_completed": True,
+        "measurements": [
+            {{
+                "name": "interaction_estimate",
+                "value": 1.0,
+                "unit": "standardized amplitude",
+                "role": "primary",
+                "source_artifact": SUMMARY_ARTIFACT,
+            }}
+        ],
+        "result_items": [],
+        "artifacts": [
+            {{
+                "path": "summary.json",
+                "kind": "json",
+                "description": "Static result summary.",
+            }}
+        ],
+        "warnings": [],
+        "endpoint_results": [],
+        "scientific_payload": {{
+            "primary_estimand": PRIMARY_ESTIMAND,
+            "estimate": 1.0,
+            "interval": None,
+            "equivalence_bounds": None,
+            "sensitivity": None,
+            "uncertainty_reasons": [],
+        }},
+    }}
+"""
+
+    validated = validate_code_files(
+        [{"path": "experiment.py", "content": source}],
+        [],
+        required_measurements={"interaction_estimate"},
+        required_measurement_contracts={
+            "interaction_estimate": {
+                "unit": "standardized amplitude",
+                "role": "primary",
+            }
+        },
+        expected_artifacts={"summary.json"},
+        primary_estimand=estimand,
+    )
+
+    assert validated == [{"path": "experiment.py", "content": source}]
+
+    invalid_source = source.replace(
+        '"sensitivity": None',
+        '"sensitivity": ["one", "two"]',
+    )
+    with pytest.raises(CodePolicyError, match="sensitivity must be a string or null"):
+        validate_code_files(
+            [{"path": "experiment.py", "content": invalid_source}],
+            [],
+            required_measurements={"interaction_estimate"},
+            required_measurement_contracts={
+                "interaction_estimate": {
+                    "unit": "standardized amplitude",
+                    "role": "primary",
+                }
+            },
+            expected_artifacts={"summary.json"},
+            primary_estimand=estimand,
+        )
+
+    invalid_uncertainty_source = source.replace(
+        '"uncertainty_reasons": []',
+        '"uncertainty_reasons": "small sample"',
+    )
+    with pytest.raises(CodePolicyError, match="uncertainty_reasons must be an array"):
+        validate_code_files(
+            [{"path": "experiment.py", "content": invalid_uncertainty_source}],
+            [],
+            required_measurements={"interaction_estimate"},
+            required_measurement_contracts={
+                "interaction_estimate": {
+                    "unit": "standardized amplitude",
+                    "role": "primary",
+                }
+            },
+            expected_artifacts={"summary.json"},
+            primary_estimand=estimand,
+        )
+
+    mismatched_measurement_source = source.replace(
+        '"unit": "standardized amplitude"',
+        '"unit": "dimensionless"',
+    )
+    with pytest.raises(CodePolicyError, match="measurement 'interaction_estimate'"):
+        validate_code_files(
+            [{"path": "experiment.py", "content": mismatched_measurement_source}],
+            [],
+            required_measurements={"interaction_estimate"},
+            required_measurement_contracts={
+                "interaction_estimate": {
+                    "unit": "standardized amplitude",
+                    "role": "primary",
+                }
+            },
+            expected_artifacts={"summary.json"},
+            primary_estimand=estimand,
+        )

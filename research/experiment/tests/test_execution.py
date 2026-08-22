@@ -28,6 +28,7 @@ from automatic_experiment.verification import (
     _active_stage_design,
     _close_measurement,
     _comparison_consistency_errors,
+    _hypothesis_relation_consistency_errors,
     _paired_comparison_audit_errors,
     _paired_directional_result_errors,
     _sandbox_isolation_passed,
@@ -116,6 +117,36 @@ class ExecutionTests(unittest.TestCase):
                 }
             )
         )
+
+    def test_supports_relation_cannot_conflict_with_declared_diagnostics(self) -> None:
+        worker_result = {
+            "result_items": [
+                {"id": "hypothesis_relation", "value": "supports"},
+                {"id": "main_effect_direction_confirmed", "value": True},
+                {"id": "out_of_sample_complete", "value": True},
+                {"id": "leave_one_unit_direction_stable", "value": True},
+                {"id": "influential_unit_changes_conclusion", "value": False},
+                {"id": "independent_sample_adequate", "value": False},
+                {"id": "interaction_survives_amplitude_adjustment", "value": True},
+                {"id": "complexity_fallback_used", "value": False},
+            ]
+        }
+
+        errors = _hypothesis_relation_consistency_errors(worker_result)
+
+        self.assertEqual(len(errors), 1)
+        self.assertIn("independent_sample_adequate=false", errors[0])
+
+    def test_non_supporting_relation_preserves_negative_diagnostics(self) -> None:
+        worker_result = {
+            "result_items": [
+                {"id": "hypothesis_relation", "value": "indeterminate"},
+                {"id": "independent_sample_adequate", "value": False},
+                {"id": "influential_unit_changes_conclusion", "value": True},
+            ]
+        }
+
+        self.assertEqual(_hypothesis_relation_consistency_errors(worker_result), [])
 
     def test_directional_typed_result_rejects_reversed_mae_claim(self) -> None:
         design_payload = {

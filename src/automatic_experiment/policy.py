@@ -152,26 +152,20 @@ class CodeVisitor(ast.NodeVisitor):
         )
 
     def _is_input_file_list(self, node: ast.AST) -> bool:
-        return (
-            isinstance(node, ast.Subscript)
-            and (
-                self._is_context_key(node.value, "input_files")
-                or (
-                    isinstance(node.value, ast.Name)
-                    and node.value.id in self.input_files_mapping_names
-                )
+        return isinstance(node, ast.Subscript) and (
+            self._is_context_key(node.value, "input_files")
+            or (
+                isinstance(node.value, ast.Name)
+                and node.value.id in self.input_files_mapping_names
             )
         )
 
     def _is_context_path(self, node: ast.AST) -> bool:
         if self._is_context_key(node, "output_dir"):
             return True
-        if (
-            isinstance(node, ast.Subscript)
-            and (
-                self._is_context_key(node.value, "input_path_by_id")
-                or self._is_context_key(node.value, "artifact_path_by_id")
-            )
+        if isinstance(node, ast.Subscript) and (
+            self._is_context_key(node.value, "input_path_by_id")
+            or self._is_context_key(node.value, "artifact_path_by_id")
         ):
             return True
         return (
@@ -264,19 +258,13 @@ class CodeVisitor(ast.NodeVisitor):
 
     def visit_BinOp(self, node: ast.BinOp) -> None:
         if isinstance(node.op, ast.Add):
-            left_is_path = (
-                self._is_context_path(node.left)
-                or (
-                    isinstance(node.left, ast.Name)
-                    and node.left.id in self.path_object_names
-                )
+            left_is_path = self._is_context_path(node.left) or (
+                isinstance(node.left, ast.Name)
+                and node.left.id in self.path_object_names
             )
-            right_is_path = (
-                self._is_context_path(node.right)
-                or (
-                    isinstance(node.right, ast.Name)
-                    and node.right.id in self.path_object_names
-                )
+            right_is_path = self._is_context_path(node.right) or (
+                isinstance(node.right, ast.Name)
+                and node.right.id in self.path_object_names
             )
             left_is_text = isinstance(node.left, ast.Constant) and isinstance(
                 node.left.value, str
@@ -304,18 +292,20 @@ class CodeVisitor(ast.NodeVisitor):
 
     def visit_Call(self, node: ast.Call) -> None:
         if isinstance(node.func, ast.Name) and node.func.id in DENIED_CALLS:
-            self.errors.append(f"line {node.lineno}: call to {node.func.id} is not allowed")
+            self.errors.append(
+                f"line {node.lineno}: call to {node.func.id} is not allowed"
+            )
         if isinstance(node.func, ast.Attribute) and node.func.attr in DENIED_ATTRIBUTES:
-            self.errors.append(f"line {node.lineno}: call to .{node.func.attr} is not allowed")
+            self.errors.append(
+                f"line {node.lineno}: call to .{node.func.attr} is not allowed"
+            )
         json_stream_load = (
             isinstance(node.func, ast.Attribute)
             and node.func.attr == "load"
             and isinstance(node.func.value, ast.Name)
             and node.func.value.id == "json"
         )
-        file_access = (
-            isinstance(node.func, ast.Name) and node.func.id == "open"
-        ) or (
+        file_access = (isinstance(node.func, ast.Name) and node.func.id == "open") or (
             isinstance(node.func, ast.Attribute)
             and node.func.attr in FILE_ACCESS_ATTRIBUTES
             and not json_stream_load
@@ -358,7 +348,9 @@ class CodeVisitor(ast.NodeVisitor):
 
     def visit_Attribute(self, node: ast.Attribute) -> None:
         if node.attr.startswith("__") and node.attr not in {"__name__"}:
-            self.errors.append(f"line {node.lineno}: dunder attribute access is not allowed")
+            self.errors.append(
+                f"line {node.lineno}: dunder attribute access is not allowed"
+            )
         self.generic_visit(node)
 
     def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
@@ -382,7 +374,9 @@ class CodeVisitor(ast.NodeVisitor):
         if root:
             self.imports.add(root)
         if root in DENIED_MODULES or root not in ALLOWED_IMPORTS:
-            self.errors.append(f"line {line}: import {root or '<relative>'} is not allowed")
+            self.errors.append(
+                f"line {line}: import {root or '<relative>'} is not allowed"
+            )
 
     def prepare_trusted_helper_paths(self, tree: ast.AST) -> None:
         """Prove helper path parameters from every call in run_experiment."""
@@ -391,8 +385,7 @@ class CodeVisitor(ast.NodeVisitor):
             (
                 node
                 for node in ast.walk(tree)
-                if isinstance(node, ast.FunctionDef)
-                and node.name == "run_experiment"
+                if isinstance(node, ast.FunctionDef) and node.name == "run_experiment"
             ),
             None,
         )
@@ -415,8 +408,7 @@ class CodeVisitor(ast.NodeVisitor):
         helpers = {
             node.name: node
             for node in ast.walk(tree)
-            if isinstance(node, ast.FunctionDef)
-            and node.name != "run_experiment"
+            if isinstance(node, ast.FunctionDef) and node.name != "run_experiment"
         }
         calls: dict[str, list[ast.Call]] = {name: [] for name in helpers}
         for node in entry_nodes:
@@ -499,7 +491,33 @@ def _entrypoint_assignments(entrypoint: ast.FunctionDef) -> dict[str, ast.AST]:
     return assignments
 
 
-def _resolve_static(node: ast.AST | None, assignments: dict[str, ast.AST]) -> ast.AST | None:
+def _static_assignments(
+    tree: ast.AST, entrypoint: ast.FunctionDef
+) -> dict[str, ast.AST]:
+    """Collect statically resolvable module and entrypoint assignments.
+
+    Generated workers commonly keep repeated contract strings as module-level
+    constants.  They are as static as function-local constants, so include
+    them while letting local assignments shadow the module value.
+    """
+
+    assignments: dict[str, ast.AST] = {}
+    if isinstance(tree, ast.Module):
+        for node in tree.body:
+            if isinstance(node, ast.Assign):
+                for target in node.targets:
+                    if isinstance(target, ast.Name):
+                        assignments[target.id] = node.value
+            elif isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
+                if node.value is not None:
+                    assignments[node.target.id] = node.value
+    assignments.update(_entrypoint_assignments(entrypoint))
+    return assignments
+
+
+def _resolve_static(
+    node: ast.AST | None, assignments: dict[str, ast.AST]
+) -> ast.AST | None:
     current = node
     seen: set[str] = set()
     while isinstance(current, ast.Name) and current.id in assignments:
@@ -554,7 +572,7 @@ def _validate_worker_return_literals(tree: ast.AST) -> list[str]:
     returns = [node for node in entrypoint_nodes if isinstance(node, ast.Return)]
     if not returns:
         return ["run_experiment must directly return a worker result dictionary"]
-    assignments = _entrypoint_assignments(entrypoint)
+    assignments = _static_assignments(tree, entrypoint)
     errors: list[str] = []
     top_fields = {
         "schema_version",
@@ -583,7 +601,9 @@ def _validate_worker_return_literals(tree: ast.AST) -> list[str]:
             isinstance(schema, ast.Constant)
             and schema.value == "automatic-experiment-worker-result-v1"
         ):
-            errors.append(f"{label}.schema_version must be automatic-experiment-worker-result-v1")
+            errors.append(
+                f"{label}.schema_version must be automatic-experiment-worker-result-v1"
+            )
         completed = row.get("execution_completed")
         if not (isinstance(completed, ast.Constant) and completed.value is True):
             errors.append(f"{label}.execution_completed must be True")
@@ -688,7 +708,9 @@ def _validate_worker_return_literals(tree: ast.AST) -> list[str]:
                 )
                 path = artifact.get("path")
                 if not (isinstance(path, ast.Constant) and isinstance(path.value, str)):
-                    errors.append(f"{item_label}.path must be a relative string literal")
+                    errors.append(
+                        f"{item_label}.path must be a relative string literal"
+                    )
                 else:
                     normalized = path.value.replace("\\", "/")
                     if (
@@ -737,7 +759,9 @@ def _validate_worker_return_literals(tree: ast.AST) -> list[str]:
                 if endpoint is None:
                     errors.append(f"{item_label} must be a dictionary literal")
                     continue
-                errors.extend(_field_errors(endpoint, {"id", "status", "summary"}, item_label))
+                errors.extend(
+                    _field_errors(endpoint, {"id", "status", "summary"}, item_label)
+                )
                 # Endpoint success is a runtime scientific fact, so generated code
                 # may compute it into a local variable. Resolve reviewed local
                 # assignments here; the worker-result contract validates the value
@@ -776,6 +800,30 @@ def _validate_worker_return_literals(tree: ast.AST) -> list[str]:
                         f"{label}.scientific_payload",
                     )
                 )
+                sensitivity = _resolve_static(
+                    scientific_row.get("sensitivity"), assignments
+                )
+                if isinstance(sensitivity, ast.Constant):
+                    if sensitivity.value is not None and not isinstance(
+                        sensitivity.value, str
+                    ):
+                        errors.append(
+                            f"{label}.scientific_payload.sensitivity must be a string or null"
+                        )
+                elif isinstance(sensitivity, (ast.List, ast.Tuple, ast.Dict, ast.Set)):
+                    errors.append(
+                        f"{label}.scientific_payload.sensitivity must be a string or null"
+                    )
+                uncertainty_reasons = _resolve_static(
+                    scientific_row.get("uncertainty_reasons"), assignments
+                )
+                if isinstance(
+                    uncertainty_reasons,
+                    (ast.Constant, ast.Tuple, ast.Dict, ast.Set),
+                ):
+                    errors.append(
+                        f"{label}.scientific_payload.uncertainty_reasons must be an array"
+                    )
     return errors
 
 
@@ -815,7 +863,9 @@ def _declared_worker_refs(
         ),
         None,
     )
-    assignments = _entrypoint_assignments(entrypoint) if entrypoint is not None else {}
+    assignments = (
+        _static_assignments(tree, entrypoint) if entrypoint is not None else {}
+    )
     for node in ast.walk(tree):
         row = _literal_dict(node)
         if row is None:
@@ -868,7 +918,7 @@ def _declared_worker_result_contracts(
     )
     if entrypoint is None:
         return {}
-    assignments = _entrypoint_assignments(entrypoint)
+    assignments = _static_assignments(tree, entrypoint)
     contracts: dict[str, dict[str, set[str] | None]] = {}
     for node in ast.walk(entrypoint):
         row = _literal_dict(node)
@@ -881,6 +931,39 @@ def _declared_worker_result_contracts(
             contracts[result_id] = {
                 field: _static_string_choices(row[field], assignments)
                 for field in ("display_name", "value_kind", "unit", "role")
+            }
+    return contracts
+
+
+def _declared_worker_measurement_contracts(
+    tree: ast.AST,
+) -> dict[str, dict[str, set[str] | None]]:
+    """Read statically declared measurement units and roles."""
+
+    measurement_fields = {"name", "value", "unit", "role", "source_artifact"}
+    entrypoint = next(
+        (
+            node
+            for node in ast.walk(tree)
+            if isinstance(node, ast.FunctionDef) and node.name == "run_experiment"
+        ),
+        None,
+    )
+    if entrypoint is None:
+        return {}
+    assignments = _static_assignments(tree, entrypoint)
+    contracts: dict[str, dict[str, set[str] | None]] = {}
+    for node in ast.walk(entrypoint):
+        row = _literal_dict(node)
+        if row is None or not measurement_fields.issubset(row):
+            continue
+        names = _static_string_choices(row["name"], assignments)
+        if not names:
+            continue
+        for name in names:
+            contracts[name] = {
+                field: _static_string_choices(row[field], assignments)
+                for field in ("unit", "role")
             }
     return contracts
 
@@ -939,6 +1022,7 @@ def scan_python(
     label: str = "experiment.py",
     *,
     required_measurements: set[str] | None = None,
+    required_measurement_contracts: dict[str, dict[str, str]] | None = None,
     required_results: set[str] | None = None,
     required_result_contracts: dict[str, dict[str, str]] | None = None,
     required_endpoints: set[str] | None = None,
@@ -949,11 +1033,15 @@ def scan_python(
     if len(source.encode("utf-8")) > 512 * 1024:
         raise CodePolicyError(f"{label} exceeds 512 KiB")
     if COMMAND_MARKERS.search(source):
-        raise CodePolicyError(f"{label} contains a package, network, or shell command marker")
+        raise CodePolicyError(
+            f"{label} contains a package, network, or shell command marker"
+        )
     try:
         tree = ast.parse(source, filename=label)
     except SyntaxError as exc:
-        raise CodePolicyError(f"{label} has invalid Python syntax: line {exc.lineno}") from exc
+        raise CodePolicyError(
+            f"{label} has invalid Python syntax: line {exc.lineno}"
+        ) from exc
     visitor = CodeVisitor()
     visitor.prepare_trusted_helper_paths(tree)
     visitor.visit(tree)
@@ -1002,7 +1090,9 @@ def scan_python(
                     )
                 if not isinstance(node, (ast.Assign, ast.AnnAssign)):
                     continue
-                targets = node.targets if isinstance(node, ast.Assign) else [node.target]
+                targets = (
+                    node.targets if isinstance(node, ast.Assign) else [node.target]
+                )
                 target_names = {
                     target.id.casefold()
                     for target in targets
@@ -1048,14 +1138,19 @@ def scan_python(
             visitor.errors.append(
                 "experiment.py cannot read, write, or declare reserved result.json"
             )
-        missing_markers = sorted(marker for marker in WORKER_RESULT_MARKERS if marker not in source)
+        missing_markers = sorted(
+            marker for marker in WORKER_RESULT_MARKERS if marker not in source
+        )
         if missing_markers:
             visitor.errors.append(
                 "experiment.py must return the full worker result contract; "
                 f"missing markers: {missing_markers}"
             )
         visitor.errors.extend(_validate_worker_return_literals(tree))
-        measurements, results, artifacts, endpoints, estimands = _declared_worker_refs(tree)
+        measurements, results, artifacts, endpoints, estimands = _declared_worker_refs(
+            tree
+        )
+        measurement_contracts = _declared_worker_measurement_contracts(tree)
         result_contracts = _declared_worker_result_contracts(tree)
         consumed_artifacts = _consumed_artifact_refs(tree)
         missing_measurements = sorted((required_measurements or set()) - measurements)
@@ -1071,6 +1166,25 @@ def scan_python(
                 "experiment.py does not declare all measurements required by the design criteria: "
                 f"{missing_measurements}"
             )
+        for measurement_name, expected in (
+            required_measurement_contracts or {}
+        ).items():
+            observed = measurement_contracts.get(measurement_name)
+            if observed is None:
+                continue
+            for field in ("unit", "role"):
+                observed_choices = observed.get(field)
+                expected_value = expected.get(field)
+                if (
+                    observed_choices is not None
+                    and expected_value is not None
+                    and observed_choices != {expected_value}
+                ):
+                    visitor.errors.append(
+                        f"experiment.py measurement {measurement_name!r} declares "
+                        f"{field}={sorted(observed_choices)!r}, but the validated "
+                        f"design requires {expected_value!r}"
+                    )
         if missing_results:
             visitor.errors.append(
                 "experiment.py does not declare all typed results required by the stage: "
@@ -1127,6 +1241,7 @@ def validate_code_files(
     declared_dependencies: list[str] | None = None,
     *,
     required_measurements: set[str] | None = None,
+    required_measurement_contracts: dict[str, dict[str, str]] | None = None,
     required_results: set[str] | None = None,
     required_result_contracts: dict[str, dict[str, str]] | None = None,
     required_endpoints: set[str] | None = None,
@@ -1149,7 +1264,9 @@ def validate_code_files(
             raise CodePolicyError(f"files[{index}].path is not safe")
         if path.startswith("/") or "\\" in path or ".." in path.split("/"):
             raise CodePolicyError(f"files[{index}].path must be a relative POSIX path")
-        if path.rsplit(".", 1)[-1].lower() not in {suffix[1:] for suffix in ALLOWED_FILE_SUFFIXES}:
+        if path.rsplit(".", 1)[-1].lower() not in {
+            suffix[1:] for suffix in ALLOWED_FILE_SUFFIXES
+        }:
             raise CodePolicyError(f"files[{index}].path has an unsupported suffix")
         if path in paths:
             raise CodePolicyError(f"duplicate generated file: {path}")
@@ -1166,13 +1283,16 @@ def validate_code_files(
                     required_measurements=(
                         required_measurements if path == "experiment.py" else None
                     ),
+                    required_measurement_contracts=(
+                        required_measurement_contracts
+                        if path == "experiment.py"
+                        else None
+                    ),
                     required_results=(
                         required_results if path == "experiment.py" else None
                     ),
                     required_result_contracts=(
-                        required_result_contracts
-                        if path == "experiment.py"
-                        else None
+                        required_result_contracts if path == "experiment.py" else None
                     ),
                     required_endpoints=(
                         required_endpoints if path == "experiment.py" else None
@@ -1181,9 +1301,7 @@ def validate_code_files(
                         expected_artifacts if path == "experiment.py" else None
                     ),
                     required_consumed_artifacts=(
-                        required_consumed_artifacts
-                        if path == "experiment.py"
-                        else None
+                        required_consumed_artifacts if path == "experiment.py" else None
                     ),
                     primary_estimand=(
                         primary_estimand if path == "experiment.py" else None

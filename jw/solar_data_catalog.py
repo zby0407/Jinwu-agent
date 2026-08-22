@@ -8,6 +8,7 @@ import json
 import tempfile
 import urllib.parse
 import urllib.request
+from collections.abc import Iterable
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -18,9 +19,6 @@ _USER_AGENT = "Jinwu-research-data/2.0"
 _SILSO_AUTHORITY_URL = "https://www.sidc.be/SILSO/DATA/SN_m_tot_V2.0.txt"
 _SILSO_SMOOTHED_URL = "https://www.sidc.be/SILSO/DATA/SN_ms_tot_V2.0.csv"
 _SILSO_EXTREMA_URL = "https://www.sidc.be/SILSO/DATA/Cycles/TableCyclesMiMa.txt"
-_SILSO_MIRROR_URL = (
-    "http://www.wdcb.ru/stp/data/solar.act/sunspot/SILSO/ver2/SN_m/SN_m_tot_V2.0.txt"
-)
 _SILSO_DOI = "https://doi.org/10.24414/qnza-ac80"
 _POLAR_PERSISTENT_ID = "doi:10.7910/DVN/KF96B2"
 _POLAR_FILENAME = "e_PField_MWO_WSO.csv"
@@ -173,32 +171,15 @@ def _validate_polar_field(payload: bytes) -> dict[str, Any]:
 
 
 def _acquire_silso() -> tuple[bytes, dict[str, Any]]:
-    attempts: list[dict[str, str]] = []
-    for source_kind, url in (
-        ("authority", _SILSO_AUTHORITY_URL),
-        ("world_data_center_mirror", _SILSO_MIRROR_URL),
-    ):
-        try:
-            payload, resolved = _fetch(url)
-            validation = _validate_silso_monthly(payload)
-            return payload, {
-                "authority_url": _SILSO_AUTHORITY_URL,
-                "retrieval_url": resolved,
-                "retrieval_source_kind": source_kind,
-                "dataset_doi": _SILSO_DOI,
-                "license": "CC BY-NC 4.0",
-                "validation": validation,
-                "failed_prior_attempts": attempts,
-            }
-        except Exception as exc:
-            attempts.append(
-                {
-                    "source_kind": source_kind,
-                    "url": url,
-                    "error_type": type(exc).__name__,
-                }
-            )
-    raise RuntimeError(f"all curated SILSO sources failed: {attempts}")
+    payload, _resolved = _fetch(_SILSO_AUTHORITY_URL)
+    return payload, {
+        "authority_url": _SILSO_AUTHORITY_URL,
+        "retrieval_url": _SILSO_AUTHORITY_URL,
+        "retrieval_source_kind": "authority",
+        "dataset_doi": _SILSO_DOI,
+        "license": "CC BY-NC 4.0",
+        "validation": _validate_silso_monthly(payload),
+    }
 
 
 def _acquire_silso_reference(
@@ -238,7 +219,7 @@ def _acquire_polar_field() -> tuple[bytes, dict[str, Any]]:
         "https://dataverse.harvard.edu/api/datasets/:persistentId/"
         f"?persistentId={encoded}"
     )
-    metadata_bytes, resolved_metadata_url = _fetch(metadata_url)
+    metadata_bytes, _resolved_metadata_url = _fetch(metadata_url)
     metadata = json.loads(metadata_bytes)
     latest = metadata.get("data", {}).get("latestVersion", {})
     files = latest.get("files", [])
@@ -254,7 +235,7 @@ def _acquire_polar_field() -> tuple[bytes, dict[str, Any]]:
     if not isinstance(selected, dict) or not isinstance(selected.get("id"), int):
         raise RuntimeError("curated polar-field file is missing from Dataverse")
     data_url = f"https://dataverse.harvard.edu/api/access/datafile/{selected['id']}"
-    payload, resolved_data_url = _fetch(data_url)
+    payload, _resolved_data_url = _fetch(data_url)
     checksum = selected.get("checksum", {})
     if checksum.get("type") != "MD5" or not isinstance(checksum.get("value"), str):
         raise RuntimeError("Dataverse polar-field file has no MD5 receipt")
@@ -262,8 +243,9 @@ def _acquire_polar_field() -> tuple[bytes, dict[str, Any]]:
         raise RuntimeError("Dataverse polar-field upstream checksum mismatch")
     return payload, {
         "authority_url": "https://doi.org/10.7910/DVN/KF96B2",
-        "metadata_url": resolved_metadata_url,
-        "retrieval_url": resolved_data_url,
+        "metadata_url": metadata_url,
+        "retrieval_url": data_url,
+        "data_file_id": selected["id"],
         "persistent_id": _POLAR_PERSISTENT_ID,
         "dataverse_version": (
             f"{latest.get('versionNumber')}.{latest.get('versionMinorNumber')}"
@@ -277,7 +259,10 @@ def _acquire_polar_field() -> tuple[bytes, dict[str, Any]]:
 
 
 def acquire_authoritative_solar_data(
-    base_workspace: str | Path, *, project_id: str = "default"
+    base_workspace: str | Path,
+    *,
+    project_id: str = "default",
+    dataset_ids: Iterable[str] | None = None,
 ) -> list[dict[str, Any]]:
     """Acquire, validate, and register curated solar-cycle research inputs."""
 
@@ -307,6 +292,21 @@ def acquire_authoritative_solar_data(
                 _acquire_polar_field,
             ),
         )
+        if isinstance(dataset_ids, str):
+            raise TypeError("dataset_ids must be an iterable of dataset identifiers")
+        if dataset_ids is not None:
+            requested = set(dataset_ids)
+            known = {dataset_id for dataset_id, _relative, _acquire in specifications}
+            unknown = sorted(requested - known)
+            if unknown:
+                raise ValueError(
+                    "unsupported authoritative solar dataset IDs: " + ", ".join(unknown)
+                )
+            specifications = tuple(
+                specification
+                for specification in specifications
+                if specification[0] in requested
+            )
         acquired = []
         for dataset_id, relative, acquire in specifications:
             payload, provenance = acquire()

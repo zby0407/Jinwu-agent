@@ -2,10 +2,17 @@
   "suite_id": "next-stage-closed-loop-frontend-v1",
   "description": "真实 production WebUI 的自然科研问题；不向系统提供内部阶段、工具、统计答案或文献列表。",
   "registered_before_run_at": "2026-08-14T18:43:47+08:00",
+  "research_scope": {
+    "official_track": "赛道一",
+    "official_direction": "方向二",
+    "official_topic": "B3 太阳活动周起源探秘",
+    "official_source": "https://university.aliyun.com/action/tzbjbgs2026"
+  },
   "cases": [
     {
       "id": "EXT-POLAR-LENGTH-FULL-01",
       "category": "cycle_level_interaction_full_research",
+      "acceptance_role": "primary_scientific_acceptance",
       "prompt_style": "natural_user",
       "allowed_user_intervention": "none",
       "prompt": "在太阳活动周15至24的逐周期观测中，上一活动周较长是否会削弱极小期极区场强对下一活动周振幅的预测关系？请提出一个最值得检验、可证伪的交互作用假设，并说明现有证据与最强零假设。"
@@ -13,6 +20,7 @@
     {
       "id": "EXT-RISE-AMPLITUDE-GENERALIZATION-01",
       "category": "held_out_cycle_level_generalization",
+      "acceptance_role": "post_primary_generalization",
       "prompt_style": "natural_user",
       "allowed_user_intervention": "none",
       "prompt": "在第21至24太阳活动周的逐周期观测中，活动周从极小到极大的上升时间越短，是否伴随更高的平滑太阳黑子峰值？请提出一个最值得检验、可证伪的关系假设，核查现有证据，并说明最强零假设。"
