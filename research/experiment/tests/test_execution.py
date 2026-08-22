@@ -1440,8 +1440,8 @@ class ExecutionTests(unittest.TestCase):
         )
         self.assertGreater(refreshed["remaining_run_seconds"], 0)
 
-    def test_prepare_budget_exhaustion_persists_terminal_report(self) -> None:
-        req = request("unit_prepare_budget_terminal")
+    def test_interrupted_first_prepare_starts_a_fresh_execution_budget(self) -> None:
+        req = request("unit_prepare_budget_restart")
         run_id = service.bind_request({"request": req})["run_id"]
         self.addCleanup(cleanup_run, run_id)
         service.inspect_inputs(run_id)
@@ -1451,29 +1451,22 @@ class ExecutionTests(unittest.TestCase):
         state["execution_budget_reset_at"] = state["created_at"]
         save_state(root, state)
 
-        with self.assertRaisesRegex(service.ServiceError, "预算已用尽"):
-            service.prepare(
-                run_id,
-                [{"path": "experiment.py", "content": SUCCESS_CODE}],
-                None,
-                "Initial reviewed implementation.",
-            )
+        prepared = service.prepare(
+            run_id,
+            [{"path": "experiment.py", "content": SUCCESS_CODE}],
+            None,
+            "Initial reviewed implementation.",
+        )
 
-        _, stopped = load_state(run_id)
-        self.assertEqual(stopped["outcome"], "budget_stopped")
-        finalized = service.finalize(run_id)
-        self.assertEqual(finalized["outcome"], "budget_stopped")
-
-        reinspected = service.inspect_inputs(run_id)
-
-        self.assertEqual(reinspected["status"], "terminal")
-        self.assertEqual(reinspected["phase"], "report_finalized")
-        self.assertEqual(reinspected["outcome"], "budget_stopped")
-        self.assertIs(reinspected["must_stop"], True)
-        self.assertEqual(reinspected["record_path"], "record.json")
-        self.assertEqual(reinspected["report_path"], "report.md")
-        self.assertTrue((root / "record.json").is_file())
-        self.assertTrue((root / "report.md").is_file())
+        self.assertEqual(prepared["status"], "attempt_prepared")
+        _, persisted = load_state(run_id)
+        self.assertEqual(persisted["attempt_count"], 1)
+        self.assertEqual(persisted["created_at"], "2000-01-01T00:00:00Z")
+        self.assertNotEqual(
+            persisted["execution_budget_started_at"],
+            persisted["created_at"],
+        )
+        self.assertIsNone(persisted["outcome"])
 
     def test_research_report_localizes_upstream_roles_and_endpoint_semantics(
         self,

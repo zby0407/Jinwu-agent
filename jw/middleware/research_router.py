@@ -226,6 +226,10 @@ _BOUNDED_ROUTE_BY_STAGE = {
 _RESEARCH_CONTINUATION_ACTION = re.compile(
     r"(?:继续|恢复|接着|resume|continue)", re.IGNORECASE
 )
+_TERSE_RESEARCH_CONTINUATION = re.compile(
+    r"^\s*(?:继续(?:吧|执行)?|恢复|接着|resume|continue)\s*[。.!！]?\s*$",
+    re.IGNORECASE,
+)
 _RESEARCH_CONTINUATION_CONTEXT = re.compile(
     r"(?:科研闭环|研究闭环|状态机|审查|返修|独立复核|独立审查|"
     r"next[_ -]?action|research\s+(?:loop|review)|revision|review)",
@@ -414,7 +418,9 @@ def _continuation_route(state: Mapping[str, Any], text: str) -> dict[str, Any] |
     same thread's trace.  Do not read a workspace here: ``before_agent`` may run
     before task-workspace binding, which would risk cross-run state leakage.
     """
-    if not _is_research_continuation_request(text):
+    explicit_continuation = _is_research_continuation_request(text)
+    terse_continuation = bool(_TERSE_RESEARCH_CONTINUATION.fullmatch(text))
+    if not explicit_continuation and not terse_continuation:
         return None
     prior = state.get("research_route")
     if isinstance(prior, Mapping):
@@ -429,12 +435,17 @@ def _continuation_route(state: Mapping[str, Any], text: str) -> dict[str, Any] |
         derived_continuation_route = prior_reason.startswith(
             ("recovered ", "explicit continuation ")
         )
-        if not derived_continuation_route and (
-            mode == "full_research" or bounded_stage is not None
+        if mode == "full_research" or (
+            explicit_continuation
+            and bounded_stage is not None
+            and not derived_continuation_route
         ):
             resumed = dict(prior)
             resumed["reason"] = "explicit continuation of persisted research graph"
             return resumed
+
+    if not explicit_continuation:
+        return None
 
     messages = list(state.get("messages", []))
     latest = _latest_human(messages)

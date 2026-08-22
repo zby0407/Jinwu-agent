@@ -509,6 +509,25 @@ def test_router_preserves_bounded_graph_on_explicit_continuation(monkeypatch) ->
     middleware._model.with_structured_output.assert_not_called()
 
 
+def test_router_preserves_full_graph_on_terse_continuation(monkeypatch) -> None:
+    middleware = _middleware(monkeypatch)
+    prior = _route("full_research", source_mode="mixed", needs_computation=True)
+    state = {
+        "messages": [HumanMessage("继续。", id="turn-terse-continue")],
+        "research_route": prior,
+        "research_route_turn": "older-turn",
+    }
+
+    update = middleware.before_agent(state, runtime=SimpleNamespace(config={}))
+
+    assert update["research_route"]["mode"] == "full_research"
+    assert update["research_route"]["reason"] == (
+        "explicit continuation of persisted research graph"
+    )
+    assert update["research_route_turn"] == "turn-terse-continue"
+    middleware._model.with_structured_output.assert_not_called()
+
+
 def test_router_recovers_legacy_bounded_stage_on_explicit_continuation(
     monkeypatch,
 ) -> None:

@@ -29,6 +29,9 @@ tool bundle、specialist owner；路由状态记录 harness 版本和当前能�
 external hidden 尚未执行，当前状态为 `do_not_launch`。详细边界见
 [`docs/真实前端科学问题与闭环结果.md`](../../docs/真实前端科学问题与闭环结果.md)。
 
+主验收后新增的恢复边界把实验执行预算起点锁定在首个不可变尝试成功分配时；同一 full-research
+线程也可用简短“继续”恢复持久化路由。两项均只有自动测试证据，尚未改变真实 WebUI 验收状态。
+
 长任务创建真实 WebUI thread 后，runner 会输出 `observer_ready` 事件和
 `observer_url`。该链接指向同一个真实会话，供人工在浏览器中观察；自动化
 浏览器是否 headless 不影响观察链接。

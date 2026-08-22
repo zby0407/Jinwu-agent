@@ -44,7 +44,7 @@
 
 - [x] Run focused and full pytest, Ruff, WebUI tests, production build, and `git diff --check`.
 - [x] Run the reader-facing visible-text advisory scanner and review findings semantically.
-- [ ] Commit only tracked task files and push the current branch to Draft PR #31.
+- [x] Commit only tracked task files and push the current branch to Draft PR #31.
 - [ ] Confirm all GitHub CI checks complete successfully; leave the PR in Draft state.
 
 ### Task 4: Verify the temporary provider and run primary acceptance
@@ -59,3 +59,17 @@ Execution result: the primary run reached an accepted experiment design but stop
 so Experiment Result was blocked and no final release was produced. The visible transfer run reached an accepted
 hypothesis and then ended on two consecutive provider stream disconnects during experiment-design generation. Both are
 preserved as negative runtime evidence; neither is an engineering pass or a scientific-generalization result.
+
+### Task 5: Harden the final-mile recovery boundary
+
+**Files:**
+- Modify: `src/automatic_experiment/service.py`
+- Modify: `src/automatic_experiment/state.py`
+- Modify: `jw/middleware/research_router.py`
+- Modify: corresponding deterministic tests and current status documentation
+
+- [x] Reproduce the r3 zero-attempt stop as an interrupted first `prepare` with a stale reset timestamp.
+- [x] Start the execution wall clock only after the first immutable attempt is allocated; preserve the original run creation time.
+- [x] Preserve a full-research route when the same thread resumes with a terse continuation request.
+- [x] Confirm the existing accepted-result path deterministically requires hypothesis update, Integration review, Final Release review, and accepted-report delivery.
+- [x] Re-run full regression and update Draft PR #31; do not claim a real WebUI pass without a new headed run.

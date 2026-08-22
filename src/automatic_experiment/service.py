@@ -160,7 +160,14 @@ def _load_request(root: Path) -> dict[str, Any]:
 
 
 def _elapsed_run_seconds(state: dict[str, Any]) -> float:
-    created = datetime.fromisoformat(str(state["created_at"]).replace("Z", "+00:00"))
+    started_at = state["created_at"]
+    if int(state.get("attempt_count", 0)) > 0:
+        started_at = (
+            state.get("execution_budget_started_at")
+            or state.get("execution_budget_reset_at")
+            or started_at
+        )
+    created = datetime.fromisoformat(str(started_at).replace("Z", "+00:00"))
     return max(0.0, (datetime.now(timezone.utc) - created).total_seconds())
 
 
@@ -168,6 +175,11 @@ def _remaining_run_seconds(
     state: dict[str, Any],
     request: dict[str, Any],
 ) -> int:
+    if (
+        state.get("phase") == "design_validated"
+        and int(state.get("attempt_count", 0)) == 0
+    ):
+        return int(request["run_budget"]["total_wall_seconds"])
     return max(
         0,
         int(request["run_budget"]["total_wall_seconds"] - _elapsed_run_seconds(state)),
@@ -2995,19 +3007,6 @@ def prepare(
     ):
         raise ServiceError("only technical_failure permits a repair attempt")
     request = _load_request(root)
-    # A design validated in an earlier (design-phase) session carries a wall budget
-    # measured from bind time; resuming that frozen design for execution must start a
-    # fresh execution budget, otherwise the design-phase clock makes execution
-    # impossible. Reset once, at the first attempt of a validated design with no
-    # prior attempts. Attempt-count limits are untouched (no attempts have run yet).
-    if (
-        state["phase"] == "design_validated"
-        and int(state.get("attempt_count", 0)) == 0
-        and not state.get("execution_budget_reset_at")
-    ):
-        state["created_at"] = utc_now()
-        state["execution_budget_reset_at"] = state["created_at"]
-        save_state(root, state)
     _require_run_budget(root, state, request)
     design = read_json(root / "design.json")
     stage_id = state.get("current_stage_id")
@@ -3032,6 +3031,11 @@ def prepare(
         parent_attempt=parent_attempt,
         change_reason=change_reason,
     )
+    if int(state.get("attempt_count", 0)) == 0:
+        # Lock the execution clock only after the first immutable attempt has
+        # actually been allocated. If a model call or process dies before this
+        # point, a later resume still receives the full execution budget.
+        state["execution_budget_started_at"] = utc_now()
     state["current_attempt"] = attempt_id
     state["attempt_count"] += 1
     state["remaining_attempts"] -= 1

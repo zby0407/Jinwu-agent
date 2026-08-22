@@ -250,6 +250,7 @@ def create_run(
             "stages_completed": 0,
         },
         "run_deadline_seconds": request["run_budget"]["total_wall_seconds"],
+        "execution_budget_started_at": None,
         "last_error": None,
         "outcome": None,
         "verified_record_sha256": None,
