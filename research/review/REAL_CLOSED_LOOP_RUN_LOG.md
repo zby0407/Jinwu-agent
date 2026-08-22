@@ -7,6 +7,14 @@
 不同证据层。只有经生产 WebUI 自然语言入口启动，并由系统自主完成预定研究范围的运行，
 才记为 WebUI 闭环；直接进入单个 Agent 或预置工件的运行单列为聚焦验证。
 
+## 当前案例定位
+
+当前唯一主科学验收案例是 `MAIN-SC26-B06`，用于判断第 26 太阳活动周预测的证据成熟度，
+并审查现有观测能够支持或反对的机制解释。`EXT-POLAR-LENGTH-FULL-01` 当前作为工程与
+科研闭环压力基准，`EXT-RISE-AMPLITUDE-GENERALIZATION-01` 作为仓库内可见迁移基准。
+下表中 r40–r52 的“主验收”类型是运行发生时的登记名称，按历史事实保留；这些记录不再
+作为第 26 周期主任务或仓库外未知任务的替代证据。
+
 ## 记录规则
 
 每次新运行追加一条记录，不覆盖失败结果。每条至少包含：
@@ -73,6 +81,7 @@
 | CL-20260822-37 | 2026-08-22 | WebUI 主验收 / r50 | EXT-POLAR-LENGTH-FULL-01 | `budget_stopped` | 实验审查为 `revise`，阻止不符合测量计划的数值进入下游 | 未形成已验证测量；工作进程指标不是科学结果 | 修正失败投影与假设证据门后 fresh 复验 |
 | CL-20260822-38 | 2026-08-22 06:03 UTC | WebUI 启动复验 / r51 | EXT-POLAR-LENGTH-FULL-01 | `runtime_error` | 用户问题未提交 | 基础 workspace 目录未创建，绑定返回 HTTP 400 | 创建隔离目录后重新启动 |
 | CL-20260822-39 | 2026-08-22 06:05–07:33 UTC | 隔离 WebUI 主验收 / r52 | EXT-POLAR-LENGTH-FULL-01 | `provider_error` | Planning、Data、Hypothesis 各一轮 `accept_with_limits`，每轮三件套完整 | 实验设计三次提交后仍剩一项测量引用问题；Qwen 周配额耗尽；无实验结果 | 修正周期对映射与局部设计返修指引，配额恢复后 fresh 复验 |
+| CL-20260822-40 | 2026-08-22 10:42 UTC | 模型兼容探针 | 临时业务空间 | `completed` | 不评价科学问题 | Qwen 生产者与辅助模型的 8 项有界兼容检查通过 | 可用于启动新的主任务 WebUI 验收 |
 
 此外，2026-08-12 的 36 次可见集成回归作为批次记录保留：21 次完成且有回答、
 2 次完成但无回答、13 次 runtime error；assessment coverage、核心签名稳定性和
@@ -985,6 +994,17 @@ Hypothesis 的交互作用候选没有支持或反对证据，四条 Data 证据
 对 `design.criteria[i].measurement_refs` 的条件比较局部返修同时引用条件 A、条件 B 与已声明差值。
 这些修复已通过定向测试；完整真实闭环仍需在供应商配额恢复后，以另一个全新 headed production
 WebUI 会话复验。
+
+## 临时业务空间兼容验证：CL-20260822-40
+
+本轮通过独立权限受控配置使用业务空间的 OpenAI-compatible 路线，没有读取或输出 API Key。
+`qwen3.8-max` 与 `qwen3.7-plus` 分别完成普通回答、单工具调用、结构化输出和多轮工具调用，
+8 项检查均通过。回执位于
+`evals/runs/provider_probe.business_workspace.20260822/compat.json`，只记录模型、provider、
+检查状态和时间，不保存模型正文或凭据。
+
+该结果确认当前 endpoint、凭据和两种 Qwen 模型的兼容调用链可用。它不是 production WebUI
+运行，没有科研阶段工件，不评价主任务结论，也不能替代 Evidence reviewer、完整闭环或科学验证。
 
 ## 新运行条目模板
 

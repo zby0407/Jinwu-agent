@@ -18,6 +18,11 @@ tool bundle、specialist owner；路由状态记录 harness 版本和当前能�
 `natural_user` 用例；显式包含内部 route、stage 或 specialist 的用例只能作为
 集成诊断，不计入自主性结果。
 
+当前唯一主科学验收案例是 `MAIN-SC26-B06`，研究第 26 太阳活动周预测的证据成熟度与
+机制解释。`next_stage_closed_loop_frontend_v1.json` 中的周期长度交互问题是工程与科研
+闭环压力基准，上升时间问题是仓库内可见迁移基准；二者都不能作为 external hidden 或
+发布门证据。案例 ID 与历史运行记录保持不变。
+
 长任务创建真实 WebUI thread 后，runner 会输出 `observer_ready` 事件和
 `observer_url`。该链接指向同一个真实会话，供人工在浏览器中观察；自动化
 浏览器是否 headless 不影响观察链接。

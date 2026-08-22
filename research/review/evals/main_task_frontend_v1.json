@@ -1,13 +1,22 @@
 {
   "suite_id": "main-task-frontend-v1",
   "description": "真实生产 WebUI 的自然用户提示词自主性用例；不向 Agent 暴露内部阶段或子 Agent 名称。",
+  "exposure_status": "checked_in_visible",
+  "release_gate_eligible": false,
+  "research_scope": {
+    "official_track": "赛道一",
+    "official_direction": "方向二",
+    "official_topic": "B3 太阳活动周起源探秘",
+    "official_source": "https://university.aliyun.com/action/tzbjbgs2026"
+  },
   "cases": [
     {
       "id": "MAIN-SC26-B06",
       "category": "prediction_launch_gate_full_research",
+      "acceptance_role": "primary_scientific_acceptance",
       "prompt_style": "natural_user",
-      "allowed_user_intervention": "answer_agent_clarification_only",
-      "expected_conclusion_class": "do_not_launch",
+      "allowed_user_intervention": "none",
+      "expected_outcome": "evidence_maturity_decision",
       "prompt": "请把资料截止在 2026 年 6 月 30 日，替我们系统研究第 26 太阳活动周强度预测现在是否可以启动。这次不是要求你一定给出强、中等或弱的答案，而是判断现有证据是否已经成熟到可以发布一个正式分类和可检验的峰值区间。\n\n重点核查 SILSO 太阳黑子数、F10.7 射电流量和 WSO 极区磁场。请说明每类观测目前描述的是第 25 周期的当前状态，还是已经能够充当第 26 周期的前兆；同时检查第 25 周期的峰值、下降期、下一次极小和极小附近极区磁场是否已经形成可用于历史标定的同口径量。\n\n请独立完成必要的资料核查、竞争假设、数据与实验判断、反对证据审查和最终综合，给出一份可供太阳物理同行初审的研究包。最终明确回答“可以启动”或“暂不启动”，说明最关键的缺失证据、现在最多能发布什么形式的条件判断，以及出现哪些新观测后应重新评估。不要为了让报告看起来完整而补造观测、数值、机制、原创性结论，或强行给出一个很窄的第 26 周期峰值区间。"
     }
   ]
