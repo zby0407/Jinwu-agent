@@ -23,6 +23,12 @@ tool bundle、specialist owner；路由状态记录 harness 版本和当前能�
 闭环压力基准，上升时间问题是仓库内可见迁移基准；二者都不能作为 external hidden 或
 发布门证据。案例 ID 与历史运行记录保持不变。
 
+截至 2026 年 8 月 23 日，最近一次主验收在已接受实验设计后以 0 次实验尝试的
+`budget_stopped` 收尾，Experiment Result 被阻断；最近一次可见迁移运行在已接受 Hypothesis 后
+因连续两次供应商流式断开而以 `runtime_error` 结束。两者均没有 Integration 或 Final Release，
+external hidden 尚未执行，当前状态为 `do_not_launch`。详细边界见
+[`docs/真实前端科学问题与闭环结果.md`](../../docs/真实前端科学问题与闭环结果.md)。
+
 长任务创建真实 WebUI thread 后，runner 会输出 `observer_ready` 事件和
 `observer_url`。该链接指向同一个真实会话，供人工在浏览器中观察；自动化
 浏览器是否 headless 不影响观察链接。

@@ -133,6 +133,41 @@ def test_inject_subagent_adds_memory_middleware(mock_model, tmp_path):
 
 @patch("jw.agent._ensure_chat_model")
 @patch("jw.agent._ensure_config")
+def test_terminal_guard_is_scoped_to_solar_experiment_subagent(
+    mock_config, mock_model, tmp_path
+):
+    mock_model.return_value = MagicMock(profile={"max_input_tokens": 200_000})
+    cfg = MagicMock()
+    cfg.model = "qwen3.7-plus"
+    cfg.subagent_model_call_limit = 13
+    cfg.subagent_tool_call_limit = 9
+    cfg.memory_profile_enabled = False
+    cfg.memory_observations_enabled = False
+    cfg.memory_observation_writer = MemoryObservationWriter.OFF
+    cfg.memory_workers_enabled = False
+    mock_config.return_value = cfg
+
+    from jw.agent import _inject_subagent_middleware
+
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    subs = [{"name": "solar-experiment"}, {"name": "solar-data"}]
+
+    _inject_subagent_middleware(subs, workspace_dir=workspace)
+
+    _single_middleware(
+        subs[0], "AutomaticExperimentTerminalGuardMiddleware"
+    )
+    assert not [
+        middleware
+        for middleware in subs[1]["middleware"]
+        if type(middleware).__name__
+        == "AutomaticExperimentTerminalGuardMiddleware"
+    ]
+
+
+@patch("jw.agent._ensure_chat_model")
+@patch("jw.agent._ensure_config")
 def test_inject_subagent_adds_configured_open_source_call_limits(
     mock_config, mock_model, tmp_path
 ):
@@ -388,3 +423,44 @@ def test_async_subagent_disables_tool_selector_stream_tracking(
 
     mock_tool_selector.assert_called_once()
     assert mock_tool_selector.call_args.kwargs["track_stream_selection"] is False
+
+
+@patch(
+    "jw.middleware.create_tool_selector_middleware",
+    return_value=[MagicMock()],
+)
+@patch("jw.agent._ensure_chat_model")
+@patch("jw.agent._ensure_config")
+def test_deployed_solar_experiment_includes_terminal_guard(
+    mock_config, mock_chat, _mock_tool_selector
+):
+    cfg = MagicMock()
+    cfg.enable_ask_user = False
+    cfg.auto_mode = False
+    cfg.auto_approve = False
+    cfg.model_fallbacks = None
+    cfg.model = "qwen3.7-plus"
+    cfg.memory_profile_enabled = False
+    cfg.memory_observations_enabled = False
+    cfg.memory_observation_writer = MemoryObservationWriter.OFF
+    cfg.memory_workers_enabled = False
+    cfg.auxiliary_model = ""
+    cfg.auxiliary_provider = ""
+    mock_config.return_value = cfg
+    mock_chat.return_value = MagicMock(profile={"max_input_tokens": 200_000})
+
+    from jw.agent import _get_default_middleware
+
+    middleware = _get_default_middleware(
+        for_async_subagent=True,
+        memory_source_agent="solar-experiment",
+    )
+
+    assert len(
+        [
+            item
+            for item in middleware
+            if type(item).__name__
+            == "AutomaticExperimentTerminalGuardMiddleware"
+        ]
+    ) == 1

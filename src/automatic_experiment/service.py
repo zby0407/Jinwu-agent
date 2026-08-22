@@ -2137,11 +2137,24 @@ def inspect_inputs(run_id: str) -> dict[str, Any]:
             result = {
                 "status": "already_snapshotted",
                 "run_id": run_id,
+                "phase": state["phase"],
                 "input_snapshot": manifest,
                 "input_previews": snapshot_input_previews(root, manifest),
             }
             request = _load_request(root)
             result["remaining_run_seconds"] = _remaining_run_seconds(state, request)
+            if state["phase"] == "report_finalized":
+                entry = _validated_finalized_entry(root, state)
+                result.update(
+                    {
+                        "status": "terminal",
+                        "outcome": entry["outcome"],
+                        "must_stop": True,
+                        "record_path": entry["record_path"],
+                        "report_path": entry["report_path"],
+                    }
+                )
+                return result
             stage_id = state.get("current_stage_id")
             design_path = state.get("design_path")
             if (

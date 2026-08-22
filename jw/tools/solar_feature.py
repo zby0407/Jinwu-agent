@@ -18,6 +18,7 @@ import itertools
 import json
 import math
 import os
+import re
 import runpy
 import sys
 import tempfile
@@ -107,6 +108,10 @@ def _task_bound_research_question(
 
 _SOLAR_DATA_OUTPUT_RECEIPT_CONTRACTS = {
     ("research-dataset-receipt-v1", "silso_cycle_extrema_reproduction"),
+    (
+        "solar-cycle-26-readiness-receipt-v1",
+        "solar_cycle_26_readiness_inventory",
+    ),
     ("solar-precursor-cycle-table-v1", "solar_precursor_cycle_table"),
     ("solar-precursor-cycle-table-v2", "solar_precursor_cycle_table"),
     ("solar-cycle-pair-analysis-table-v2", "solar_cycle_pair_analysis_table"),
@@ -799,6 +804,269 @@ def _parse_number(value: str) -> float | None:
     except (TypeError, ValueError):
         return None
     return number if math.isfinite(number) else None
+
+
+def _build_solar_cycle_26_readiness_inventory(
+    monthly_total_path: Path,
+    smoothed_path: Path,
+    official_extrema_path: Path,
+    f107_path: Path,
+    historical_polar_path: Path,
+    current_polar_path: Path,
+    *,
+    cutoff_date: str,
+) -> dict[str, object]:
+    """Build the cutoff-bound evidence inventory for the SC26 launch gate."""
+
+    if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", cutoff_date):
+        raise ValueError("cutoff_date must use YYYY-MM-DD")
+    cutoff_month = cutoff_date[:7]
+    cycle_25_start = "2019-12"
+
+    monthly_rows: list[tuple[str, float, float | None]] = []
+    for line_number, raw in enumerate(
+        monthly_total_path.read_text(encoding="ascii").splitlines(), 1
+    ):
+        fields = raw.split()
+        if not fields:
+            continue
+        if len(fields) not in {6, 7}:
+            raise ValueError(f"invalid SILSO monthly row {line_number}")
+        month = f"{int(fields[0]):04d}-{int(fields[1]):02d}"
+        value = float(fields[3])
+        sigma = float(fields[4])
+        if month <= cutoff_month and value >= 0:
+            monthly_rows.append((month, value, sigma if sigma >= 0 else None))
+    if not monthly_rows:
+        raise ValueError("SILSO monthly data has no observation through cutoff")
+    cycle_monthly = [row for row in monthly_rows if row[0] >= cycle_25_start]
+    if not cycle_monthly:
+        raise ValueError("SILSO monthly data does not cover cycle 25")
+    monthly_peak = max(cycle_monthly, key=lambda row: row[1])
+
+    smoothed_rows: list[tuple[str, float, float | None, bool | None]] = []
+    for line_number, fields in enumerate(
+        csv.reader(
+            smoothed_path.read_text(encoding="ascii").splitlines(), delimiter=";"
+        ),
+        1,
+    ):
+        if not fields:
+            continue
+        if len(fields) < 4:
+            raise ValueError(f"invalid SILSO smoothed row {line_number}")
+        month = f"{int(fields[0]):04d}-{int(fields[1]):02d}"
+        value = float(fields[3])
+        sigma = float(fields[4]) if len(fields) >= 5 else -1.0
+        definitive = None
+        if len(fields) >= 7 and fields[6].strip() in {"0", "1"}:
+            definitive = fields[6].strip() == "1"
+        if month <= cutoff_month and value >= 0:
+            smoothed_rows.append(
+                (month, value, sigma if sigma >= 0 else None, definitive)
+            )
+    cycle_smoothed = [row for row in smoothed_rows if row[0] >= cycle_25_start]
+    if not cycle_smoothed:
+        raise ValueError("SILSO smoothed data does not cover cycle 25")
+    smoothed_peak = max(cycle_smoothed, key=lambda row: row[1])
+
+    official_cycles: dict[int, dict[str, object]] = {}
+    for raw in official_extrema_path.read_text(encoding="ascii").splitlines():
+        fields = raw.split()
+        if not fields or not fields[0].isdigit() or len(fields) < 4:
+            continue
+        cycle = int(fields[0])
+        record: dict[str, object] = {
+            "minimum_month": f"{int(fields[1]):04d}-{int(fields[2]):02d}",
+            "minimum_value": float(fields[3]),
+        }
+        if len(fields) >= 7:
+            record.update(
+                {
+                    "maximum_month": f"{int(fields[4]):04d}-{int(fields[5]):02d}",
+                    "maximum_value": float(fields[6]),
+                }
+            )
+        official_cycles[cycle] = record
+    if 25 not in official_cycles:
+        raise ValueError("official SILSO extrema table does not contain cycle 25")
+    cycle_25_official = official_cycles[25]
+    cycle_26_minimum_established = 26 in official_cycles
+
+    try:
+        f107_payload = json.loads(f107_path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise ValueError("NOAA monthly F10.7 data is invalid") from exc
+    if not isinstance(f107_payload, list):
+        raise ValueError("NOAA monthly F10.7 data is not an array")
+    f107_rows: list[tuple[str, float]] = []
+    for item in f107_payload:
+        if not isinstance(item, dict):
+            continue
+        month, value = item.get("time-tag"), item.get("f10.7")
+        if (
+            isinstance(month, str)
+            and month <= cutoff_month
+            and isinstance(value, (int, float))
+            and not isinstance(value, bool)
+        ):
+            f107_rows.append((month, float(value)))
+    f107_rows.sort()
+    cycle_f107 = [row for row in f107_rows if row[0] >= cycle_25_start]
+    if not cycle_f107:
+        raise ValueError("NOAA monthly F10.7 data does not cover cycle 25")
+    f107_peak = max(cycle_f107, key=lambda row: row[1])
+
+    polar_lines = [
+        line
+        for line in historical_polar_path.read_text(encoding="utf-8").splitlines()
+        if line.strip() and not line.startswith("#")
+    ]
+    historical_reader = csv.DictReader(io.StringIO("\n".join(polar_lines)))
+    historical_dates: list[float] = []
+    for row in historical_reader:
+        for column in ("N MWO Date", "N WSO Date", "S MWO Date", "S WSO Date"):
+            parsed = _parse_number(str(row.get(column) or ""))
+            if parsed is not None:
+                historical_dates.append(parsed)
+    if not historical_dates:
+        raise ValueError("historical polar calibration contains no observation dates")
+
+    from jw.solar_data_catalog import _validate_wso_current_polar_field
+
+    current_polar = _validate_wso_current_polar_field(current_polar_path.read_bytes())
+    official_maximum_confirmed = "maximum_month" in cycle_25_official
+    wso_cutoff_complete = (
+        current_polar["cutoff_window_status"] == "observed_through_cutoff"
+    )
+    minimum_near_precursor_available = (
+        cycle_26_minimum_established and wso_cutoff_complete
+    )
+
+    evidence_gaps: list[dict[str, str]] = []
+    if not official_maximum_confirmed:
+        evidence_gaps.append(
+            {
+                "code": "SC25_OFFICIAL_MAXIMUM_UNCONFIRMED",
+                "effect": "Cycle 25 peak and decline remain provisional rather than an official completed-cycle label.",
+            }
+        )
+    if not cycle_26_minimum_established:
+        evidence_gaps.append(
+            {
+                "code": "NEXT_MINIMUM_NOT_ESTABLISHED",
+                "effect": "The cycle-25/26 boundary and cycle-25 length are not yet observed in the official extrema table.",
+            }
+        )
+    if not wso_cutoff_complete:
+        evidence_gaps.append(
+            {
+                "code": "WSO_CUTOFF_WINDOW_MISSING",
+                "effect": "WSO has no valid polar-field observations through the requested cutoff window.",
+            }
+        )
+    if not minimum_near_precursor_available:
+        evidence_gaps.append(
+            {
+                "code": "MINIMUM_NEAR_POLAR_PRECURSOR_UNAVAILABLE",
+                "effect": "No same-definition polar precursor is available near the still-unestablished cycle-25 minimum.",
+            }
+        )
+
+    classification_ready = not evidence_gaps
+    activity_below_observed_peaks = all(
+        (
+            monthly_rows[-1][1] < monthly_peak[1],
+            smoothed_rows[-1][1] < smoothed_peak[1],
+            f107_rows[-1][1] < f107_peak[1],
+        )
+    )
+    return {
+        "schema_version": "solar-cycle-26-readiness-inventory-v1",
+        "analysis_protocol": "solar_cycle_26_readiness_v1",
+        "cutoff_date": cutoff_date,
+        "launch_readiness": (
+            "evidence_ready" if classification_ready else "insufficient_evidence"
+        ),
+        "formal_classification_ready": classification_ready,
+        "testable_peak_interval_ready": classification_ready,
+        "observations": {
+            "silso_monthly": {
+                "role": "cycle_25_current_state",
+                "latest_month": monthly_rows[-1][0],
+                "latest_value": monthly_rows[-1][1],
+                "cycle_25_observed_peak_month": monthly_peak[0],
+                "cycle_25_observed_peak_value": monthly_peak[1],
+            },
+            "silso_smoothed": {
+                "role": "retrospective_cycle_25_state_label",
+                "latest_month": smoothed_rows[-1][0],
+                "latest_value": smoothed_rows[-1][1],
+                "latest_definitive": smoothed_rows[-1][3],
+                "cycle_25_smoothed_peak_month": smoothed_peak[0],
+                "cycle_25_smoothed_peak_value": smoothed_peak[1],
+            },
+            "silso_official_extrema": {
+                "role": "cycle_boundary_and_completed_peak_labels",
+                "cycle_25": cycle_25_official,
+                "cycle_25_official_maximum_status": (
+                    "published" if official_maximum_confirmed else "not_published"
+                ),
+                "cycle_26_minimum_status": (
+                    "published" if cycle_26_minimum_established else "not_published"
+                ),
+            },
+            "f107_monthly": {
+                "role": "cycle_25_current_activity_proxy",
+                "latest_month": f107_rows[-1][0],
+                "latest_value": f107_rows[-1][1],
+                "cycle_25_observed_peak_month": f107_peak[0],
+                "cycle_25_observed_peak_value": f107_peak[1],
+            },
+            "historical_polar_calibration": {
+                "role": "historical_precursor_calibration_only",
+                "coverage_end_decimal_year": max(historical_dates),
+                "measurement_regimes": [
+                    "mwo_facular_proxy",
+                    "wso_magnetograph",
+                ],
+            },
+            "wso_current_polar": {
+                "role": "candidate_cycle_26_precursor_observation",
+                **current_polar,
+            },
+        },
+        "cycle_25_state_assessment": {
+            "peak_status": (
+                "official"
+                if official_maximum_confirmed
+                else "provisional_observed_not_official"
+            ),
+            "activity_below_observed_peaks": activity_below_observed_peaks,
+            "decline_interpretation": (
+                "below_observed_peaks_but_cycle_decline_not_officially_confirmed"
+                if activity_below_observed_peaks and not official_maximum_confirmed
+                else "not_established"
+            ),
+            "next_minimum_status": (
+                "established" if cycle_26_minimum_established else "not_established"
+            ),
+        },
+        "cycle_26_precursor_assessment": {
+            "status": "available"
+            if minimum_near_precursor_available
+            else "unavailable",
+            "same_definition_ready": minimum_near_precursor_available,
+            "historical_calibration_available": True,
+            "current_polar_cutoff_window_status": current_polar["cutoff_window_status"],
+        },
+        "evidence_gaps": evidence_gaps,
+        "interpretation_boundary": (
+            "SILSO and F10.7 describe the current state of cycle 25. A cycle-26 "
+            "precursor requires a confirmed next minimum and same-definition polar "
+            "measurements near that minimum."
+        ),
+    }
 
 
 def _build_solar_precursor_cycle_rows(
@@ -1942,6 +2210,120 @@ def prepare_solar_precursor_cycle_table(
 
 
 @tool(parse_docstring=True)
+def prepare_solar_cycle_26_readiness(
+    monthly_total_path: str,
+    smoothed_path: str,
+    official_extrema_path: str,
+    f107_path: str,
+    historical_polar_path: str,
+    current_polar_path: str,
+    cutoff_date: str = "2026-06-30",
+    config: RunnableConfig = None,
+) -> str:
+    """Create the verified evidence-maturity inventory for the SC26 launch gate.
+
+    The adapter separates cycle-25 state indicators from cycle-26 precursors.
+    Missing public observations remain explicit evidence gaps in a verified Data
+    product instead of being misclassified as missing user input.
+
+    Args:
+        monthly_total_path: Eligible SILSO monthly-total Version 2.0 input.
+        smoothed_path: Eligible SILSO 13-month-smoothed Version 2.0 input.
+        official_extrema_path: Eligible official SILSO cycle extrema table.
+        f107_path: Eligible NOAA SWPC monthly F10.7 input.
+        historical_polar_path: Eligible historical MWO/WSO calibration input.
+        current_polar_path: Eligible current WSO polar-field observations.
+        cutoff_date: Evidence cutoff fixed to 2026-06-30 for this protocol.
+        config: Runtime-injected task workspace configuration.
+
+    Returns:
+        Verified inventory and receipt paths with launch-readiness evidence gaps.
+    """
+
+    try:
+        from jw.research_protocols import SOLAR_CYCLE_26_READINESS_PROTOCOL
+
+        if cutoff_date != "2026-06-30":
+            raise ValueError(
+                "solar_cycle_26_readiness_v1 requires cutoff_date=2026-06-30"
+            )
+        specifications = (
+            (monthly_total_path, "silso-monthly-total-v2"),
+            (smoothed_path, "silso-monthly-smoothed-v2"),
+            (official_extrema_path, "silso-cycle-extrema-v2"),
+            (f107_path, "noaa-swpc-monthly-f107-v1"),
+            (historical_polar_path, "mwo-wso-polar-field-v2"),
+            (current_polar_path, "wso-current-polar-field-v1"),
+        )
+        resolved: list[Path] = []
+        input_refs: list[dict[str, object]] = []
+        for virtual_path, dataset_id in specifications:
+            path, record = _resolve_eligible_dataset_path(
+                virtual_path, dataset_id, config
+            )
+            resolved.append(path)
+            input_refs.append(
+                {
+                    "dataset_id": dataset_id,
+                    "path": record["path"],
+                    "sha256": record["sha256"],
+                    "provenance_ref": record.get("provenance_ref"),
+                }
+            )
+        inventory = _build_solar_cycle_26_readiness_inventory(
+            *resolved,
+            cutoff_date=cutoff_date,
+        )
+        if inventory.get("analysis_protocol") != SOLAR_CYCLE_26_READINESS_PROTOCOL:
+            raise RuntimeError("SC26 readiness inventory has the wrong protocol")
+
+        root = workspace_root_from_config(config)
+        artifact_ref = "work/solar_data/solar_cycle_26_readiness_inventory.json"
+        receipt_ref = "receipts/datasets/solar_cycle_26_readiness_inventory.json"
+        artifact_path = root / artifact_ref
+        receipt_path = root / receipt_ref
+        _atomic_write_json(artifact_path, inventory)
+        output = {
+            "path": artifact_ref,
+            "bytes": artifact_path.stat().st_size,
+            "sha256": _file_sha256(artifact_path),
+        }
+        receipt = {
+            "schema_version": "solar-cycle-26-readiness-receipt-v1",
+            "receipt_type": "solar_cycle_26_readiness_inventory",
+            "status": "verified",
+            "analysis_protocol": SOLAR_CYCLE_26_READINESS_PROTOCOL,
+            "producer": "solar-data",
+            "task_id": _validated_task_metadata(config)[1],
+            "cutoff_date": cutoff_date,
+            "input_refs": input_refs,
+            "dataset_ids": [dataset_id for _path, dataset_id in specifications],
+            "outputs": [output],
+            "launch_readiness": inventory["launch_readiness"],
+            "formal_classification_ready": inventory["formal_classification_ready"],
+            "testable_peak_interval_ready": inventory["testable_peak_interval_ready"],
+            "evidence_gaps": inventory["evidence_gaps"],
+            "created_at": datetime.now(UTC).isoformat(),
+        }
+        _atomic_write_json(receipt_path, receipt)
+        return _to_json(
+            {
+                "status": "verified",
+                "artifact_refs": [artifact_ref],
+                "receipt_refs": [receipt_ref],
+                "launch_readiness": inventory["launch_readiness"],
+                "formal_classification_ready": inventory["formal_classification_ready"],
+                "testable_peak_interval_ready": inventory[
+                    "testable_peak_interval_ready"
+                ],
+                "evidence_gaps": inventory["evidence_gaps"],
+            }
+        )
+    except Exception as exc:
+        return _error_json("prepare_solar_cycle_26_readiness", exc)
+
+
+@tool(parse_docstring=True)
 def reproduce_silso_cycle_extrema(
     monthly_total_path: str,
     smoothed_path: str,
@@ -2187,6 +2569,7 @@ SOLAR_FEATURE_TOOLS = [
     engineer_solar_features,
     prepare_solar_experiment,
     dataset_statistics,
+    prepare_solar_cycle_26_readiness,
     prepare_solar_precursor_cycle_table,
     reproduce_silso_cycle_extrema,
     bind_f107_dataset_semantics,

@@ -5,6 +5,7 @@ from __future__ import annotations
 import csv
 import hashlib
 import json
+import re
 import tempfile
 import urllib.parse
 import urllib.request
@@ -22,6 +23,12 @@ _SILSO_EXTREMA_URL = "https://www.sidc.be/SILSO/DATA/Cycles/TableCyclesMiMa.txt"
 _SILSO_DOI = "https://doi.org/10.24414/qnza-ac80"
 _POLAR_PERSISTENT_ID = "doi:10.7910/DVN/KF96B2"
 _POLAR_FILENAME = "e_PField_MWO_WSO.csv"
+_NOAA_MONTHLY_F107_URL = (
+    "https://services.swpc.noaa.gov/json/solar-cycle/f10-7cm-flux.json"
+)
+_WSO_CURRENT_POLAR_URL = "http://wso.stanford.edu/Polar.html"
+_READINESS_CUTOFF = "2026-06-30"
+_READINESS_WINDOW_START = "2026-01-01"
 
 
 def _fetch(url: str, *, timeout: float = 20.0) -> tuple[bytes, str]:
@@ -170,6 +177,129 @@ def _validate_polar_field(payload: bytes) -> dict[str, Any]:
     }
 
 
+def _validate_noaa_monthly_f107(payload: bytes) -> dict[str, Any]:
+    """Validate the official NOAA SWPC monthly F10.7 solar-cycle product."""
+
+    try:
+        decoded = json.loads(payload)
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise ValueError("NOAA monthly F10.7 data is not valid JSON") from exc
+    if not isinstance(decoded, list) or not decoded:
+        raise ValueError("NOAA monthly F10.7 data must be a non-empty array")
+    rows: list[tuple[str, float]] = []
+    for index, item in enumerate(decoded):
+        if not isinstance(item, dict):
+            raise ValueError(f"invalid NOAA monthly F10.7 row {index}")
+        month = item.get("time-tag")
+        value = item.get("f10.7")
+        if not isinstance(month, str) or re.fullmatch(r"\d{4}-\d{2}", month) is None:
+            raise ValueError(f"invalid NOAA monthly F10.7 month at row {index}")
+        if (
+            not isinstance(value, (int, float))
+            or isinstance(value, bool)
+            or not 40 <= float(value) <= 500
+        ):
+            raise ValueError(f"invalid NOAA monthly F10.7 value at row {index}")
+        rows.append((month, float(value)))
+    months = [month for month, _value in rows]
+    if months != sorted(months) or len(months) != len(set(months)):
+        raise ValueError("NOAA monthly F10.7 months are not unique and monotonic")
+    return {
+        "row_count": len(rows),
+        "coverage_start": months[0],
+        "coverage_end": months[-1],
+        "cutoff_month": "2026-06",
+        "cutoff_2026_06_available": "2026-06" in months,
+        "unit": "solar_flux_unit",
+        "format": "NOAA SWPC monthly 10.7 cm radio flux JSON",
+    }
+
+
+_WSO_CURRENT_ROW = re.compile(
+    r"^(?P<year>\d{4}):(?P<month>\d{2}):(?P<day>\d{2})_\S+\s+"
+    r"(?P<north>(?:[-+]?\d+|XXX))N\s+"
+    r"(?P<south>(?:[-+]?\d+|XXX))S\s+"
+    r"(?P<average>(?:[-+]?\d+|XXX))Avg\s+20nhz\s+filt:\s+"
+    r"(?P<north_filtered>(?:[-+]?\d+|XXX))Nf\s+"
+    r"(?P<south_filtered>(?:[-+]?\d+|XXX))Sf\s+"
+    r"(?P<average_filtered>(?:[-+]?\d+|XXX))Avgf$"
+)
+
+
+def _wso_current_rows(payload: bytes) -> list[dict[str, Any]]:
+    try:
+        text = payload.decode("ascii")
+    except UnicodeDecodeError as exc:
+        raise ValueError("WSO current polar-field page is not ASCII") from exc
+    rows: list[dict[str, Any]] = []
+    for raw in text.splitlines():
+        match = _WSO_CURRENT_ROW.fullmatch(raw.strip())
+        if match is None:
+            continue
+        date = "-".join(match.group(field) for field in ("year", "month", "day"))
+        values = [
+            match.group(field)
+            for field in (
+                "north",
+                "south",
+                "average",
+                "north_filtered",
+                "south_filtered",
+                "average_filtered",
+            )
+        ]
+        missing = any(value == "XXX" for value in values)
+        rows.append(
+            {
+                "date": date,
+                "missing": missing,
+                "north": None if missing else int(values[0]),
+                "south": None if missing else int(values[1]),
+                "average": None if missing else int(values[2]),
+                "north_filtered": None if missing else int(values[3]),
+                "south_filtered": None if missing else int(values[4]),
+                "average_filtered": None if missing else int(values[5]),
+            }
+        )
+    return rows
+
+
+def _validate_wso_current_polar_field(payload: bytes) -> dict[str, Any]:
+    """Validate WSO's 10-day polar observations and preserve explicit gaps."""
+
+    rows = _wso_current_rows(payload)
+    if not rows:
+        raise ValueError("WSO current polar-field page contains no observation rows")
+    dates = [str(row["date"]) for row in rows]
+    if dates != sorted(dates) or len(dates) != len(set(dates)):
+        raise ValueError("WSO current polar-field dates are not unique and monotonic")
+    through_cutoff = [row for row in rows if str(row["date"]) <= _READINESS_CUTOFF]
+    valid_rows = [row for row in through_cutoff if row["missing"] is False]
+    cutoff_window = [
+        row
+        for row in through_cutoff
+        if _READINESS_WINDOW_START <= str(row["date"]) <= _READINESS_CUTOFF
+    ]
+    if not cutoff_window or not valid_rows:
+        raise ValueError("WSO current polar-field page has no valid pre-cutoff record")
+    missing_rows = [row for row in cutoff_window if row["missing"] is True]
+    return {
+        "row_count": len(rows),
+        "coverage_start": dates[0],
+        "coverage_end": dates[-1],
+        "latest_valid_observation": str(valid_rows[-1]["date"]),
+        "cutoff_window_start": _READINESS_WINDOW_START,
+        "cutoff_date": _READINESS_CUTOFF,
+        "cutoff_window_status": (
+            "observations_missing" if missing_rows else "observed_through_cutoff"
+        ),
+        "missing_rows_in_cutoff_window": len(missing_rows),
+        "cadence": "centered 30-day average reported every 10 days",
+        "filtered_product": "20 nHz low-pass filter",
+        "unit": "microtesla",
+    }
+
+
 def _acquire_silso() -> tuple[bytes, dict[str, Any]]:
     payload, _resolved = _fetch(_SILSO_AUTHORITY_URL)
     return payload, {
@@ -258,6 +388,28 @@ def _acquire_polar_field() -> tuple[bytes, dict[str, Any]]:
     }
 
 
+def _acquire_noaa_monthly_f107() -> tuple[bytes, dict[str, Any]]:
+    payload, resolved = _fetch(_NOAA_MONTHLY_F107_URL)
+    return payload, {
+        "authority_url": _NOAA_MONTHLY_F107_URL,
+        "retrieval_url": resolved,
+        "retrieval_source_kind": "authority",
+        "product": "monthly observed 10.7 cm radio flux",
+        "validation": _validate_noaa_monthly_f107(payload),
+    }
+
+
+def _acquire_wso_current_polar_field() -> tuple[bytes, dict[str, Any]]:
+    payload, resolved = _fetch(_WSO_CURRENT_POLAR_URL)
+    return payload, {
+        "authority_url": _WSO_CURRENT_POLAR_URL,
+        "retrieval_url": resolved,
+        "retrieval_source_kind": "authority",
+        "product": "WSO polar-field observations 1976-present",
+        "validation": _validate_wso_current_polar_field(payload),
+    }
+
+
 def acquire_authoritative_solar_data(
     base_workspace: str | Path,
     *,
@@ -290,6 +442,16 @@ def acquire_authoritative_solar_data(
                 "mwo-wso-polar-field-v2",
                 "solar_cycle/polar_field/mwo_wso_v2/e_PField_MWO_WSO.csv",
                 _acquire_polar_field,
+            ),
+            (
+                "noaa-swpc-monthly-f107-v1",
+                "solar_cycle/f107/noaa_swpc_monthly_v1/f10-7cm-flux.json",
+                _acquire_noaa_monthly_f107,
+            ),
+            (
+                "wso-current-polar-field-v1",
+                "solar_cycle/polar_field/wso_current_v1/Polar.html",
+                _acquire_wso_current_polar_field,
             ),
         )
         if isinstance(dataset_ids, str):

@@ -119,7 +119,12 @@ _CANONICAL_CHECKPOINT_DIRECTIVE = {
         "For experiment_result, resume the exact accepted run_id supplied first in "
         "accepted_upstream. Do not bind a new request or create a fresh run: the "
         "accepted run already contains the reviewed "
-        "request, staged input snapshot, and design.\n"
+        "request, staged input snapshot, and design. Do not call "
+        "automatic_experiment_create_single_stage_design or "
+        "automatic_experiment_validate_design in this phase.\n"
+        "If inspect_inputs or finalize reports a terminal state, return the existing "
+        "record.json and report.md immediately; do not prepare, execute, verify, bind, "
+        "redesign, or finalize again after that terminal response.\n"
         "The run wall budget is short and every rejected prepare_attempt burns it, so "
         "submit worker code that passes CodePolicy on the first attempt: define "
         "run_experiment(context) and return one automatic-experiment-worker-result-v1 "
@@ -134,7 +139,12 @@ _CANONICAL_CHECKPOINT_DIRECTIVE = {
         "diagnostic), and source_artifact (an exact artifact-path string literal, "
         "a module-level or function-local string constant assigned that literal, "
         "or null; no computed path). Call prepare_attempt once with files as a JSON "
-        "object, then execute_attempt on the attempt id that prepare returned; do "
+        "array. In scientific_payload, estimate must be a finite number or null; "
+        "interval and equivalence_bounds must each be [low, high] or null; "
+        "sensitivity must be text or null; "
+        "uncertainty_reasons must be an array of strings. Do not put explanatory "
+        "prose into numeric or array fields. Then "
+        "call execute_attempt on the attempt id that prepare returned; do "
         "not re-prepare after a successful prepare, and do not call execute before a "
         "prepare succeeds. Before automatic_experiment_prepare_attempt, call "
         "automatic_experiment_inspect_inputs once for the accepted run and copy the "
@@ -903,6 +913,7 @@ def _open_data_context_preflight(
 
     from ..research_protocols import (
         SILSO_CYCLE_REPRODUCTION_PROTOCOL,
+        SOLAR_CYCLE_26_READINESS_PROTOCOL,
         SOLAR_POLAR_PRECURSOR_PROTOCOL,
         required_dataset_ids_for_protocol,
     )
@@ -937,6 +948,7 @@ def _open_data_context_preflight(
 
     supported_protocols = {
         SILSO_CYCLE_REPRODUCTION_PROTOCOL,
+        SOLAR_CYCLE_26_READINESS_PROTOCOL,
         SOLAR_POLAR_PRECURSOR_PROTOCOL,
     }
     if (
@@ -2197,6 +2209,15 @@ class ResearchReviewOrchestrationMiddleware(AgentMiddleware[Any, Any, Any]):
                             "an upper bound; report a dependence-adjusted estimate "
                             "only when the declared data support one."
                         )
+                elif experiment_analysis_protocol == "solar_cycle_26_readiness_v1":
+                    from ..research_protocols import (
+                        solar_cycle_26_readiness_directive,
+                    )
+
+                    experiment_protocol_directive = (
+                        "\nanalysis_protocol_contract="
+                        + solar_cycle_26_readiness_directive()
+                    )
             data_context_directive = ""
             if data_context is not None:
                 data_context_directive = (

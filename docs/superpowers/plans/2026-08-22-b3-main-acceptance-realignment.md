@@ -51,6 +51,11 @@
 
 - [x] After the user confirms hidden key injection, verify only config presence, endpoint, permissions, and error types without printing the key.
 - [x] Run minimal real calls for the Qwen producer and auxiliary models through the temporary OpenAI-compatible endpoint.
-- [ ] Start one fresh headed production WebUI task using only the `MAIN-SC26-B06` prompt and record its observer URL immediately.
-- [ ] Accept negative, insufficient-evidence, or do-not-launch scientific outcomes; require complete artifacts and review records for an engineering pass.
-- [ ] After primary completion, run the visible transfer benchmark once and reserve scientific generalization claims for an external sealed suite.
+- [x] Start one fresh headed production WebUI task using only the `MAIN-SC26-B06` prompt and record its observer URL immediately.
+- [x] Accept negative, insufficient-evidence, or do-not-launch scientific outcomes; require complete artifacts and review records for an engineering pass.
+- [x] Run the visible transfer benchmark once and reserve scientific generalization claims for an external sealed suite.
+
+Execution result: the primary run reached an accepted experiment design but stopped before its first experiment attempt,
+so Experiment Result was blocked and no final release was produced. The visible transfer run reached an accepted
+hypothesis and then ended on two consecutive provider stream disconnects during experiment-design generation. Both are
+preserved as negative runtime evidence; neither is an engineering pass or a scientific-generalization result.

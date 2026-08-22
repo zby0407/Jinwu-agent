@@ -192,6 +192,27 @@ def test_experiment_agent_stops_cleanly_when_design_budget_is_exhausted():
     assert "never obtain output paths from context['artifact_path_by_id']" in text
 
 
+def test_experiment_result_reuses_terminal_run_and_prepares_with_file_array():
+    text = _read("jw/subagents/solar/solar_experiment.yaml")
+
+    assert "prepare_attempt 的 files 用 JSON 数组" in text
+    assert "prepare_attempt 的 files 用 JSON 对象" not in text
+    assert "只有新建 experiment_design" in text
+    assert "experiment_result 不得重新 bind" in text
+    assert "must_stop=true 时立即返回" in text
+
+
+def test_experiment_result_prompts_state_scientific_payload_scalar_types():
+    specialist = _read("jw/subagents/solar/solar_experiment.yaml")
+    orchestration = _read("jw/middleware/research_review_orchestration.py")
+
+    for text in (specialist, orchestration):
+        assert "estimate must be a finite number or null" in text
+        assert "interval and equivalence_bounds must each be [low, high] or null" in text
+        assert "sensitivity must be text or null" in text
+        assert "uncertainty_reasons must be an array of strings" in text
+
+
 def test_experiment_agent_repairs_condition_comparison_measurement_refs_locally():
     text = _read("jw/subagents/solar/solar_experiment.yaml")
 

@@ -3,6 +3,9 @@ from jw.research_protocols import (
     F107_DISCONTINUITY_REQUIRED_MEASUREMENTS,
     SILSO_CYCLE_EXTREMA_DATA_PRODUCT,
     SILSO_CYCLE_REPRODUCTION_PROTOCOL,
+    SOLAR_CYCLE_26_READINESS_DATA_PRODUCT,
+    SOLAR_CYCLE_26_READINESS_DATASET_IDS,
+    SOLAR_CYCLE_26_READINESS_PROTOCOL,
     SOLAR_POLAR_PRECURSOR_DATA_PRODUCT,
     SOLAR_POLAR_PRECURSOR_PROTOCOL,
     detect_analysis_protocol,
@@ -69,6 +72,29 @@ def test_explicit_polar_precursor_request_has_separate_protocol() -> None:
         detect_analysis_protocol("比较极小附近极区磁场作为下一周期振幅前兆")
         == SOLAR_POLAR_PRECURSOR_PROTOCOL
     )
+
+
+def test_cycle_26_launch_gate_has_broader_readiness_protocol() -> None:
+    request = (
+        "资料截止在 2026 年 6 月 30 日，请系统研究第 26 太阳活动周强度预测"
+        "现在是否可以启动，重点核查 SILSO、F10.7 和 WSO 极区磁场，最终回答"
+        "可以启动或暂不启动。"
+    )
+
+    assert detect_analysis_protocol(request) == SOLAR_CYCLE_26_READINESS_PROTOCOL
+    assert (
+        required_data_product_for_protocol(SOLAR_CYCLE_26_READINESS_PROTOCOL)
+        == SOLAR_CYCLE_26_READINESS_DATA_PRODUCT
+    )
+    assert SOLAR_CYCLE_26_READINESS_DATASET_IDS == (
+        "silso-monthly-total-v2",
+        "silso-monthly-smoothed-v2",
+        "silso-cycle-extrema-v2",
+        "noaa-swpc-monthly-f107-v1",
+        "mwo-wso-polar-field-v2",
+        "wso-current-polar-field-v1",
+    )
+    assert detect_analysis_protocol("请判断第26太阳活动周预测是否可以启动") == "none"
 
 
 def test_plan_dataset_selection_conflict_detection_matches_protocol() -> None:

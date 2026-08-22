@@ -43,9 +43,11 @@ from jw.research_protocols import (
     F107_DISCONTINUITY_PROTOCOL,
     F107_DISCONTINUITY_REQUIRED_MEASUREMENTS,
     SILSO_CYCLE_REPRODUCTION_PROTOCOL,
+    SOLAR_CYCLE_26_READINESS_PROTOCOL,
     SOLAR_POLAR_PRECURSOR_PROTOCOL,
     detect_analysis_protocol,
     f107_discontinuity_directive,
+    solar_cycle_26_readiness_directive,
     solar_polar_precursor_directive,
 )
 from jw.research_review import store_from_config
@@ -662,7 +664,12 @@ def _with_analysis_protocol(
         normalized.pop("preliminary_stages", None)
         return normalized
     if (
-        protocol in {SILSO_CYCLE_REPRODUCTION_PROTOCOL, SOLAR_POLAR_PRECURSOR_PROTOCOL}
+        protocol
+        in {
+            SILSO_CYCLE_REPRODUCTION_PROTOCOL,
+            SOLAR_CYCLE_26_READINESS_PROTOCOL,
+            SOLAR_POLAR_PRECURSOR_PROTOCOL,
+        }
         and normalized.get("mode") != "full_research"
     ):
         if bounded_hypothesis:
@@ -2214,6 +2221,12 @@ class ResearchRouterMiddleware(AgentMiddleware[ResearchRoutingState, Any, Any]):
                     "monthly-total and MWO/WSO inputs, then call "
                     "prepare_solar_precursor_cycle_table."
                 )
+            if required_analysis_protocol == SOLAR_CYCLE_26_READINESS_PROTOCOL:
+                directive.append(
+                    "The bounded data producer must use all six Supervisor-bound "
+                    "readiness inputs, then call prepare_solar_cycle_26_readiness. "
+                    + solar_cycle_26_readiness_directive()
+                )
             f107_data_pending = False
             if (
                 required_specialist == "solar-hypothesis"
@@ -2437,6 +2450,8 @@ class ResearchRouterMiddleware(AgentMiddleware[ResearchRoutingState, Any, Any]):
                 directive.append(f107_discontinuity_directive())
             if required_analysis_protocol == SOLAR_POLAR_PRECURSOR_PROTOCOL:
                 directive.append(solar_polar_precursor_directive())
+            if required_analysis_protocol == SOLAR_CYCLE_26_READINESS_PROTOCOL:
+                directive.append(solar_cycle_26_readiness_directive())
             config = _request_config(request)
             try:
                 action = store_from_config(config).next_action()

@@ -147,6 +147,7 @@ _PLANNER_LOCAL_NO_DELIBERATION_TOOLS = frozenset(
 _DATA_DETERMINISTIC_TOOLS = frozenset(
     {
         "solar_data_open_context",
+        "prepare_solar_cycle_26_readiness",
         "prepare_solar_precursor_cycle_table",
         "reproduce_silso_cycle_extrema",
     }
@@ -160,6 +161,18 @@ _SOLAR_PRECURSOR_DATASET_IDS = frozenset(
 _SILSO_REPRODUCTION_PROTOCOL = "silso_cycle_reproduction_v1"
 _SILSO_EXTREMA_DATA_PRODUCT = "silso_cycle_extrema_v1"
 _SOLAR_PRECURSOR_DATA_PRODUCT = "solar_polar_precursor_table_v1"
+_SOLAR_CYCLE_26_READINESS_PROTOCOL = "solar_cycle_26_readiness_v1"
+_SOLAR_CYCLE_26_READINESS_DATA_PRODUCT = "solar_cycle_26_readiness_inventory_v1"
+_SOLAR_CYCLE_26_READINESS_DATASET_IDS = frozenset(
+    {
+        "silso-monthly-total-v2",
+        "silso-monthly-smoothed-v2",
+        "silso-cycle-extrema-v2",
+        "noaa-swpc-monthly-f107-v1",
+        "mwo-wso-polar-field-v2",
+        "wso-current-polar-field-v1",
+    }
+)
 _SILSO_REPRODUCTION_DATASET_IDS = frozenset(
     {
         "silso-monthly-total-v2",
@@ -801,6 +814,7 @@ class QwenToolCompatibilityMiddleware(AgentMiddleware):
             if getattr(message, "type", "") in {"human", "user"}:
                 latest_human_index = index
         terminal_tools = {
+            "prepare_solar_cycle_26_readiness",
             "prepare_solar_precursor_cycle_table",
             "reproduce_silso_cycle_extrema",
         }
@@ -832,6 +846,7 @@ class QwenToolCompatibilityMiddleware(AgentMiddleware):
             return None
         available = set(validate_qwen_tool_schema(tools))
         open_tool = "solar_data_open_context"
+        readiness_tool = "prepare_solar_cycle_26_readiness"
         prepare_tool = "prepare_solar_precursor_cycle_table"
         reproduce_tool = "reproduce_silso_cycle_extrema"
 
@@ -844,9 +859,14 @@ class QwenToolCompatibilityMiddleware(AgentMiddleware):
             message
             for message in messages[latest_human_index + 1 :]
             if isinstance(message, ToolMessage)
-            and message.name in {open_tool, prepare_tool, reproduce_tool}
+            and message.name
+            in {open_tool, readiness_tool, prepare_tool, reproduce_tool}
         ]
-        if relevant and relevant[-1].name in {prepare_tool, reproduce_tool}:
+        if relevant and relevant[-1].name in {
+            readiness_tool,
+            prepare_tool,
+            reproduce_tool,
+        }:
             return None
         if preopened_context is None:
             if not relevant:
@@ -875,6 +895,14 @@ class QwenToolCompatibilityMiddleware(AgentMiddleware):
             for item in eligible
             if isinstance(item, Mapping)
         }
+        if (
+            payload.get("analysis_protocol") == _SOLAR_CYCLE_26_READINESS_PROTOCOL
+            and payload.get("required_data_product")
+            == _SOLAR_CYCLE_26_READINESS_DATA_PRODUCT
+            and _SOLAR_CYCLE_26_READINESS_DATASET_IDS <= dataset_ids
+            and readiness_tool in available
+        ):
+            return readiness_tool
         if (
             payload.get("analysis_protocol") == _SILSO_REPRODUCTION_PROTOCOL
             and payload.get("required_data_product") == _SILSO_EXTREMA_DATA_PRODUCT
@@ -1651,6 +1679,16 @@ class QwenToolCompatibilityMiddleware(AgentMiddleware):
                 required = {
                     "sunspot_path": paths.get("silso-monthly-total-v2"),
                     "polar_field_path": paths.get("mwo-wso-polar-field-v2"),
+                }
+            elif name == "prepare_solar_cycle_26_readiness":
+                required = {
+                    "monthly_total_path": paths.get("silso-monthly-total-v2"),
+                    "smoothed_path": paths.get("silso-monthly-smoothed-v2"),
+                    "official_extrema_path": paths.get("silso-cycle-extrema-v2"),
+                    "f107_path": paths.get("noaa-swpc-monthly-f107-v1"),
+                    "historical_polar_path": paths.get("mwo-wso-polar-field-v2"),
+                    "current_polar_path": paths.get("wso-current-polar-field-v1"),
+                    "cutoff_date": "2026-06-30",
                 }
             else:
                 required = {

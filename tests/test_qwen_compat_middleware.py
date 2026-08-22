@@ -985,6 +985,65 @@ def test_data_stage_routes_curated_precursor_inputs_to_specialized_adapter():
     assert prepared.model.extra_body["enable_thinking"] is False
 
 
+def test_data_stage_synthesizes_cycle_26_readiness_adapter_after_rejection():
+    dataset_paths = {
+        "silso-monthly-total-v2": "/project/silso.txt",
+        "silso-monthly-smoothed-v2": "/project/smoothed.csv",
+        "silso-cycle-extrema-v2": "/project/extrema.txt",
+        "noaa-swpc-monthly-f107-v1": "/project/f107.json",
+        "mwo-wso-polar-field-v2": "/project/historical-polar.csv",
+        "wso-current-polar-field-v1": "/project/current-polar.html",
+    }
+    context = {
+        "status": "inputs_available",
+        "must_stop": False,
+        "analysis_protocol": "solar_cycle_26_readiness_v1",
+        "required_data_product": "solar_cycle_26_readiness_inventory_v1",
+        "eligible_inputs": [
+            {"dataset_id": dataset_id, "path": path}
+            for dataset_id, path in dataset_paths.items()
+        ],
+    }
+    request = _request(
+        {"name": "solar_data_open_context"},
+        {"name": "prepare_solar_cycle_26_readiness"},
+        messages=[HumanMessage(content="prepare readiness evidence")],
+    )
+    request.system_message = SystemMessage(
+        content=(
+            "[RESEARCH_PRODUCER_V2]\nstage=data\n"
+            f"deterministic_data_context={json.dumps(context)}"
+        )
+    )
+    handler = MagicMock(
+        side_effect=RuntimeError(
+            "The tool_choice parameter does not support being set to required "
+            "or object in thinking mode"
+        )
+    )
+
+    with patch(
+        "jw.middleware.qwen_compat._read_model_override",
+        return_value=(None, None),
+    ):
+        response = QwenToolCompatibilityMiddleware(
+            default_model="qwen3.7-plus"
+        ).wrap_model_call(request, handler)
+
+    [message] = response.result
+    [call] = message.tool_calls
+    assert call["name"] == "prepare_solar_cycle_26_readiness"
+    assert call["args"] == {
+        "monthly_total_path": dataset_paths["silso-monthly-total-v2"],
+        "smoothed_path": dataset_paths["silso-monthly-smoothed-v2"],
+        "official_extrema_path": dataset_paths["silso-cycle-extrema-v2"],
+        "f107_path": dataset_paths["noaa-swpc-monthly-f107-v1"],
+        "historical_polar_path": dataset_paths["mwo-wso-polar-field-v2"],
+        "current_polar_path": dataset_paths["wso-current-polar-field-v1"],
+        "cutoff_date": "2026-06-30",
+    }
+
+
 @pytest.mark.parametrize("receipt_status", ["verified", "partial", "error"])
 def test_data_stage_suppresses_all_tools_only_after_verified_precursor_table(
     receipt_status: str,

@@ -1006,6 +1006,38 @@ WebUI 会话复验。
 该结果确认当前 endpoint、凭据和两种 Qwen 模型的兼容调用链可用。它不是 production WebUI
 运行，没有科研阶段工件，不评价主任务结论，也不能替代 Evidence reviewer、完整闭环或科学验证。
 
+## 主验收与可见迁移复验：CL-20260823-41 至 42
+
+### CL-20260823-41：`MAIN-SC26-B06` 主科学验收
+
+- 类型：headed production WebUI 主科学验收。
+- 入口与干预：全新会话只提交原始问题；初始观察器超时后进行两次有界恢复诊断，因此不计作完全
+  零追加输入通过。线程为 `01a02987-6d40-7bc1-b885-7ad0a2c5b8ba`。
+- 实际结果：Planning、Data、Hypothesis 与 Experiment Design 形成正式工件；实验设计为
+  `accept_with_limits`。自动实验在执行前达到运行时间预算，`attempt_count=0`、
+  `outcome=budget_stopped`，没有测量、诊断或执行回执。Experiment Result 判定为 `block`，科研状态
+  为 `blocked/experiment_result`，没有 Integration 或 Final Release。
+- 科学边界：不得发布第 26 周期强度分类或峰值区间；本轮没有通过最终发布门，也没有形成可交付的
+  “暂不启动”完整科研报告。
+- 处置状态：主验收未通过；保留全部负面运行证据。
+- 证据目录：`research/review/evals/runs/main_sc26.primary.r3/`。
+
+### CL-20260823-42：`EXT-RISE-AMPLITUDE-GENERALIZATION-01` 可见迁移
+
+- 类型：headed production WebUI 仓库内可见迁移基准。
+- 入口与干预：r2 为全新会话，批准、自动批准和操作者指导均为 0；线程为
+  `01a02a8e-f731-76b0-b739-27f610be2643`。
+- 实际结果：Planning 与 Data 为 `accept`，Hypothesis 为 `accept_with_limits`。实验设计生成期间，
+  同一供应商流式请求连续两次断开，唯一有界重试用尽后 LangGraph 以 `APIConnectionError` 结束；
+  没有实验设计正式工件、实验结果、Integration 或 Final Release。
+- 科学边界：假设仅限第 21–24 周的四个独立周期，已有文献支持为 0，不主张因果、原创性或外推；
+  没有产生可引用统计结果。
+- 工程边界：r1 曾暴露 `scientific_payload` 数值与数组字段被写成解释性文本，提示合同修订已通过
+  自动测试；r2 未到达 Experiment Result，故该修订尚无真实端到端通过证据。
+- 处置状态：迁移基准未通过；仓库外未知任务未执行，整体状态保持 `do_not_launch`。
+- 证据目录：`research/review/evals/runs/rise_amplitude.transfer.r1/`、
+  `research/review/evals/runs/rise_amplitude.transfer.r2/`。
+
 ## 新运行条目模板
 
 ### CL-YYYYMMDD-NN

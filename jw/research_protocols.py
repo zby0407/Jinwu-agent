@@ -13,6 +13,16 @@ F107_DISCONTINUITY_PROTOCOL = "f107_discontinuity_v1"
 GENERIC_DATA_PRODUCT = "generic_data_artifact"
 SILSO_CYCLE_REPRODUCTION_PROTOCOL = "silso_cycle_reproduction_v1"
 SILSO_CYCLE_EXTREMA_DATA_PRODUCT = "silso_cycle_extrema_v1"
+SOLAR_CYCLE_26_READINESS_PROTOCOL = "solar_cycle_26_readiness_v1"
+SOLAR_CYCLE_26_READINESS_DATA_PRODUCT = "solar_cycle_26_readiness_inventory_v1"
+SOLAR_CYCLE_26_READINESS_DATASET_IDS: tuple[str, ...] = (
+    "silso-monthly-total-v2",
+    "silso-monthly-smoothed-v2",
+    "silso-cycle-extrema-v2",
+    "noaa-swpc-monthly-f107-v1",
+    "mwo-wso-polar-field-v2",
+    "wso-current-polar-field-v1",
+)
 SOLAR_POLAR_PRECURSOR_PROTOCOL = "solar_polar_precursor_v1"
 SOLAR_POLAR_PRECURSOR_DATA_PRODUCT = "solar_polar_precursor_table_v1"
 SOLAR_POLAR_PRECURSOR_DATASET_IDS: tuple[str, ...] = (
@@ -75,6 +85,20 @@ _POLAR_EXCLUSION_PATTERN = re.compile(
     r"(?:polar[\s-]?field|polar precursor|MWO|WSO|极区磁场|极地磁场)",
     re.IGNORECASE | re.DOTALL,
 )
+_CYCLE_26_PATTERN = re.compile(
+    r"(?:第\s*26\s*(?:太阳活动)?周|太阳活动周\s*26|solar\s+cycle\s*26|cycle\s*26)",
+    re.IGNORECASE,
+)
+_CYCLE_26_READINESS_PATTERN = re.compile(
+    r"(?:是否.{0,16}(?:启动|发布)|可以启动|暂不启动|正式分类|峰值区间|"
+    r"launch|readiness|ready\s+to|formal\s+(?:forecast|classification)|"
+    r"prediction.{0,16}(?:start|launch))",
+    re.IGNORECASE | re.DOTALL,
+)
+_CYCLE_26_READINESS_CUTOFF_PATTERN = re.compile(
+    r"(?:2026\s*年\s*6\s*月\s*30\s*日|2026[-/.]0?6[-/.]30)",
+    re.IGNORECASE,
+)
 
 
 def detect_analysis_protocol(text: str) -> str:
@@ -82,6 +106,12 @@ def detect_analysis_protocol(text: str) -> str:
 
     if _F107_PATTERN.search(text) and _F107_DISCONTINUITY_PATTERN.search(text):
         return F107_DISCONTINUITY_PROTOCOL
+    if (
+        _CYCLE_26_PATTERN.search(text)
+        and _CYCLE_26_READINESS_PATTERN.search(text)
+        and _CYCLE_26_READINESS_CUTOFF_PATTERN.search(text)
+    ):
+        return SOLAR_CYCLE_26_READINESS_PROTOCOL
     if (
         _POLAR_FIELD_PATTERN.search(text)
         and _POLAR_PRECURSOR_INTENT_PATTERN.search(text)
@@ -101,6 +131,7 @@ def required_data_product_for_protocol(protocol: str) -> str:
 
     return {
         SILSO_CYCLE_REPRODUCTION_PROTOCOL: SILSO_CYCLE_EXTREMA_DATA_PRODUCT,
+        SOLAR_CYCLE_26_READINESS_PROTOCOL: SOLAR_CYCLE_26_READINESS_DATA_PRODUCT,
         SOLAR_POLAR_PRECURSOR_PROTOCOL: SOLAR_POLAR_PRECURSOR_DATA_PRODUCT,
     }.get(protocol, GENERIC_DATA_PRODUCT)
 
@@ -110,6 +141,7 @@ def required_dataset_ids_for_protocol(protocol: str) -> tuple[str, ...]:
 
     return {
         SILSO_CYCLE_REPRODUCTION_PROTOCOL: SILSO_CYCLE_REPRODUCTION_DATASET_IDS,
+        SOLAR_CYCLE_26_READINESS_PROTOCOL: SOLAR_CYCLE_26_READINESS_DATASET_IDS,
         SOLAR_POLAR_PRECURSOR_PROTOCOL: SOLAR_POLAR_PRECURSOR_DATASET_IDS,
     }.get(protocol, ())
 
@@ -314,6 +346,23 @@ def solar_polar_precursor_directive() -> str:
     )
 
 
+def solar_cycle_26_readiness_directive() -> str:
+    """Return the evidence boundary for the SC26 forecast launch gate."""
+
+    return (
+        "Apply the 2026-06-30 evidence cutoff. Treat SILSO sunspot number and "
+        "monthly F10.7 as cycle-25 state indicators, not cycle-26 precursors. "
+        "Require an established cycle-25/26 minimum and same-definition polar-"
+        "field observations near that minimum before releasing a formal cycle-26 "
+        "strength class or testable peak interval. Preserve explicit WSO missing "
+        "rows as an observed evidence gap. Historical MWO/WSO cycle pairs provide "
+        "calibration context only and do not substitute for the current precursor. "
+        "When these conditions are unmet, carry the verified data inventory through "
+        "competition, experiment, and opposing-evidence review and return an honest "
+        "not-ready decision with concrete re-evaluation triggers."
+    )
+
+
 def sha256_file(path: Path) -> str:
     """Hash one immutable artifact without loading it fully into memory."""
 
@@ -371,18 +420,22 @@ __all__ = [
     "SILSO_CYCLE_EXTREMA_DATA_PRODUCT",
     "SILSO_CYCLE_REPRODUCTION_DATASET_IDS",
     "SILSO_CYCLE_REPRODUCTION_PROTOCOL",
-    "SOLAR_POLAR_PRECURSOR_DATA_PRODUCT",
+    "SOLAR_CYCLE_26_READINESS_DATASET_IDS",
+    "SOLAR_CYCLE_26_READINESS_DATA_PRODUCT",
+    "SOLAR_CYCLE_26_READINESS_PROTOCOL",
     "SOLAR_POLAR_PRECURSOR_DATASET_IDS",
+    "SOLAR_POLAR_PRECURSOR_DATA_PRODUCT",
     "SOLAR_POLAR_PRECURSOR_PROTOCOL",
     "DatasetSemanticManifest",
     "detect_analysis_protocol",
     "f107_discontinuity_directive",
+    "plan_dataset_selection_conflicts_protocol",
     "render_silso_cycle_reproduction_markdown",
     "required_data_product_for_protocol",
     "required_dataset_ids_for_protocol",
-    "plan_dataset_selection_conflicts_protocol",
     "resolve_required_dataset_ids",
     "selected_dataset_ids_from_plan",
     "sha256_file",
+    "solar_cycle_26_readiness_directive",
     "solar_polar_precursor_directive",
 ]

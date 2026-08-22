@@ -2330,6 +2330,64 @@ def test_full_data_readiness_accepts_authoritative_context_and_receipted_output(
     )
 
 
+def test_full_data_readiness_accepts_cycle_26_readiness_inventory(
+    tmp_path: Path,
+) -> None:
+    task_id = "full-data-cycle-26-readiness"
+    context = _write_authoritative_data_context(
+        tmp_path,
+        task_id,
+        missing_required_dataset_ids=[],
+        must_stop=False,
+    )
+    output = (
+        tmp_path
+        / "work"
+        / "solar_data"
+        / "solar_cycle_26_readiness_inventory.json"
+    )
+    output.parent.mkdir(parents=True)
+    output.write_text(
+        json.dumps(
+            {
+                "schema_version": "solar-cycle-26-readiness-v1",
+                "launch_readiness": "insufficient_evidence",
+            }
+        ),
+        encoding="utf-8",
+    )
+    receipt = (
+        tmp_path
+        / "receipts"
+        / "datasets"
+        / "solar_cycle_26_readiness_inventory.json"
+    )
+    receipt.write_text(
+        json.dumps(
+            {
+                "schema_version": "solar-cycle-26-readiness-receipt-v1",
+                "receipt_type": "solar_cycle_26_readiness_inventory",
+                "status": "verified",
+                "producer": "solar-data",
+                "task_id": task_id,
+                "outputs": [
+                    {
+                        "path": output.relative_to(tmp_path).as_posix(),
+                        "sha256": hashlib.sha256(output.read_bytes()).hexdigest(),
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    store = ResearchReviewStore(tmp_path, task_id)
+
+    assert (
+        store._canonical_stage_ready("data", [context, receipt, output], phase="data")
+        is True
+    )
+
+
 def test_data_input_missing_context_is_a_complete_honest_artifact(
     tmp_path: Path,
 ) -> None:
@@ -3583,6 +3641,9 @@ def test_experiment_result_directive_resumes_without_binding_a_new_run() -> None
 
     assert "resume the exact accepted run_id" in directive
     assert "automatic_experiment_bind_request" not in directive
+    assert "Do not call automatic_experiment_create_single_stage_design" in directive
+    assert "automatic_experiment_validate_design" in directive
+    assert "If inspect_inputs or finalize reports a terminal state" in directive
 
 
 def test_experiment_result_directive_reads_worker_contract_before_prepare() -> None:
@@ -3591,6 +3652,8 @@ def test_experiment_result_directive_reads_worker_contract_before_prepare() -> N
     assert "automatic_experiment_inspect_inputs" in directive
     assert "required_worker_outputs" in directive
     assert "before automatic_experiment_prepare_attempt" in directive.lower()
+    assert "files as a JSON array" in directive
+    assert "files as a JSON object" not in directive
     assert "from the prepare response" not in directive
 
 
@@ -4416,8 +4479,31 @@ def test_data_dispatch_opens_and_injects_deterministic_context_once(
     assert "persist at least one additional task-local data artifact" in description
 
 
+@pytest.mark.parametrize(
+    ("analysis_protocol", "expected_ids"),
+    [
+        (
+            "solar_polar_precursor_v1",
+            ("silso-monthly-total-v2", "mwo-wso-polar-field-v2"),
+        ),
+        (
+            "solar_cycle_26_readiness_v1",
+            (
+                "silso-monthly-total-v2",
+                "silso-monthly-smoothed-v2",
+                "silso-cycle-extrema-v2",
+                "noaa-swpc-monthly-f107-v1",
+                "mwo-wso-polar-field-v2",
+                "wso-current-polar-field-v1",
+            ),
+        ),
+    ],
+)
 def test_data_preflight_acquires_curated_inputs_for_natural_language_task(
-    tmp_path: Path, monkeypatch
+    tmp_path: Path,
+    monkeypatch,
+    analysis_protocol: str,
+    expected_ids: tuple[str, ...],
 ) -> None:
     from jw.middleware import research_review_orchestration as orchestration
 
@@ -4455,26 +4541,25 @@ def test_data_preflight_acquires_curated_inputs_for_natural_language_task(
     context = orchestration._open_data_context_preflight(
         config,
         route_kind="bounded",
-        analysis_protocol="solar_polar_precursor_v1",
+        analysis_protocol=analysis_protocol,
     )
     repeated = orchestration._open_data_context_preflight(
         config,
         route_kind="bounded",
-        analysis_protocol="solar_polar_precursor_v1",
+        analysis_protocol=analysis_protocol,
     )
 
     assert context["status"] == "inputs_available"
     assert context["must_stop"] is False
-    assert {item["dataset_id"] for item in context["eligible_inputs"]} == {
-        "silso-monthly-total-v2",
-        "mwo-wso-polar-field-v2",
-    }
+    assert {item["dataset_id"] for item in context["eligible_inputs"]} == set(
+        expected_ids
+    )
     assert repeated["status"] == "inputs_available"
     assert acquisition_calls == [
         (
             tmp_path,
             "default",
-            ("silso-monthly-total-v2", "mwo-wso-polar-field-v2"),
+            expected_ids,
         )
     ]
     context_receipts = [

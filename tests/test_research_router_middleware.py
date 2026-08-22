@@ -24,7 +24,10 @@ from jw.middleware.research_router import (
     _successful_specialists,
     _with_analysis_protocol,
 )
-from jw.research_protocols import SOLAR_POLAR_PRECURSOR_PROTOCOL
+from jw.research_protocols import (
+    SOLAR_CYCLE_26_READINESS_PROTOCOL,
+    SOLAR_POLAR_PRECURSOR_PROTOCOL,
+)
 
 
 def _tool(name: str):
@@ -392,6 +395,20 @@ def test_fallback_recognizes_natural_reviewable_research_package() -> None:
     assert result["mode"] == "full_research"
     assert result["source_mode"] == "mixed"
     assert result["required_specialist"] == "none"
+
+
+def test_main_cycle_26_launch_gate_routes_to_readiness_not_precursor() -> None:
+    prompt = (
+        "请把资料截止在 2026 年 6 月 30 日，系统研究第 26 太阳活动周强度预测"
+        "现在是否可以启动。重点核查 SILSO、F10.7 和 WSO 极区磁场，最终明确"
+        "回答可以启动或暂不启动。"
+    )
+
+    route = _with_analysis_protocol(_fallback_route(prompt), text=prompt)
+
+    assert route["mode"] == "full_research"
+    assert route["required_analysis_protocol"] == SOLAR_CYCLE_26_READINESS_PROTOCOL
+    assert route["required_analysis_protocol"] != SOLAR_POLAR_PRECURSOR_PROTOCOL
 
 
 def test_specialist_success_requires_workspace_verified_artifact() -> None:

@@ -184,6 +184,10 @@ _SOLAR_DATA_OUTPUT_RECEIPT_CONTRACTS = {
     ("solar-precursor-cycle-table-v1", "solar_precursor_cycle_table"),
     ("solar-precursor-cycle-table-v2", "solar_precursor_cycle_table"),
     ("solar-cycle-pair-analysis-table-v2", "solar_cycle_pair_analysis_table"),
+    (
+        "solar-cycle-26-readiness-receipt-v1",
+        "solar_cycle_26_readiness_inventory",
+    ),
 }
 _DATA_CONTEXT_TRANSIENT_FIELDS = {
     "context_sha256",

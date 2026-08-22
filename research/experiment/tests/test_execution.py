@@ -1463,6 +1463,15 @@ class ExecutionTests(unittest.TestCase):
         self.assertEqual(stopped["outcome"], "budget_stopped")
         finalized = service.finalize(run_id)
         self.assertEqual(finalized["outcome"], "budget_stopped")
+
+        reinspected = service.inspect_inputs(run_id)
+
+        self.assertEqual(reinspected["status"], "terminal")
+        self.assertEqual(reinspected["phase"], "report_finalized")
+        self.assertEqual(reinspected["outcome"], "budget_stopped")
+        self.assertIs(reinspected["must_stop"], True)
+        self.assertEqual(reinspected["record_path"], "record.json")
+        self.assertEqual(reinspected["report_path"], "report.md")
         self.assertTrue((root / "record.json").is_file())
         self.assertTrue((root / "report.md").is_file())
 
