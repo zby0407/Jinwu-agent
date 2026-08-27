@@ -84,6 +84,8 @@ python3 scripts/run_sc26_historical_forecast.py \
 
 截图/视觉核验文件：`sc26_forecast_visualization.png`，已用本地图像查看器打开，确认包含三个面板、实际值与预测值对照、完美预测参考线、第26周点估计和95%区间。
 
+回归验证：`.venv/bin/pytest -q tests/test_solar_cycle_asof_features.py` 结果为 `5 passed`；两份预测脚本均通过 `python3 -m py_compile`，`git diff --check` 无输出。
+
 ## 真实生产 WebUI B08
 
 使用 `research/review/evals/sc26_formal_forecast_webui_v1.json` 和 `launch_sc26_formal_webui.sh` 启动了全新生产 WebUI，线程 ID 为 `01a0429c-02e7-7dd0-a08c-a6d5e9525131`，观察地址为 `http://127.0.0.1:4723/?threadId=01a0429c-02e7-7dd0-a08c-a6d5e9525131`。该运行真实完成了规划模型调用、规划工件和规划审查，并成功进入数据阶段调度；随后内部 `solar-data` A2A 调度长时间没有产生下一阶段终态。运行已通过 API 取消，状态和部分工件保留在 `.sc26-webui-workspace-20260827/projects/default/runs/run_01a0429c-02e7-7dd0_b7baa35c/`。因此 B08 只能报告为“真实 WebUI 部分执行、数据阶段阻断”，不能替代确定性回测与正式预测的完成证据。
