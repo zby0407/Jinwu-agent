@@ -1856,6 +1856,14 @@ async def _restore_webui_threads_to_global_store() -> None:
         # main graph only when they carry agent_name == AGENT_NAME. Rows
         # predating workspace stamping remain deliberately excluded.
         current_workspace = await _api_workspace_dir_async()
+        # The production resolver already returns a canonical path, but test
+        # harnesses and alternate launchers may provide an absolute-but-
+        # unresolved Windows path.  Canonicalize before using it as the
+        # in-process binding-cache key; otherwise persisted bindings are
+        # missed and startup silently falls back to a machine-global scan.
+        current_workspace = await asyncio.to_thread(
+            lambda: str(Path(current_workspace).expanduser().resolve())
+        )
         # The task binding registry is the authoritative workspace-to-thread
         # index. Restricting the SQLite query to these ids avoids evaluating
         # json_extract(metadata, ...) for every checkpoint in a machine-global
