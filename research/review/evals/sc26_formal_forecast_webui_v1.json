@@ -1,0 +1,25 @@
+{
+  "schema_version": "research-review-visible-suite-v2",
+  "suite_id": "sc26-formal-forecast-webui-v1",
+  "visibility": "checked_in_visible",
+  "requires_review_fields": true,
+  "cases": [
+    {
+      "id": "SC26-FORMAL-FORECAST-B08",
+      "category": "historical_backtest_then_forecast",
+      "prompt_style": "natural_user",
+      "allowed_user_intervention": "none",
+      "review_mode": "two_pass",
+      "reviewer_model": {"provider": "custom-openai", "model": "qwen3.7-plus"},
+      "expected_outcome": "released",
+      "repetitions": 1,
+      "input_files": [
+        "runs/sc26_forecast_backtest_20260827/inputs/SN_m_tot_V2.0.txt",
+        "runs/sc26_forecast_backtest_20260827/inputs/SN_ms_tot_V2.0.csv",
+        "runs/sc26_forecast_backtest_20260827/inputs/TableCyclesMiMa.txt"
+      ],
+      "focus": ["no temporal leakage", "historical rolling backtest", "baseline comparison", "formal Cycle 26 forecast", "wide uncertainty", "honest confidence"],
+      "prompt": "请完成一次独立、可复核的太阳活动周峰值预测实验。先使用随附的 WDC-SILSO Version 2.0 月度总太阳黑子数、13个月平滑序列和官方活动周极值表，对已经完成的第1—24周做严格按时间顺序的历史回测：只能用预测时点以前已经可得的活动周信息，逐周期列出预测峰值、实际官方峰值、误差和训练均值基线，并报告 MAE、RMSE、bootstrap 95%区间和限制。然后在历史回测完成后，使用截至当前已知的第25周信息，正式给出第26周13个月平滑太阳黑子数峰值预测、95%预测区间、模型置信度和敏感性分析。必须说明第25周尚未作为完整回测目标，预测结果不能表述为物理因果机制已经证明；如果候选模型没有超过基线，请保留这一负结果并降低置信度。请生成完整中文报告、逐周期 CSV、机器可读 JSON 和至少包含三个清晰面板的预测—实际值可视化。"
+    }
+  ]
+}
