@@ -1861,7 +1861,7 @@ async def _restore_webui_threads_to_global_store() -> None:
         # unresolved Windows path.  Canonicalize before using it as the
         # in-process binding-cache key; otherwise persisted bindings are
         # missed and startup silently falls back to a machine-global scan.
-        current_workspace = await asyncio.to_thread(
+        resolved_workspace = await asyncio.to_thread(
             lambda: str(Path(current_workspace).expanduser().resolve())
         )
         # The task binding registry is the authoritative workspace-to-thread
@@ -1875,10 +1875,10 @@ async def _restore_webui_threads_to_global_store() -> None:
             preload_bindings,
         )
 
-        await asyncio.to_thread(preload_bindings, current_workspace)
+        await asyncio.to_thread(preload_bindings, resolved_workspace)
         bound_thread_ids = {
             binding.thread_id
-            for binding in cached_bindings_for_resolved_base(current_workspace)
+            for binding in cached_bindings_for_resolved_base(resolved_workspace)
         }
         candidate_thread_ids = set(bound_thread_ids)
         for entry in GLOBAL_STORE.get("threads", []):
