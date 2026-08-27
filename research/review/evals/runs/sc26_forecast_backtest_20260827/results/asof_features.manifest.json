@@ -1,0 +1,70 @@
+{
+  "schema_version": "solar-cycle-asof-features-v1",
+  "data_source": "WDC-SILSO Sunspot Number Version 2.0",
+  "source_urls": {
+    "monthly_total": "https://www.sidc.be/SILSO/DATA/SN_m_tot_V2.0.csv",
+    "smoothed_monthly_total": "https://www.sidc.be/SILSO/DATA/SN_ms_tot_V2.0.csv",
+    "official_cycle_extrema": "https://www.sidc.be/SILSO/DATA/Cycles/TableCyclesMiMa.txt"
+  },
+  "source_files": {
+    "monthly_total": {
+      "path": "/home/zzz/2026tzb/8.20.4/research/review/evals/runs/sc26_forecast_backtest_20260827/inputs/SN_m_tot_V2.0.txt",
+      "sha256": "e83932c7a47a12c4826e3ed5ca48da0a49ef6da98aebb9580e2b83ff272d87a7"
+    },
+    "smoothed_monthly_total": {
+      "path": "/home/zzz/2026tzb/8.20.4/research/review/evals/runs/sc26_forecast_backtest_20260827/inputs/SN_ms_tot_V2.0.csv",
+      "sha256": "1289e5922889f26f4f322babe14f210442634c85ce02d1af8ccc050d2cc839da"
+    },
+    "official_cycle_extrema": {
+      "path": "/home/zzz/2026tzb/8.20.4/research/review/evals/runs/sc26_forecast_backtest_20260827/inputs/TableCyclesMiMa.txt",
+      "sha256": "a4b5b8812c9e966f013c55655176cbd22531e7afd0c304cb93cc38e00e50e4a0"
+    }
+  },
+  "configuration": {
+    "selected_cycles": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      12,
+      13,
+      14,
+      15,
+      16,
+      17,
+      18,
+      19,
+      20,
+      21,
+      22,
+      23,
+      24
+    ],
+    "forecast_month": 24,
+    "feature_start_month": 7,
+    "feature_end_month": 24,
+    "smoothing_availability_lag_months": 6,
+    "feature_definition": "OLS slope of raw monthly total sunspot number over months 7 through 24 after the official cycle minimum",
+    "target_definition": "official SILSO Version 2.0 smoothed cycle maximum"
+  },
+  "audits": {
+    "feature_cycle_count": 24,
+    "official_minimum_asof_candidate_count": 24,
+    "future_input_violation_count": 0,
+    "target_timing_violation_count": 0,
+    "expected_feature_month_count": 18,
+    "feature_month_count_matches": true
+  },
+  "claim_boundary": "The official cycle minimum is treated as a historical label. Its as-of availability is audited at month 24 using only centered-smoothed values that would have been available by that issue time.",
+  "feature_artifact": {
+    "path": "/home/zzz/2026tzb/8.20.4/research/review/evals/runs/sc26_forecast_backtest_20260827/results/asof_features.csv",
+    "sha256": "997e957113cb13a59cad85d961167c4012354af518274a9d999921947dfed86b"
+  }
+}

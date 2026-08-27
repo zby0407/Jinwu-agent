@@ -65,14 +65,32 @@ def parse_cycle_selector(value: str) -> list[int]:
 
 
 def load_monthly_total(path: Path) -> pd.DataFrame:
-    frame = pd.read_csv(
+    raw = pd.read_csv(
         path,
         sep=r"\s+",
         comment="#",
         header=None,
-        names=["year", "month", "day", "decimal_date", "sn", "std", "n_obs"],
+        names=list(range(7)),
         engine="python",
     )
+    # SILSO's current TXT product has six scientific fields and an optional
+    # trailing provisional marker.  Older local fixtures may include a day
+    # field instead.  The third column distinguishes them unambiguously.
+    if pd.to_numeric(raw[2], errors="coerce").median() > 31:
+        frame = raw.iloc[:, :6].copy()
+        frame.columns = ["year", "month", "decimal_date", "sn", "std", "n_obs"]
+        frame["day"] = 1
+    else:
+        frame = raw.copy()
+        frame.columns = [
+            "year",
+            "month",
+            "day",
+            "decimal_date",
+            "sn",
+            "std",
+            "n_obs",
+        ]
     frame["date"] = pd.to_datetime(frame[["year", "month", "day"]])
     frame["sn"] = pd.to_numeric(frame["sn"], errors="raise")
     if frame["date"].duplicated().any():
