@@ -85,7 +85,6 @@ def bootstrap_difference(
 def build_cycle_table(monthly: pd.DataFrame, smoothed: pd.DataFrame, extrema_path: Path) -> pd.DataFrame:
     official = load_official_cycles(extrema_path)
     raw = monthly.set_index("date")["sn"]
-    smooth = smoothed.set_index("date")["sn"]
     rows: list[dict[str, object]] = []
     for cycle in range(1, 25):
         record = official.get(cycle)

@@ -550,7 +550,6 @@ Generate an improved version that addresses all the critique points."""
         output_dir = output_path.parent
         output_dir.mkdir(parents=True, exist_ok=True)
         
-        base_name = output_path.stem
         extension = output_path.suffix or ".png"
         
         mode = "visual_only" if visual_only else "full_slide"
@@ -596,7 +595,7 @@ Generate a high-quality {'visual/figure' if visual_only else 'presentation slide
             print(f"\n[Iteration {i}/{iterations}]")
             print("-" * 40)
             
-            print(f"Generating image with Nano Banana Pro...")
+            print("Generating image with Nano Banana Pro...")
             image_data = self.generate_image(current_prompt, attachments=attachments)
             
             if not image_data:
@@ -620,7 +619,7 @@ Generate a high-quality {'visual/figure' if visual_only else 'presentation slide
                 f.write(image_data)
             print(f"✓ Generated image (iteration {i})")
             
-            print(f"Reviewing image with Gemini 3 Pro...")
+            print("Reviewing image with Gemini 3 Pro...")
             critique, score, needs_improvement = self.review_image(
                 str(temp_path), user_prompt, i, visual_only, iterations
             )
@@ -643,14 +642,14 @@ Generate a high-quality {'visual/figure' if visual_only else 'presentation slide
                 break
             
             if i == iterations:
-                print(f"\n⚠ Maximum iterations reached")
+                print("\n⚠ Maximum iterations reached")
                 final_image_data = image_data
                 results["final_score"] = score
                 results["success"] = True
                 break
             
             print(f"\n⚠ Quality below threshold ({score} < {self.QUALITY_THRESHOLD})")
-            print(f"Improving prompt...")
+            print("Improving prompt...")
             current_prompt = self.improve_prompt(user_prompt, critique, i + 1, visual_only)
         
         # Clean up temporary files
@@ -669,7 +668,7 @@ Generate a high-quality {'visual/figure' if visual_only else 'presentation slide
             print(f"\n✓ Final image: {output_path}")
         
         print(f"\n{'='*60}")
-        print(f"Generation Complete!")
+        print("Generation Complete!")
         print(f"Final Score: {results['final_score']}/10")
         if results["early_stop"]:
             success_count = len([r for r in results['iterations'] if r.get('success')])
@@ -752,7 +751,7 @@ Environment:
             print(f"\n✓ Success! Image saved to: {args.output}")
             sys.exit(0)
         else:
-            print(f"\n✗ Generation failed. Check review log for details.")
+            print("\n✗ Generation failed. Check review log for details.")
             sys.exit(1)
     except Exception as e:
         print(f"\n✗ Error: {str(e)}")

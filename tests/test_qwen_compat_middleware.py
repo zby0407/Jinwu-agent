@@ -1052,11 +1052,16 @@ async def test_async_qwen_model_call_stops_after_two_total_wall_timeout_retries(
             "jw.middleware.qwen_compat._dashscope_request_timeout",
             return_value=0.01,
         ),
+        patch(
+            "jw.middleware.qwen_compat._sleep_before_qwen_retry",
+            new_callable=AsyncMock,
+        ) as retry_sleep,
         pytest.raises(TimeoutError),
     ):
         await middleware.awrap_model_call(request, handler)
 
     assert call_count == 3
+    assert retry_sleep.await_count == 2
 
 
 @pytest.mark.asyncio

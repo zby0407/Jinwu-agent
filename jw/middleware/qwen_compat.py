@@ -96,6 +96,14 @@ _REPEATED_TOOL_ERROR_STOP = (
 _TOOL_ERROR_COMPACT_THRESHOLD = 1_200
 _QWEN_TRANSPORT_RETRY_DELAY_SECONDS = 20.0
 _QWEN_TRANSPORT_MAX_RETRIES = 2
+
+
+async def _sleep_before_qwen_retry(delay_seconds: float) -> None:
+    """Sleep between Qwen transport retries behind a testable seam."""
+
+    await asyncio.sleep(delay_seconds)
+
+
 _SOURCE_RESTRICTED_HYPOTHESIS_DISCOVERY_TOOLS = frozenset(
     {
         "kb_query",
@@ -2861,7 +2869,9 @@ class QwenToolCompatibilityMiddleware(AgentMiddleware):
                         _QWEN_TRANSPORT_RETRY_DELAY_SECONDS,
                         type(current).__name__,
                     )
-                    await asyncio.sleep(_QWEN_TRANSPORT_RETRY_DELAY_SECONDS)
+                    await _sleep_before_qwen_retry(
+                        _QWEN_TRANSPORT_RETRY_DELAY_SECONDS
+                    )
                     try:
                         response = await self._await_handler_with_qwen_wall_timeout(
                             request, prepared, handler

@@ -8,7 +8,7 @@ formats with appropriate settings for various journals.
 
 import matplotlib.pyplot as plt
 from pathlib import Path
-from typing import List, Optional, Union
+from typing import List, Union
 
 
 def save_publication_figure(
@@ -269,7 +269,7 @@ def check_figure_size(fig: plt.Figure, journal: str = 'nature') -> dict:
     print(f"  Single column: {journal_spec['single']} mm")
     print(f"  Double column: {journal_spec['double']} mm")
     print(f"  Max height: {journal_spec['max_height']} mm")
-    print(f"\nCompliance:")
+    print("\nCompliance:")
     print(f"  Width: {'✓ OK' if width_ok else '✗ Non-standard'} ({column_type or 'custom'})")
     print(f"  Height: {'✓ OK' if height_ok else '✗ Too tall'}")
     print(f"  Overall: {'✓ COMPLIANT' if result['compliant'] else '✗ NEEDS ADJUSTMENT'}")
