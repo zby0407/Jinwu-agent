@@ -111,6 +111,12 @@ _SOURCE_RESTRICTED_HYPOTHESIS_DISCOVERY_TOOLS = frozenset(
 _SOURCE_RESTRICTED_PREBOUND_TOOLS = frozenset(
     {"scientific_hypothesis_bind_request", "scientific_hypothesis_bind_evidence"}
 )
+_SOURCE_RESTRICTED_HYPOTHESIS_PROTOCOLS = frozenset(
+    {
+        "silso_cycle_morphology_v1",
+        "solar_cycle_26_forecast_backtest_v1",
+    }
+)
 _SOURCE_RESTRICTED_HYPOTHESIS_INSTRUCTION = """
 <source_restricted_statistical_task>
 This is a source-restricted statistical task. The accepted A2A material contains
@@ -118,10 +124,13 @@ hash-matched, Evidence-inspected result excerpts. Treat those excerpts as the on
 scientific evidence for this stage. Do not call knowledge discovery tools, generic
 filesystem tools, or shell tools. If the host bind receipt reports a prebound seed,
 use its evidence_id mapping directly; otherwise bind exact text from the accepted material, then
-persist one candidate per preregistered relationship with
-scientific_hypothesis_update_draft; for silso_cycle_morphology_v1 these are cycle
-length, rise time, and decline time versus peak strength. Keep a supported relation,
-an evidence-insufficient relation, and an unstable relation separate. Do not bind the
+persist no more than three distinct candidates with
+scientific_hypothesis_update_draft. For silso_cycle_morphology_v1 these are cycle
+length, rise time, and decline time versus peak strength: persist one candidate per
+preregistered relationship. For
+solar_cycle_26_forecast_backtest_v1 keep historical backtest skill versus the fixed
+baseline, the conditional Cycle 26 forecast, and sensitivity/uncertainty distinct;
+preserve a negative skill result and its low forecast confidence. Do not bind the
 same accepted excerpt twice, and do not repeatedly rewrite a warning-free candidate.
 After the three candidates are complete, read the draft, complete the required tail
 review, checkpoint it, and read the final draft before returning prose. Calibrate
@@ -246,6 +255,7 @@ _DATA_DETERMINISTIC_TOOLS = frozenset(
     {
         "solar_data_open_context",
         "prepare_solar_cycle_26_readiness",
+        "run_solar_cycle_26_historical_forecast",
         "prepare_solar_precursor_cycle_table",
         "reproduce_silso_cycle_extrema",
     }
@@ -261,6 +271,8 @@ _SILSO_EXTREMA_DATA_PRODUCT = "silso_cycle_extrema_v1"
 _SOLAR_PRECURSOR_DATA_PRODUCT = "solar_polar_precursor_table_v1"
 _SOLAR_CYCLE_26_READINESS_PROTOCOL = "solar_cycle_26_readiness_v1"
 _SOLAR_CYCLE_26_READINESS_DATA_PRODUCT = "solar_cycle_26_readiness_inventory_v1"
+_SOLAR_CYCLE_26_FORECAST_BACKTEST_PROTOCOL = "solar_cycle_26_forecast_backtest_v1"
+_SOLAR_CYCLE_26_FORECAST_BACKTEST_DATA_PRODUCT = "solar_cycle_26_forecast_backtest_v1"
 _SOLAR_CYCLE_26_READINESS_DATASET_IDS = frozenset(
     {
         "silso-monthly-total-v2",
@@ -516,15 +528,33 @@ class QwenToolCompatibilityMiddleware(AgentMiddleware):
             "[RESEARCH_PRODUCER_V2]" in request_context
             and "stage=planning" in request_context
         )
+        experiment_design_context = (
+            "[RESEARCH_PRODUCER_V2]" in request_context
+            and "stage=experiment_design" in request_context
+        )
+        experiment_design_protocol = next(
+            (
+                protocol
+                for protocol in (
+                    "silso_cycle_morphology_v1",
+                    "solar_cycle_26_forecast_backtest_v1",
+                )
+                if protocol in request_context
+            ),
+            None,
+        )
         data_stage_context = (
             "[RESEARCH_PRODUCER_V2]" in request_context
             and "stage=data" in request_context
         )
         evidence_review_context = "[EVIDENCE_REVIEW_V2]" in request_context
-        source_restricted_morphology_hypothesis = (
+        source_restricted_hypothesis = (
             "[RESEARCH_PRODUCER_V2]" in request_context
             and "stage=hypothesis" in request_context
-            and "silso_cycle_morphology_v1" in request_context
+            and any(
+                protocol in request_context
+                for protocol in _SOURCE_RESTRICTED_HYPOTHESIS_PROTOCOLS
+            )
         )
         final_release_context = (
             "<research_route>" in request_context
@@ -545,7 +575,7 @@ class QwenToolCompatibilityMiddleware(AgentMiddleware):
                 tool for tool in request_tools if _tool_name(tool) != "think_tool"
             ]
             overrides["tools"] = request_tools
-        if source_restricted_morphology_hypothesis:
+        if source_restricted_hypothesis:
             request_tools = [
                 tool
                 for tool in request_tools
@@ -622,6 +652,13 @@ class QwenToolCompatibilityMiddleware(AgentMiddleware):
                 preopened_context=self._preopened_data_context(
                     str(system_message.content)
                 ),
+            )
+        if deterministic_tool is None:
+            deterministic_tool = self._deterministic_experiment_design_tool(
+                projected_messages,
+                request_tools,
+                enabled=experiment_design_context,
+                protocol=experiment_design_protocol,
             )
         if deterministic_tool is None:
             deterministic_tool = self._deterministic_evidence_submit_tool(
@@ -973,6 +1010,7 @@ class QwenToolCompatibilityMiddleware(AgentMiddleware):
                 latest_human_index = index
         terminal_tools = {
             "prepare_solar_cycle_26_readiness",
+            "run_solar_cycle_26_historical_forecast",
             "prepare_solar_precursor_cycle_table",
             "reproduce_silso_cycle_extrema",
         }
@@ -980,6 +1018,7 @@ class QwenToolCompatibilityMiddleware(AgentMiddleware):
             "receipts/datasets/solar_cycle_26_readiness_inventory.json",
             "receipts/datasets/solar_precursor_cycle_table.json",
             "receipts/datasets/silso_cycle_extrema.json",
+            "receipts/datasets/solar_cycle_26_forecast_backtest.json",
         }
         for message in reversed(messages[latest_human_index + 1 :]):
             if not isinstance(message, ToolMessage):
@@ -1024,6 +1063,7 @@ class QwenToolCompatibilityMiddleware(AgentMiddleware):
         available = set(validate_qwen_tool_schema(tools))
         open_tool = "solar_data_open_context"
         readiness_tool = "prepare_solar_cycle_26_readiness"
+        forecast_tool = "run_solar_cycle_26_historical_forecast"
         prepare_tool = "prepare_solar_precursor_cycle_table"
         reproduce_tool = "reproduce_silso_cycle_extrema"
 
@@ -1037,10 +1077,11 @@ class QwenToolCompatibilityMiddleware(AgentMiddleware):
             for message in messages[latest_human_index + 1 :]
             if isinstance(message, ToolMessage)
             and message.name
-            in {open_tool, readiness_tool, prepare_tool, reproduce_tool}
+            in {open_tool, readiness_tool, forecast_tool, prepare_tool, reproduce_tool}
         ]
         if relevant and relevant[-1].name in {
             readiness_tool,
+            forecast_tool,
             prepare_tool,
             reproduce_tool,
         }:
@@ -1081,6 +1122,14 @@ class QwenToolCompatibilityMiddleware(AgentMiddleware):
         ):
             return readiness_tool
         if (
+            payload.get("analysis_protocol") == _SOLAR_CYCLE_26_FORECAST_BACKTEST_PROTOCOL
+            and payload.get("required_data_product")
+            == _SOLAR_CYCLE_26_FORECAST_BACKTEST_DATA_PRODUCT
+            and _SILSO_REPRODUCTION_DATASET_IDS <= dataset_ids
+            and forecast_tool in available
+        ):
+            return forecast_tool
+        if (
             payload.get("analysis_protocol") == _SILSO_REPRODUCTION_PROTOCOL
             and payload.get("required_data_product") == _SILSO_EXTREMA_DATA_PRODUCT
             and _SILSO_REPRODUCTION_DATASET_IDS <= dataset_ids
@@ -1094,6 +1143,58 @@ class QwenToolCompatibilityMiddleware(AgentMiddleware):
         ):
             return prepare_tool
         return None
+
+    @classmethod
+    def _deterministic_experiment_design_tool(
+        cls,
+        messages: Sequence[BaseMessage],
+        tools: list[BaseTool | dict[str, Any]],
+        *,
+        enabled: bool,
+        protocol: str | None,
+    ) -> str | None:
+        """Route registered protocols to their host-owned design adapter.
+
+        The generic single-stage schema is intentionally flexible, but it is
+        the wrong boundary for the two registered solar protocols: their
+        design (and worker contract) is pre-registered and deterministic.
+        Qwen can otherwise spend its whole design budget repairing a free-form
+        schema even though the host already has a valid design builder.
+        """
+        if not enabled or protocol not in {
+            "silso_cycle_morphology_v1",
+            "solar_cycle_26_forecast_backtest_v1",
+        }:
+            return None
+        specialized = {
+            "silso_cycle_morphology_v1":
+            "automatic_experiment_create_silso_morphology_design",
+            "solar_cycle_26_forecast_backtest_v1":
+            "automatic_experiment_create_sc26_forecast_design",
+        }[protocol]
+        available = {name for tool in tools if (name := _tool_name(tool)) is not None}
+        if specialized not in available:
+            return None
+
+        latest_human_index = -1
+        for index, message in enumerate(messages):
+            if getattr(message, "type", "") in {"human", "user"}:
+                latest_human_index = index
+        # Once the specialized builder has returned its typed success receipt,
+        # let the producer continue to checkpoint the result instead of
+        # invoking the same builder again.
+        for message in reversed(messages[latest_human_index + 1 :]):
+            if not isinstance(message, ToolMessage) or message.name != specialized:
+                continue
+            try:
+                payload = json.loads(cls._message_text(message))
+            except (TypeError, ValueError):
+                return specialized
+            result = payload.get("result") if isinstance(payload, Mapping) else None
+            if isinstance(result, Mapping) and result.get("status") == "design_validated":
+                return None
+            return specialized
+        return specialized
 
     @staticmethod
     def _preopened_data_context(content: str) -> Mapping[str, Any] | None:
@@ -2099,6 +2200,12 @@ class QwenToolCompatibilityMiddleware(AgentMiddleware):
                     "historical_polar_path": paths.get("mwo-wso-polar-field-v2"),
                     "current_polar_path": paths.get("wso-current-polar-field-v1"),
                     "cutoff_date": "2026-06-30",
+                }
+            elif name == "run_solar_cycle_26_historical_forecast":
+                required = {
+                    "monthly_total_path": paths.get("silso-monthly-total-v2"),
+                    "smoothed_path": paths.get("silso-monthly-smoothed-v2"),
+                    "official_extrema_path": paths.get("silso-cycle-extrema-v2"),
                 }
             else:
                 required = {

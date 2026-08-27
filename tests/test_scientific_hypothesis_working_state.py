@@ -1986,6 +1986,55 @@ def test_multi_candidate_checkpoint_requires_current_tail_review() -> None:
     assert "independent tail review is required" in checked["validation_error"]
 
 
+def test_warning_free_multi_candidate_draft_routes_to_tail_review(monkeypatch) -> None:
+    config = _config("hypothesis-tail-review-next-action")
+    hypothesis_tools._STATES.pop("hypothesis-tail-review-next-action", None)
+    hypothesis_tools.scientific_hypothesis_bind_request.invoke(
+        {"request_input": "Compare multiple explanations for this observation."},
+        config=config,
+    )
+    state = hypothesis_tools._STATES["hypothesis-tail-review-next-action"]
+    _update(config, "replace", make_response(state.request))
+    monkeypatch.setattr(hypothesis_tools, "_draft_warnings", lambda *_args: [])
+
+    draft = json.loads(
+        hypothesis_tools.scientific_hypothesis_get_draft.invoke({}, config=config)
+    )
+
+    assert draft["soft_warning_count"] == 0
+    assert draft["tail_review_required"] is True
+    assert draft["tail_review_status"] == "missing"
+    assert draft["natural_language_return_allowed"] is False
+    assert draft["next_required_action"]["tool"] == (
+        "scientific_hypothesis_review_tail"
+    )
+
+
+def test_warning_free_single_candidate_draft_routes_to_checkpoint(monkeypatch) -> None:
+    config = _config("hypothesis-single-checkpoint-next-action")
+    hypothesis_tools._STATES.pop("hypothesis-single-checkpoint-next-action", None)
+    hypothesis_tools.scientific_hypothesis_bind_request.invoke(
+        {"request_input": "Assess one bounded explanation for this observation."},
+        config=config,
+    )
+    state = hypothesis_tools._STATES["hypothesis-single-checkpoint-next-action"]
+    response = make_response(state.request)
+    response["candidates"] = response["candidates"][:1]
+    response["pairwise_distinctions"] = []
+    _update(config, "replace", response)
+    monkeypatch.setattr(hypothesis_tools, "_draft_warnings", lambda *_args: [])
+
+    draft = json.loads(
+        hypothesis_tools.scientific_hypothesis_get_draft.invoke({}, config=config)
+    )
+
+    assert draft["tail_review_required"] is False
+    assert draft["natural_language_return_allowed"] is False
+    assert draft["next_required_action"]["tool"] == (
+        "scientific_hypothesis_checkpoint_draft"
+    )
+
+
 def test_long_tail_single_candidate_cannot_bypass_review() -> None:
     config = _config("hypothesis-long-tail-single-candidate")
     hypothesis_tools._STATES.pop("hypothesis-long-tail-single-candidate", None)

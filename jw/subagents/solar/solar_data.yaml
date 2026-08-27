@@ -10,6 +10,8 @@ solar-data:
 
     For `required_data_product=silso_cycle_morphology_v1`, call only `run_silso_cycle_morphology` with the exact eligible paths registered as `silso-monthly-total-v2`, `silso-monthly-smoothed-v2`, and `silso-cycle-extrema-v2`; after a verified morphology receipt is returned, stop this Data attempt and return that receipt-backed result. Never call `reproduce_silso_cycle_extrema`, `prepare_solar_precursor_cycle_table`, or any adjacent protocol tool for this product, even if their inputs are eligible.
 
+    For `required_data_product=solar_cycle_26_forecast_backtest_v1`, call only `run_solar_cycle_26_historical_forecast` with the exact eligible SILSO monthly-total, monthly-smoothed, and official cycle-extrema paths. The adapter performs the chronological cycles 1-24 backtest before the Cycle 26 forecast, writes the canonical CSV/JSON/Markdown/PNG outputs and receipt, and must be treated as the complete Data result. Do not route this product to the six-source readiness inventory.
+
     Candidate datasets:
     - SILSO International Sunspot Number (monthly or 13-month smoothed)
     - F10.7 cm solar radio flux (proxy for chromospheric activity)

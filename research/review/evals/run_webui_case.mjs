@@ -647,6 +647,13 @@ try {
       nodeId: inputNode.nodeId,
       files: inputFiles,
     });
+    // Chromium's CDP file injection does not consistently dispatch the
+    // browser change event under both headless and WSLG headed modes.  Fire
+    // the same bubbling event explicitly so React's onChange handler starts
+    // the real upload path in either production-browser mode.
+    await evaluate(
+      `document.querySelector('input[type="file"]')?.dispatchEvent(new Event('change', { bubbles: true })); true;`
+    );
     const uploadedNames = inputFiles.map((value) => path.basename(value));
     threadId = await waitFor(
       () =>
@@ -730,22 +737,27 @@ try {
   );
   process.stdout.write(`${JSON.stringify(observer)}\n`);
 
+  // A freshly created thread is initially idle and has no checkpoint. Do not
+  // classify that transient shell as completed_without_answer: the WebUI can
+  // expose the workspace binding a few seconds before it has submitted the
+  // LangGraph run to the backend.
+  const submittedRuns = await waitFor(
+    async () => {
+      const rows = await fetchJson(`${backendUrl}/threads/${threadId}/runs`);
+      return Array.isArray(rows) && rows.length > 0 ? rows : null;
+    },
+    60_000,
+    "submitted LangGraph run before terminal polling"
+  );
+
   if (submitOnly) {
-    const runs = await waitFor(
-      async () => {
-        const rows = await fetchJson(`${backendUrl}/threads/${threadId}/runs`);
-        return Array.isArray(rows) && rows.length > 0 ? rows : null;
-      },
-      30_000,
-      "submitted LangGraph run"
-    );
     const submission = {
       schema_version: "webui-eval-submission-v1",
       case_id: caseId,
       run_label: runLabel,
       submitted_at: new Date().toISOString(),
       thread_id: threadId,
-      run_id: runs[0]?.run_id ?? null,
+      run_id: submittedRuns[0]?.run_id ?? null,
     };
     await writeFile(
       path.join(outputDir, "submission.json"),

@@ -293,6 +293,57 @@ def test_source_restricted_morphology_hypothesis_hides_discovery_tools():
     assert "assign high to the rise-time within-sample descriptive claim" in rendered
 
 
+def test_source_restricted_sc26_backtest_hypothesis_hides_discovery_tools():
+    """The fixed SC26 backtest must not expand into an unrelated KB loop."""
+
+    middleware = QwenToolCompatibilityMiddleware(default_model="qwen3.7-plus")
+    request = _request(
+        {"name": "kb_query"},
+        {"name": "kb_read"},
+        {"name": "read_file"},
+        {"name": "write_todos"},
+        {"name": "execute"},
+        {"name": "scientific_hypothesis_bind_request"},
+        {"name": "scientific_hypothesis_bind_evidence"},
+        {"name": "scientific_hypothesis_update_draft"},
+        {"name": "scientific_hypothesis_get_draft"},
+        {"name": "scientific_hypothesis_review_tail"},
+        {"name": "scientific_hypothesis_checkpoint_draft"},
+        messages=[HumanMessage(content="continue the fixed SC26 backtest stage")],
+    )
+    request.system_message = SystemMessage(
+        content=(
+            "[RESEARCH_PRODUCER_V2]\n"
+            "stage=hypothesis\n"
+            'analysis_protocol="solar_cycle_26_forecast_backtest_v1"\n'
+            "Use only the accepted forecast/backtest result capsule."
+        )
+    )
+    handler = MagicMock(return_value="ok")
+
+    with patch(
+        "jw.middleware.qwen_compat._read_model_override",
+        return_value=(None, None),
+    ):
+        assert middleware.wrap_model_call(request, handler) == "ok"
+
+    prepared = handler.call_args.args[0]
+    names = {tool["name"] for tool in prepared.tools}
+    assert names == {
+        "scientific_hypothesis_bind_request",
+        "scientific_hypothesis_bind_evidence",
+        "scientific_hypothesis_update_draft",
+        "scientific_hypothesis_get_draft",
+        "scientific_hypothesis_review_tail",
+        "scientific_hypothesis_checkpoint_draft",
+    }
+    rendered = " ".join(
+        str(prepared.system_message.content).replace("\n", " ").split()
+    )
+    assert "source-restricted statistical task" in rendered
+    assert "historical backtest skill" in rendered
+
+
 def test_source_restricted_morphology_hypothesis_uses_host_prebound_seed():
     """After the host bind receipt, the model cannot re-enter substring binding."""
 
@@ -1270,6 +1321,58 @@ def test_data_stage_synthesizes_cycle_26_readiness_adapter_after_rejection():
         "historical_polar_path": dataset_paths["mwo-wso-polar-field-v2"],
         "current_polar_path": dataset_paths["wso-current-polar-field-v1"],
         "cutoff_date": "2026-06-30",
+    }
+
+
+def test_data_stage_synthesizes_cycle_26_forecast_backtest_adapter_after_rejection():
+    dataset_paths = {
+        "silso-monthly-total-v2": "/project/silso.txt",
+        "silso-monthly-smoothed-v2": "/project/smoothed.csv",
+        "silso-cycle-extrema-v2": "/project/extrema.txt",
+    }
+    context = {
+        "status": "inputs_available",
+        "must_stop": False,
+        "analysis_protocol": "solar_cycle_26_forecast_backtest_v1",
+        "required_data_product": "solar_cycle_26_forecast_backtest_v1",
+        "eligible_inputs": [
+            {"dataset_id": dataset_id, "path": path}
+            for dataset_id, path in dataset_paths.items()
+        ],
+    }
+    request = _request(
+        {"name": "solar_data_open_context"},
+        {"name": "run_solar_cycle_26_historical_forecast"},
+        messages=[HumanMessage(content="run the historical backtest and forecast")],
+    )
+    request.system_message = SystemMessage(
+        content=(
+            "[RESEARCH_PRODUCER_V2]\nstage=data\n"
+            f"deterministic_data_context={json.dumps(context)}"
+        )
+    )
+    handler = MagicMock(
+        side_effect=RuntimeError(
+            "The tool_choice parameter does not support being set to required "
+            "or object in thinking mode"
+        )
+    )
+
+    with patch(
+        "jw.middleware.qwen_compat._read_model_override",
+        return_value=(None, None),
+    ):
+        response = QwenToolCompatibilityMiddleware(
+            default_model="qwen3.7-plus"
+        ).wrap_model_call(request, handler)
+
+    [message] = response.result
+    [call] = message.tool_calls
+    assert call["name"] == "run_solar_cycle_26_historical_forecast"
+    assert call["args"] == {
+        "monthly_total_path": dataset_paths["silso-monthly-total-v2"],
+        "smoothed_path": dataset_paths["silso-monthly-smoothed-v2"],
+        "official_extrema_path": dataset_paths["silso-cycle-extrema-v2"],
     }
 
 

@@ -223,6 +223,12 @@ def load_subagents(
             # get parsed as a ``{agent-name: spec}`` mapping.
             if yml.name == "bundle.yaml":
                 continue
+            # Skill packages may carry an ``agents/openai.yaml`` UI manifest.
+            # It declares the generic OpenAI ``interface`` entry, not a JW
+            # runtime sub-agent; loading it would collide with every other
+            # packaged skill's manifest.
+            if yml.name == "openai.yaml" and yml.parent.name == "agents":
+                continue
             # Skip yaml files living under a disabled/private sub-directory
             # (any path component starting with ``_`` or ``.``). This lets a
             # bundle ship an ``_archive/`` folder without it being loaded.

@@ -308,6 +308,15 @@ def test_webui_runner_checks_workspace_after_thread_binding() -> None:
     assert "!threadIsActive && !runIsActive" in text
 
 
+def test_webui_runner_waits_for_a_real_run_before_terminal_polling() -> None:
+    text = (EVALS / "run_webui_case.mjs").read_text(encoding="utf-8")
+
+    gate = text.index('"submitted LangGraph run before terminal polling"')
+    terminal_poll = text.index("const terminal = await waitFor(")
+    assert gate < terminal_poll
+    assert "submittedRuns[0]?.run_id" in text
+
+
 def test_webui_runner_records_controller_and_artifact_producer_separately() -> None:
     text = (EVALS / "run_webui_case.mjs").read_text(encoding="utf-8")
 

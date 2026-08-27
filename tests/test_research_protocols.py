@@ -6,6 +6,7 @@ from jw.research_protocols import (
     SOLAR_CYCLE_26_READINESS_DATA_PRODUCT,
     SOLAR_CYCLE_26_READINESS_DATASET_IDS,
     SOLAR_CYCLE_26_READINESS_PROTOCOL,
+    SOLAR_CYCLE_26_FORECAST_BACKTEST_PROTOCOL,
     SOLAR_POLAR_PRECURSOR_DATA_PRODUCT,
     SOLAR_POLAR_PRECURSOR_PROTOCOL,
     SILSO_CYCLE_MORPHOLOGY_PROTOCOL,
@@ -16,6 +17,7 @@ from jw.research_protocols import (
     required_data_product_for_protocol,
     silso_cycle_morphology_directive,
     solar_cycle_26_readiness_directive,
+    solar_cycle_26_forecast_backtest_directive,
     solar_polar_precursor_directive,
 )
 
@@ -143,6 +145,19 @@ def test_cycle_26_preliminary_probability_forecast_uses_readiness_protocol() -> 
     )
 
     assert detect_analysis_protocol(request) == SOLAR_CYCLE_26_READINESS_PROTOCOL
+
+
+def test_cycle_26_historical_backtest_and_formal_forecast_use_dedicated_protocol() -> None:
+    request = (
+        "先对第1—24周做严格按时间顺序的历史回测，报告MAE和RMSE；"
+        "历史回测完成后，正式给出第26周峰值预测、95%预测区间和可视化。"
+    )
+
+    assert detect_analysis_protocol(request) == SOLAR_CYCLE_26_FORECAST_BACKTEST_PROTOCOL
+    assert required_data_product_for_protocol(SOLAR_CYCLE_26_FORECAST_BACKTEST_PROTOCOL) == (
+        "solar_cycle_26_forecast_backtest_v1"
+    )
+    assert "historical backtest" in solar_cycle_26_forecast_backtest_directive()
 
 
 def test_cycle_26_directive_separates_preliminary_and_final_forecasts() -> None:

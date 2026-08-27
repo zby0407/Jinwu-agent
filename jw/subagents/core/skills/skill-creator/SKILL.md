@@ -368,6 +368,12 @@ python -m scripts.run_loop \
 
 Use the model and provider from the user's jw configuration so the triggering test matches their actual experience. Supports all 7+ providers (Anthropic, OpenAI, Google, NVIDIA, SiliconFlow, OpenRouter, Ollama, and custom endpoints).
 
+Before running a model-backed evaluation, verify that the selected provider and
+endpoint are available in the current JW configuration. Never print or copy
+credentials. If the provider is unavailable, stop at static validation and
+report that the model-backed evaluation was not run; do not silently switch to
+another provider or treat a local dry run as equivalent evidence.
+
 This handles the full optimization loop automatically: splits eval set 60/40 train/test, evaluates current description (3 runs per query), proposes improvements, re-evaluates, iterates up to 5 times. Returns JSON with `best_description` selected by test score.
 
 ### How skill triggering works

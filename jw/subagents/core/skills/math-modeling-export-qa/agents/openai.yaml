@@ -1,0 +1,4 @@
+interface:
+  display_name: "Math Modeling Export QA"
+  short_description: "Run light page QA and hard figure QA on judge-facing exports"
+  default_prompt: "Use this skill to run the final visual QA pass on a mathematical-modeling contest deliverable, using lighter page-level checks, stricter figure-level checks, font consistency checks, formula-render checks, and judge-facing package-boundary checks before submission."

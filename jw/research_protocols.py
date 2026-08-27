@@ -17,6 +17,8 @@ SILSO_CYCLE_MORPHOLOGY_PROTOCOL = "silso_cycle_morphology_v1"
 SILSO_CYCLE_MORPHOLOGY_DATA_PRODUCT = "silso_cycle_morphology_v1"
 SOLAR_CYCLE_26_READINESS_PROTOCOL = "solar_cycle_26_readiness_v1"
 SOLAR_CYCLE_26_READINESS_DATA_PRODUCT = "solar_cycle_26_readiness_inventory_v1"
+SOLAR_CYCLE_26_FORECAST_BACKTEST_PROTOCOL = "solar_cycle_26_forecast_backtest_v1"
+SOLAR_CYCLE_26_FORECAST_BACKTEST_DATA_PRODUCT = "solar_cycle_26_forecast_backtest_v1"
 SOLAR_CYCLE_26_READINESS_DATASET_IDS: tuple[str, ...] = (
     "silso-monthly-total-v2",
     "silso-monthly-smoothed-v2",
@@ -127,6 +129,13 @@ _CYCLE_26_OPERATIONAL_FORECAST_PATTERN = re.compile(
     r"point\s+forecast|prediction\s+interval)",
     re.IGNORECASE | re.DOTALL,
 )
+_CYCLE_26_BACKTEST_FORECAST_PATTERN = re.compile(
+    r"(?:历史回测|时间顺序回测|historical\s+backtest|chronological\s+backtest)"
+    r"[\s\S]{0,500}(?:第\s*26\s*(?:太阳活动)?周|solar\s+cycle\s*26|cycle\s*26)"
+    r"|(?:第\s*26\s*(?:太阳活动)?周|solar\s+cycle\s*26|cycle\s*26)"
+    r"[\s\S]{0,500}(?:历史回测|时间顺序回测|historical\s+backtest|chronological\s+backtest)",
+    re.IGNORECASE,
+)
 
 
 def detect_analysis_protocol(text: str) -> str:
@@ -134,6 +143,8 @@ def detect_analysis_protocol(text: str) -> str:
 
     if _F107_PATTERN.search(text) and _F107_DISCONTINUITY_PATTERN.search(text):
         return F107_DISCONTINUITY_PROTOCOL
+    if _CYCLE_26_BACKTEST_FORECAST_PATTERN.search(text):
+        return SOLAR_CYCLE_26_FORECAST_BACKTEST_PROTOCOL
     if (
         _CYCLE_26_PATTERN.search(text)
         and _CYCLE_26_OPERATIONAL_FORECAST_PATTERN.search(text)
@@ -168,6 +179,7 @@ def required_data_product_for_protocol(protocol: str) -> str:
         SILSO_CYCLE_REPRODUCTION_PROTOCOL: SILSO_CYCLE_EXTREMA_DATA_PRODUCT,
         SILSO_CYCLE_MORPHOLOGY_PROTOCOL: SILSO_CYCLE_MORPHOLOGY_DATA_PRODUCT,
         SOLAR_CYCLE_26_READINESS_PROTOCOL: SOLAR_CYCLE_26_READINESS_DATA_PRODUCT,
+        SOLAR_CYCLE_26_FORECAST_BACKTEST_PROTOCOL: SOLAR_CYCLE_26_FORECAST_BACKTEST_DATA_PRODUCT,
         SOLAR_POLAR_PRECURSOR_PROTOCOL: SOLAR_POLAR_PRECURSOR_DATA_PRODUCT,
     }.get(protocol, GENERIC_DATA_PRODUCT)
 
@@ -179,6 +191,7 @@ def required_dataset_ids_for_protocol(protocol: str) -> tuple[str, ...]:
         SILSO_CYCLE_REPRODUCTION_PROTOCOL: SILSO_CYCLE_REPRODUCTION_DATASET_IDS,
         SILSO_CYCLE_MORPHOLOGY_PROTOCOL: SILSO_CYCLE_REPRODUCTION_DATASET_IDS,
         SOLAR_CYCLE_26_READINESS_PROTOCOL: SOLAR_CYCLE_26_READINESS_DATASET_IDS,
+        SOLAR_CYCLE_26_FORECAST_BACKTEST_PROTOCOL: SILSO_CYCLE_REPRODUCTION_DATASET_IDS,
         SOLAR_POLAR_PRECURSOR_PROTOCOL: SOLAR_POLAR_PRECURSOR_DATASET_IDS,
     }.get(protocol, ())
 
@@ -469,6 +482,34 @@ def solar_cycle_26_readiness_directive() -> str:
     )
 
 
+def solar_cycle_26_forecast_backtest_directive() -> str:
+    """Return the bounded contract for historical SC26 forecast validation."""
+
+    return (
+        "Run the dedicated solar_cycle_26_forecast_backtest_v1 product from the three "
+        "bound SILSO v2.0 inputs only. First complete the chronological historical "
+        "backtest for target cycles 1-24 without future leakage, then fit the formal "
+        "Cycle 26 forecast using the observed Cycle 25 state. Persist the script's "
+        "CSV, JSON, Markdown, PNG, and a verified receipt under the task workspace. "
+        "Use cycle-level rows as independent units, fixed seed 20260827 and 10000 "
+        "bootstrap repetitions, report MAE/RMSE against the training-mean baseline, "
+        "and retain negative or low-skill results. Cycle 25 is a predictor only, not "
+        "a completed backtest target; no causal dynamo claim is allowed. Do not use "
+        "F10.7, polar-field data, unregistered files, or guessed paths. Do not return "
+        "success until all canonical output files exist and the receipt is hash-bound. "
+        "In experiment_design, bind and inspect the staged forecast feature, prediction, "
+        "formal-forecast, summary, and manifest files, then call "
+        "automatic_experiment_create_sc26_forecast_design exactly once; do not author "
+        "a generic compact or expanded design. In experiment_result, resume the accepted "
+        "run, call automatic_experiment_prepare_sc26_forecast_attempt exactly once, "
+        "execute that returned attempt, obtain the verification preview, submit an "
+        "evidence-bounded scientific assessment, and finalize. Directly verified source "
+        "identity and deterministic reproduction of the negative backtest may be high "
+        "confidence; the future Cycle 26 amplitude remains low confidence when the "
+        "candidate does not outperform baseline or its improvement interval crosses zero."
+    )
+
+
 def sha256_file(path: Path) -> str:
     """Hash one immutable artifact without loading it fully into memory."""
 
@@ -531,6 +572,8 @@ __all__ = [
     "SOLAR_CYCLE_26_READINESS_DATASET_IDS",
     "SOLAR_CYCLE_26_READINESS_DATA_PRODUCT",
     "SOLAR_CYCLE_26_READINESS_PROTOCOL",
+    "SOLAR_CYCLE_26_FORECAST_BACKTEST_PROTOCOL",
+    "SOLAR_CYCLE_26_FORECAST_BACKTEST_DATA_PRODUCT",
     "SOLAR_POLAR_PRECURSOR_DATASET_IDS",
     "SOLAR_POLAR_PRECURSOR_DATA_PRODUCT",
     "SOLAR_POLAR_PRECURSOR_PROTOCOL",
@@ -545,6 +588,7 @@ __all__ = [
     "selected_dataset_ids_from_plan",
     "sha256_file",
     "solar_cycle_26_readiness_directive",
+    "solar_cycle_26_forecast_backtest_directive",
     "solar_polar_precursor_directive",
     "silso_cycle_morphology_directive",
 ]

@@ -593,6 +593,10 @@ _HYPOTHESIS_RESULT_SECTION = re.compile(
     re.IGNORECASE,
 )
 _SOURCE_RESTRICTED_EVIDENCE_MARKER = "[source_restricted_evidence_boundary]"
+_SOURCE_RESTRICTED_HYPOTHESIS_PROTOCOLS = {
+    "silso_cycle_morphology_v1",
+    "solar_cycle_26_forecast_backtest_v1",
+}
 _SILSO_PREBOUND_RELATIONSHIPS: tuple[tuple[str, str, str], ...] = (
     (
         "cycle_length_peak",
@@ -911,7 +915,7 @@ def _write_hypothesis_request(
                     "record_sha256",
                 )
             }
-        if analysis_protocol == "silso_cycle_morphology_v1":
+        if analysis_protocol in _SOURCE_RESTRICTED_HYPOTHESIS_PROTOCOLS:
             introduction = (
                 f"{_SOURCE_RESTRICTED_EVIDENCE_MARKER} The accepted upstream "
                 "materials are the complete evidence boundary for this independent "
@@ -1322,6 +1326,7 @@ def _open_data_context_preflight(
         SILSO_CYCLE_REPRODUCTION_PROTOCOL,
         SILSO_CYCLE_MORPHOLOGY_PROTOCOL,
         SOLAR_CYCLE_26_READINESS_PROTOCOL,
+        SOLAR_CYCLE_26_FORECAST_BACKTEST_PROTOCOL,
         SOLAR_POLAR_PRECURSOR_PROTOCOL,
         required_dataset_ids_for_protocol,
     )
@@ -1358,6 +1363,7 @@ def _open_data_context_preflight(
         SILSO_CYCLE_REPRODUCTION_PROTOCOL,
         SILSO_CYCLE_MORPHOLOGY_PROTOCOL,
         SOLAR_CYCLE_26_READINESS_PROTOCOL,
+        SOLAR_CYCLE_26_FORECAST_BACKTEST_PROTOCOL,
         SOLAR_POLAR_PRECURSOR_PROTOCOL,
     }
     if (
@@ -2124,6 +2130,71 @@ def _solar_cycle_pair_analysis_producer_text(
     )
 
 
+def _solar_cycle_26_forecast_producer_text(
+    workspace_root: Path, receipt_ref: str
+) -> str:
+    """Render a coherent claim from the verified deterministic SC26 outputs."""
+
+    root = workspace_root.resolve()
+    receipt_path = (root / receipt_ref).resolve()
+    summary_path = (root / "outputs/sc26_forecast/run_summary.json").resolve()
+    if not receipt_path.is_relative_to(root) or not summary_path.is_relative_to(root):
+        raise RuntimeError("SC26 forecast projection escapes the task workspace")
+    receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+    summary = json.loads(summary_path.read_text(encoding="utf-8"))
+    if not isinstance(receipt, Mapping) or receipt.get("status") != "verified":
+        raise RuntimeError("SC26 forecast receipt is not verified")
+    if not isinstance(summary, Mapping):
+        raise RuntimeError("SC26 forecast summary is not an object")
+    input_ids = {
+        str(item.get("dataset_id") or "")
+        for item in receipt.get("inputs", [])
+        if isinstance(item, Mapping)
+    }
+    required_ids = {
+        "silso-monthly-total-v2",
+        "silso-monthly-smoothed-v2",
+        "silso-cycle-extrema-v2",
+    }
+    if input_ids != required_ids:
+        raise RuntimeError("SC26 forecast receipt has an unexpected SILSO input set")
+    lag = summary.get("lag_peak")
+    same = summary.get("same_cycle")
+    forecast = receipt.get("forecast")
+    if not all(isinstance(value, Mapping) for value in (lag, same, forecast)):
+        raise RuntimeError("SC26 forecast projection is missing result sections")
+    lag_ci = lag.get("mae_improvement_ci95")
+    same_ci = same.get("mae_improvement_ci95")
+    interval = forecast.get("predictive_interval_95")
+    if not all(
+        isinstance(value, Sequence)
+        and not isinstance(value, (str, bytes))
+        and len(value) == 2
+        for value in (lag_ci, same_ci, interval)
+    ):
+        raise RuntimeError("SC26 forecast projection has malformed intervals")
+    return (
+        "Verified SC26 forecast Data result. The registered SILSO v2.0 monthly "
+        "total, 13-month smoothed, and official cycle-extrema inputs were bound "
+        f"and reproduced into {int(receipt.get('row_count') or 0)} completed-cycle "
+        "records plus Cycle 25 as predictor-only state (smoothed peak "
+        f"{float(forecast.get('cycle_25_peak_used')):.1f}). In the chronological "
+        f"predecessor-peak backtest, candidate MAE={float(lag.get('candidate_mae')):.3f} "
+        f"versus training-mean baseline MAE={float(lag.get('baseline_mae')):.3f}; "
+        f"MAE improvement={float(lag.get('mae_improvement')):.3f}, bootstrap 95% "
+        f"CI=[{float(lag_ci[0]):.3f}, {float(lag_ci[1]):.3f}], so stable skill was "
+        f"not established. The descriptive same-cycle improvement was "
+        f"{float(same.get('mae_improvement')):.3f}, CI=[{float(same_ci[0]):.3f}, "
+        f"{float(same_ci[1]):.3f}], and is not the causal primary forecast. The "
+        f"formal Cycle 26 point estimate is {float(forecast.get('point_estimate')):.3f} "
+        f"with 95% prediction interval [{float(interval[0]):.3f}, "
+        f"{float(interval[1]):.3f}] and {forecast.get('confidence')} confidence. "
+        f"Fixed bootstrap seed={receipt.get('bootstrap_seed')} and repetitions="
+        f"{receipt.get('bootstrap_repetitions')}; the negative backtest result is "
+        f"preserved. Canonical receipt: {receipt_ref}"
+    )
+
+
 def _prior_transient_task_failure_count(state: object, subagent_type: str) -> int:
     """Count transient infrastructure failures for one specialist this turn."""
 
@@ -2551,6 +2622,21 @@ class ResearchReviewOrchestrationMiddleware(AgentMiddleware[Any, Any, Any]):
                                 str(data_context["produced_data_receipt_ref"]),
                             )
                         )
+                    elif (
+                        action.get("phase") == "data_revision_from_data"
+                        and analysis_protocol
+                        == "solar_cycle_26_forecast_backtest_v1"
+                        and data_context.get("must_stop") is not True
+                        and isinstance(
+                            data_context.get("produced_data_receipt_ref"), str
+                        )
+                    ):
+                        action["precomputed_producer_text"] = (
+                            _solar_cycle_26_forecast_producer_text(
+                                store.workspace_root,
+                                str(data_context["produced_data_receipt_ref"]),
+                            )
+                        )
                 except Exception as exc:
                     return (
                         request,
@@ -2714,6 +2800,18 @@ class ResearchReviewOrchestrationMiddleware(AgentMiddleware[Any, Any, Any]):
                     experiment_protocol_directive = (
                         "\nanalysis_protocol_contract="
                         + silso_cycle_morphology_directive()
+                    )
+                elif (
+                    experiment_analysis_protocol
+                    == "solar_cycle_26_forecast_backtest_v1"
+                ):
+                    from ..research_protocols import (
+                        solar_cycle_26_forecast_backtest_directive,
+                    )
+
+                    experiment_protocol_directive = (
+                        "\nanalysis_protocol_contract="
+                        + solar_cycle_26_forecast_backtest_directive()
                     )
             data_context_directive = ""
             if data_context is not None:
@@ -2975,17 +3073,32 @@ class ResearchReviewOrchestrationMiddleware(AgentMiddleware[Any, Any, Any]):
                         scope = json.loads(scope_path.read_text(encoding="utf-8"))
                     except (OSError, json.JSONDecodeError):
                         scope = None
-                    if isinstance(scope, Mapping) and scope.get(
-                        "analysis_protocol"
-                    ) == "silso_cycle_morphology_v1":
+                    protocol = (
+                        str(scope.get("analysis_protocol") or "")
+                        if isinstance(scope, Mapping)
+                        else ""
+                    )
+                    if protocol in {
+                        "silso_cycle_morphology_v1",
+                        "solar_cycle_26_forecast_backtest_v1",
+                    }:
                         try:
-                            from ..tools.automatic_experiment import (
-                                ensure_host_silso_morphology_design,
-                            )
+                            if protocol == "silso_cycle_morphology_v1":
+                                from ..tools.automatic_experiment import (
+                                    ensure_host_silso_morphology_design,
+                                )
 
-                            design_receipt = ensure_host_silso_morphology_design(
-                                config
-                            )
+                                design_receipt = ensure_host_silso_morphology_design(
+                                    config
+                                )
+                            else:
+                                from ..tools.automatic_experiment import (
+                                    ensure_host_solar_cycle_26_forecast_design,
+                                )
+
+                                design_receipt = (
+                                    ensure_host_solar_cycle_26_forecast_design(config)
+                                )
                             producer_text += (
                                 "\n\n[HOST PROTOCOL DESIGN]\n"
                                 + json.dumps(design_receipt, ensure_ascii=False)

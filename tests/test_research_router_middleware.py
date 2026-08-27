@@ -425,6 +425,16 @@ def test_cycle_26_probability_forecast_routes_to_full_research_readiness() -> No
     assert route["required_analysis_protocol"] != SOLAR_POLAR_PRECURSOR_PROTOCOL
 
 
+def test_cycle_26_historical_backtest_forecast_routes_to_full_research() -> None:
+    prompt = (
+        "先对第1—24周完成历史回测并比较基线，随后正式给出第26周峰值预测、"
+        "95%区间和可复核图表。"
+    )
+    route = _with_analysis_protocol(_fallback_route(prompt), text=prompt)
+    assert route["mode"] == "full_research"
+    assert route["required_analysis_protocol"] == "solar_cycle_26_forecast_backtest_v1"
+
+
 def test_specialist_success_requires_workspace_verified_artifact() -> None:
     calls = [
         {

@@ -29,3 +29,14 @@ agents:
 skills:
   - find-skills
   - skill-creator
+  # Integrated research-delivery skills. These are packaged under the core
+  # bundle so every sub-agent that mounts /skills/ can discover the same
+  # versioned workflows for figures, reports, and final-output QA.
+  - scientific-visualization
+  - scientific-writing
+  - writing-reader-facing-content
+  - verification-before-completion
+  - scientific-slides
+  - latex-quality-control
+  - math-modeling-figure-production
+  - math-modeling-export-qa

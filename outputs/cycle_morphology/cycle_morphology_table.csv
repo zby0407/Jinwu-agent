@@ -1,0 +1,25 @@
+cycle_number,minimum_date,maximum_date,next_minimum_date,cycle_length_years,rise_time_years,decline_time_years,peak_smoothed_sunspot_number,observation_period_group,data_quality_note
+1,1755-02,1761-06,1766-06,11.333333333333334,6.333333333333333,5.0,144.1,early,Official SILSO v2.0 extrema dates and complete next-minimum boundary; C25 is boundary-only. 18th-century observations have lower historical observing density.
+2,1766-06,1769-09,1775-06,9.0,3.25,5.75,193.0,early,Official SILSO v2.0 extrema dates and complete next-minimum boundary; C25 is boundary-only. 18th-century observations have lower historical observing density.
+3,1775-06,1778-05,1784-09,9.25,2.9166666666666665,6.333333333333333,264.3,early,Official SILSO v2.0 extrema dates and complete next-minimum boundary; C25 is boundary-only. Extrema-table peak 264.2 differs from the 13-month series value 264.3; the declared variable definition uses the series value.
+4,1784-09,1788-02,1798-04,13.583333333333334,3.4166666666666665,10.166666666666666,235.3,early,Official SILSO v2.0 extrema dates and complete next-minimum boundary; C25 is boundary-only.
+5,1798-04,1805-02,1810-07,12.25,6.833333333333333,5.416666666666667,82.0,early,Official SILSO v2.0 extrema dates and complete next-minimum boundary; C25 is boundary-only.
+6,1810-07,1816-05,1823-05,12.833333333333334,5.833333333333333,7.0,81.2,early,Official SILSO v2.0 extrema dates and complete next-minimum boundary; C25 is boundary-only.
+7,1823-05,1829-11,1833-11,10.5,6.5,4.0,119.2,early,Official SILSO v2.0 extrema dates and complete next-minimum boundary; C25 is boundary-only.
+8,1833-11,1837-03,1843-07,9.666666666666666,3.3333333333333335,6.333333333333333,244.9,early,Official SILSO v2.0 extrema dates and complete next-minimum boundary; C25 is boundary-only.
+9,1843-07,1848-02,1855-12,12.416666666666666,4.583333333333333,7.833333333333333,219.9,early,Official SILSO v2.0 extrema dates and complete next-minimum boundary; C25 is boundary-only.
+10,1855-12,1860-02,1867-03,11.25,4.166666666666667,7.083333333333333,186.2,early,Official SILSO v2.0 extrema dates and complete next-minimum boundary; C25 is boundary-only.
+11,1867-03,1870-08,1878-12,11.75,3.4166666666666665,8.333333333333334,234.0,early,Official SILSO v2.0 extrema dates and complete next-minimum boundary; C25 is boundary-only.
+12,1878-12,1883-12,1890-03,11.25,5.0,6.25,124.4,early,Official SILSO v2.0 extrema dates and complete next-minimum boundary; C25 is boundary-only.
+13,1890-03,1894-01,1902-01,11.833333333333334,3.8333333333333335,8.0,146.5,modern,Official SILSO v2.0 extrema dates and complete next-minimum boundary; C25 is boundary-only.
+14,1902-01,1906-02,1913-07,11.5,4.083333333333333,7.416666666666667,107.1,modern,Official SILSO v2.0 extrema dates and complete next-minimum boundary; C25 is boundary-only.
+15,1913-07,1917-08,1923-08,10.083333333333334,4.083333333333333,6.0,175.7,modern,Official SILSO v2.0 extrema dates and complete next-minimum boundary; C25 is boundary-only.
+16,1923-08,1928-04,1933-09,10.083333333333334,4.666666666666667,5.416666666666667,130.2,modern,Official SILSO v2.0 extrema dates and complete next-minimum boundary; C25 is boundary-only.
+17,1933-09,1937-04,1944-02,10.416666666666666,3.5833333333333335,6.833333333333333,198.6,modern,Official SILSO v2.0 extrema dates and complete next-minimum boundary; C25 is boundary-only.
+18,1944-02,1947-05,1954-04,10.166666666666666,3.25,6.916666666666667,218.7,modern,Official SILSO v2.0 extrema dates and complete next-minimum boundary; C25 is boundary-only.
+19,1954-04,1958-03,1964-10,10.5,3.9166666666666665,6.583333333333333,285.0,modern,Official SILSO v2.0 extrema dates and complete next-minimum boundary; C25 is boundary-only.
+20,1964-10,1968-11,1976-03,11.416666666666666,4.083333333333333,7.333333333333333,156.6,modern,Official SILSO v2.0 extrema dates and complete next-minimum boundary; C25 is boundary-only.
+21,1976-03,1979-12,1986-09,10.5,3.75,6.75,232.9,modern,Official SILSO v2.0 extrema dates and complete next-minimum boundary; C25 is boundary-only.
+22,1986-09,1989-11,1996-08,9.916666666666666,3.1666666666666665,6.75,212.5,modern,Official SILSO v2.0 extrema dates and complete next-minimum boundary; C25 is boundary-only.
+23,1996-08,2001-11,2008-12,12.333333333333334,5.25,7.083333333333333,180.3,modern,Official SILSO v2.0 extrema dates and complete next-minimum boundary; C25 is boundary-only.
+24,2008-12,2014-04,2019-12,11.0,5.333333333333333,5.666666666666667,116.4,modern,Official SILSO v2.0 extrema dates and complete next-minimum boundary; C25 is boundary-only.

@@ -1387,6 +1387,37 @@ def _draft_summary(
                 },
             }
         )
+    elif result["tail_review_required"] and not review_current:
+        result.update(
+            {
+                "return_gate": "blocked_until_tail_reviewed",
+                "natural_language_return_allowed": False,
+                "next_required_action": {
+                    "tool": "scientific_hypothesis_review_tail",
+                    "instruction": (
+                        "Review the complete persisted candidate pool with the "
+                        "returned scoring guide and current candidate_pool_sha256 "
+                        "before checkpointing or returning natural language."
+                    ),
+                },
+            }
+        )
+    elif (
+        not result["tail_review_required"] or review_current
+    ) and state.validated_response is None:
+        result.update(
+            {
+                "return_gate": "blocked_until_checkpointed",
+                "natural_language_return_allowed": False,
+                "next_required_action": {
+                    "tool": "scientific_hypothesis_checkpoint_draft",
+                    "instruction": (
+                        "Checkpoint the reviewed current draft before returning "
+                        "natural language."
+                    ),
+                },
+            }
+        )
     else:
         result.update(
             {

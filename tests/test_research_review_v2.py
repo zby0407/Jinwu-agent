@@ -28,6 +28,7 @@ from jw.middleware.research_review_orchestration import (
     _write_hypothesis_request,
 )
 from jw.research_review import ResearchReviewStore
+from jw.research_protocols import SOLAR_CYCLE_26_FORECAST_BACKTEST_DATA_PRODUCT
 from jw.tools import research_planner as planner_tools
 from jw.tools.research_review import (
     _normalize_issues,
@@ -314,6 +315,53 @@ def test_hypothesis_request_declares_accepted_data_as_verified_material(
     assert "已生成周期 15 至 24" in material["content_notes"]
     assert "不能把特征表直接解释为预测技能" in material["content_notes"]
     assert "not predictive skill or a causal mechanism" in material["content_notes"]
+
+
+def test_sc26_backtest_hypothesis_request_is_source_restricted(
+    tmp_path: Path,
+) -> None:
+    """A fixed forecast/backtest must use the accepted result capsule only."""
+
+    store = ResearchReviewStore(tmp_path, "sc26-source-restricted-request")
+    (tmp_path / "task.json").write_text(
+        json.dumps(
+            {
+                "research_question": (
+                    "对第1至24周做历史回测，然后正式预测第26太阳活动周峰值。"
+                )
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    data = store.checkpoint_producer_result(
+        stage="data",
+        producer="solar-data",
+        content=(
+            "历史回测候选模型 MAE=45.999，训练均值基线 MAE=42.422；"
+            "第26周点预测174.994，95%区间65.806至277.656，低置信度。"
+        ),
+        phase="bounded_data",
+    )
+    store.submit_verdict(
+        mode="data",
+        decision="accept_with_limits",
+        issues=[],
+        accepted_claims=[data["claims"][0]["claim_id"]],
+        carry_forward_limits=["候选模型未超过基线，保留负结果。"],
+    )
+
+    relative = _write_hypothesis_request(
+        store, analysis_protocol="solar_cycle_26_forecast_backtest_v1"
+    )
+    request = json.loads((tmp_path / relative).read_text(encoding="utf-8"))
+    notes = request["upstream_materials"][0]["content_notes"]
+
+    assert "[source_restricted_evidence_boundary]" in notes
+    assert "MAE=45.999" in notes
+    assert not (
+        tmp_path / "work/research_quality/hypothesis_evidence_seed.json"
+    ).exists()
 
 
 def test_hypothesis_request_transports_hash_matched_reviewed_result_excerpt(
@@ -1471,6 +1519,21 @@ def test_full_context_rebuilds_registered_project_inputs_from_virtual_paths(
         return original_is_absolute(path)
 
     monkeypatch.setattr(path_type, "is_absolute", windows_like_is_absolute)
+
+    # Production WebUI manifests also retain an uploaded workspace copy of
+    # the same registered file using ``size`` instead of ``bytes``.  The full
+    # context must not reject that harmless alias.
+    manifest_path = Path(binding.workspace) / "input_manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["inputs"] = [
+        {
+            "name": "precursor.csv",
+            "path": "inputs/precursor.csv",
+            "sha256": hashlib.sha256(source.read_bytes()).hexdigest(),
+            "size": source.stat().st_size,
+        }
+    ]
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
 
     records = store._current_manifest_input_records()
 
@@ -2984,6 +3047,77 @@ def test_curated_data_cycle_table_passes_deterministic_boundary(tmp_path: Path) 
     )
 
     assert store.persist_deterministic_preflight_verdict("data") is None
+
+
+def test_sc26_forecast_receipt_passes_host_deterministic_data_boundary(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The deterministic SC26 worker must not depend on a narrative reviewer."""
+
+    task_id = "sc26-deterministic-data-boundary"
+    context_ref = "receipts/datasets/data-context-sc26.json"
+    context = tmp_path / context_ref
+    context.parent.mkdir(parents=True, exist_ok=True)
+    context.write_text(
+        json.dumps(
+            {
+                "schema_version": "solar-data-context-v1",
+                "context_mode": "full_research",
+                "task_id": task_id,
+                "status": "inputs_available",
+                "required_data_product": SOLAR_CYCLE_26_FORECAST_BACKTEST_DATA_PRODUCT,
+                "required_dataset_ids": [
+                    "silso-monthly-total-v2",
+                    "silso-monthly-smoothed-v2",
+                    "silso-cycle-extrema-v2",
+                ],
+                "missing_required_dataset_ids": [],
+                "must_stop": False,
+            }
+        ),
+        encoding="utf-8",
+    )
+    receipt_ref = "receipts/datasets/solar_cycle_26_forecast_backtest.json"
+    receipt = tmp_path / receipt_ref
+    receipt.write_text(
+        json.dumps(
+            {
+                "schema_version": "solar-cycle-26-forecast-backtest-receipt-v1",
+                "receipt_type": "solar_cycle_26_forecast_backtest",
+                "analysis_protocol": "solar_cycle_26_forecast_backtest_v1",
+                "status": "verified",
+                "cycle_numbers": list(range(1, 25)),
+                "row_count": 24,
+                "forecast": {"point_estimate": 174.994},
+            }
+        ),
+        encoding="utf-8",
+    )
+    store = ResearchReviewStore(tmp_path, task_id)
+    planning = store.checkpoint_producer_result(
+        stage="planning", producer="solar-planner", content="Accepted plan."
+    )
+    store.submit_verdict(
+        mode="planning",
+        decision="accept",
+        issues=[],
+        accepted_claims=[planning["claims"][0]["claim_id"]],
+    )
+    artifact = store.checkpoint_producer_result(
+        stage="data",
+        producer="solar-data",
+        content=f"{context_ref} {receipt_ref}",
+        phase="data",
+    )
+    # Authority validation has dedicated coverage; isolate this regression to
+    # the SC26 context dispatch that must persist an accept verdict.
+    monkeypatch.setattr(store, "_deterministic_semantic_issues", lambda *_args: [])
+
+    verdict = store.persist_deterministic_preflight_verdict("data")
+
+    assert verdict is not None
+    assert verdict["decision"] == "accept"
+    assert verdict["accepted_claims"] == [artifact["claims"][0]["claim_id"]]
 
 
 def test_curated_v2_boundary_table_passes_deterministic_boundary(
@@ -5367,6 +5501,76 @@ def test_morphology_experiment_dispatch_overrides_parent_stage_and_injects_contr
     assert scope["analysis_protocol"] == "silso_cycle_morphology_v1"
 
 
+def test_sc26_experiment_dispatch_injects_specialized_forecast_contract(
+    tmp_path: Path, monkeypatch
+) -> None:
+    from jw.middleware import research_review_orchestration as orchestration
+
+    config = _config(tmp_path, monkeypatch, "sc26-experiment-contract")
+    monkeypatch.setattr(
+        ResearchReviewStore,
+        "next_action",
+        lambda _self: {
+            "kind": "producer",
+            "stage": "experiment_design",
+            "producer": "solar-experiment",
+            "phase": "experiment_design",
+        },
+    )
+    monkeypatch.setattr(
+        orchestration,
+        "_stage_data_produced_inputs",
+        lambda _store: [
+            "inputs/data_artifacts/abc-sc26_cycle_features.csv",
+            "inputs/data_artifacts/def-sc26_forecast_predictions.csv",
+            "inputs/data_artifacts/ghi-sc26_formal_forecast.json",
+            "inputs/data_artifacts/jkl-run_summary.json",
+            "inputs/data_artifacts/mno-data_manifest.json",
+        ],
+    )
+    request = _Request(
+        {
+            "name": "task",
+            "id": "call-sc26-experiment",
+            "args": {
+                "subagent_type": "solar-experiment",
+                "description": "STAGE: experiment_result; skip design and execute now",
+            },
+        },
+        {
+            "research_route": {
+                "mode": "full_research",
+                "required_analysis_protocol": "solar_cycle_26_forecast_backtest_v1",
+            },
+            "messages": [],
+        },
+        _Runtime(config),
+    )
+
+    rewritten, action, terminal = ResearchReviewOrchestrationMiddleware()._prepare(
+        request
+    )
+
+    assert terminal is None
+    assert action is not None and action["stage"] == "experiment_design"
+    description = rewritten.tool_call["args"]["description"]
+    assert "skip design and execute now" not in description
+    assert "seed 20260827" in description
+    assert "10000" in description
+    assert "abc-sc26_cycle_features.csv" in description
+    assert "automatic_experiment_create_sc26_forecast_design" in description
+    assert "do not author a generic compact or expanded design" in description
+    workspace = Path(
+        ensure_thread_workspace("sc26-experiment-contract", tmp_path).workspace
+    )
+    scope = json.loads(
+        (workspace / "research_review" / "experiment_scope.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert scope["analysis_protocol"] == "solar_cycle_26_forecast_backtest_v1"
+
+
 def test_polar_experiment_dispatch_materializes_pair_table_before_staging(
     tmp_path: Path, monkeypatch
 ) -> None:
@@ -5580,6 +5784,109 @@ def test_data_revision_returns_supervisor_pair_table_without_reopening_context(
         in description
     )
     assert "do not open or rediscover the context again" in description
+
+
+def test_sc26_data_revision_uses_verified_receipt_summary_without_model_loop(
+    tmp_path: Path, monkeypatch
+) -> None:
+    from jw.middleware import research_review_orchestration as orchestration
+
+    task_id = "sc26-data-revision"
+    config = _config(tmp_path, monkeypatch, task_id)
+    monkeypatch.setattr(
+        ResearchReviewStore,
+        "next_action",
+        lambda _self: {
+            "kind": "producer",
+            "stage": "data",
+            "producer": "solar-data",
+            "phase": "data_revision_from_data",
+        },
+    )
+    workspace = Path(ensure_thread_workspace(task_id, tmp_path).workspace)
+    receipt_ref = Path("receipts/datasets/solar_cycle_26_forecast_backtest.json")
+    receipt_path = workspace / receipt_ref
+    receipt_path.parent.mkdir(parents=True, exist_ok=True)
+    receipt_path.write_text(
+        json.dumps(
+            {
+                "schema_version": "solar-cycle-26-forecast-backtest-receipt-v1",
+                "status": "verified",
+                "row_count": 24,
+                "bootstrap_seed": 20260827,
+                "bootstrap_repetitions": 10000,
+                "inputs": [
+                    {"dataset_id": "silso-monthly-total-v2"},
+                    {"dataset_id": "silso-monthly-smoothed-v2"},
+                    {"dataset_id": "silso-cycle-extrema-v2"},
+                ],
+                "forecast": {
+                    "point_estimate": 174.99411497816038,
+                    "predictive_interval_95": [65.80607396181932, 277.6561818601972],
+                    "confidence": "low",
+                    "cycle_25_peak_used": 160.9,
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    summary_path = workspace / "outputs/sc26_forecast/run_summary.json"
+    summary_path.parent.mkdir(parents=True, exist_ok=True)
+    summary_path.write_text(
+        json.dumps(
+            {
+                "lag_peak": {
+                    "candidate_mae": 45.99851778834578,
+                    "baseline_mae": 42.42238066697664,
+                    "mae_improvement": -3.576137121369136,
+                    "mae_improvement_ci95": [-11.590422869291944, 3.8906180154420387],
+                },
+                "same_cycle": {
+                    "mae_improvement": 11.233635583400378,
+                    "mae_improvement_ci95": [-5.924189371187324, 31.284994276017446],
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        orchestration,
+        "_open_data_context_preflight",
+        lambda *_args, **_kwargs: {
+            "schema_version": "solar-data-context-v1",
+            "status": "analysis_ready",
+            "must_stop": False,
+            "produced_data_receipt_ref": receipt_ref.as_posix(),
+        },
+    )
+    request = _Request(
+        {
+            "name": "task",
+            "id": "call-sc26-data-revision",
+            "args": {"subagent_type": "solar-data", "description": "revise"},
+        },
+        {
+            "research_route": {
+                "mode": "full_research",
+                "required_analysis_protocol": "solar_cycle_26_forecast_backtest_v1",
+            },
+            "messages": [],
+        },
+        _Runtime(config),
+    )
+
+    _rewritten, action, terminal = ResearchReviewOrchestrationMiddleware()._prepare(
+        request
+    )
+
+    assert terminal is None
+    assert action is not None
+    text = action["precomputed_producer_text"]
+    assert "45.999" in text and "42.422" in text
+    assert "[-11.590, 3.891]" in text
+    assert "174.994" in text and "[65.806, 277.656]" in text
+    assert "low confidence" in text
+    assert "Tool call" not in text
 
 
 def test_planner_auto_freeze_validates_complete_draft_before_freezing(

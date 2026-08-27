@@ -45,10 +45,12 @@ from jw.research_protocols import (
     SILSO_CYCLE_REPRODUCTION_PROTOCOL,
     SILSO_CYCLE_MORPHOLOGY_PROTOCOL,
     SOLAR_CYCLE_26_READINESS_PROTOCOL,
+    SOLAR_CYCLE_26_FORECAST_BACKTEST_PROTOCOL,
     SOLAR_POLAR_PRECURSOR_PROTOCOL,
     detect_analysis_protocol,
     f107_discontinuity_directive,
     solar_cycle_26_readiness_directive,
+    solar_cycle_26_forecast_backtest_directive,
     solar_polar_precursor_directive,
     silso_cycle_morphology_directive,
 )
@@ -661,7 +663,10 @@ def _with_analysis_protocol(
     if protocol == "none":
         return normalized
     normalized["required_analysis_protocol"] = protocol
-    if protocol == SILSO_CYCLE_MORPHOLOGY_PROTOCOL or (
+    if protocol in {
+        SILSO_CYCLE_MORPHOLOGY_PROTOCOL,
+        SOLAR_CYCLE_26_FORECAST_BACKTEST_PROTOCOL,
+    } or (
         protocol == SOLAR_POLAR_PRECURSOR_PROTOCOL
         and _DOWNSTREAM_STATISTICS_REQUEST.search(text)
     ):
@@ -2499,6 +2504,13 @@ class ResearchRouterMiddleware(AgentMiddleware[ResearchRoutingState, Any, Any]):
                     "readiness inputs, then call prepare_solar_cycle_26_readiness. "
                     + solar_cycle_26_readiness_directive()
                 )
+            if required_analysis_protocol == SOLAR_CYCLE_26_FORECAST_BACKTEST_PROTOCOL:
+                directive.append(
+                    "The bounded data producer must call "
+                    "run_solar_cycle_26_historical_forecast with the three "
+                    "Supervisor-bound SILSO inputs. "
+                    + solar_cycle_26_forecast_backtest_directive()
+                )
             f107_data_pending = False
             if (
                 required_specialist == "solar-hypothesis"
@@ -2726,6 +2738,8 @@ class ResearchRouterMiddleware(AgentMiddleware[ResearchRoutingState, Any, Any]):
                 directive.append(silso_cycle_morphology_directive())
             if required_analysis_protocol == SOLAR_CYCLE_26_READINESS_PROTOCOL:
                 directive.append(solar_cycle_26_readiness_directive())
+            if required_analysis_protocol == SOLAR_CYCLE_26_FORECAST_BACKTEST_PROTOCOL:
+                directive.append(solar_cycle_26_forecast_backtest_directive())
             config = _request_config(request)
             try:
                 action = store_from_config(config).next_action()

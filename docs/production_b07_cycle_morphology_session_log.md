@@ -442,3 +442,29 @@
 > P5/P6 生成器第一次读取到评估目录的空镜像评审摘要；我已把它修成从同一工作区的 canonical 评审文件补齐镜像，同时保留严格的线程、答案、产物、统计和 checkpoint 门。生成器现在成功产出 Markdown 与 DOCX。
 
 > DOCX 已由 LibreOffice 真实转换为 4 页 PDF，压缩包完整性通过，4 页逐页检查无截断；三联散点图、WebUI 发布截图和“已修复经典失败”均可见。读者可见文字审校为 0 条残留发现。
+
+## SC26 正式预测 B21–B26 续录（2026-08-27/28）
+
+本轮独立任务输入为用户给出的“历史第 1—24 周严格时序回测并正式预测第 26 周”问题，以及通过生产 WebUI 上传的三份 SILSO v2.0 文件：`SN_m_tot_V2.0.txt`、`SN_ms_tot_V2.0.csv`、`TableCyclesMiMa.txt`。所有运行均使用新线程和独立任务工作区；日志、状态、截图和产物目录保留在 `research/review/evals/runs/` 与 `.sc26-webui-workspace-20260827/`，未记录凭据或网络认证内容。
+
+- B21：前端开发服务器客户端未水合，90 秒内没有 `textarea`；保留 `main_sc26_formal_forecast.b21/harness_failure.json`。
+- B22：改用生产 standalone 构建后，页面水合成功，但 WebUI 进程未继承 `JW_WORKSPACE_DIR`，绑定接口明确返回“未找到正在使用的金乌工作区”；保留 `main_sc26_formal_forecast.b22/harness_failure.json`。
+- B23/B24：增加 CDP 文件输入的显式 `change` 事件后，上传事件链稳定；B24 仍复现无工作区绑定，作为环境配置失败样例保留。
+- B25：补齐 `JW_WORKSPACE_DIR` 后，真实可见浏览器完成三份文件上传、线程创建和 planning/data/hypothesis 路由；Qwen 单次请求 300 秒超时导致后续运行长时间重试，最终被重启中止。线程 `01a043f4-d07c-7453-9c2c-ead623c9de10`，观察地址 `http://127.0.0.1:4723/?threadId=01a043f4-d07c-7453-9c2c-ead623c9de10`。
+- B26：后端以 `JW_DASHSCOPE_REQUEST_TIMEOUT_S=60` 和 `JW_DASHSCOPE_STREAM_CHUNK_TIMEOUT_S=60` 重启，线程 `01a0440a-fb6a-7c11-83f9-1f82d26bf291`，观察地址 `http://127.0.0.1:4723/?threadId=01a0440a-fb6a-7c11-83f9-1f82d26bf291`。截至本续录，B26 已通过上传和 planning 启动，但 Qwen 仍发生 60 秒超时重试，尚未产生可宣称的最终 released 终态。
+
+本轮确认的工程修复包括：生产前端构建与 standalone 启动、CDP 上传 change 事件、工作区环境显式注入、SC26 数据回执宿主边界校验、Qwen 专用实验设计路由，以及 Qwen 请求超时可配置化。B21–B26 的运行失败均不改变已发布的 SILSO 形态实验结论；正式第 26 周数值和回测统计仍以已验证的数据工件及独立复算为准，不能把未完成的 B26 运行描述为新的科学发布。
+
+### B27：生产 headed 重跑（300 秒超时，进行中）
+
+- 新线程：`01a04418-6a5b-7642-93dc-6df7f1b91b07`；观察地址：`http://127.0.0.1:4723/?threadId=01a04418-6a5b-7642-93dc-6df7f1b91b07`。
+- 后端以 `JW_DASHSCOPE_REQUEST_TIMEOUT_S=300`、`JW_DASHSCOPE_STREAM_CHUNK_TIMEOUT_S=300` 启动，前端为 production standalone 并显式继承 `JW_WORKSPACE_DIR`。
+- 真实浏览器已完成页面水合、三份 SILSO 文件上传、线程创建；后端日志确认进入 Qwen planning，先后完成 planner brief 和工具回读，随后等待第二次规划模型返回。到本记录时尚未达到实验设计或最终发布终态；不能将 B27 计为成功。
+- 该运行用于验证 B21–B26 的入口和超时修复。实际在 300 秒总超时窗口内反复进入 planning 子代理/质量记录循环，未生成正式实验设计或发布工件；我在 2026-08-28 00:56（本地时间）主动终止残留浏览器与后端进程，避免把长时间运行误当作成功。B27 未生成终态截图，失败证据以线程、后台日志和本条记录为准。
+
+### 收尾核验（2026-08-28）
+
+- 独立统计产物已整理到 `outputs/sc26_direct_test/`；正式 JSON 的点估计为 `174.99411497816038`，95% 区间为 `[65.80607396181932, 277.6561818601972]`，种子 `20260827`、bootstrap `10000` 次，置信度 `low`。
+- v24 已发布的 SILSO 形态实验三件套已整理到 `outputs/cycle_morphology/`，CSV 核验为 24 行、周期 1–24；PNG 与 SC26 可视化 PNG 均通过实际打开校验。
+- `docs/第26太阳活动周-P5-P6评委展示稿.md` 与 `research/review/SC26_FORMAL_FORECAST_20260825.md` 通过读者可见文本审校；DOCX 通过 `unzip -t`，并由 LibreOffice 成功转换 PDF。生产前端 `npm run build` 通过；受影响 Python 回归 `362 passed`。
+- 以上变更已提交并推送到现有 PR 分支，提交 `1ba4b15`。工作区中未提交的运行目录、绑定目录和模板输入文件均保留，未被清理或纳入提交。

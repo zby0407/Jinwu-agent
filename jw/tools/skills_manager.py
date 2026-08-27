@@ -757,8 +757,18 @@ def list_skills(include_system: bool = False) -> list[SkillInfo]:
     # Tier 3: built-in skills (optional)
     if include_system:
         from ..agent import SKILLS_DIR
+        from ..backends import _builtin_skill_roots
 
-        _add_tier(Path(SKILLS_DIR), source="builtin")
+        builtin_root = Path(SKILLS_DIR)
+        bundle_roots = _builtin_skill_roots(builtin_root)
+        # The runtime backend flattens bundle-owned skills (for example
+        # ``subagents/core/skills``) into the /skills namespace. Use the same
+        # roots for the UI/system listing, while retaining support for legacy
+        # skills placed directly under the built-in root.
+        for root in bundle_roots:
+            _add_tier(root, source="builtin")
+        if bundle_roots != (builtin_root,):
+            _add_tier(builtin_root, source="builtin")
 
     return skills
 
@@ -814,17 +824,29 @@ def uninstall_skill(name: str) -> dict:
 
     # Check if it's a built-in skill (read-only, cannot be uninstalled)
     from ..agent import SKILLS_DIR
+    from ..backends import _builtin_skill_roots
 
     builtin_dir = Path(SKILLS_DIR)
     if builtin_dir.exists():
-        for entry in builtin_dir.iterdir():
-            if entry.is_dir() and _validate_skill_dir(entry):
-                info = _parse_skill_md(entry / "SKILL.md")
-                if info.name == clean_name or entry.name == clean_name:
-                    return {
-                        "success": False,
-                        "error": f"'{name}' is a built-in skill and cannot be uninstalled.",
-                    }
+        bundle_roots = _builtin_skill_roots(builtin_dir)
+        for root in bundle_roots:
+            for entry in root.iterdir():
+                if entry.is_dir() and _validate_skill_dir(entry):
+                    info = _parse_skill_md(entry / "SKILL.md")
+                    if info.name == clean_name or entry.name == clean_name:
+                        return {
+                            "success": False,
+                            "error": f"'{name}' is a built-in skill and cannot be uninstalled.",
+                        }
+        if bundle_roots != (builtin_dir,):
+            for entry in builtin_dir.iterdir():
+                if entry.is_dir() and _validate_skill_dir(entry):
+                    info = _parse_skill_md(entry / "SKILL.md")
+                    if info.name == clean_name or entry.name == clean_name:
+                        return {
+                            "success": False,
+                            "error": f"'{name}' is a built-in skill and cannot be uninstalled.",
+                        }
 
     return {"success": False, "error": f"Skill not found: {name}"}
 

@@ -29,6 +29,7 @@ from .solar_feature import (
     engineer_solar_features,
     prepare_solar_cycle_26_readiness,
     prepare_solar_experiment,
+    run_solar_cycle_26_historical_forecast,
     solar_data_open_context,
 )
 from .think import think_tool
@@ -55,6 +56,7 @@ __all__ = [
     "get_tool_bundles",
     "prepare_solar_cycle_26_readiness",
     "prepare_solar_experiment",
+    "run_solar_cycle_26_historical_forecast",
     "register_tool_bundle",
     "resolve_tool_bundles",
     "skill_manager",

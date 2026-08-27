@@ -321,6 +321,28 @@ description: Skill number {i}
             assert "skill-1" in names
             assert "skill-2" in names
 
+    def test_list_includes_bundle_owned_builtin_skills(
+        self, tmp_path, temp_skills_dir
+    ):
+        builtin_root = tmp_path / "builtin"
+        skill_dir = builtin_root / "core" / "skills" / "bundle-skill"
+        skill_dir.mkdir(parents=True)
+        (skill_dir / "SKILL.md").write_text(
+            "---\nname: bundle-skill\ndescription: Bundle skill\n---\n",
+            encoding="utf-8",
+        )
+
+        with (
+            patch("jw.paths.USER_SKILLS_DIR", temp_skills_dir),
+            patch("jw.paths.GLOBAL_SKILLS_DIR", tmp_path / "global"),
+            patch("jw.agent.SKILLS_DIR", str(builtin_root)),
+        ):
+            skills = list_skills(include_system=True)
+
+        matching = [s for s in skills if s.name == "bundle-skill"]
+        assert len(matching) == 1
+        assert matching[0].source == "builtin"
+
 
 # =============================================================================
 # Tests for uninstall_skill
@@ -827,7 +849,7 @@ class TestSkillManagerList:
 
     These tests verify that the source-based filtering in skill_manager.py
     correctly maps skills_manager.py's tier names ("workspace", "global",
-    "builtin") to the User Skills / System Skills display sections.
+    "builtin") to the User Skills / JW Official Skills display sections.
     """
 
     def _make_skill(self, tmp_path, name, description="A skill"):
@@ -880,7 +902,7 @@ class TestSkillManagerList:
         assert "global-skill" in result
 
     def test_list_include_system_shows_both_sections(self, tmp_path):
-        """include_system=True shows both User Skills and System Skills sections."""
+        """include_system=True shows both User Skills and JW Official Skills sections."""
         from jw.tools.skill_manager import skill_manager
         from jw.tools.skills_manager import SkillInfo
 
@@ -918,7 +940,7 @@ class TestSkillManagerList:
 
         assert "User Skills (1)" in result
         assert "user-skill" in result
-        assert "System Skills (1)" in result
+        assert "JW Official Skills（JW 官方内置技能） (1)" in result
         assert "builtin-skill" in result
 
     def test_list_no_user_skills_returns_message(self, tmp_path):

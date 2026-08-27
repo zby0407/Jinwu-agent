@@ -28,6 +28,7 @@ if str(_SRC) not in sys.path:
 from jw.research_protocols import (  # noqa: E402
     SILSO_CYCLE_EXTREMA_DATA_PRODUCT,
     SOLAR_POLAR_PRECURSOR_DATA_PRODUCT,
+    SOLAR_CYCLE_26_FORECAST_BACKTEST_DATA_PRODUCT,
     detect_analysis_protocol,
     plan_dataset_selection_conflicts_protocol,
     required_data_product_for_protocol,
@@ -188,6 +189,10 @@ _SOLAR_DATA_OUTPUT_RECEIPT_CONTRACTS = {
     (
         "solar-cycle-26-readiness-receipt-v1",
         "solar_cycle_26_readiness_inventory",
+    ),
+    (
+        "solar-cycle-26-forecast-backtest-receipt-v1",
+        "solar_cycle_26_forecast_backtest",
     ),
 }
 _DATA_CONTEXT_TRANSIENT_FIELDS = {
@@ -1166,6 +1171,21 @@ class ResearchReviewStore:
             "test_fixture",
         }
         records: list[dict[str, Any]] = []
+        # Production WebUI runs keep uploaded copies in ``inputs`` while the
+        # authoritative full-research context enumerates the same files from
+        # ``project_inputs``. Index registered hash/size pairs so an upload
+        # copy can be treated as an alias rather than a second source.
+        registered_aliases: set[tuple[str, int]] = set()
+        raw_project_inputs = manifest.get("project_inputs", [])
+        if not isinstance(raw_project_inputs, list):
+            return None
+        for raw in raw_project_inputs:
+            if not isinstance(raw, Mapping):
+                return None
+            sha256 = raw.get("sha256")
+            declared_bytes = raw.get("bytes")
+            if isinstance(sha256, str) and isinstance(declared_bytes, int):
+                registered_aliases.add((sha256, declared_bytes))
         seen: set[str] = set()
         for source_group in ("inputs", "project_inputs"):
             raw_records = manifest.get(source_group, [])
@@ -1180,6 +1200,20 @@ class ResearchReviewStore:
                 source_ref = raw.get("path")
                 expected_sha256 = raw.get("sha256")
                 declared_bytes = raw.get("bytes")
+                if source_group == "inputs" and declared_bytes is None:
+                    # WebUI upload manifests call this field ``size``.
+                    declared_bytes = raw.get("size")
+                if (
+                    source_group == "inputs"
+                    and isinstance(expected_sha256, str)
+                    and isinstance(declared_bytes, int)
+                    and (expected_sha256, declared_bytes) in registered_aliases
+                    and not raw.get("dataset_id")
+                ):
+                    # The uploaded workspace copy is already represented by
+                    # its registered /project/data counterpart in the full
+                    # context receipt.
+                    continue
                 if (
                     not isinstance(source_ref, str)
                     or not source_ref
@@ -2946,6 +2980,7 @@ class ResearchReviewStore:
                 ) and context.get("required_data_product") in {
                     SILSO_CYCLE_EXTREMA_DATA_PRODUCT,
                     SOLAR_POLAR_PRECURSOR_DATA_PRODUCT,
+                    SOLAR_CYCLE_26_FORECAST_BACKTEST_DATA_PRODUCT,
                 }:
                     specialized_context = (source_ref, context)
 
@@ -2984,6 +3019,65 @@ class ResearchReviewStore:
                             "input hashes and a live four-cycle comparison containing "
                             "official and recomputed extrema, rise times, consistency "
                             "flags, and difference explanations."
+                        ),
+                        "fingerprint": issue_fingerprint(rule_id, claim_ref, owner),
+                    }
+                ]
+
+            if required_product == SOLAR_CYCLE_26_FORECAST_BACKTEST_DATA_PRODUCT:
+                receipt_ref = "receipts/datasets/solar_cycle_26_forecast_backtest.json"
+                receipt_source = manifest_by_ref.get(receipt_ref)
+                receipt = None
+                if isinstance(receipt_source, Mapping) and isinstance(
+                    receipt_source.get("sha256"), str
+                ):
+                    receipt_path = (self.workspace_root / receipt_ref).resolve()
+                    if (
+                        receipt_path.is_relative_to(self.workspace_root)
+                        and receipt_path.is_file()
+                        and _file_sha256(receipt_path) == receipt_source["sha256"]
+                    ):
+                        candidate = _read_json(receipt_path)
+                        if isinstance(candidate, dict):
+                            receipt = candidate
+                valid = bool(
+                    receipt
+                    and receipt.get("schema_version")
+                    == "solar-cycle-26-forecast-backtest-receipt-v1"
+                    and receipt.get("receipt_type")
+                    == "solar_cycle_26_forecast_backtest"
+                    and receipt.get("analysis_protocol")
+                    == "solar_cycle_26_forecast_backtest_v1"
+                    and receipt.get("status") == "verified"
+                    and receipt.get("cycle_numbers") == list(range(1, 25))
+                    and receipt.get("row_count") == 24
+                    and isinstance(receipt.get("forecast"), Mapping)
+                )
+                if valid:
+                    continue
+                rule_id = "DATA_SEMANTICS_BOUND"
+                claim_ref = f"{receipt_ref}#verified-cycle-forecast"
+                owner = "solar-data"
+                return [
+                    {
+                        "issue_id": "deterministic-sc26-forecast-contract",
+                        "rule_id": rule_id,
+                        "severity": "critical",
+                        "claim_ref": claim_ref,
+                        "evidence_refs": [context_ref],
+                        "owner": owner,
+                        "message": (
+                            "The Cycle 26 forecast Data product is absent or its "
+                            "verified receipt does not prove a 24-cycle backtest."
+                        ),
+                        "required_action": (
+                            "Run the registered solar_cycle_26_forecast_backtest_v1 "
+                            "adapter on the three SILSO inputs and persist its "
+                            "receipt-bound outputs."
+                        ),
+                        "acceptance_test": (
+                            "The receipt is verified, covers cycles 1-24 exactly, "
+                            "and contains a structured Cycle 26 forecast."
                         ),
                         "fingerprint": issue_fingerprint(rule_id, claim_ref, owner),
                     }
@@ -3492,18 +3586,21 @@ class ResearchReviewStore:
                         if isinstance(item, Mapping)
                         and isinstance(item.get("source_ref"), str)
                     }
-                    silso_context = any(
+                    deterministic_data_context = any(
                         (
                             context := self._manifest_json_source(
                                 manifest_by_ref, source_ref
                             )
                         )
                         and context.get("required_data_product")
-                        == SILSO_CYCLE_EXTREMA_DATA_PRODUCT
+                        in {
+                            SILSO_CYCLE_EXTREMA_DATA_PRODUCT,
+                            SOLAR_CYCLE_26_FORECAST_BACKTEST_DATA_PRODUCT,
+                        }
                         for source_ref in manifest_by_ref
                         if source_ref.startswith("receipts/datasets/data-context-")
                     )
-                    if silso_context:
+                    if deterministic_data_context:
                         accepted_claims = sorted(
                             claim["claim_id"]
                             for item in targets
