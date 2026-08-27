@@ -616,7 +616,6 @@ class TestThirdPartyRouting:
         call_kwargs["http_client"].close()
         asyncio.run(call_kwargs["http_async_client"].aclose())
 
-
     @patch("jw.llm.models.init_chat_model")
     def test_anthropic_base_url_override(self, mock_init, monkeypatch):
         """Anthropic provider should support base_url override (e.g. ccproxy)."""

@@ -2535,7 +2535,11 @@ def run_silso_cycle_morphology(
         )
         script_path = (
             Path(__file__).resolve().parent.parent
-            / "subagents" / "solar" / "skills" / "solar-cycle" / "scripts"
+            / "subagents"
+            / "solar"
+            / "skills"
+            / "solar-cycle"
+            / "scripts"
             / "run_cycle_morphology_experiment.py"
         )
         implementation = runpy.run_path(str(script_path))
@@ -2572,7 +2576,11 @@ def run_silso_cycle_morphology(
             "bootstrap_seed": 20260826,
             "bootstrap_repetitions": 10000,
             "inputs": [
-                {"dataset_id": record["dataset_id"], "path": record["path"], "sha256": record["sha256"]}
+                {
+                    "dataset_id": record["dataset_id"],
+                    "path": record["path"],
+                    "sha256": record["sha256"],
+                }
                 for record in (monthly_record, smoothed_record, extrema_record)
             ],
             "outputs": outputs,
@@ -2580,15 +2588,17 @@ def run_silso_cycle_morphology(
         }
         receipt_path = root / "receipts" / "datasets" / "silso_cycle_morphology.json"
         _atomic_write_json(receipt_path, receipt)
-        return _to_json({
-            "status": "verified",
-            "analysis_protocol": SILSO_CYCLE_MORPHOLOGY_PROTOCOL,
-            "row_count": result["rows"],
-            "artifact_refs": [item["path"] for item in outputs],
-            "receipt_refs": ["receipts/datasets/silso_cycle_morphology.json"],
-            "bootstrap_seed": 20260826,
-            "bootstrap_repetitions": 10000,
-        })
+        return _to_json(
+            {
+                "status": "verified",
+                "analysis_protocol": SILSO_CYCLE_MORPHOLOGY_PROTOCOL,
+                "row_count": result["rows"],
+                "artifact_refs": [item["path"] for item in outputs],
+                "receipt_refs": ["receipts/datasets/silso_cycle_morphology.json"],
+                "bootstrap_seed": 20260826,
+                "bootstrap_repetitions": 10000,
+            }
+        )
     except Exception as exc:
         return _error_json("run_silso_cycle_morphology", exc)
 
@@ -2614,10 +2624,20 @@ def run_solar_cycle_26_historical_forecast(
     try:
         from jw.research_protocols import SOLAR_CYCLE_26_FORECAST_BACKTEST_PROTOCOL
 
-        monthly, monthly_record = _resolve_eligible_dataset_path(monthly_total_path, "silso-monthly-total-v2", config)
-        smoothed, smoothed_record = _resolve_eligible_dataset_path(smoothed_path, "silso-monthly-smoothed-v2", config)
-        extrema, extrema_record = _resolve_eligible_dataset_path(official_extrema_path, "silso-cycle-extrema-v2", config)
-        script_path = Path(__file__).resolve().parents[2] / "scripts" / "run_sc26_historical_forecast.py"
+        monthly, monthly_record = _resolve_eligible_dataset_path(
+            monthly_total_path, "silso-monthly-total-v2", config
+        )
+        smoothed, smoothed_record = _resolve_eligible_dataset_path(
+            smoothed_path, "silso-monthly-smoothed-v2", config
+        )
+        extrema, extrema_record = _resolve_eligible_dataset_path(
+            official_extrema_path, "silso-cycle-extrema-v2", config
+        )
+        script_path = (
+            Path(__file__).resolve().parents[2]
+            / "scripts"
+            / "run_sc26_historical_forecast.py"
+        )
         script_dir = script_path.parent
         if str(script_dir) not in sys.path:
             sys.path.insert(0, str(script_dir))
@@ -2627,27 +2647,121 @@ def run_solar_cycle_26_historical_forecast(
         output_dir.mkdir(parents=True, exist_ok=True)
         monthly_frame = implementation["load_monthly_total"](monthly)
         smoothed_frame = implementation["load_smoothed_total"](smoothed)
-        cycles = implementation["build_cycle_table"](monthly_frame, smoothed_frame, extrema)
+        cycles = implementation["build_cycle_table"](
+            monthly_frame, smoothed_frame, extrema
+        )
         rng = implementation["np"].random.default_rng(implementation["SEED"])
         same, same_stats = implementation["same_cycle_backtest"](cycles, rng)
         lag, lag_stats = implementation["next_cycle_backtest"](cycles, rng, "lag_peak")
-        lag_both, both_stats = implementation["next_cycle_backtest"](cycles, rng, "lag_peak_rise")
+        lag_both, both_stats = implementation["next_cycle_backtest"](
+            cycles, rng, "lag_peak_rise"
+        )
         forecast = implementation["formal_forecast"](cycles, rng)
-        cycles.to_csv(output_dir / "sc26_cycle_features.csv", index=False, date_format="%Y-%m-%d")
-        implementation["pd"].concat([lag.assign(model="lag_peak"), lag_both.assign(model="lag_peak_rise"), same.assign(model="same_cycle_rise")], ignore_index=True).to_csv(output_dir / "sc26_forecast_predictions.csv", index=False)
-        (output_dir / "sc26_formal_forecast.json").write_text(json.dumps(forecast, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-        sources = {"retrieved": datetime.now(UTC).date().isoformat(), "monthly": {"path": monthly_record["path"], "sha256": monthly_record["sha256"]}, "smoothed": {"path": smoothed_record["path"], "sha256": smoothed_record["sha256"]}, "extrema": {"path": extrema_record["path"], "sha256": extrema_record["sha256"]}}
-        (output_dir / "data_manifest.json").write_text(json.dumps(sources, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-        implementation["make_figure"](cycles, same, lag, lag_both, forecast, output_dir / "sc26_forecast_visualization.png")
-        implementation["write_report"](output_dir, cycles, same_stats, lag_stats, both_stats, forecast, sources)
-        summary = {"output_dir": output_dir.relative_to(root).as_posix(), "cycles": len(cycles), "same_cycle": same_stats, "lag_peak": lag_stats, "lag_peak_rise": both_stats, "forecast": forecast}
-        (output_dir / "run_summary.json").write_text(json.dumps(summary, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-        output_refs = [f"outputs/sc26_forecast/{name}" for name in ("sc26_cycle_features.csv", "sc26_forecast_predictions.csv", "sc26_formal_forecast.json", "data_manifest.json", "sc26_forecast_visualization.png", "sc26_historical_backtest_report.md", "sc26_formal_forecast_report.md", "run_summary.json")]
-        outputs = [{"path": ref, "sha256": _file_sha256(root / ref)} for ref in output_refs]
+        cycles.to_csv(
+            output_dir / "sc26_cycle_features.csv", index=False, date_format="%Y-%m-%d"
+        )
+        implementation["pd"].concat(
+            [
+                lag.assign(model="lag_peak"),
+                lag_both.assign(model="lag_peak_rise"),
+                same.assign(model="same_cycle_rise"),
+            ],
+            ignore_index=True,
+        ).to_csv(output_dir / "sc26_forecast_predictions.csv", index=False)
+        (output_dir / "sc26_formal_forecast.json").write_text(
+            json.dumps(forecast, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+        )
+        sources = {
+            "retrieved": datetime.now(UTC).date().isoformat(),
+            "monthly": {
+                "path": monthly_record["path"],
+                "sha256": monthly_record["sha256"],
+            },
+            "smoothed": {
+                "path": smoothed_record["path"],
+                "sha256": smoothed_record["sha256"],
+            },
+            "extrema": {
+                "path": extrema_record["path"],
+                "sha256": extrema_record["sha256"],
+            },
+        }
+        (output_dir / "data_manifest.json").write_text(
+            json.dumps(sources, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+        )
+        implementation["make_figure"](
+            cycles,
+            same,
+            lag,
+            lag_both,
+            forecast,
+            output_dir / "sc26_forecast_visualization.png",
+        )
+        implementation["write_report"](
+            output_dir, cycles, same_stats, lag_stats, both_stats, forecast, sources
+        )
+        summary = {
+            "output_dir": output_dir.relative_to(root).as_posix(),
+            "cycles": len(cycles),
+            "same_cycle": same_stats,
+            "lag_peak": lag_stats,
+            "lag_peak_rise": both_stats,
+            "forecast": forecast,
+        }
+        (output_dir / "run_summary.json").write_text(
+            json.dumps(summary, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+        )
+        output_refs = [
+            f"outputs/sc26_forecast/{name}"
+            for name in (
+                "sc26_cycle_features.csv",
+                "sc26_forecast_predictions.csv",
+                "sc26_formal_forecast.json",
+                "data_manifest.json",
+                "sc26_forecast_visualization.png",
+                "sc26_historical_backtest_report.md",
+                "sc26_formal_forecast_report.md",
+                "run_summary.json",
+            )
+        ]
+        outputs = [
+            {"path": ref, "sha256": _file_sha256(root / ref)} for ref in output_refs
+        ]
         receipt_ref = "receipts/datasets/solar_cycle_26_forecast_backtest.json"
-        receipt = {"schema_version": "solar-cycle-26-forecast-backtest-receipt-v1", "receipt_type": "solar_cycle_26_forecast_backtest", "status": "verified", "analysis_protocol": SOLAR_CYCLE_26_FORECAST_BACKTEST_PROTOCOL, "producer": "solar-data", "task_id": _validated_task_metadata(config)[1], "cycle_numbers": list(range(1, 25)), "row_count": 24, "bootstrap_seed": implementation["SEED"], "bootstrap_repetitions": implementation["BOOTSTRAP_REPS"], "inputs": [{"dataset_id": record["dataset_id"], "path": record["path"], "sha256": record["sha256"]} for record in (monthly_record, smoothed_record, extrema_record)], "outputs": outputs, "forecast": forecast, "created_at": datetime.now(UTC).isoformat()}
+        receipt = {
+            "schema_version": "solar-cycle-26-forecast-backtest-receipt-v1",
+            "receipt_type": "solar_cycle_26_forecast_backtest",
+            "status": "verified",
+            "analysis_protocol": SOLAR_CYCLE_26_FORECAST_BACKTEST_PROTOCOL,
+            "producer": "solar-data",
+            "task_id": _validated_task_metadata(config)[1],
+            "cycle_numbers": list(range(1, 25)),
+            "row_count": 24,
+            "bootstrap_seed": implementation["SEED"],
+            "bootstrap_repetitions": implementation["BOOTSTRAP_REPS"],
+            "inputs": [
+                {
+                    "dataset_id": record["dataset_id"],
+                    "path": record["path"],
+                    "sha256": record["sha256"],
+                }
+                for record in (monthly_record, smoothed_record, extrema_record)
+            ],
+            "outputs": outputs,
+            "forecast": forecast,
+            "created_at": datetime.now(UTC).isoformat(),
+        }
         _atomic_write_json(root / receipt_ref, receipt)
-        return _to_json({"status": "verified", "analysis_protocol": SOLAR_CYCLE_26_FORECAST_BACKTEST_PROTOCOL, "row_count": 24, "artifact_refs": output_refs, "receipt_refs": [receipt_ref], "forecast": forecast})
+        return _to_json(
+            {
+                "status": "verified",
+                "analysis_protocol": SOLAR_CYCLE_26_FORECAST_BACKTEST_PROTOCOL,
+                "row_count": 24,
+                "artifact_refs": output_refs,
+                "receipt_refs": [receipt_ref],
+                "forecast": forecast,
+            }
+        )
     except Exception as exc:
         return _error_json("run_solar_cycle_26_historical_forecast", exc)
 

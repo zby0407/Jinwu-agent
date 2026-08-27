@@ -1531,11 +1531,7 @@ class ResearchReviewStore:
                     evidence_sha256=evidence_sha256,
                 )
             portfolio_path = next(
-                (
-                    path
-                    for path in sources
-                    if path.name == "hypothesis_portfolio.json"
-                ),
+                (path for path in sources if path.name == "hypothesis_portfolio.json"),
                 None,
             )
             if portfolio_path is not None:

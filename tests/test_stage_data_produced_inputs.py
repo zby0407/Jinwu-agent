@@ -48,10 +48,7 @@ def test_stages_hash_bound_outputs_from_data_source_manifest(tmp_path: Path) -> 
 
     staged = _stage_data_produced_inputs(store)
 
-    staged_ref = (
-        "inputs/data_artifacts/"
-        f"{digest[:16]}-cycle_morphology_table.csv"
-    )
+    staged_ref = f"inputs/data_artifacts/{digest[:16]}-cycle_morphology_table.csv"
     assert staged == [staged_ref, "inputs/_staged.json"]
     assert (tmp_path / staged_ref).read_bytes() == raw
 

@@ -710,18 +710,23 @@ def _write_silso_evidence_seed(
 
     evidence_rows: list[dict[str, Any]] = []
     for row in rows:
-        evidence = {key: value for key, value in row.items() if key != "relationship_key"}
+        evidence = {
+            key: value for key, value in row.items() if key != "relationship_key"
+        }
         validate_evidence_provenance(dict(request), evidence)
         evidence_rows.append(row)
     payload = {
         "schema_version": "scientific-hypothesis-evidence-seed-v1",
         "request_sha256": canonical_json_sha256(dict(request)),
         "source_materials": [
-            {"material_id": row["material_id"], "locator": next(
-                material["locator"]
-                for material in materials
-                if material.get("id") == row["material_id"]
-            )}
+            {
+                "material_id": row["material_id"],
+                "locator": next(
+                    material["locator"]
+                    for material in materials
+                    if material.get("id") == row["material_id"]
+                ),
+            }
             for row in evidence_rows
         ],
         "evidence": evidence_rows,
@@ -790,7 +795,9 @@ def _reviewed_text_result_excerpt(
             title = heading.group(1)
             if _HYPOTHESIS_RESULT_SECTION.search(title) is None:
                 continue
-            end = headings[index + 1].start() if index + 1 < len(headings) else len(text)
+            end = (
+                headings[index + 1].start() if index + 1 < len(headings) else len(text)
+            )
             section = text[heading.start() : end].strip()
             # Conclusions and primary result tables are more useful than a long
             # row-by-row sensitivity appendix when the A2A capsule is bounded.
@@ -2096,7 +2103,12 @@ def build_a2a_handoff_envelope(
         ),
         "return_contract": {
             "allowed_statuses": ["accepted", "accepted_with_limits", "blocked"],
-            "required_fields": ["status", "artifact_refs", "receipt_refs", "limitations"],
+            "required_fields": [
+                "status",
+                "artifact_refs",
+                "receipt_refs",
+                "limitations",
+            ],
             "hard_boundary": (
                 "Open only bound inputs and accepted upstream refs; do not invent "
                 "observations, measurements, artifact paths, or completion claims."
@@ -2624,8 +2636,7 @@ class ResearchReviewOrchestrationMiddleware(AgentMiddleware[Any, Any, Any]):
                         )
                     elif (
                         action.get("phase") == "data_revision_from_data"
-                        and analysis_protocol
-                        == "solar_cycle_26_forecast_backtest_v1"
+                        and analysis_protocol == "solar_cycle_26_forecast_backtest_v1"
                         and data_context.get("must_stop") is not True
                         and isinstance(
                             data_context.get("produced_data_receipt_ref"), str
@@ -2840,7 +2851,10 @@ class ResearchReviewOrchestrationMiddleware(AgentMiddleware[Any, Any, Any]):
                         "never substitute that label for bound_research_question."
                     )
             planning_protocol_directive = ""
-            if action["stage"] == "planning" and analysis_protocol == "silso_cycle_morphology_v1":
+            if (
+                action["stage"] == "planning"
+                and analysis_protocol == "silso_cycle_morphology_v1"
+            ):
                 from ..research_protocols import silso_cycle_morphology_directive
 
                 planning_protocol_directive = (
@@ -3109,9 +3123,7 @@ class ResearchReviewOrchestrationMiddleware(AgentMiddleware[Any, Any, Any]):
                                 content=producer_text,
                                 phase=action["phase"],
                                 require_canonical_source=True,
-                                revision_review_id=action.get(
-                                    "revision_review_id"
-                                ),
+                                revision_review_id=action.get("revision_review_id"),
                             )
                         except Exception as host_exc:
                             return self._blocked(

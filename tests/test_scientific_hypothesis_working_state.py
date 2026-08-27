@@ -1597,8 +1597,9 @@ def test_source_restricted_request_waives_inapplicable_literature_pass(
 
     assert "literature_pass_missing" not in warning_codes
     assert (
-        hypothesis_tools._STATES["hypothesis-source-restricted"]
-        .literature_bundle_attempted
+        hypothesis_tools._STATES[
+            "hypothesis-source-restricted"
+        ].literature_bundle_attempted
         is False
     )
 
@@ -1626,8 +1627,7 @@ def test_source_restricted_request_atomically_prebinds_host_evidence(
                 "title": "Accepted bounded SILSO result",
                 "locator": "outputs/cycle_morphology_strength_report.md",
                 "content_notes": (
-                    "[source_restricted_evidence_boundary]\n"
-                    + "\n".join(rows.values())
+                    "[source_restricted_evidence_boundary]\n" + "\n".join(rows.values())
                 ),
                 "experiment_summary": None,
             }
@@ -1664,7 +1664,10 @@ def test_source_restricted_request_atomically_prebinds_host_evidence(
     )
     assert first["prebound_evidence_count"] == 3
     assert set(first["prebound_evidence_ids_by_relationship"]) == set(rows)
-    assert len(hypothesis_tools._STATES["hypothesis-source-prebound"].evidence_register) == 3
+    assert (
+        len(hypothesis_tools._STATES["hypothesis-source-prebound"].evidence_register)
+        == 3
+    )
     assert first["next_required_action"]["tool"] == "scientific_hypothesis_update_draft"
 
     second = json.loads(
@@ -1686,7 +1689,10 @@ def test_source_restricted_request_atomically_prebinds_host_evidence(
         )
     )
     assert failed["status"] == "needs_revision"
-    assert len(hypothesis_tools._STATES["hypothesis-source-prebound"].evidence_register) == 3
+    assert (
+        len(hypothesis_tools._STATES["hypothesis-source-prebound"].evidence_register)
+        == 3
+    )
 
 
 def test_upsert_candidate_replaces_candidate_and_removes_unsupported_keys() -> None:
@@ -1722,9 +1728,7 @@ def test_upsert_candidate_replaces_candidate_and_removes_unsupported_keys() -> N
 
 def test_draft_update_warns_about_unknown_candidate_fields_before_checkpoint() -> None:
     config = _config("hypothesis-draft-unknown-field-warning")
-    hypothesis_tools._STATES.pop(
-        "hypothesis-draft-unknown-field-warning", None
-    )
+    hypothesis_tools._STATES.pop("hypothesis-draft-unknown-field-warning", None)
     hypothesis_tools.scientific_hypothesis_bind_request.invoke(
         {"request_input": "Explain this observation."},
         config=config,
@@ -1961,9 +1965,7 @@ def test_workspace_checkpoint_writes_host_owned_snapshot(tmp_path, monkeypatch) 
     )
     assert snapshot.is_file()
     payload = json.loads(snapshot.read_text(encoding="utf-8"))
-    assert payload["checkpoint_sha256"] == canonical_json_sha256(
-        payload["checkpoint"]
-    )
+    assert payload["checkpoint_sha256"] == canonical_json_sha256(payload["checkpoint"])
 
 
 def test_multi_candidate_checkpoint_requires_current_tail_review() -> None:

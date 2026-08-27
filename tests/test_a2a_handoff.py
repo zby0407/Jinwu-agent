@@ -18,7 +18,11 @@ def test_a2a_handoff_envelope_carries_stage_contract_and_boundaries() -> None:
             "context_sha256": "ctx",
             "must_stop": False,
             "eligible_inputs": [
-                {"dataset_id": "silso-cycle-extrema-v2", "path": "data/extrema.txt", "sha256": "abc"}
+                {
+                    "dataset_id": "silso-cycle-extrema-v2",
+                    "path": "data/extrema.txt",
+                    "sha256": "abc",
+                }
             ],
         },
     )
@@ -30,6 +34,9 @@ def test_a2a_handoff_envelope_carries_stage_contract_and_boundaries() -> None:
     assert envelope["analysis_protocol"] == "silso_cycle_morphology_v1"
     assert envelope["accepted_upstream_refs"] == ["planning-artifact@v1:abc"]
     assert envelope["data_context"]["receipt_ref"].endswith("data-context.json")
-    assert envelope["data_context"]["eligible_inputs"][0]["dataset_id"] == "silso-cycle-extrema-v2"
+    assert (
+        envelope["data_context"]["eligible_inputs"][0]["dataset_id"]
+        == "silso-cycle-extrema-v2"
+    )
     assert "blocked" in envelope["return_contract"]["allowed_statuses"]
     assert "invent" in envelope["return_contract"]["hard_boundary"]

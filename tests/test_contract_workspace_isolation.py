@@ -1699,7 +1699,9 @@ def test_host_can_materialize_protocol_owned_morphology_design(
         "input_03": inputs / "e83932c7a47a12c4-SN_m_tot_V2.0.txt",
         "input_08": inputs / "19d01a07a0aae775-cycle_morphology_table.csv",
     }
-    files["input_01"].write_text("01 1755 02 14.0 1761 06 144.1 11 04\n", encoding="utf-8")
+    files["input_01"].write_text(
+        "01 1755 02 14.0 1761 06 144.1 11 04\n", encoding="utf-8"
+    )
     files["input_02"].write_text("1761;06;1761.455;144.1;-1.0;-1;1\n", encoding="utf-8")
     files["input_03"].write_text("1761 06 1761.455 100.0 -1.0 -1\n", encoding="utf-8")
     files["input_08"].write_text(

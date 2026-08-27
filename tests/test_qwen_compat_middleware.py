@@ -337,9 +337,7 @@ def test_source_restricted_sc26_backtest_hypothesis_hides_discovery_tools():
         "scientific_hypothesis_review_tail",
         "scientific_hypothesis_checkpoint_draft",
     }
-    rendered = " ".join(
-        str(prepared.system_message.content).replace("\n", " ").split()
-    )
+    rendered = " ".join(str(prepared.system_message.content).replace("\n", " ").split())
     assert "source-restricted statistical task" in rendered
     assert "historical backtest skill" in rendered
 
@@ -375,7 +373,9 @@ def test_source_restricted_morphology_hypothesis_uses_host_prebound_seed():
                 tool_calls=[
                     {
                         "name": "scientific_hypothesis_bind_request",
-                        "args": {"request_input": "@work/research_quality/hypothesis_request.json"},
+                        "args": {
+                            "request_input": "@work/research_quality/hypothesis_request.json"
+                        },
                         "id": "bind-1",
                         "type": "tool_call",
                     }
@@ -441,9 +441,7 @@ def test_final_release_generation_exposes_only_release_gate_tool():
         middleware.wrap_model_call(request, handler)
 
     prepared = handler.call_args.args[0]
-    assert [tool["name"] for tool in prepared.tools] == [
-        "research_release_prepare"
-    ]
+    assert [tool["name"] for tool in prepared.tools] == ["research_release_prepare"]
     assert prepared.tool_choice is None
     assert prepared.model_settings["parallel_tool_calls"] is False
     rendered = str(prepared.system_message.content)
@@ -1884,9 +1882,7 @@ def test_middleware_reads_ready_hypothesis_draft_before_another_update():
                 "status": "draft",
                 "soft_warning_count": 0,
                 "return_gate": "get_draft_required",
-                "next_required_action": {
-                    "tool": "scientific_hypothesis_get_draft"
-                },
+                "next_required_action": {"tool": "scientific_hypothesis_get_draft"},
             }
         ),
         tool_call_id="call_update_ready",
@@ -1941,9 +1937,7 @@ def test_middleware_keeps_hypothesis_repairs_while_warnings_remain():
                 "status": "draft",
                 "soft_warning_count": 2,
                 "return_gate": "blocked_until_warnings_resolved",
-                "next_required_action": {
-                    "tool": "scientific_hypothesis_update_draft"
-                },
+                "next_required_action": {"tool": "scientific_hypothesis_update_draft"},
             }
         ),
         tool_call_id="call_update_incomplete",
@@ -3063,9 +3057,7 @@ def test_qwen_evidence_submit_normalizes_host_mode_and_supported_claim_ids(
     request = _request(
         evidence_review_submit_round,
         messages=[
-            HumanMessage(
-                content="[EVIDENCE_REVIEW_V2]\nreview_mode=experiment_result"
-            )
+            HumanMessage(content="[EVIDENCE_REVIEW_V2]\nreview_mode=experiment_result")
         ],
     )
     response = ModelResponse(
@@ -3097,7 +3089,9 @@ def test_qwen_evidence_submit_normalizes_host_mode_and_supported_claim_ids(
                             "issues": [],
                             "accepted_claims": [],
                             "blocked_claims": [],
-                            "carry_forward_limits": ["Small-sample uncertainty remains."],
+                            "carry_forward_limits": [
+                                "Small-sample uncertainty remains."
+                            ],
                             "next_owner": "",
                         },
                         "id": "submit",

@@ -449,7 +449,9 @@ def test_hypothesis_request_transports_hash_matched_reviewed_result_excerpt(
     }
     material_ids = {material["id"] for material in request["upstream_materials"]}
     for row in seed["evidence"]:
-        evidence = {key: value for key, value in row.items() if key != "relationship_key"}
+        evidence = {
+            key: value for key, value in row.items() if key != "relationship_key"
+        }
         assert evidence["material_id"] in material_ids
         validate_evidence_provenance(request, evidence)
 
@@ -2513,9 +2515,7 @@ def test_full_hypothesis_accepts_immutable_checkpoint_snapshot_after_draft_edit(
     snapshot_path = tmp_path / "work" / "scientific_hypothesis_checkpoint.json"
     state_path.parent.mkdir(parents=True)
     edited = dict(payload["latest_draft"])
-    edited["candidates"] = [
-        {"id": "H-later", "statement": "A later mutable draft."}
-    ]
+    edited["candidates"] = [{"id": "H-later", "statement": "A later mutable draft."}]
     payload["latest_draft"] = edited
     payload["latest_draft_sha256"] = canonical_json_sha256(edited)
     state_path.write_text(json.dumps(payload), encoding="utf-8")
@@ -2560,9 +2560,10 @@ def test_full_hypothesis_rejects_invalid_checkpoint_snapshot(
         encoding="utf-8",
     )
     store = ResearchReviewStore(tmp_path, "invalid-snapshot")
-    assert store._canonical_stage_ready(
-        "hypothesis", [snapshot_path], phase="hypothesis"
-    ) is False
+    assert (
+        store._canonical_stage_ready("hypothesis", [snapshot_path], phase="hypothesis")
+        is False
+    )
 
 
 @pytest.mark.parametrize(
@@ -3050,7 +3051,8 @@ def test_curated_data_cycle_table_passes_deterministic_boundary(tmp_path: Path) 
 
 
 def test_sc26_forecast_receipt_passes_host_deterministic_data_boundary(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """The deterministic SC26 worker must not depend on a narrative reviewer."""
 
@@ -7174,7 +7176,9 @@ def test_precursor_and_pair_receipts_project_structured_data_claim(
     assert adapted["payload"]["data_result_summary"] == summary
 
 
-def test_readiness_receipt_projects_structured_data_claim_from_verified_output() -> None:
+def test_readiness_receipt_projects_structured_data_claim_from_verified_output() -> (
+    None
+):
     receipt_ref = "receipts/datasets/solar_cycle_26_readiness_inventory.json"
     output_ref = "work/solar_data/solar_cycle_26_readiness_inventory.json"
     receipt = {

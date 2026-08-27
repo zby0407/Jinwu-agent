@@ -20,7 +20,9 @@ def _bind_forecast_run(workspace: Path) -> str:
         "manifest": inputs / "data_manifest.json",
     }
     for path in files.values():
-        path.write_text("{}\n" if path.suffix == ".json" else "fixture\n", encoding="utf-8")
+        path.write_text(
+            "{}\n" if path.suffix == ".json" else "fixture\n", encoding="utf-8"
+        )
     request = default_request("执行太阳活动周第26周预测历史回测的独立结果复核。")
     request["input_refs"] = [
         {

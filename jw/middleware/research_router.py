@@ -1935,9 +1935,7 @@ def _needs_release_draft_retry(
 
 def _release_draft_retry_request(request: ModelRequest) -> ModelRequest:
     release_tools = [
-        tool
-        for tool in request.tools
-        if _tool_name(tool) == "research_release_prepare"
+        tool for tool in request.tools if _tool_name(tool) == "research_release_prepare"
     ]
     return request.override(
         system_message=append_to_system_message(

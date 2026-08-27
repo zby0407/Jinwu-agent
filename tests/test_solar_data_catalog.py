@@ -112,9 +112,7 @@ def test_acquisition_persists_validated_source_and_names_failed_dataset(
     def fail_smoothed():
         raise OSError("temporary upstream failure")
 
-    monkeypatch.setattr(
-        "jw.solar_data_catalog._acquire_silso_smoothed", fail_smoothed
-    )
+    monkeypatch.setattr("jw.solar_data_catalog._acquire_silso_smoothed", fail_smoothed)
 
     with pytest.raises(
         RuntimeError,
@@ -129,8 +127,7 @@ def test_acquisition_persists_validated_source_and_names_failed_dataset(
         )
 
     registered = (
-        tmp_path
-        / "projects/default/shared/data/solar_cycle/silso/monthly_total_v2/"
+        tmp_path / "projects/default/shared/data/solar_cycle/silso/monthly_total_v2/"
         "SN_m_tot_V2.0.txt"
     )
     assert registered.read_bytes() == b"monthly"

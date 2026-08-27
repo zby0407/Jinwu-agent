@@ -37,8 +37,7 @@ def _write_synthetic_silso(tmp_path: Path) -> tuple[Path, Path]:
             f"{max_year:04d} {max_month:02d} {table_peak:.1f} 10 00"
         )
         smoothed_lines.append(
-            f"{max_year:04d};{max_month:02d};{max_year:.3f};"
-            f"{series_peak:.1f};-1.0;-1;1"
+            f"{max_year:04d};{max_month:02d};{max_year:.3f};{series_peak:.1f};-1.0;-1;1"
         )
     year_25, month_25 = _month_parts(minima[24])
     extrema_lines.append(f"25 {year_25:04d} {month_25:02d} 1.0")

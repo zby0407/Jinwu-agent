@@ -2052,9 +2052,7 @@ def test_morphology_protocol_requires_full_research_route() -> None:
         "请完成独立 SILSO 太阳活动周形态统计实验，生成 CSV、Markdown 和 PNG，"
         "完成 Pearson、Spearman、Bootstrap 与留一分析。"
     )
-    route = _with_analysis_protocol(
-        _fallback_route(prompt), text=prompt
-    )
+    route = _with_analysis_protocol(_fallback_route(prompt), text=prompt)
     assert route["required_analysis_protocol"] == "silso_cycle_morphology_v1"
     assert route["mode"] == "full_research"
 
@@ -2064,9 +2062,7 @@ def test_uploaded_polar_precursor_statistics_require_full_research_route() -> No
         "使用已经验证的上传 solar_precursor_cycle_features.csv，直接完成下游统计分析；"
         "报告 Pearson、Spearman、Bootstrap、留一和 MWO/WSO 分时期结果。"
     )
-    route = _with_analysis_protocol(
-        _fallback_route(prompt), text=prompt
-    )
+    route = _with_analysis_protocol(_fallback_route(prompt), text=prompt)
     assert route["required_analysis_protocol"] == "solar_polar_precursor_v1"
     assert route["mode"] == "full_research"
 

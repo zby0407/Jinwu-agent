@@ -1130,7 +1130,8 @@ class QwenToolCompatibilityMiddleware(AgentMiddleware):
         ):
             return readiness_tool
         if (
-            payload.get("analysis_protocol") == _SOLAR_CYCLE_26_FORECAST_BACKTEST_PROTOCOL
+            payload.get("analysis_protocol")
+            == _SOLAR_CYCLE_26_FORECAST_BACKTEST_PROTOCOL
             and payload.get("required_data_product")
             == _SOLAR_CYCLE_26_FORECAST_BACKTEST_DATA_PRODUCT
             and _SILSO_REPRODUCTION_DATASET_IDS <= dataset_ids
@@ -1175,10 +1176,8 @@ class QwenToolCompatibilityMiddleware(AgentMiddleware):
         }:
             return None
         specialized = {
-            "silso_cycle_morphology_v1":
-            "automatic_experiment_create_silso_morphology_design",
-            "solar_cycle_26_forecast_backtest_v1":
-            "automatic_experiment_create_sc26_forecast_design",
+            "silso_cycle_morphology_v1": "automatic_experiment_create_silso_morphology_design",
+            "solar_cycle_26_forecast_backtest_v1": "automatic_experiment_create_sc26_forecast_design",
         }[protocol]
         available = {name for tool in tools if (name := _tool_name(tool)) is not None}
         if specialized not in available:
@@ -1199,7 +1198,10 @@ class QwenToolCompatibilityMiddleware(AgentMiddleware):
             except (TypeError, ValueError):
                 return specialized
             result = payload.get("result") if isinstance(payload, Mapping) else None
-            if isinstance(result, Mapping) and result.get("status") == "design_validated":
+            if (
+                isinstance(result, Mapping)
+                and result.get("status") == "design_validated"
+            ):
                 return None
             return specialized
         return specialized
@@ -1759,8 +1761,7 @@ class QwenToolCompatibilityMiddleware(AgentMiddleware):
         message = response.result[0]
         if (
             len(message.tool_calls) == 1
-            and message.tool_calls[0].get("name")
-            == "scientific_hypothesis_get_draft"
+            and message.tool_calls[0].get("name") == "scientific_hypothesis_get_draft"
         ):
             return response
         digest = hashlib.sha256(
@@ -2473,10 +2474,10 @@ class QwenToolCompatibilityMiddleware(AgentMiddleware):
             if owners:
                 normalized["next_owner"] = owners[0]
 
-        if (
-            normalized.get("decision") in {"accept", "accept_with_limits"}
-            and not normalized.get("accepted_claims")
-        ):
+        if normalized.get("decision") in {
+            "accept",
+            "accept_with_limits",
+        } and not normalized.get("accepted_claims"):
             blocked_claims = {
                 claim_id
                 for claim_id in normalized.get("blocked_claims", [])
@@ -2552,9 +2553,8 @@ class QwenToolCompatibilityMiddleware(AgentMiddleware):
             tool_calls: list[dict[str, Any]] = []
             message_changed = False
             for call in message.tool_calls:
-                if (
-                    call.get("name") == _EVIDENCE_SUBMIT_TOOL
-                    and isinstance(call.get("args"), Mapping)
+                if call.get("name") == _EVIDENCE_SUBMIT_TOOL and isinstance(
+                    call.get("args"), Mapping
                 ):
                     normalized_args = cls._normalize_kimi_evidence_submission(
                         call["args"]
@@ -2869,9 +2869,7 @@ class QwenToolCompatibilityMiddleware(AgentMiddleware):
                         _QWEN_TRANSPORT_RETRY_DELAY_SECONDS,
                         type(current).__name__,
                     )
-                    await _sleep_before_qwen_retry(
-                        _QWEN_TRANSPORT_RETRY_DELAY_SECONDS
-                    )
+                    await _sleep_before_qwen_retry(_QWEN_TRANSPORT_RETRY_DELAY_SECONDS)
                     try:
                         response = await self._await_handler_with_qwen_wall_timeout(
                             request, prepared, handler

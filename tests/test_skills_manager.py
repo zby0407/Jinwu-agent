@@ -321,9 +321,7 @@ description: Skill number {i}
             assert "skill-1" in names
             assert "skill-2" in names
 
-    def test_list_includes_bundle_owned_builtin_skills(
-        self, tmp_path, temp_skills_dir
-    ):
+    def test_list_includes_bundle_owned_builtin_skills(self, tmp_path, temp_skills_dir):
         builtin_root = tmp_path / "builtin"
         skill_dir = builtin_root / "core" / "skills" / "bundle-skill"
         skill_dir.mkdir(parents=True)

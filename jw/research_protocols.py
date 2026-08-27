@@ -109,6 +109,8 @@ def _explicit_polar_data_exclusion(text: str) -> bool:
         if _POLAR_EXCLUSION_PATTERN.search(sentence):
             return True
     return False
+
+
 _CYCLE_26_PATTERN = re.compile(
     r"(?:第\s*26\s*(?:太阳活动)?周|太阳活动周\s*26|solar\s+cycle\s*26|cycle\s*26)",
     re.IGNORECASE,
@@ -145,9 +147,8 @@ def detect_analysis_protocol(text: str) -> str:
         return F107_DISCONTINUITY_PROTOCOL
     if _CYCLE_26_BACKTEST_FORECAST_PATTERN.search(text):
         return SOLAR_CYCLE_26_FORECAST_BACKTEST_PROTOCOL
-    if (
-        _CYCLE_26_PATTERN.search(text)
-        and _CYCLE_26_OPERATIONAL_FORECAST_PATTERN.search(text)
+    if _CYCLE_26_PATTERN.search(text) and _CYCLE_26_OPERATIONAL_FORECAST_PATTERN.search(
+        text
     ):
         return SOLAR_CYCLE_26_READINESS_PROTOCOL
     if (

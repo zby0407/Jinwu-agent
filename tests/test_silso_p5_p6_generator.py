@@ -82,12 +82,18 @@ def test_verify_run_identity_rejects_mismatched_workspace_thread(
             "status": "released",
             "currentStage": "final_release",
             "stages": [
-                {"stage": row["stage"], "status": "accepted_with_limits", "decision": "accept_with_limits"}
+                {
+                    "stage": row["stage"],
+                    "status": "accepted_with_limits",
+                    "decision": "accept_with_limits",
+                }
                 for row in metadata["stage_verdicts"]
             ],
         },
     )
-    _write_json(eval_run / "thread_terminal.json", {"thread": {"thread_id": "thread-from-eval"}})
+    _write_json(
+        eval_run / "thread_terminal.json", {"thread": {"thread_id": "thread-from-eval"}}
+    )
     _write_json(eval_run / "assistant_answers.json", [{"content": "正式发布正文"}])
     _write_json(
         workspace_run / "task.json",
@@ -95,7 +101,9 @@ def test_verify_run_identity_rejects_mismatched_workspace_thread(
             "thread_id": "different-workspace-thread",
             "run_id": "run_different-workspace-thread_deadbeef",
             "status": "completed",
-            "research_question": (eval_run / "prompt.txt").read_text(encoding="utf-8").strip(),
+            "research_question": (eval_run / "prompt.txt")
+            .read_text(encoding="utf-8")
+            .strip(),
         },
     )
     _write_json(
@@ -104,7 +112,10 @@ def test_verify_run_identity_rejects_mismatched_workspace_thread(
             "task_id": "different-workspace-thread",
             "status": "released",
             "current_stage": "final_release",
-            "stage_status": {row["stage"]: "accepted_with_limits" for row in metadata["stage_verdicts"]},
+            "stage_status": {
+                row["stage"]: "accepted_with_limits"
+                for row in metadata["stage_verdicts"]
+            },
         },
     )
 
@@ -164,7 +175,12 @@ def test_docx_uses_verified_run_label_instead_of_fixed_v18(tmp_path: Path) -> No
     document = Document(output)
     visible_text = "\n".join(
         [paragraph.text for paragraph in document.paragraphs]
-        + [cell.text for table in document.tables for row in table.rows for cell in row.cells]
+        + [
+            cell.text
+            for table in document.tables
+            for row in table.rows
+            for cell in row.cells
+        ]
     )
     assert "main_cycle_morphology.v99" in visible_text
     assert "production v18" not in visible_text

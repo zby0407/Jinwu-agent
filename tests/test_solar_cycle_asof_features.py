@@ -88,11 +88,12 @@ def test_missing_feature_month_stops_the_build() -> None:
         MODULE.build_asof_features(monthly, smoothed, cycles, [1])
 
 
-def test_monthly_loader_accepts_current_silso_six_column_text_with_marker(tmp_path: Path) -> None:
+def test_monthly_loader_accepts_current_silso_six_column_text_with_marker(
+    tmp_path: Path,
+) -> None:
     path = tmp_path / "SN_m_tot_V2.0.txt"
     path.write_text(
-        "1749 01 1749.042   96.7  -1.0    -1\n"
-        "2026 07 2026.538   78.1  11.2  1371 *\n",
+        "1749 01 1749.042   96.7  -1.0    -1\n2026 07 2026.538   78.1  11.2  1371 *\n",
         encoding="utf-8",
     )
 

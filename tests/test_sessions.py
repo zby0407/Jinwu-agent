@@ -2700,7 +2700,9 @@ class TestRestoreWebuiThreadsToGlobalStore(unittest.IsolatedAsyncioTestCase):
             self._WS
         )
 
-    async def test_restore_uses_persisted_workspace_bindings_as_indexed_candidates(self):
+    async def test_restore_uses_persisted_workspace_bindings_as_indexed_candidates(
+        self,
+    ):
         """A large machine-global DB must not be scanned for unbound threads.
 
         Every current WebUI task owns a persisted workspace binding.  Once at

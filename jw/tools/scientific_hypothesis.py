@@ -440,8 +440,7 @@ def _normalize_working_draft(
         scientific_quality = candidate.get("scientific_quality")
         if (
             isinstance(scientific_quality, dict)
-            and scientific_quality.get("novelty_status")
-            == "tail_candidate_unverified"
+            and scientific_quality.get("novelty_status") == "tail_candidate_unverified"
         ):
             scientific_quality["novelty_status"] = "novelty_not_assessed"
         candidate_id = candidate.get("id")
@@ -510,8 +509,7 @@ def _draft_warnings(
             f"Draft has {len(candidates)} candidates; maximum is {request['max_candidates']}.",
         )
     source_restricted_evidence_boundary = any(
-        SOURCE_RESTRICTED_EVIDENCE_MARKER
-        in str(material.get("content_notes") or "")
+        SOURCE_RESTRICTED_EVIDENCE_MARKER in str(material.get("content_notes") or "")
         for material in request.get("upstream_materials", [])
         if isinstance(material, dict)
     )
@@ -1647,10 +1645,15 @@ def _load_host_evidence_seed(
     if not seed_path.is_file():
         return [], None
     raw = json.loads(seed_path.read_text(encoding="utf-8"))
-    if not isinstance(raw, dict) or raw.get("schema_version") != _HOST_EVIDENCE_SEED_SCHEMA:
+    if (
+        not isinstance(raw, dict)
+        or raw.get("schema_version") != _HOST_EVIDENCE_SEED_SCHEMA
+    ):
         raise ValueError("host evidence seed has an unsupported schema")
     if raw.get("request_sha256") != canonical_json_sha256(request):
-        raise ValueError("host evidence seed request hash does not match the bound request")
+        raise ValueError(
+            "host evidence seed request hash does not match the bound request"
+        )
     rows = raw.get("evidence")
     if not isinstance(rows, list):
         raise ValueError("host evidence seed evidence must be an array")
@@ -1664,14 +1667,27 @@ def _load_host_evidence_seed(
             raise ValueError(f"host evidence seed row {index} must be an object")
         relationship = item.get("relationship_key")
         if relationship not in _SILSO_PREBOUND_RELATIONSHIPS:
-            raise ValueError(f"host evidence seed row {index} has an unknown relationship")
+            raise ValueError(
+                f"host evidence seed row {index} has an unknown relationship"
+            )
         if relationship in seen_relationships:
-            raise ValueError(f"host evidence seed duplicates relationship {relationship}")
-        evidence = {key: value for key, value in item.items() if key != "relationship_key"}
+            raise ValueError(
+                f"host evidence seed duplicates relationship {relationship}"
+            )
+        evidence = {
+            key: value for key, value in item.items() if key != "relationship_key"
+        }
         if evidence.get("evidence_id") in seen_ids:
-            raise ValueError(f"host evidence seed duplicates evidence id {evidence.get('evidence_id')}")
-        if evidence.get("evidence_kind") != "upstream" or evidence.get("role") != "supports":
-            raise ValueError("host evidence seed rows must be verified upstream support")
+            raise ValueError(
+                f"host evidence seed duplicates evidence id {evidence.get('evidence_id')}"
+            )
+        if (
+            evidence.get("evidence_kind") != "upstream"
+            or evidence.get("role") != "supports"
+        ):
+            raise ValueError(
+                "host evidence seed rows must be verified upstream support"
+            )
         if evidence.get("verified_support") is not True:
             raise ValueError("host evidence seed rows must be verified")
         validate_evidence_provenance(request, evidence)
@@ -1732,9 +1748,7 @@ def scientific_hypothesis_bind_request(
         else:
             request = build_natural_hypothesis_request(supplied)
 
-        host_seed_rows, host_seed_path = _load_host_evidence_seed(
-            request_path, request
-        )
+        host_seed_rows, host_seed_path = _load_host_evidence_seed(request_path, request)
 
         brief = build_hypothesis_brief(request)
         brief["tail_search_contract"] = {

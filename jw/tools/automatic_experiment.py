@@ -439,9 +439,24 @@ def _sc26_forecast_measurements() -> list[dict[str, str]]:
         ("baseline_mae", "训练均值基线平均绝对误差", "secondary", "平滑太阳黑子数"),
         ("candidate_rmse", "候选模型均方根误差", "secondary", "平滑太阳黑子数"),
         ("baseline_rmse", "训练均值基线均方根误差", "secondary", "平滑太阳黑子数"),
-        ("mae_improvement", "候选模型相对基线的绝对误差改进", "primary", "平滑太阳黑子数"),
-        ("mae_improvement_ci_low", "绝对误差改进区间下限", "secondary", "平滑太阳黑子数"),
-        ("mae_improvement_ci_high", "绝对误差改进区间上限", "secondary", "平滑太阳黑子数"),
+        (
+            "mae_improvement",
+            "候选模型相对基线的绝对误差改进",
+            "primary",
+            "平滑太阳黑子数",
+        ),
+        (
+            "mae_improvement_ci_low",
+            "绝对误差改进区间下限",
+            "secondary",
+            "平滑太阳黑子数",
+        ),
+        (
+            "mae_improvement_ci_high",
+            "绝对误差改进区间上限",
+            "secondary",
+            "平滑太阳黑子数",
+        ),
         ("cycle26_point_estimate", "第26周峰值点估计", "secondary", "平滑太阳黑子数"),
         ("cycle26_interval_low", "第26周预测区间下限", "secondary", "平滑太阳黑子数"),
         ("cycle26_interval_high", "第26周预测区间上限", "secondary", "平滑太阳黑子数"),
@@ -462,13 +477,62 @@ def _sc26_forecast_measurements() -> list[dict[str, str]]:
 
 def _sc26_forecast_results() -> list[dict[str, str]]:
     return [
-        {"id": "effective_backtest_folds", "display_name": "有效历史回测周数", "value_kind": "count", "role": "diagnostic", "unit": "个活动周", "scientific_meaning": "前一周峰值模型实际完成的严格时间顺序留出次数。"},
-        {"id": "bootstrap_repetitions", "display_name": "bootstrap 重复次数", "value_kind": "count", "role": "diagnostic", "unit": "次", "scientific_meaning": "绝对误差改进区间的固定重采样次数。"},
-        {"id": "bootstrap_seed", "display_name": "bootstrap 随机种子", "value_kind": "count", "role": "diagnostic", "unit": "", "scientific_meaning": "复核计算使用的固定随机种子。"},
-        {"id": "negative_result_preserved", "display_name": "负结果如实保留", "value_kind": "boolean", "role": "primary", "unit": "", "scientific_meaning": "候选未稳定超过基线时未提升预测置信度。"},
-        {"id": "cycle25_predictor_only", "display_name": "第25周仅作预测输入", "value_kind": "boolean", "role": "diagnostic", "unit": "", "scientific_meaning": "第25周没有被当作已完成的历史回测目标。"},
-        {"id": "source_scope_silso_only", "display_name": "仅使用 SILSO 数据产物", "value_kind": "boolean", "role": "diagnostic", "unit": "", "scientific_meaning": "实验复核没有引入极区场或 F10.7 数据。"},
-        {"id": "hypothesis_relation", "display_name": "候选模型预测技能关系", "value_kind": "category", "role": "primary", "unit": "", "scientific_meaning": "依据误差改进区间与双指标比较形成的类型化裁决。"},
+        {
+            "id": "effective_backtest_folds",
+            "display_name": "有效历史回测周数",
+            "value_kind": "count",
+            "role": "diagnostic",
+            "unit": "个活动周",
+            "scientific_meaning": "前一周峰值模型实际完成的严格时间顺序留出次数。",
+        },
+        {
+            "id": "bootstrap_repetitions",
+            "display_name": "bootstrap 重复次数",
+            "value_kind": "count",
+            "role": "diagnostic",
+            "unit": "次",
+            "scientific_meaning": "绝对误差改进区间的固定重采样次数。",
+        },
+        {
+            "id": "bootstrap_seed",
+            "display_name": "bootstrap 随机种子",
+            "value_kind": "count",
+            "role": "diagnostic",
+            "unit": "",
+            "scientific_meaning": "复核计算使用的固定随机种子。",
+        },
+        {
+            "id": "negative_result_preserved",
+            "display_name": "负结果如实保留",
+            "value_kind": "boolean",
+            "role": "primary",
+            "unit": "",
+            "scientific_meaning": "候选未稳定超过基线时未提升预测置信度。",
+        },
+        {
+            "id": "cycle25_predictor_only",
+            "display_name": "第25周仅作预测输入",
+            "value_kind": "boolean",
+            "role": "diagnostic",
+            "unit": "",
+            "scientific_meaning": "第25周没有被当作已完成的历史回测目标。",
+        },
+        {
+            "id": "source_scope_silso_only",
+            "display_name": "仅使用 SILSO 数据产物",
+            "value_kind": "boolean",
+            "role": "diagnostic",
+            "unit": "",
+            "scientific_meaning": "实验复核没有引入极区场或 F10.7 数据。",
+        },
+        {
+            "id": "hypothesis_relation",
+            "display_name": "候选模型预测技能关系",
+            "value_kind": "category",
+            "role": "primary",
+            "unit": "",
+            "scientific_meaning": "依据误差改进区间与双指标比较形成的类型化裁决。",
+        },
     ]
 
 
@@ -501,7 +565,13 @@ def _create_solar_cycle_26_forecast_design(run_id: str) -> dict[str, Any]:
         ),
         "measurements": _sc26_forecast_measurements(),
         "results": _sc26_forecast_results(),
-        "artifacts": [{"path": _SC26_FORECAST_ARTIFACT, "kind": "json", "description": "历史回测指标、区间、正式预测与范围复核。"}],
+        "artifacts": [
+            {
+                "path": _SC26_FORECAST_ARTIFACT,
+                "kind": "json",
+                "description": "历史回测指标、区间、正式预测与范围复核。",
+            }
+        ],
         "dependencies": ["numpy"],
         "primary_estimand": _SC26_FORECAST_ESTIMAND,
         "criterion_statement": (
@@ -511,7 +581,11 @@ def _create_solar_cycle_26_forecast_design(run_id: str) -> dict[str, Any]:
         ),
         "criterion_basis_kind": "user_request",
         "criterion_basis_text": "用户明确要求95%区间、固定基线、MAE与RMSE，并要求未胜出时保留负结果。",
-        "threats_to_validity": ["有效回测折数有限。", "早期活动周数据质量较低。", "第25周平滑峰值可能随端点更新而修订。"],
+        "threats_to_validity": [
+            "有效回测折数有限。",
+            "早期活动周数据质量较低。",
+            "第25周平滑峰值可能随端点更新而修订。",
+        ],
         "literature_basis": "不新增外部文献主张，只复核已接受的数据阶段计算。",
         "seed": 20260827,
         "null_rule": "误差改进区间跨零时不能声称稳定预测技能。",
@@ -546,8 +620,7 @@ def _silso_morphology_input_ids(request: dict[str, Any]) -> dict[str, str]:
     if missing:
         raise ValueError(
             "silso_cycle_morphology_v1 requires staged extrema, smoothed, "
-            "monthly-total, and morphology-table inputs; missing: "
-            + ", ".join(missing)
+            "monthly-total, and morphology-table inputs; missing: " + ", ".join(missing)
         )
     return matched
 
@@ -761,9 +834,10 @@ def ensure_host_silso_morphology_design(
 
     workspace = workspace_root_from_config(config)
     research_scope = _host_research_scope(config)
-    if not isinstance(research_scope, dict) or research_scope.get(
-        "analysis_protocol"
-    ) != "silso_cycle_morphology_v1":
+    if (
+        not isinstance(research_scope, dict)
+        or research_scope.get("analysis_protocol") != "silso_cycle_morphology_v1"
+    ):
         raise service.ServiceError(
             "host morphology design requires the silso_cycle_morphology_v1 scope",
             error_code="RESEARCH_EXPERIMENT_SCOPE_INVALID",
@@ -798,17 +872,18 @@ def ensure_host_silso_morphology_design(
             )
             run_id = str(bound["run_id"])
         except service.ServiceError as exc:
-            if (
-                getattr(exc, "error_code", None)
-                != "RESEARCH_EXPERIMENT_SCOPE_ALREADY_BOUND"
-                or not isinstance(getattr(exc, "run_id", None), str)
+            if getattr(
+                exc, "error_code", None
+            ) != "RESEARCH_EXPERIMENT_SCOPE_ALREADY_BOUND" or not isinstance(
+                getattr(exc, "run_id", None), str
             ):
                 raise
             run_id = str(exc.run_id)
         run_root, state = service.load_state(run_id)
-        if state.get("phase") == "design_validated" and (
-            run_root / "design.json"
-        ).is_file():
+        if (
+            state.get("phase") == "design_validated"
+            and (run_root / "design.json").is_file()
+        ):
             return {"status": "design_validated", "run_id": run_id}
         service.inspect_inputs(run_id)
         checked = _create_silso_cycle_morphology_design(run_id)
@@ -829,9 +904,11 @@ def ensure_host_solar_cycle_26_forecast_design(
 
     workspace = workspace_root_from_config(config)
     research_scope = _host_research_scope(config)
-    if not isinstance(research_scope, dict) or research_scope.get(
-        "analysis_protocol"
-    ) != "solar_cycle_26_forecast_backtest_v1":
+    if (
+        not isinstance(research_scope, dict)
+        or research_scope.get("analysis_protocol")
+        != "solar_cycle_26_forecast_backtest_v1"
+    ):
         raise service.ServiceError(
             "host SC26 design requires solar_cycle_26_forecast_backtest_v1",
             error_code="RESEARCH_EXPERIMENT_SCOPE_INVALID",
@@ -865,17 +942,18 @@ def ensure_host_solar_cycle_26_forecast_design(
             )
             run_id = str(bound["run_id"])
         except service.ServiceError as exc:
-            if (
-                getattr(exc, "error_code", None)
-                != "RESEARCH_EXPERIMENT_SCOPE_ALREADY_BOUND"
-                or not isinstance(getattr(exc, "run_id", None), str)
+            if getattr(
+                exc, "error_code", None
+            ) != "RESEARCH_EXPERIMENT_SCOPE_ALREADY_BOUND" or not isinstance(
+                getattr(exc, "run_id", None), str
             ):
                 raise
             run_id = str(exc.run_id)
         run_root, state = service.load_state(run_id)
-        if state.get("phase") == "design_validated" and (
-            run_root / "design.json"
-        ).is_file():
+        if (
+            state.get("phase") == "design_validated"
+            and (run_root / "design.json").is_file()
+        ):
             return {"status": "design_validated", "run_id": run_id}
         service.inspect_inputs(run_id)
         checked = _create_solar_cycle_26_forecast_design(run_id)
@@ -890,7 +968,7 @@ def ensure_host_solar_cycle_26_forecast_design(
 
 
 def _solar_cycle_26_forecast_worker_source(input_ids: dict[str, str]) -> str:
-    source = r'''import csv
+    source = r"""import csv
 import json
 import math
 import numpy as np
@@ -1030,7 +1108,7 @@ def run_experiment(context):
         "endpoint_results": [{"id": "analysis_endpoint", "status": "completed", "summary": "历史回测指标、区间和正式预测范围均已复核。"}],
         "scientific_payload": {"primary_estimand": "严格时间顺序回测中前一活动周峰值模型相对训练均值基线的平均绝对误差改进", "estimate": mae_improvement, "interval": [ci_low, ci_high], "equivalence_bounds": None, "sensitivity": "同时比较平均绝对误差和均方根误差，并核对多变量敏感性预测。", "uncertainty_reasons": ["有效历史回测折数有限。", "误差改进区间跨过零。", "第25周平滑峰值仍可能受端点修订影响。"]},
     }
-'''
+"""
     for marker, value in {
         "__PREDICTIONS_ID__": input_ids["predictions"],
         "__FORECAST_ID__": input_ids["forecast"],
@@ -1059,7 +1137,7 @@ def _prepare_solar_cycle_26_forecast_attempt(run_id: str) -> dict[str, Any]:
 
 
 def _silso_cycle_morphology_worker_source(input_ids: dict[str, str]) -> str:
-    source = r'''import csv
+    source = r"""import csv
 import json
 import math
 
@@ -1434,7 +1512,7 @@ def run_experiment(context):
             ],
         },
     }
-'''
+"""
     replacements = {
         "__EXTREMA_ID__": input_ids["extrema"],
         "__SMOOTHED_ID__": input_ids["smoothed"],
@@ -1443,9 +1521,7 @@ def run_experiment(context):
     }
     for marker, value in replacements.items():
         source = source.replace(marker, value)
-    source = source.replace(
-        "ARTIFACT_PATH", json.dumps(_SILSO_MORPHOLOGY_ARTIFACT)
-    )
+    source = source.replace("ARTIFACT_PATH", json.dumps(_SILSO_MORPHOLOGY_ARTIFACT))
     return source
 
 
@@ -1462,9 +1538,7 @@ def _prepare_silso_cycle_morphology_attempt(run_id: str) -> dict[str, Any]:
         _SILSO_MORPHOLOGY_ARTIFACT
     ]:
         raise ValueError("the validated morphology design has unexpected artifacts")
-    source = _silso_cycle_morphology_worker_source(
-        _silso_morphology_input_ids(request)
-    )
+    source = _silso_cycle_morphology_worker_source(_silso_morphology_input_ids(request))
     return service.prepare(
         run_id,
         [{"path": "experiment.py", "content": source}],
