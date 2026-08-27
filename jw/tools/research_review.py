@@ -366,6 +366,26 @@ def _normalize_quality_submission(
                     notes.append(
                         f"claims[{index}].evidence_matrix[{evidence_index}] gap source_ref cleared"
                     )
+            if isinstance(evidence, dict):
+                quality_cap = evidence.get("quality_cap")
+                if (
+                    evidence.get("directness") == "context_only"
+                    and quality_cap != "exploratory"
+                ):
+                    evidence["quality_cap"] = "exploratory"
+                    notes.append(
+                        f"claims[{index}].evidence_matrix[{evidence_index}] context-only cap downgraded"
+                    )
+                elif quality_cap == "release_candidate" and (
+                    evidence.get("evidence_scope")
+                    in {"abstract_only", "wiki_entry", "unknown"}
+                    or evidence.get("source_class")
+                    in {"simulation", "review", "wiki_context", "user_premise"}
+                ):
+                    evidence["quality_cap"] = "evidence_constrained"
+                    notes.append(
+                        f"claims[{index}].evidence_matrix[{evidence_index}] release-ineligible cap downgraded"
+                    )
             repaired_matrix.append(evidence)
         row["evidence_matrix"] = repaired_matrix
         if has_gap and row.get("conclusion_cap") == "release_candidate":
@@ -374,6 +394,58 @@ def _normalize_quality_submission(
         if has_gap and row.get("quality_status") == "release_candidate":
             row["quality_status"] = "evidence_constrained"
             notes.append(f"claims[{index}] quality_status downgraded for declared gap")
+        if row.get("quality_status") == "release_candidate":
+            novelty = row.get("novelty_assessment")
+            novelty_status = (
+                novelty.get("status") if isinstance(novelty, Mapping) else None
+            )
+            unresolved_scope = any(
+                isinstance(item, Mapping)
+                and (
+                    item.get("scope_match") in {"mismatch", "not_assessable"}
+                    or item.get("entailment") in {"not_entailed", "not_assessable"}
+                )
+                for item in repaired_matrix
+            )
+            direct_primary = [
+                item
+                for item in repaired_matrix
+                if isinstance(item, Mapping)
+                and item.get("evidence_role") == "supports"
+                and item.get("source_class")
+                in {"direct_observation", "real_experiment"}
+                and item.get("evidence_scope")
+                in {"full_text", "dataset_record", "experiment_record"}
+                and item.get("directness") == "direct"
+                and item.get("scope_match") == "matched"
+                and item.get("entailment") == "entailed"
+            ]
+            support_groups = {
+                item.get("independence_group")
+                for item in repaired_matrix
+                if isinstance(item, Mapping)
+                and item.get("evidence_role") == "supports"
+                and item.get("scope_match") == "matched"
+                and item.get("entailment") == "entailed"
+                and item.get("quality_cap") == "release_candidate"
+                and item.get("independence_group")
+            }
+            release_ineligible = (
+                bool(row.get("key_gaps"))
+                or novelty_status in {"potentially_novel", "novelty_not_assessed"}
+                or unresolved_scope
+                or (
+                    bool(row.get("load_bearing"))
+                    and (not direct_primary or len(support_groups) < 2)
+                )
+            )
+            if release_ineligible:
+                row["quality_status"] = "evidence_constrained"
+                if row.get("conclusion_cap") == "release_candidate":
+                    row["conclusion_cap"] = "evidence_constrained"
+                notes.append(
+                    f"claims[{index}] release status downgraded for unresolved eligibility"
+                )
         if (
             row.get("quality_status") == "release_candidate"
             and row.get("conclusion_cap") != "release_candidate"
@@ -681,7 +753,9 @@ def evidence_review_submit_round(
             These may reuse an exact artifact claim_id for distinct claim_component
             values; each claim_id plus claim_component pair must be unique.
         decision: accept, accept_with_limits, revise, or block.
-        issues: Complete ReviewVerdictV2 issue rows.
+        issues: Complete ReviewVerdictV2 issue rows; issues contain only producer-fixable defects.
+            Put no-action downstream limitations in carry_forward_limits instead,
+            with an empty issues list for an otherwise acceptable artifact.
         accepted_claims: Exact target artifact claim ids accepted by the verdict.
             accept and accept_with_limits require at least one such id.
         blocked_claims: Blocked claim ids.

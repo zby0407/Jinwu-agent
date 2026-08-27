@@ -88,7 +88,7 @@ def build_memory_agent_graph(
 
     from ...agent import _ensure_auxiliary_chat_model
     from ...backends import build_memory_agent_backend
-    from ...middleware.qwen_compat import QwenToolCompatibilityMiddleware, is_qwen_model
+    from ...middleware.qwen_compat import QwenToolCompatibilityMiddleware
     from ...middleware.utils import disable_thinking
     from langchain.agents.factory import ProviderStrategy
 
@@ -105,20 +105,12 @@ def build_memory_agent_graph(
     model = _ensure_auxiliary_chat_model()
     if response_format is not None:
         # Structured output forces a tool choice.  DashScope/Qwen rejects
-        # required/object tool_choice while thinking mode is enabled, so use a
-        # non-thinking copy for the structured memory-worker call.
+        # required/object tool_choice on Token Plan routes, so use a
+        # non-thinking copy and the provider-native JSON Schema path for the
+        # structured memory-worker call.
         model = disable_thinking(model)
-        # Non-Qwen providers (e.g. deepseek) are not in langchain's
-        # FALLBACK_MODELS_WITH_STRUCTURED_OUTPUT, so AutoStrategy falls back to
-        # ToolStrategy and pins a forced object tool_choice that DashScope
-        # rejects even with thinking disabled. Pin the provider-native
-        # json_schema path instead, which those providers accept.
-        model_name = str(
-            getattr(model, "model_name", None) or getattr(model, "model", None) or ""
-        )
-        if not is_qwen_model(model_name):
-            response_format = ProviderStrategy(response_format)
-            kwargs["response_format"] = response_format
+        response_format = ProviderStrategy(response_format)
+        kwargs["response_format"] = response_format
 
     middleware_stack = list(middleware)
     if not any(

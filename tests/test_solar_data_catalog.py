@@ -7,6 +7,7 @@ import math
 import pytest
 
 from jw.solar_data_catalog import (
+    _fetch,
     _acquire_noaa_monthly_f107,
     _acquire_polar_field,
     _acquire_silso,
@@ -17,6 +18,7 @@ from jw.solar_data_catalog import (
     _validate_silso_monthly,
     _validate_silso_smoothed,
     _validate_wso_current_polar_field,
+    acquire_authoritative_solar_data,
 )
 from jw.tools.solar_feature import (
     _build_solar_cycle_26_readiness_inventory,
@@ -62,6 +64,76 @@ def test_silso_acquisition_does_not_downgrade_to_plain_http_mirror(
         _acquire_silso()
 
     assert attempted_urls == ["https://www.sidc.be/SILSO/DATA/SN_m_tot_V2.0.txt"]
+
+
+def test_authority_fetch_retries_one_transient_connection_failure(
+    monkeypatch,
+) -> None:
+    attempts = 0
+
+    class Response:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def read(self):
+            return b"validated payload"
+
+        def geturl(self):
+            return "https://authority.example.test/data"
+
+    def urlopen(_request, *, timeout):
+        nonlocal attempts
+        assert timeout == 20.0
+        attempts += 1
+        if attempts == 1:
+            raise OSError("temporary proxy tunnel failure")
+        return Response()
+
+    monkeypatch.setattr("jw.solar_data_catalog.urllib.request.urlopen", urlopen)
+
+    payload, resolved = _fetch("https://authority.example.test/data")
+
+    assert payload == b"validated payload"
+    assert resolved == "https://authority.example.test/data"
+    assert attempts == 2
+
+
+def test_acquisition_persists_validated_source_and_names_failed_dataset(
+    tmp_path, monkeypatch
+) -> None:
+    monkeypatch.setattr(
+        "jw.solar_data_catalog._acquire_silso",
+        lambda: (b"monthly", {"validation": {"row_count": 1}}),
+    )
+
+    def fail_smoothed():
+        raise OSError("temporary upstream failure")
+
+    monkeypatch.setattr(
+        "jw.solar_data_catalog._acquire_silso_smoothed", fail_smoothed
+    )
+
+    with pytest.raises(
+        RuntimeError,
+        match=r"silso-monthly-smoothed-v2.*OSError",
+    ):
+        acquire_authoritative_solar_data(
+            tmp_path,
+            dataset_ids=(
+                "silso-monthly-total-v2",
+                "silso-monthly-smoothed-v2",
+            ),
+        )
+
+    registered = (
+        tmp_path
+        / "projects/default/shared/data/solar_cycle/silso/monthly_total_v2/"
+        "SN_m_tot_V2.0.txt"
+    )
+    assert registered.read_bytes() == b"monthly"
 
 
 def test_silso_smoothed_validator_binds_official_series_semantics() -> None:

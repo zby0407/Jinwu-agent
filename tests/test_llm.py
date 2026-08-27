@@ -1,5 +1,7 @@
 """Tests for JW LLM module."""
 
+import asyncio
+
 from unittest.mock import patch
 
 import pytest
@@ -590,6 +592,30 @@ class TestThirdPartyRouting:
         # The Qwen middleware owns the single transport retry so the SDK does
         # not multiply it with a second middleware-level attempt.
         assert call_kwargs["max_retries"] == 0
+
+    @patch("jw.llm.models.init_chat_model")
+    def test_custom_qwen_direct_route_ignores_environment_proxy(
+        self, mock_init, monkeypatch
+    ):
+        """A selected direct route must not inherit the process-wide proxy."""
+
+        mock_init.return_value = "mock_model"
+        monkeypatch.setenv(
+            "CUSTOM_OPENAI_BASE_URL",
+            "https://workspace.example.com/compatible-mode/v1",
+        )
+        monkeypatch.setenv("CUSTOM_OPENAI_API_KEY", "custom-key")
+        monkeypatch.setenv("HTTPS_PROXY", "http://127.0.0.1:7897")
+        monkeypatch.setenv("JW_DASHSCOPE_PROXY_MODE", "direct")
+
+        get_chat_model("qwen3.8-max", provider="custom-openai")
+
+        call_kwargs = mock_init.call_args.kwargs
+        assert call_kwargs["http_client"]._trust_env is False
+        assert call_kwargs["http_async_client"]._trust_env is False
+        call_kwargs["http_client"].close()
+        asyncio.run(call_kwargs["http_async_client"].aclose())
+
 
     @patch("jw.llm.models.init_chat_model")
     def test_anthropic_base_url_override(self, mock_init, monkeypatch):

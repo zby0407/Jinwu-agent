@@ -9,8 +9,9 @@
 
 ## 当前案例定位
 
-当前唯一主科学验收案例是 `MAIN-SC26-B06`，用于判断第 26 太阳活动周预测的证据成熟度，
-并审查现有观测能够支持或反对的机制解释。`EXT-POLAR-LENGTH-FULL-01` 当前作为工程与
+`MAIN-SC26-B06` 用于判断第 26 太阳活动周最终前兆预测的证据成熟度；它现在作为科学限制门，
+不再替代第 26 周期初步概率预测本身。当前主科学交付同时包括 CL-20260825-48 发布的可更新
+初步概率预测。`EXT-POLAR-LENGTH-FULL-01` 当前作为工程与
 科研闭环压力基准，`EXT-RISE-AMPLITUDE-GENERALIZATION-01` 作为仓库内可见迁移基准。
 下表中 r40–r52 的“主验收”类型是运行发生时的登记名称，按历史事实保留；这些记录不再
 作为第 26 周期主任务或仓库外未知任务的替代证据。
@@ -82,6 +83,8 @@
 | CL-20260822-38 | 2026-08-22 06:03 UTC | WebUI 启动复验 / r51 | EXT-POLAR-LENGTH-FULL-01 | `runtime_error` | 用户问题未提交 | 基础 workspace 目录未创建，绑定返回 HTTP 400 | 创建隔离目录后重新启动 |
 | CL-20260822-39 | 2026-08-22 06:05–07:33 UTC | 隔离 WebUI 主验收 / r52 | EXT-POLAR-LENGTH-FULL-01 | `provider_error` | Planning、Data、Hypothesis 各一轮 `accept_with_limits`，每轮三件套完整 | 实验设计三次提交后仍剩一项测量引用问题；Qwen 周配额耗尽；无实验结果 | 修正周期对映射与局部设计返修指引，配额恢复后 fresh 复验 |
 | CL-20260822-40 | 2026-08-22 10:42 UTC | 模型兼容探针 | 临时业务空间 | `completed` | 不评价科学问题 | Qwen 生产者与辅助模型的 8 项有界兼容检查通过 | 可用于启动新的主任务 WebUI 验收 |
+| CL-20260825-47 | 2026-08-25 03:39–05:09 UTC | WebUI 主验收及同线程恢复 / r41d | MAIN-SC26-B06 | `completed_with_limits` | 最终发布为“暂不启动”，`accept_with_limits` | 首次运行在最终发布门暴露过期工具调用与终态误分类；修复后无新增用户输入恢复到 `released` | 端到端恢复已验证；仍保留全新不间断复验边界 |
+| CL-20260825-48 | 2026-08-25 | 聚焦概率预测 | SC26 初步正式预测 | `completed_with_limits` | 平滑峰值 140，80% 区间 90–190 | 极小期前兆尚未形成，模型间分歧较大 | 已发布可更新先验；待极小期前兆更新 |
 
 此外，2026-08-12 的 36 次可见集成回归作为批次记录保留：21 次完成且有回答、
 2 次完成但无回答、13 次 runtime error；assessment coverage、核心签名稳定性和
@@ -1037,6 +1040,129 @@ WebUI 会话复验。
 - 处置状态：迁移基准未通过；仓库外未知任务未执行，整体状态保持 `do_not_launch`。
 - 证据目录：`research/review/evals/runs/rise_amplitude.transfer.r1/`、
   `research/review/evals/runs/rise_amplitude.transfer.r2/`。
+
+### CL-20260824-43：`MAIN-SC26-B06` r12 主科学验收
+
+- 类型：headed production WebUI 主科学验收。
+- 入口与干预：全新会话只提交原始问题；人工批准、自动批准和追加指导均为 0。线程为
+  `01a02f29-bb64-7a73-a5c6-643b4ca2c664`，运行标签为 `main_sc26.primary.r12`。
+- 模型与审查模式：Qwen 生产者、Kimi two-pass Evidence；运行使用隔离的业务空间配置，未在日志或工件中保存凭据。
+- 实际结果：Planning、Data、Hypothesis 和 Experiment Design 均形成正式工件并以
+  `accept_with_limits` 通过。Experiment Design 首次紧凑校验发现 6 个合同字段问题，模型依据校验反馈完成第二次修订，
+  设计随后通过验证。Experiment Result 交接时模型流式连接连续失败：首次任务发生传输异常并在中间件内重试一次；随后系统分别从两个已持久化检查点启动有界恢复，均再次发生 `APIConnectionError`。
+- 执行边界：自动实验运行保持 `attempt_count=0`，没有启动工作进程，也没有生成五个实验结果 JSON、测量、诊断或执行回执；Integration 和 Final Release 未启动。
+- 用户可见结果：Harness 终态为 `runtime_error`，未形成科研回答；持久化阶段仍停在 Experiment Design，Experiment Result 为 `pending`。
+- 科学结果及置信边界：本轮没有新增科学测量或科学结论，不能据此发布第 26 周期强度分类、峰值区间或机制判断。前序阶段保留的结论仍仅是“证据不足、暂不发布正式预测”的条件性边界。
+- 工程问题：新增的瞬时恢复路径从两个不同检查点各启动过一次，但模型请求仍在实验交接阶段因供应商或网络运行错误中断；这属于运行技术阻断，不是实验阴性结果，也不能据此判断套餐能力。
+- 处置状态：r12 证据已保留；按本轮运行约束停止后端、WebUI 和浏览器，不启动新的 Qwen 运行，整体状态继续为 `do_not_launch`，等待用户恢复原套餐后再决定是否复验。
+- 证据目录：`research/review/evals/runs/main_sc26.primary.r12/`、
+  `research/review/evals/runs/harness.main_sc26.primary.r12.log`、
+  `research/review/evals/runs/backend.main_sc26.primary.r12.log`。
+
+### CL-20260824-44：`MAIN-SC26-B06` r30 主科学验收
+
+- 类型：headed production WebUI 主科学验收。
+- 入口与干预：全新会话只提交原始问题，人工批准、自动批准和追加指导均为 0。线程为
+  `01a03413-f648-7cd3-a71e-49de715f91cb`，运行标签为 `main_sc26.primary.r30`。
+- 模型与审查模式：Qwen 生产者与 Qwen two-pass Evidence，使用套餐专属
+  OpenAI-compatible endpoint；未在运行记录中保存凭据。
+- 实际结果：Planning、Data 和 Hypothesis 均形成正式工件并以
+  `accept_with_limits` 通过。Hypothesis 首次子任务在形成最新尾部审查前达到模型调用上限，
+  父流程随后从持久化草案自动续跑，成功形成当前候选池的 canonical checkpoint 和正式工件。
+- 实验设计与恢复：自动实验 Agent 绑定 9 份上游输入，完成不可变快照；前两版设计
+  均未通过合同校验，设计校验预算使用 2/4。第一次供应商连接异常后，父流程从同一
+  experiment run 和输入快照启动唯一一次图级重试；重试中再次发生同指纹
+  `APIConnectionError`，按有界重试策略终止。
+- 执行边界：实验运行为
+  `question_65c536d2124b-20260824T144350Z-66d21643`，终止时 `attempt_count=0`、
+  Experiment Design 仍为 `pending`；没有执行工作进程、实验测量、Experiment Result、
+  Integration 或 Final Release。
+- 用户可见结果：Harness 终态为 `runtime_error`，耗时 2853.901 秒，没有形成最终科研回答。
+- 科学结果及置信边界：本轮不提供可引用的实验数值或第 26 周期强度预测。前序工件仅支持
+  “截至 2026-06-30 暂不启动正式分类”的待验就绪性判断，不能替代真实实验和最终审查。
+- 处置状态：无效验收证据已保留，不进入“好答案”归档；启动全新无人干预会话继续复验。
+- 证据目录：`research/review/evals/runs/main_sc26.primary.r30/`、
+  `research/review/evals/runs/harness.main_sc26.primary.r30.log`、
+  `research/review/evals/runs/backend.main_sc26.primary.r30.log`。
+
+### CL-20260825-45：`MAIN-SC26-B06` r38w 主科学验收
+
+- 类型：headed production WebUI 主科学验收。
+- 入口与干预：Windows 原生 Chrome 在全新会话中只提交原始问题，无上传文件；人工批准、自动批准和追加指导均为 0。线程为
+  `01a036a5-5ba6-7181-a29b-290b9e0f1636`，运行标签为 `main_sc26.primary.r38w`。
+- 模型与审查模式：Qwen 生产者与 Qwen two-pass Evidence。
+- 实际结果：Planning 第 1 轮以 `accept_with_limits` 形成正式工件。Data 在正式派发前连续两次未通过权威太阳数据本地预检，系统以
+  `REQUIRED_SPECIALIST_FAILED_TWICE` 停止，终态为 `research_blocked/data`，耗时 547.522 秒。
+- 科学边界：没有 Data 正式工件、Hypothesis、实验、整合、最终发布或科学回答。运行后对 SILSO 月总量、平滑值、极值表、历史极区场、F10.7 和 WSO 当前序列的六项隔离获取诊断均通过，因此本轮证据支持“运行当时的获取路径失败”，不支持“数据合同持续不可用”。
+- 用户可见结果：无最终回答。
+- 处置状态：负面运行证据已保留；不把预检失败解释为科学阴性结果。
+- 证据目录：`research/review/evals/runs/main_sc26.primary.r38w/`。
+
+### CL-20260825-46：`MAIN-SC26-B06` r39w 主科学验收
+
+- 类型：headed production WebUI 主科学验收。
+- 入口与干预：Windows 原生 Chrome 在另一个全新会话中只提交原始问题，无上传文件；人工批准、自动批准和追加指导均为 0。线程为
+  `01a036b0-8a7f-7973-9c95-29b46724e7be`，运行标签为 `main_sc26.primary.r39w`。
+- 模型与审查模式：Qwen 生产者与 Qwen two-pass Evidence。
+- 实际结果：Planning 生产者的流式请求连续两次出现同指纹 `APIConnectionError`，唯一图级有界重试用尽。Harness 终态为 `runtime_error`，耗时 326.759 秒；持久化科研状态仍为 `active/planning`，因为没有形成科学终态。
+- 科学边界：没有 Planning 正式工件、审查裁决、数据产物或科学回答。该运行只证明当前供应商连接路径在有界恢复后仍不稳定，不评价数据充分性、模型假设或第 26 周期预测。
+- 用户可见结果：无最终回答。
+- 处置状态：运行错误已保留；按有界重试策略停止，不启动无限重试。
+- 证据目录：`research/review/evals/runs/main_sc26.primary.r39w/`。
+
+### CL-20260825-47：`MAIN-SC26-B06` r41d 端到端恢复验收
+
+- 类型：headed production WebUI 主科学验收，以及修复后的同线程无输入恢复。
+- 入口与干预：全新会话只提交一次原始自然语言问题，无上传文件；人工批准、自动批准和追加指导均为 0。线程为
+  `01a03700-00fd-7722-944c-f9f48ee64324`，最终消息记录中用户消息数为 1。
+- 模型与审查模式：Qwen 生产者与 Qwen two-pass Evidence，使用隔离 workspace、bindings 和运行数据目录。
+- 实际结果：Planning、Data、Hypothesis、Experiment Design、Experiment Result、更新后的 Hypothesis、Integration 和
+  Final Release 均形成正式工件。最终持久化状态为 `released/final_release`，Final Release verdict 为
+  `accept_with_limits`，接受 `final-release-output-v1`，无 blocked claim。
+- 实验执行：自动实验实际启动 1 次并正常形成可解释结果，`outcome=completed_interpretable`、
+  `phase=report_finalized`，累计工作进程时间 0.305084 秒。六项数据产品中仅 SILSO 平滑序列的 104.2 锚点被本轮解析器
+  独立复原；SILSO 极值表、WSO Polar.html 和 MWO/WSO 标定 CSV 的解析校验失败，不能把上游数据核验全部描述成本轮
+  独立复算成功。
+- 用户可见结果：最终报告明确回答“暂不启动”。截至 2026-06-30，SILSO 黑子数和 F10.7 仍描述第 25 周期状态；
+  WSO 极区磁场是第 26 周期候选前兆，但第 25/26 周期极小尚未确立，且极小附近同口径连续观测不足。因此当前不能发布
+  第 26 周期强度正式分类、可检验峰值区间、振幅预测或前兆值。
+- 科学边界：结论等级为 `evidence_constrained`。对“暂不启动”的置信度为中等；解析器失败、Polar.html 缺失行计数口径
+  差异、文献覆盖不足和跨 MWO/WSO 测量体制可比性未验证均被带入最终报告。重新评估至少需要 SILSO 正式确立下一次极小，
+  WSO 恢复并补足极小附近连续观测，以及历史标定验证同口径可比性。
+- 修复与恢复边界：首次 headed 运行已完成前七个审查阶段，但最终发布阶段把流程阻断文本误计为回答。修复发布阶段的
+  过期工具重试和终态分类后，在同一线程、同一任务 workspace 上以空输入恢复，没有增加用户消息。最终发布草稿随后通过
+  独立 Evidence 审查并被原样返回。该证据证明已持久化任务能够从原始问题走完全部阶段并正确恢复到发布终态；它不是一次
+  在全部修复预先就绪条件下从零开始且不中断的重复运行，后续若代码继续变化，仍应保留全新不间断复验要求。
+- 证据目录：`research/review/evals/runs/main_sc26.primary.r41d/`；任务级审查产物位于
+  `.r41d-workspace/projects/default/runs/run_01a03700-00fd-7722_c4ce8074/research_review/`。
+
+### CL-20260825-48：第 26 周期初步正式概率预测
+
+本轮把研究目标从“是否允许启动预测”推进为“在现有信息集下发布可更新的正式概率预测”。预测对象为
+13 个月平滑 SILSO v2 太阳黑子数峰值。六个替代模型情景覆盖 109–179.4，分别来自近期同行研究和
+按历史周期长度—下一周期振幅关系得到的本地基线。由于这些模型共享部分历史数据，本轮不把它们视为
+独立观测，而采用等权模型混合，并加入 30 个太阳黑子数单位的模型差异尺度。
+
+固定随机种子完成 2,000,000 次抽样后，集合中位数为 136.8，正式发布值取 140；80% 预测区间为
+90–190，95% 预测区间为 65–220。峰值时间中位数约为 2034 年 10 月，80% 区间约为 2033 年中至
+2036 年初。第 26 周期弱于第 25 周期当前暂定平滑峰值 160.9 的概率约为 72%，超过历史平均峰值
+183 的概率约为 13%。据此分类为中等偏弱。
+
+该结果是极小期前可发布的操作性先验，不声称第 25/26 周期极小或最终极区场已经观测。SILSO 正式
+确认下一次极小、同口径极区场和轴向偶极矩形成后，应把相应前兆作为新似然更新本分布并收窄区间。
+正式报告见 `SC26_FORMAL_FORECAST_20260825.md`；可复算程序和结构化结果分别见
+`evals/sc26_operational_forecast_20260825.py` 与
+`evals/runs/sc26.operational_forecast.20260825/result.json`。验收清单已新增 SC26-B07，将该预测设为
+主问题交付门。本轮是聚焦科学计算和报告，不是新的 production WebUI 全流程运行。
+
+### 当前主问题的独立复算证据
+
+对已冻结的 14→15 至 23→24 共 10 个周期对重新计算后，极区场前兆与下一周期振幅的全样本 Pearson 相关系数为
+`0.6453897478`；前兆模型的留一交叉验证 MAE 为 `36.8878207930`，上一周期 SSN 振幅基线为
+`48.2514038622`；两者的 RMSE 比为 `0.8075714180`。逐折留一相关系数的总体标准差为
+`0.1157226187`，样本标准差为 `0.1219823507`，范围为 `0.3621418768–0.7912260549`。
+
+这些数值是对冻结历史表的独立复算，不是经 Experiment Result 和 Final Release 通过的新科学产物。样本仅有 10 对，跨 MWO/WSO 测量制度，且尚未估计时序依赖调整后的有效独立样本量。因此它们只支持“前兆关系值得继续检验”，不支持交互作用已成立、因果机制已证实或第 26 周期窄区间预测。截至 2026-06-30，未成熟的是终版前兆分类和窄区间发布；这不阻止 CL-20260825-48 发布宽区间的初步概率预测。
 
 ## 新运行条目模板
 

@@ -91,6 +91,40 @@ class ServiceError(RuntimeError):
         self.run_id = run_id
 
 
+EXECUTION_INPUT_PREVIEW_MAX_FILES = 8
+EXECUTION_INPUT_PREVIEW_MAX_BYTES = 512
+
+
+def _compact_execution_input_previews(
+    previews: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Keep the execution contract inline for specialists without file tools."""
+
+    compact: list[dict[str, Any]] = []
+    for preview in previews[:EXECUTION_INPUT_PREVIEW_MAX_FILES]:
+        row = dict(preview)
+        content = row.get("content")
+        if isinstance(content, str):
+            encoded = content.encode("utf-8")
+            maximum = EXECUTION_INPUT_PREVIEW_MAX_BYTES
+            if len(encoded) > maximum:
+                marker = b"\n...[preview middle omitted]...\n"
+                head_size = (maximum - len(marker)) // 2
+                tail_size = maximum - len(marker) - head_size
+                selected_bytes = (
+                    encoded[:head_size] + marker + encoded[-tail_size:]
+                )
+            else:
+                selected_bytes = encoded
+            selected = selected_bytes.decode("utf-8", errors="ignore")
+            row["content"] = selected
+            row["truncated"] = bool(row.get("truncated")) or len(encoded) > len(
+                selected.encode("utf-8")
+            )
+        compact.append(row)
+    return compact
+
+
 _LOG_SECRET = re.compile(
     r"(?:sk-[A-Za-z0-9_-]{12,}|AKIA[0-9A-Z]{16}|"
     r"(?:api[_-]?key|access[_-]?token|password|secret)\s*[:=]\s*[^\s\"']{8,}|"
@@ -699,6 +733,13 @@ def _stage_worker_output_guide(
             "or function-local constant assigned that literal, or null; reject helpers, "
             "expressions, and computed paths."
         ),
+        "measurement_value_rule": (
+            "Every measurement value must be a finite numeric value. Never emit null, "
+            "NaN, infinity, or a sentinel for an unavailable measurement. If a planned "
+            "quantity is unavailable, preserve that fact in a typed result or warning "
+            "and repair the parser or design so the measurement contract is not falsely "
+            "populated."
+        ),
     }
 
 
@@ -768,6 +809,28 @@ def _design_repair_guide(issues: list[dict[str, Any]]) -> dict[str, Any]:
             "non_substitution_rule": (
                 "an existing source_baseline_vs_candidate audit does not satisfy this "
                 "candidate_vs_candidate requirement"
+            ),
+        }
+    if "reader-facing design fields must use the user's chinese language" in issue_messages:
+        named_paths: list[str] = []
+        for row in issues:
+            message = str(row.get("message") or "")
+            if "Chinese language:" not in message:
+                continue
+            for path in message.split("Chinese language:", 1)[1].split(","):
+                path = path.strip()
+                if path.startswith("design.") and path not in named_paths:
+                    named_paths.append(path)
+        guide["reader_language_repair"] = {
+            "required_language": "Chinese",
+            "named_paths": named_paths,
+            "repair_action": (
+                "Rewrite only the named reader-facing values as natural Chinese "
+                "scientific phrases; do not translate or rename structural keys."
+            ),
+            "preserve_rule": (
+                "Preserve machine ids, input_id values, measurement names, result "
+                "ids, endpoint ids, artifact ids, and all fields not named above."
             ),
         }
     return guide
@@ -1739,6 +1802,43 @@ def _run_bound_to_research_scope(scope_identity: str) -> str | None:
     return None
 
 
+def _validated_request_for_design_revision(
+    research_scope: dict[str, Any],
+) -> dict[str, Any]:
+    """Return the immutable request owned by the latest validated base design.
+
+    Evidence revisions receive a new experiment run so their design remains
+    immutable.  The scientific request itself is not revision-owned, however;
+    accepting model-authored replacement text here can detach the new design
+    from the reviewed question and accepted inputs.
+    """
+
+    candidates: list[tuple[int, Path]] = []
+    for state_path in runs_root().glob("*/state.json"):
+        state = read_json(state_path)
+        prior_scope = state.get("research_scope")
+        if not isinstance(prior_scope, dict):
+            continue
+        if state.get("phase") != "design_validated":
+            continue
+        if not all(
+            prior_scope.get(field) == research_scope.get(field)
+            for field in ("task_id", "stage", "accepted_upstream_refs")
+        ):
+            continue
+        root = state_path.parent
+        if not all((root / name).is_file() for name in ("request.json", "design.json")):
+            continue
+        candidates.append((state_path.stat().st_mtime_ns, root))
+    if not candidates:
+        raise ServiceError(
+            "an experiment-design Evidence revision requires a prior validated design request",
+            error_code="RESEARCH_EXPERIMENT_REVISION_BASE_MISSING",
+        )
+    _mtime_ns, root = max(candidates, key=lambda item: (item[0], item[1].name))
+    return validate_request(read_json(root / "request.json"))
+
+
 def bind_request(
     payload: dict[str, Any],
     *,
@@ -1765,7 +1865,14 @@ def bind_request(
     scope_identity = (
         canonical_sha256(normalized_scope) if normalized_scope is not None else None
     )
-    request = _request_from_payload(payload)
+    if (
+        normalized_scope is not None
+        and normalized_scope["stage"] == "experiment_design"
+        and normalized_scope["revision_review_id"] is not None
+    ):
+        request = _validated_request_for_design_revision(normalized_scope)
+    else:
+        request = _request_from_payload(payload)
     request_fingerprint = _request_fingerprint(request)
     input_fingerprint = fingerprint_input_references(request)["input_fingerprint"]
     if scope_identity is not None:
@@ -2153,6 +2260,10 @@ def inspect_inputs(run_id: str) -> dict[str, Any]:
                 "input_snapshot": manifest,
                 "input_previews": snapshot_input_previews(root, manifest),
             }
+            if state["phase"] != "inputs_snapshotted":
+                result["input_previews"] = _compact_execution_input_previews(
+                    result["input_previews"]
+                )
             request = _load_request(root)
             result["remaining_run_seconds"] = _remaining_run_seconds(state, request)
             if state["phase"] == "report_finalized":
@@ -2695,6 +2806,11 @@ def _build_and_store_single_stage_design_unlocked(
             ),
             "summary": summary,
             "issue_paths": issue_paths,
+            "issues": (
+                result.get("issues", [])
+                if isinstance(result, dict) and isinstance(result.get("issues"), list)
+                else []
+            ),
             "error": error,
         }
         with (root / "compact_design_attempts.jsonl").open(

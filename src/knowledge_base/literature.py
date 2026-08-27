@@ -258,7 +258,9 @@ def bind_distill_task(
 ) -> dict[str, Any]:
     """Freeze the task-owned question/focus pair before literature work."""
 
-    question = _bounded_text(research_question, "research_question")
+    question = _bounded_text(
+        research_question, "research_question", max_length=8000
+    )
     focus = _bounded_text(distill_focus, "distill_focus", max_length=500)
     question_focus_terms = _shared_terms(question, focus)
     if not question_focus_terms:

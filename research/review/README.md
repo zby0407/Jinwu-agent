@@ -23,14 +23,19 @@ tool bundle、specialist owner；路由状态记录 harness 版本和当前能�
 闭环压力基准，上升时间问题是仓库内可见迁移基准；二者都不能作为 external hidden 或
 发布门证据。案例 ID 与历史运行记录保持不变。
 
-截至 2026 年 8 月 23 日，最近一次主验收在已接受实验设计后以 0 次实验尝试的
-`budget_stopped` 收尾，Experiment Result 被阻断；最近一次可见迁移运行在已接受 Hypothesis 后
-因连续两次供应商流式断开而以 `runtime_error` 结束。两者均没有 Integration 或 Final Release，
-external hidden 尚未执行，当前状态为 `do_not_launch`。详细边界见
-[`docs/真实前端科学问题与闭环结果.md`](../../docs/真实前端科学问题与闭环结果.md)。
+截至 2026 年 8 月 27 日，最新的 SILSO 周期形态主运行是
+`main_cycle_morphology.v19`：Planning、Data、Hypothesis 和 Experiment Design 已形成
+`accept_with_limits` 审查三件套，随后因 `APIConnectionError('Connection error.')` 在
+`experiment_design` 以 `runtime_error` 结束，未进入 Experiment Result、Integration 或
+Final Release。历史 r41d 的 `released/final_release` 是另一条独立运行证据，不能覆盖 v19；
+external hidden 仍未执行，整体发布状态仍需以最新台账和运行工件复核。详细边界见
+[`docs/真实前端科学问题与闭环结果.md`](../../docs/真实前端科学问题与闭环结果.md) 和
+[`docs/production_b07_cycle_morphology_session_log.md`](../../docs/production_b07_cycle_morphology_session_log.md)。
 
 主验收后新增的恢复边界把实验执行预算起点锁定在首个不可变尝试成功分配时；同一 full-research
-线程也可用简短“继续”恢复持久化路由。两项均只有自动测试证据，尚未改变真实 WebUI 验收状态。
+线程也可用简短“继续”恢复持久化路由。它们与 v19 的真实运行状态分开记录，不能用自动测试替代
+新的 headed WebUI 验收。当前 `a2a-handoff-v1`、协议化 `analysis_protocol` 和模型专用 Harness
+属于运行时内部能力；开放网络 A2A 协议尚未作为产品能力验收。
 
 长任务创建真实 WebUI thread 后，runner 会输出 `observer_ready` 事件和
 `observer_url`。该链接指向同一个真实会话，供人工在浏览器中观察；自动化

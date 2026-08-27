@@ -358,6 +358,28 @@ def test_design_repair_guide_disambiguates_fitted_condition_pairing() -> None:
     assert "source_baseline_vs_candidate" in repair["non_substitution_rule"]
 
 
+def test_design_repair_guide_localizes_named_reader_fields() -> None:
+    issue = {
+        "field_path": "design",
+        "message": (
+            "reader-facing design fields must use the user's Chinese language: "
+            "design.research_frame.input_evidence[0].role, "
+            "design.research_frame.input_evidence[1].role"
+        ),
+        "suggestion": "Use the user's language.",
+    }
+
+    guide = service._design_repair_guide([issue])
+
+    language = guide["reader_language_repair"]
+    assert language["required_language"] == "Chinese"
+    assert language["named_paths"] == [
+        "design.research_frame.input_evidence[0].role",
+        "design.research_frame.input_evidence[1].role",
+    ]
+    assert "machine ids" in language["preserve_rule"]
+
+
 def test_compact_design_accepts_preregistered_bounded_numeric_rule() -> None:
     request = default_request(
         "Analyze inputs/cycles.csv with a pre-registered small-sample comparison."

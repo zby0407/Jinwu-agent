@@ -181,6 +181,7 @@ _STRUCTURED_SOURCE_SUFFIXES = {
 }
 _SOLAR_DATA_OUTPUT_RECEIPT_CONTRACTS = {
     ("research-dataset-receipt-v1", "silso_cycle_extrema_reproduction"),
+    ("solar-cycle-morphology-receipt-v1", "silso_cycle_morphology"),
     ("solar-precursor-cycle-table-v1", "solar_precursor_cycle_table"),
     ("solar-precursor-cycle-table-v2", "solar_precursor_cycle_table"),
     ("solar-cycle-pair-analysis-table-v2", "solar_cycle_pair_analysis_table"),
@@ -932,7 +933,14 @@ class ResearchReviewStore:
     def _receipted_solar_data_outputs(self, receipt_paths: list[Path]) -> list[Path]:
         """Return only current-task Data outputs bound by recognized receipts."""
 
-        output_root = (self.workspace_root / "work" / "solar_data").resolve()
+        # Most legacy Data adapters publish under work/solar_data.  The
+        # standalone SILSO morphology adapter publishes its reader-facing
+        # triplet under outputs/; both locations remain receipt-bound and
+        # task-local, so accepting the latter here does not widen provenance.
+        output_roots = [
+            (self.workspace_root / "work" / "solar_data").resolve(),
+            (self.workspace_root / "outputs").resolve(),
+        ]
         outputs: list[Path] = []
         for receipt_path in receipt_paths:
             receipt = _read_json(receipt_path)
@@ -980,7 +988,7 @@ class ResearchReviewStore:
                 candidate = unresolved.resolve()
                 if (
                     has_symlink
-                    or not candidate.is_relative_to(output_root)
+                    or not any(candidate.is_relative_to(root) for root in output_roots)
                     or not candidate.is_file()
                     or _file_sha256(candidate) != sha256
                 ):
@@ -1275,19 +1283,35 @@ class ResearchReviewStore:
             candidates.extend(self._receipted_solar_data_outputs(receipt_paths))
             candidates.extend(self._task_manifest_inputs())
         elif stage == "hypothesis":
-            candidates.append(
-                self.workspace_root / "work" / "scientific_hypothesis_state.json"
-            )
             run = self._latest_run_root("hypothesis/runs")
             if run is not None:
-                candidates.extend(
+                portfolio_sources = [
                     run / name
                     for name in (
                         "hypothesis_request.json",
                         "hypothesis_portfolio.json",
                         "hypotheses.md",
                     )
+                    if (run / name).is_file()
+                ]
+                if portfolio_sources:
+                    candidates.extend(portfolio_sources)
+            if not candidates:
+                checkpoint_snapshot = (
+                    self.workspace_root
+                    / "work"
+                    / "scientific_hypothesis_checkpoint.json"
                 )
+                if checkpoint_snapshot.is_file():
+                    # This host-owned snapshot is independent of any later
+                    # mutable update_draft calls in the same specialist turn.
+                    candidates.append(checkpoint_snapshot)
+                else:
+                    candidates.append(
+                        self.workspace_root
+                        / "work"
+                        / "scientific_hypothesis_state.json"
+                    )
         elif stage in {"experiment_design", "experiment_result"}:
             run = None
             if stage == "experiment_result":
@@ -1435,6 +1459,60 @@ class ResearchReviewStore:
             produced_refs = {path.resolve() for path in produced_sources}
             return bool(recognized_outputs & produced_refs)
         if stage == "hypothesis" and not phase.startswith("bounded_hypothesis"):
+            snapshot_path = next(
+                (
+                    path
+                    for path in sources
+                    if path.name == "scientific_hypothesis_checkpoint.json"
+                ),
+                None,
+            )
+            if snapshot_path is not None:
+                snapshot = _read_json(snapshot_path)
+                if not isinstance(snapshot, dict):
+                    return False
+                checkpoint = snapshot.get("checkpoint")
+                evidence_register = snapshot.get("evidence_register")
+                if (
+                    snapshot.get("schema_version")
+                    != "scientific-hypothesis-checkpoint-v1"
+                    or not isinstance(checkpoint, dict)
+                    or checkpoint.get("response_kind") != "hypotheses_ready"
+                    or not isinstance(checkpoint.get("candidates"), list)
+                    or not checkpoint["candidates"]
+                    or not isinstance(evidence_register, list)
+                ):
+                    return False
+                checkpoint_sha256 = canonical_json_sha256(checkpoint)
+                if snapshot.get("checkpoint_sha256") != checkpoint_sha256:
+                    return False
+                evidence_sha256 = canonical_json_sha256(
+                    {"evidence_register": evidence_register}
+                )
+                if snapshot.get("checkpoint_evidence_sha256") != evidence_sha256:
+                    return False
+                return tail_review_is_current(
+                    snapshot.get("tail_review"),
+                    checkpoint,
+                    evidence_sha256=evidence_sha256,
+                )
+            portfolio_path = next(
+                (
+                    path
+                    for path in sources
+                    if path.name == "hypothesis_portfolio.json"
+                ),
+                None,
+            )
+            if portfolio_path is not None:
+                portfolio = _read_json(portfolio_path)
+                return (
+                    isinstance(portfolio, dict)
+                    and portfolio.get("status") == "frozen"
+                    and portfolio.get("schema_version")
+                    and isinstance(portfolio.get("candidates"), list)
+                    and bool(portfolio["candidates"])
+                )
             state_path = next(
                 (
                     path
@@ -1707,10 +1785,22 @@ class ResearchReviewStore:
                 raise RuntimeError(
                     f"{stage} returned without its complete task-local canonical v1 artifact"
                 )
+            workspace_root = self.workspace_root.resolve()
+            producer_refs = _producer_path_refs(text)
+            if stage == "planning":
+                # Morphology outputs are experiment_result deliverables.  A
+                # planner may repeat them in prose, but they are not evidence
+                # until the deterministic Data tool has created and verified
+                # them.  Keep legacy path-reference behavior for other stages.
+                producer_refs = {
+                    ref
+                    for ref in producer_refs
+                    if not ref.startswith("outputs/cycle_morphology_")
+                }
             evidence_refs = sorted(
-                _producer_path_refs(text)
+                producer_refs
                 | {
-                    path.relative_to(self.workspace_root).as_posix()
+                    path.relative_to(workspace_root).as_posix()
                     for path in canonical_sources
                 }
             )[:200]
@@ -3338,6 +3428,40 @@ class ResearchReviewStore:
             recovered = True
         return normalized, recovered
 
+    @staticmethod
+    def _carry_planning_data_binding_gaps(
+        mode: str, issues: list[dict[str, Any]]
+    ) -> tuple[list[dict[str, Any]], list[str]]:
+        """Keep the planning-stage sample-count placeholder as a downstream limit.
+
+        The planning contract intentionally leaves ``independent_sample_count``
+        unbound until Data has inspected the task's immutable input receipts. A
+        reviewer may correctly flag that placeholder under ``NUMERIC_SOURCE_BOUND``;
+        at this stage it is a carry-forward condition, not a producer defect. The
+        match is deliberately narrow so all other numeric-source issues remain
+        actionable and retain the policy severity floor.
+        """
+
+        if mode != "planning":
+            return issues, []
+        normalized: list[dict[str, Any]] = []
+        limits: list[str] = []
+        for raw in issues:
+            is_planning_sample_gap = (
+                raw.get("rule_id") == "NUMERIC_SOURCE_BOUND"
+                and raw.get("owner") == "solar-data"
+                and raw.get("claim_ref")
+                == "work/research_quality/planning.analysis_claim.json#independent_sample_count"
+            )
+            if not is_planning_sample_gap:
+                normalized.append(raw)
+                continue
+            limits.append(
+                "Planning does not bind independent_sample_count; Data must derive "
+                "it from accepted task inputs or record an explicit gap row."
+            )
+        return normalized, limits
+
     def persist_deterministic_preflight_verdict(
         self, mode: str
     ) -> dict[str, Any] | None:
@@ -3733,6 +3857,13 @@ class ResearchReviewStore:
             issues, recovered_data_input_issue = (
                 self._recover_misapplied_data_input_issues(mode, targets, issues)
             )
+            issues, planning_data_binding_limits = (
+                self._carry_planning_data_binding_gaps(mode, issues)
+            )
+            carry_forward_limits = [
+                *(carry_forward_limits or []),
+                *planning_data_binding_limits,
+            ]
             if recovered_data_input_issue and all_issues_are_misapplied_data_input:
                 decision = "revise"
                 next_owner = "solar-data"

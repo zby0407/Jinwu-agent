@@ -84,6 +84,18 @@ COMMAND_MARKERS = re.compile(
 )
 SAFE_CODE_PATH = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_./-]{0,199}$")
 ALLOWED_FILE_SUFFIXES = {".py", ".json", ".md", ".txt"}
+ALLOWED_SCIENTIFIC_ARTIFACT_KINDS = (
+    "json",
+    "csv",
+    "text",
+    "markdown",
+    "image",
+    "fits",
+    "netcdf",
+    "hdf5",
+    "parquet",
+    "other",
+)
 WORKER_RESULT_MARKERS = {
     "automatic-experiment-worker-result-v1",
     "execution_completed",
@@ -725,22 +737,12 @@ def _validate_worker_return_literals(tree: ast.AST) -> list[str]:
                 kind = artifact.get("kind")
                 if not (
                     isinstance(kind, ast.Constant)
-                    and kind.value
-                    in {
-                        "json",
-                        "csv",
-                        "text",
-                        "markdown",
-                        "image",
-                        "fits",
-                        "netcdf",
-                        "hdf5",
-                        "parquet",
-                        "other",
-                    }
+                    and kind.value in ALLOWED_SCIENTIFIC_ARTIFACT_KINDS
                 ):
                     errors.append(
-                        f"{item_label}.kind is not an allowed scientific artifact kind"
+                        f"{item_label}.kind is not an allowed scientific artifact kind; "
+                        "allowed values: "
+                        + ", ".join(ALLOWED_SCIENTIFIC_ARTIFACT_KINDS)
                     )
         elif artifacts is not None and not isinstance(artifacts, ast.Name):
             errors.append(f"{label}.artifacts must be an array")

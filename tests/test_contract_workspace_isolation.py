@@ -1663,6 +1663,148 @@ def test_research_experiment_scope_is_loaded_from_host_workspace(
     }
 
 
+def test_host_can_materialize_protocol_owned_morphology_design(
+    tmp_path: Path, monkeypatch
+) -> None:
+    thread_id = "host-morphology-design"
+    binding, config = _task_config(tmp_path, monkeypatch, thread_id)
+    workspace = Path(binding.workspace)
+    task_path = workspace / "task.json"
+    task = json.loads(task_path.read_text(encoding="utf-8"))
+    task["research_question"] = (
+        "对 SILSO v2.0 第1—24周三组形态关系报告 Pearson、Spearman、"
+        "双侧 p 值、bootstrap、留一和固定分时期结果。"
+    )
+    task_path.write_text(json.dumps(task, ensure_ascii=False), encoding="utf-8")
+    store = ResearchReviewStore(workspace, thread_id)
+    state = store.load_state()
+    state["current_stage"] = "experiment_design"
+    store._save_state(state)
+    scope = {
+        "schema_version": "research-experiment-scope-v1",
+        "task_id": thread_id,
+        "stage": "experiment_design",
+        "accepted_upstream_refs": [],
+        "revision_review_id": None,
+        "design_validation_limit": 4,
+        "analysis_protocol": "silso_cycle_morphology_v1",
+    }
+    scope_path = workspace / "research_review" / "experiment_scope.json"
+    scope_path.parent.mkdir(parents=True, exist_ok=True)
+    scope_path.write_text(json.dumps(scope), encoding="utf-8")
+    inputs = workspace / "inputs"
+    files = {
+        "input_01": inputs / "a4b5b8812c9e966f-TableCyclesMiMa.txt",
+        "input_02": inputs / "1289e5922889f26f-SN_ms_tot_V2.0.csv",
+        "input_03": inputs / "e83932c7a47a12c4-SN_m_tot_V2.0.txt",
+        "input_08": inputs / "19d01a07a0aae775-cycle_morphology_table.csv",
+    }
+    files["input_01"].write_text("01 1755 02 14.0 1761 06 144.1 11 04\n", encoding="utf-8")
+    files["input_02"].write_text("1761;06;1761.455;144.1;-1.0;-1;1\n", encoding="utf-8")
+    files["input_03"].write_text("1761 06 1761.455 100.0 -1.0 -1\n", encoding="utf-8")
+    files["input_08"].write_text(
+        "cycle_number,minimum_date,maximum_date,next_minimum_date,"
+        "cycle_length_years,rise_time_years,decline_time_years,"
+        "peak_smoothed_sunspot_number,observation_period_group,data_quality_note\n"
+        "1,1755-02,1761-06,1766-06,11.333333333333334,"
+        "6.333333333333333,5.0,144.1,early,fixture\n",
+        encoding="utf-8",
+    )
+    _write_json = lambda path, value: path.write_text(
+        json.dumps(value, ensure_ascii=False), encoding="utf-8"
+    )
+    _write_json(
+        inputs / "_staged.json",
+        {
+            "schema_version": "automatic-experiment-input-refs-v1",
+            "input_refs": [
+                {
+                    "id": input_id,
+                    "path": path.relative_to(workspace).as_posix(),
+                    "description": "accepted task-local input",
+                    "required": True,
+                }
+                for input_id, path in files.items()
+            ],
+        },
+    )
+
+    receipt = experiment_tools.ensure_host_silso_morphology_design(config)
+
+    run_root = workspace / "experiment" / "runs" / receipt["run_id"]
+    request = json.loads((run_root / "request.json").read_text(encoding="utf-8"))
+    assert receipt["status"] == "design_validated"
+    assert "two-sided p-values" in request["task"]
+    assert (run_root / "design.json").is_file()
+
+
+def test_research_experiment_bind_uses_host_staged_input_sidecar(
+    tmp_path: Path, monkeypatch
+) -> None:
+    binding, config = _task_config(tmp_path, monkeypatch, "experiment-staged-inputs")
+    workspace = Path(binding.workspace)
+    store = ResearchReviewStore(workspace, "experiment-staged-inputs")
+    state = store.load_state()
+    state["current_stage"] = "experiment_design"
+    store._save_state(state)
+    scope = {
+        "schema_version": "research-experiment-scope-v1",
+        "task_id": "experiment-staged-inputs",
+        "stage": "experiment_design",
+        "accepted_upstream_refs": [],
+        "revision_review_id": None,
+        "design_validation_limit": 4,
+    }
+    scope_path = workspace / "research_review" / "experiment_scope.json"
+    scope_path.parent.mkdir(parents=True, exist_ok=True)
+    scope_path.write_text(json.dumps(scope), encoding="utf-8")
+    inputs = workspace / "inputs"
+    inputs.mkdir(parents=True, exist_ok=True)
+    (inputs / "accepted.json").write_text('{"ready": false}', encoding="utf-8")
+    (inputs / "_staged.json").write_text(
+        json.dumps(
+            {
+                "schema_version": "automatic-experiment-input-refs-v1",
+                "input_refs": [
+                    {
+                        "id": "accepted_data",
+                        "path": "inputs/accepted.json",
+                        "description": "Accepted Data-stage input.",
+                        "required": True,
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    outcome = json.loads(
+        experiment_tools.automatic_experiment_bind_request.invoke(
+            {
+                "request_input": (
+                    "Analyze inputs/model-selected.json, then decide whether the "
+                    "accepted evidence is ready."
+                )
+            },
+            config=config,
+        )
+    )
+    request = json.loads(
+        (
+            workspace / "experiment" / "runs" / outcome["run_id"] / "request.json"
+        ).read_text(encoding="utf-8")
+    )
+
+    assert request["input_refs"] == [
+        {
+            "id": "accepted_data",
+            "path": "inputs/accepted.json",
+            "description": "Accepted Data-stage input.",
+            "required": True,
+        }
+    ]
+
+
 def test_research_experiment_scope_is_active_before_stage_artifact_exists(
     tmp_path: Path, monkeypatch
 ) -> None:
@@ -1723,6 +1865,74 @@ def test_research_experiment_scope_is_active_before_stage_artifact_exists(
         )
     )
     assert run_state["research_scope"] == scope
+
+
+def test_experiment_design_evidence_revision_inherits_validated_request(
+    tmp_path: Path, monkeypatch
+) -> None:
+    binding, config = _task_config(tmp_path, monkeypatch, "experiment-revision-request")
+    workspace = Path(binding.workspace)
+    store = ResearchReviewStore(workspace, "experiment-revision-request")
+    state = store.load_state()
+    state["current_stage"] = "experiment_design"
+    store._save_state(state)
+    scope_path = workspace / "research_review" / "experiment_scope.json"
+    base_scope = {
+        "schema_version": "research-experiment-scope-v1",
+        "task_id": "experiment-revision-request",
+        "stage": "experiment_design",
+        "accepted_upstream_refs": [
+            {
+                "artifact_id": "data-artifact",
+                "version": 1,
+                "artifact_sha256": "a" * 64,
+                "stage": "data",
+            }
+        ],
+        "revision_review_id": None,
+        "design_validation_limit": 4,
+    }
+    scope_path.parent.mkdir(parents=True, exist_ok=True)
+    scope_path.write_text(json.dumps(base_scope), encoding="utf-8")
+    original = json.loads(
+        experiment_tools.automatic_experiment_bind_request.invoke(
+            {"request_input": QUESTION_A}, config=config
+        )
+    )
+    assert original["ok"] is True
+    original_root = workspace / "experiment" / "runs" / original["run_id"]
+    original_state = json.loads(
+        (original_root / "state.json").read_text(encoding="utf-8")
+    )
+    original_state["phase"] = "design_validated"
+    original_state["design_path"] = "design.json"
+    (original_root / "state.json").write_text(
+        json.dumps(original_state), encoding="utf-8"
+    )
+    (original_root / "design.json").write_text(
+        '{"schema_version":"automatic-experiment-design-v1"}', encoding="utf-8"
+    )
+
+    revision_scope = {
+        **base_scope,
+        "revision_review_id": "experiment-design-review-0001",
+    }
+    scope_path.write_text(json.dumps(revision_scope), encoding="utf-8")
+    revision = json.loads(
+        experiment_tools.automatic_experiment_bind_request.invoke(
+            {"request_input": "placeholder-do-not-use"}, config=config
+        )
+    )
+
+    assert revision["ok"] is True
+    assert revision["run_id"] != original["run_id"]
+    assert revision["request"] == original["request"]
+    revision_state = json.loads(
+        (
+            workspace / "experiment" / "runs" / revision["run_id"] / "state.json"
+        ).read_text(encoding="utf-8")
+    )
+    assert revision_state["research_scope"] == revision_scope
 
 
 def test_experiment_result_stage_rejects_binding_a_new_run(

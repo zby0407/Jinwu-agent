@@ -2700,6 +2700,64 @@ class TestRestoreWebuiThreadsToGlobalStore(unittest.IsolatedAsyncioTestCase):
             self._WS
         )
 
+    async def test_restore_uses_persisted_workspace_bindings_as_indexed_candidates(self):
+        """A large machine-global DB must not be scanned for unbound threads.
+
+        Every current WebUI task owns a persisted workspace binding.  Once at
+        least one binding exists for this workspace, restore should query only
+        those thread ids; an unbound row with matching metadata is legacy
+        residue and must not force a machine-global checkpoint scan.
+        """
+        import sys
+        import uuid as _uuid_mod
+        from pathlib import Path
+        from unittest.mock import MagicMock, patch
+
+        from jw.sessions import _restore_webui_threads_to_global_store
+        from jw.workspaces import ensure_thread_workspace
+
+        bound = "66666666-6666-6666-6666-666666666666"
+        unbound = "77777777-7777-7777-7777-777777777777"
+        mock_store: dict = {"threads": []}
+        mock_global_store = MagicMock()
+        mock_global_store.get.side_effect = mock_store.get
+        mock_global_store.__getitem__ = lambda self, key: mock_store[key]
+        mock_global_store.__setitem__ = lambda self, key, value: mock_store.__setitem__(
+            key, value
+        )
+        fake_module = MagicMock()
+        fake_module.GLOBAL_STORE = mock_global_store
+
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            workspace = root / "workspace"
+            workspace.mkdir()
+            db = str(root / "sessions.db")
+            binding_dir = root / "bindings"
+            with patch.dict(
+                os.environ,
+                {"JW_WORKSPACE_BINDINGS_DIR": str(binding_dir)},
+            ):
+                ensure_thread_workspace(bound, workspace)
+                self._make_db_with_threads(
+                    db, [bound, unbound], workspace_dir=str(workspace)
+                )
+                with (
+                    patch("jw.sessions.get_db_path", return_value=_mock_path(db)),
+                    patch.dict(
+                        sys.modules, {"langgraph_runtime_inmem.database": fake_module}
+                    ),
+                    patch(
+                        "jw.sessions._api_workspace_dir",
+                        return_value=str(workspace),
+                    ),
+                ):
+                    await _restore_webui_threads_to_global_store()
+
+        assert [entry["thread_id"] for entry in mock_store["threads"]] == [
+            _uuid_mod.UUID(bound)
+        ]
+
     async def test_purge_removes_only_jwmemory_rows(self):
         """Startup purge drops jwmemory-* residue, leaves everything else."""
         import sqlite3
@@ -3061,6 +3119,12 @@ class TestRestoreWebuiThreadsToGlobalStore(unittest.IsolatedAsyncioTestCase):
                 patch(
                     "jw.sessions._restore_webui_threads_to_global_store",
                     side_effect=fake_restore,
+                ),
+                patch(
+                    "jw.sessions._purge_internal_worker_threads",
+                    side_effect=AssertionError(
+                        "startup must not scan the machine-global DB for disposable workers"
+                    ),
                 ),
             ):
 

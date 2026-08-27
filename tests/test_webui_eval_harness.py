@@ -144,6 +144,10 @@ def test_eval_launchers_pin_the_shared_workspace_root() -> None:
     assert "JW_EVAL_AUXILIARY_MODEL:-qwen3.7-plus" in backend
     assert "solar-data" in backend
     assert "solar-knowledge" in backend
+    assert (
+        'JW_DASHSCOPE_REQUEST_TIMEOUT_S="${JW_DASHSCOPE_REQUEST_TIMEOUT_S:-900}"'
+        in backend
+    )
 
     campaign = (EVALS / "run_eval_campaign.mjs").read_text(encoding="utf-8")
     assert 'process.env.JW_EVAL_REVIEWER || "kimi"' in campaign
@@ -176,7 +180,8 @@ def test_main_task_suite_uses_a_natural_user_prompt() -> None:
     suite = json.loads(
         (EVALS / "main_task_frontend_v1.json").read_text(encoding="utf-8")
     )
-    case = suite["cases"][0]
+    cases = {case["id"]: case for case in suite["cases"]}
+    case = cases["MAIN-SC26-B07"]
     prompt = case["prompt"]
 
     assert suite["research_scope"] == {
@@ -187,13 +192,15 @@ def test_main_task_suite_uses_a_natural_user_prompt() -> None:
     }
     assert suite["exposure_status"] == "checked_in_visible"
     assert suite["release_gate_eligible"] is False
-    assert case["id"] == "MAIN-SC26-B06"
     assert case["acceptance_role"] == "primary_scientific_acceptance"
-    assert case["expected_outcome"] == "evidence_maturity_decision"
+    assert case["expected_outcome"] == "preliminary_probability_forecast"
+    assert cases["MAIN-SC26-B06"]["acceptance_role"] == "scientific_limitation_gate"
     assert "expected_conclusion_class" not in case
     assert case["prompt_style"] == "natural_user"
     assert case["allowed_user_intervention"] == "none"
     assert "研究包" in prompt
+    assert "80%" in prompt and "95%" in prompt
+    assert "不得为了满足等级" in prompt
     for internal_term in (
         "full research",
         "Planning",

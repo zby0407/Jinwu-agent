@@ -84,6 +84,9 @@ LONG_TAIL_QUERY = re.compile(
 )
 WORKING_STATE_VERSION = 1
 WORKING_STATE_RELATIVE_PATH = Path("work") / "scientific_hypothesis_state.json"
+CHECKPOINT_SNAPSHOT_RELATIVE_PATH = (
+    Path("work") / "scientific_hypothesis_checkpoint.json"
+)
 DRAFT_OPERATIONS = {
     "replace",
     "upsert_candidate",
@@ -121,6 +124,11 @@ WIKI_GROUNDING_TYPES = {
     "experiment_paradigm",
     "hypothesis_template",
 }
+SOURCE_RESTRICTED_EVIDENCE_MARKER = "[source_restricted_evidence_boundary]"
+_HOST_EVIDENCE_SEED_SCHEMA = "scientific-hypothesis-evidence-seed-v1"
+_SILSO_PREBOUND_RELATIONSHIPS = frozenset(
+    {"cycle_length_peak", "rise_time_peak", "decline_time_peak"}
+)
 TRANSPORT_CONTEXT = re.compile(
     r"子午流|磁通输运|输运效率|跨赤道抵消|"
     r"meridional[-\s]+flow|flux[-\s]+transport|transport\s+efficiency",
@@ -262,6 +270,15 @@ def _working_state_path(config: RunnableConfig | None) -> Path | None:
         return None
 
 
+def _checkpoint_snapshot_path(config: RunnableConfig | None) -> Path | None:
+    """Return the host-owned immutable checkpoint snapshot path."""
+
+    try:
+        return workspace_root_from_config(config) / CHECKPOINT_SNAPSHOT_RELATIVE_PATH
+    except RuntimeError:
+        return None
+
+
 def _working_state_payload(state: _HypothesisState) -> dict[str, Any]:
     return {
         "schema_version": WORKING_STATE_VERSION,
@@ -323,6 +340,49 @@ def _persist_state(
                     pass
 
 
+def _persist_checkpoint_snapshot(
+    config: RunnableConfig | None, state: _HypothesisState
+) -> Path | None:
+    """Persist the validated checkpoint separately from the mutable draft.
+
+    The model may continue editing ``latest_draft`` after a successful
+    checkpoint.  This task-local snapshot is written by the host at checkpoint
+    time and is the canonical source used for recovery in that case.
+    """
+
+    path = _checkpoint_snapshot_path(config)
+    if path is None or state.validated_response is None:
+        return None
+    payload = {
+        "schema_version": "scientific-hypothesis-checkpoint-v1",
+        "request": deepcopy(state.request),
+        "request_sha256": state.request_sha256,
+        "checkpoint": deepcopy(state.validated_response),
+        "checkpoint_sha256": state.preflight_response_sha256,
+        "checkpoint_evidence_sha256": state.checkpoint_evidence_sha256,
+        "evidence_register": state.evidence_register.all(),
+        "tail_review": deepcopy(state.tail_review),
+    }
+    path.parent.mkdir(parents=True, exist_ok=True)
+    descriptor, temp_name = tempfile.mkstemp(
+        dir=path.parent,
+        prefix=f".{path.name}.",
+        suffix=".tmp",
+    )
+    temp = Path(temp_name)
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+            json.dump(payload, handle, ensure_ascii=False, indent=2, sort_keys=True)
+            handle.write("\n")
+        os.replace(temp, path)
+        return path
+    finally:
+        try:
+            temp.unlink()
+        except FileNotFoundError:
+            pass
+
+
 def _evidence_sha256(register: EvidenceRegister) -> str:
     return canonical_json_sha256({"evidence_register": register.all()})
 
@@ -377,6 +437,13 @@ def _normalize_working_draft(
     for index, candidate in enumerate(draft["candidates"]):
         if not isinstance(candidate, dict):
             raise ValueError(f"working draft candidate {index} must be an object")
+        scientific_quality = candidate.get("scientific_quality")
+        if (
+            isinstance(scientific_quality, dict)
+            and scientific_quality.get("novelty_status")
+            == "tail_candidate_unverified"
+        ):
+            scientific_quality["novelty_status"] = "novelty_not_assessed"
         candidate_id = candidate.get("id")
         if not isinstance(candidate_id, str) or SAFE_ID.fullmatch(candidate_id) is None:
             raise ValueError(f"working draft candidate {index} has an invalid id")
@@ -442,7 +509,17 @@ def _draft_warnings(
             "candidate_budget_exceeded",
             f"Draft has {len(candidates)} candidates; maximum is {request['max_candidates']}.",
         )
-    if candidates and not state.literature_bundle_attempted:
+    source_restricted_evidence_boundary = any(
+        SOURCE_RESTRICTED_EVIDENCE_MARKER
+        in str(material.get("content_notes") or "")
+        for material in request.get("upstream_materials", [])
+        if isinstance(material, dict)
+    )
+    if (
+        candidates
+        and not state.literature_bundle_attempted
+        and not source_restricted_evidence_boundary
+    ):
         add(
             "literature_pass_missing",
             (
@@ -496,10 +573,17 @@ def _draft_warnings(
             continue
         candidate_ids.add(candidate_id)
         missing = sorted(REQUIRED_CANDIDATE_FIELDS - set(candidate))
+        unknown = sorted(set(candidate) - REQUIRED_CANDIDATE_FIELDS)
         if missing:
             add(
                 "candidate_incomplete",
                 f"Candidate is missing fields: {', '.join(missing)}.",
+                candidate_id,
+            )
+        if unknown:
+            add(
+                "candidate_unknown_field",
+                f"Candidate contains undefined fields: {', '.join(unknown)}.",
                 candidate_id,
             )
 
@@ -1511,6 +1595,70 @@ def _state(config: RunnableConfig | None) -> _HypothesisState:
         return state
 
 
+def _load_host_evidence_seed(
+    request_path: Path | None, request: dict[str, Any]
+) -> tuple[list[dict[str, Any]], str | None]:
+    """Read and validate the optional host-owned A2A evidence capsule.
+
+    The capsule is intentionally adjacent to the request and hash-bound to its
+    canonical JSON.  A malformed or stale capsule is surfaced before the
+    working state is replaced, so a retry cannot silently inherit partial
+    evidence.
+    """
+
+    if request_path is None or not any(
+        SOURCE_RESTRICTED_EVIDENCE_MARKER in str(material.get("content_notes") or "")
+        for material in request.get("upstream_materials", [])
+        if isinstance(material, dict)
+    ):
+        return [], None
+    seed_path = request_path.with_name("hypothesis_evidence_seed.json")
+    if not seed_path.is_file():
+        return [], None
+    raw = json.loads(seed_path.read_text(encoding="utf-8"))
+    if not isinstance(raw, dict) or raw.get("schema_version") != _HOST_EVIDENCE_SEED_SCHEMA:
+        raise ValueError("host evidence seed has an unsupported schema")
+    if raw.get("request_sha256") != canonical_json_sha256(request):
+        raise ValueError("host evidence seed request hash does not match the bound request")
+    rows = raw.get("evidence")
+    if not isinstance(rows, list):
+        raise ValueError("host evidence seed evidence must be an array")
+    from scientific_hypothesis.harness import validate_evidence_provenance
+
+    parsed: list[dict[str, Any]] = []
+    seen_relationships: set[str] = set()
+    seen_ids: set[str] = set()
+    for index, item in enumerate(rows):
+        if not isinstance(item, dict):
+            raise ValueError(f"host evidence seed row {index} must be an object")
+        relationship = item.get("relationship_key")
+        if relationship not in _SILSO_PREBOUND_RELATIONSHIPS:
+            raise ValueError(f"host evidence seed row {index} has an unknown relationship")
+        if relationship in seen_relationships:
+            raise ValueError(f"host evidence seed duplicates relationship {relationship}")
+        evidence = {key: value for key, value in item.items() if key != "relationship_key"}
+        if evidence.get("evidence_id") in seen_ids:
+            raise ValueError(f"host evidence seed duplicates evidence id {evidence.get('evidence_id')}")
+        if evidence.get("evidence_kind") != "upstream" or evidence.get("role") != "supports":
+            raise ValueError("host evidence seed rows must be verified upstream support")
+        if evidence.get("verified_support") is not True:
+            raise ValueError("host evidence seed rows must be verified")
+        validate_evidence_provenance(request, evidence)
+        # Let the same strict contract used by the public binding tool normalize
+        # and reject unknown fields before anything reaches the live register.
+        from scientific_hypothesis.contracts import validate_evidence_bind
+
+        normalized = validate_evidence_bind(evidence)
+        normalized["relationship_key"] = relationship
+        parsed.append(normalized)
+        seen_relationships.add(relationship)
+        seen_ids.add(normalized["evidence_id"])
+    if seen_relationships != _SILSO_PREBOUND_RELATIONSHIPS:
+        missing = sorted(_SILSO_PREBOUND_RELATIONSHIPS - seen_relationships)
+        raise ValueError(f"host evidence seed is incomplete; missing {missing}")
+    return parsed, seed_path.relative_to(request_path.parent.parent.parent).as_posix()
+
+
 def _require_active_request(state: _HypothesisState) -> dict[str, Any]:
     if state.request is None:
         raise RuntimeError(
@@ -1543,12 +1691,19 @@ def scientific_hypothesis_bind_request(
         supplied = request_input.strip()
         if not supplied:
             raise ValueError("Research question must not be empty")
+        request_path: Path | None = None
         if supplied.startswith("@"):
-            path = resolve_scoped_path(supplied[1:].strip(), config, allow_project=True)
-            payload = json.loads(path.read_text(encoding="utf-8"))
+            request_path = resolve_scoped_path(
+                supplied[1:].strip(), config, allow_project=True
+            )
+            payload = json.loads(request_path.read_text(encoding="utf-8"))
             request = validate_hypothesis_request(payload)
         else:
             request = build_natural_hypothesis_request(supplied)
+
+        host_seed_rows, host_seed_path = _load_host_evidence_seed(
+            request_path, request
+        )
 
         brief = build_hypothesis_brief(request)
         brief["tail_search_contract"] = {
@@ -1624,21 +1779,67 @@ def scientific_hypothesis_bind_request(
                 existing is not None
                 and existing.request_sha256 == brief["request_sha256"]
             ):
+                # Stage every bind in a detached register first.  A stale or
+                # conflicting host capsule therefore cannot partially mutate a
+                # live task that is being resumed.
+                staged_register = EvidenceRegister()
+                for row in existing.evidence_register.all():
+                    staged_register.bind(row)
+                for row in host_seed_rows:
+                    staged_register.bind(
+                        {
+                            key: value
+                            for key, value in row.items()
+                            if key != "relationship_key"
+                        }
+                    )
+                existing.evidence_register = staged_register
                 brief["binding_status"] = "already_bound"
                 brief["working_state_preserved"] = True
                 brief["bound_evidence_count"] = len(existing.evidence_register)
                 brief["checkpoint_available"] = existing.validated_response is not None
                 active_state = existing
             else:
+                staged_register = EvidenceRegister()
+                for row in host_seed_rows:
+                    staged_register.bind(
+                        {
+                            key: value
+                            for key, value in row.items()
+                            if key != "relationship_key"
+                        }
+                    )
                 active_state = _HypothesisState(
                     request=request,
                     request_sha256=brief["request_sha256"],
+                    evidence_register=staged_register,
                 )
                 _STATES[context] = active_state
                 brief["binding_status"] = "bound"
                 brief["working_state_preserved"] = False
-                brief["bound_evidence_count"] = 0
+                brief["bound_evidence_count"] = len(active_state.evidence_register)
                 brief["checkpoint_available"] = False
+            brief["prebound_evidence_count"] = len(host_seed_rows)
+            brief["prebound_evidence_ids_by_relationship"] = {
+                row["relationship_key"]: row["evidence_id"] for row in host_seed_rows
+            }
+            brief["evidence_seed_path"] = host_seed_path
+            brief["next_required_action"] = (
+                {
+                    "tool": "scientific_hypothesis_update_draft",
+                    "operation": "upsert_candidate",
+                    "relationship_keys": sorted(
+                        row["relationship_key"] for row in host_seed_rows
+                    ),
+                    "instruction": (
+                        "Create one candidate for each prebound relationship; cite "
+                        "the corresponding evidence_id and preserve the evidence "
+                        "insufficiency or instability stated by the row."
+                    ),
+                }
+                if host_seed_rows
+                else None
+            )
         state_path = _persist_state(config, active_state)
         brief["state_persistence"] = (
             "workspace" if state_path is not None else "memory_only"
@@ -1860,12 +2061,20 @@ def scientific_hypothesis_build_literature_bundle(
         JSON string containing the immutable task bundle and a marker that the
         exact bound request supplied its research question.
     """
+    state = None
     try:
         from jw.tools.knowledge_base import _get_store, _run_context
         from knowledge_base import literature
 
         state = _state(config)
         request = _require_active_request(state)
+        if state.literature_bundle_attempted:
+            raise ValueError(
+                "cached literature pass already attempted; retain the evidence gap "
+                "and continue the hypothesis workflow"
+            )
+        state.literature_bundle_attempted = True
+        _persist_state(config, state)
         _, run_id = _run_context(config)
         result = literature.build_literature_task_bundle(
             _get_store(),
@@ -1875,7 +2084,6 @@ def scientific_hypothesis_build_literature_bundle(
             limit=limit,
             run_id=run_id,
         )
-        state.literature_bundle_attempted = True
         bundle_id = result.get("bundle_id")
         state.literature_bundle_id = (
             bundle_id if isinstance(bundle_id, str) and bundle_id else None
@@ -1888,6 +2096,8 @@ def scientific_hypothesis_build_literature_bundle(
         result["persistence_warning"] = state.persistence_warning
         return _ok(result)
     except Exception as exc:
+        if state is not None:
+            _persist_state(config, state)
         return _needs_revision(exc)
 
 
@@ -1963,14 +2173,10 @@ def scientific_hypothesis_build_novelty_bundle(
                     "matched_family_count": search_result.get("count", 0),
                 }
             )
-            bound_focus = (
-                f"{request['research_question']}；nearest-prior-art query axis：{axis}"
-            )
-            if len(bound_focus) > 500:
-                raise ValueError(
-                    "研究问题与 query axis 合并后超过 500 字符；请缩短该检索轴，"
-                    "但保留其机制、观测量或零假设专名。"
-                )
+            # The exact bound question is already passed separately below.  Repeating
+            # it inside ``focus`` makes a valid novelty search impossible for long,
+            # fully specified research questions and needlessly spends agent retries.
+            bound_focus = f"nearest-prior-art query axis：{axis}"
             result = literature.build_literature_task_bundle(
                 store,
                 request["research_question"],
@@ -2196,7 +2402,10 @@ def scientific_hypothesis_update_draft(
     Supported operations are ``replace``, ``upsert_candidate``,
     ``patch_candidate``, ``remove_candidate``, ``set_distinctions``, and
     ``set_portfolio_notes``. Candidate patches recursively update only the
-    supplied fields. Every successful change is persisted and returns soft
+    supplied fields. patch_candidate merges fields and cannot delete a key,
+    including when its value is set to null. To remove an invalid or unsupported
+    candidate key, use upsert_candidate with the complete candidate object
+    and omit that key. Every successful change is persisted and returns soft
     evidence/completeness warnings; it does not create a checkpoint or publish.
 
     Args:
@@ -2340,6 +2549,7 @@ def scientific_hypothesis_update_draft(
                     )
                 draft["portfolio_notes"] = payload
 
+        draft = _normalize_working_draft(draft, request)
         state.latest_draft = draft
         state.latest_draft_sha256 = canonical_json_sha256(draft)
         # A material edit is the escape condition for a previous repeated
@@ -2596,6 +2806,14 @@ def _checkpoint_response(
         )
         result["checkpoint_available"] = state.validated_response is not None
         result["publication_required"] = False
+        snapshot_path = None
+        if checkpoint_created:
+            snapshot_path = _persist_checkpoint_snapshot(config, state)
+        result["checkpoint_snapshot_path"] = (
+            snapshot_path.relative_to(workspace_root_from_config(config)).as_posix()
+            if snapshot_path is not None
+            else None
+        )
         state_path = _persist_state(config, state)
         result["state_persistence"] = (
             "workspace" if state_path is not None else "memory_only"

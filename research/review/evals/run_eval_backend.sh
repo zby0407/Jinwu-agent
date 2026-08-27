@@ -60,6 +60,10 @@ export JW_AUXILIARY_PROVIDER="$light_provider"
 # structured response format, so isolate them from formal gate traffic.
 export JW_MEMORY_WORKERS_ENABLED="${JW_EVAL_MEMORY_WORKERS_ENABLED:-false}"
 export JW_MEMORY_SKILL_SYNTHESIS_ENABLED="${JW_EVAL_MEMORY_SKILL_SYNTHESIS_ENABLED:-false}"
+# Long research-stage tool planning can legitimately exceed the generic
+# five-minute Qwen wall clock.  Keep normal callers unchanged, but give the
+# production evaluation launcher the already-supported bounded maximum.
+export JW_DASHSCOPE_REQUEST_TIMEOUT_S="${JW_DASHSCOPE_REQUEST_TIMEOUT_S:-900}"
 export JW_WORKSPACE_DIR="$PWD"
 
 log_file="${JW_EVAL_BACKEND_LOG:-$PWD/research/review/evals/runs/backend.${reviewer}.${review_mode}.log}"

@@ -17,7 +17,7 @@ from scientific_hypothesis.tail_search import (
     TAIL_REVIEW_VERSION,
     candidate_pool_sha256,
 )
-from tests.test_hypothesis import make_response
+from tests.test_hypothesis import make_request, make_response
 
 
 def _config(thread_id: str) -> dict[str, dict[str, str]]:
@@ -533,6 +533,50 @@ def test_hypothesis_literature_bundle_uses_exact_bound_question(
     )
 
 
+def test_hypothesis_literature_bundle_failure_is_a_single_recorded_attempt(
+    monkeypatch,
+) -> None:
+    thread_id = "hypothesis-literature-failure-once"
+    config = _config(thread_id)
+    hypothesis_tools._STATES.pop(thread_id, None)
+    hypothesis_tools.scientific_hypothesis_bind_request.invoke(
+        {"request_input": "Is the Waldmeier rise-time relation stable?"},
+        config=config,
+    )
+    calls = 0
+
+    def fail_build(*_args, **_kwargs):
+        nonlocal calls
+        calls += 1
+        raise ValueError("cached literature unavailable")
+
+    monkeypatch.setattr(knowledge_tools, "_get_store", lambda: object())
+    monkeypatch.setattr(
+        knowledge_tools.literature,
+        "build_literature_task_bundle",
+        fail_build,
+    )
+
+    first = json.loads(
+        hypothesis_tools.scientific_hypothesis_build_literature_bundle.invoke(
+            {"focus": "Waldmeier effect 上升时间 rise time", "limit": 3},
+            config=config,
+        )
+    )
+    second = json.loads(
+        hypothesis_tools.scientific_hypothesis_build_literature_bundle.invoke(
+            {"focus": "Waldmeier effect 上升时间 rise time", "limit": 3},
+            config=config,
+        )
+    )
+
+    assert first["status"] == "needs_revision"
+    assert second["status"] == "needs_revision"
+    assert "already attempted" in second["validation_error"]
+    assert calls == 1
+    assert hypothesis_tools._STATES[thread_id].literature_bundle_attempted is True
+
+
 def test_novelty_bundle_deduplicates_families_and_preserves_coverage_gap(
     monkeypatch,
 ) -> None:
@@ -622,6 +666,68 @@ def test_novelty_bundle_deduplicates_families_and_preserves_coverage_gap(
     assert state.novelty_bundle_ids == ["bundle-0", "bundle-1", "bundle-2"]
 
 
+def test_novelty_bundle_keeps_long_bound_question_out_of_axis_focus(
+    monkeypatch,
+) -> None:
+    thread_id = "hypothesis-novelty-long-question"
+    question = "第26太阳活动周初步概率预测。" * 30
+    config = _config(thread_id)
+    hypothesis_tools._STATES.pop(thread_id, None)
+    hypothesis_tools.scientific_hypothesis_bind_request.invoke(
+        {"request_input": question},
+        config=config,
+    )
+    axes = [
+        "smoothed sunspot number peak 气候学",
+        "smoothed sunspot number peak 制度延续",
+        "smoothed sunspot number peak 统计零假设",
+    ]
+    captured: list[tuple[str, str]] = []
+
+    def fake_build(
+        store,
+        research_question,
+        focus,
+        *,
+        feed_ids,
+        limit,
+        run_id,
+        ranking_focus,
+        required_anchor_phrases,
+    ):
+        captured.append((research_question, focus))
+        return {"status": "evidence_gap", "bundle_id": None, "sources": []}
+
+    monkeypatch.setattr(knowledge_tools, "_get_store", lambda: object())
+    monkeypatch.setattr(
+        knowledge_tools.literature,
+        "build_literature_task_bundle",
+        fake_build,
+    )
+    monkeypatch.setattr(
+        knowledge_tools.literature,
+        "search_literature",
+        lambda *args, **kwargs: {
+            "status": "evidence_gap",
+            "providers_queried": [],
+            "provider_diagnostics": [],
+            "count": 0,
+        },
+    )
+
+    outcome = json.loads(
+        hypothesis_tools.scientific_hypothesis_build_novelty_bundle.invoke(
+            {"query_axes": axes, "per_axis_limit": 3},
+            config=config,
+        )
+    )
+
+    assert outcome["schema_version"] == "scientific-hypothesis-novelty-bundle-v1"
+    assert [row[0] for row in captured] == [question] * 3
+    assert all(len(focus) <= 500 for _, focus in captured)
+    assert [row["query_axis"] for row in outcome["axis_results"]] == axes
+
+
 def test_draft_update_accepts_common_structured_payload_wrappers() -> None:
     config = _config("hypothesis-draft-wrapper-aliases")
     hypothesis_tools._STATES.pop("hypothesis-draft-wrapper-aliases", None)
@@ -672,6 +778,30 @@ def test_draft_update_accepts_common_structured_payload_wrappers() -> None:
     assert draft["candidates"][1]["evidence_gaps"]
     assert draft["pairwise_distinctions"]
     assert draft["portfolio_notes"] == "This portfolio remains exploratory."
+
+
+def test_draft_update_normalizes_tail_review_novelty_alias() -> None:
+    config = _config("hypothesis-draft-tail-novelty-alias")
+    hypothesis_tools._STATES.pop("hypothesis-draft-tail-novelty-alias", None)
+    hypothesis_tools.scientific_hypothesis_bind_request.invoke(
+        {"request_input": "Compare a baseline with an unverified tail candidate."},
+        config=config,
+    )
+    state = hypothesis_tools._STATES["hypothesis-draft-tail-novelty-alias"]
+    response = make_response(state.request)
+    response["candidates"][0]["scientific_quality"]["novelty_status"] = (
+        "tail_candidate_unverified"
+    )
+
+    _update(config, "replace", response)
+    draft = json.loads(
+        hypothesis_tools.scientific_hypothesis_get_draft.invoke({}, config=config)
+    )["draft"]
+
+    assert (
+        draft["candidates"][0]["scientific_quality"]["novelty_status"]
+        == "novelty_not_assessed"
+    )
 
 
 def test_draft_warns_when_bound_literature_is_not_attached_to_candidate() -> None:
@@ -1429,6 +1559,196 @@ def test_incremental_candidate_patch_preserves_other_fields_and_resets_retry() -
     assert draft["candidates"][0]["evidence_gaps"]
 
 
+def test_source_restricted_request_waives_inapplicable_literature_pass(
+    tmp_path: Path, monkeypatch
+) -> None:
+    workspace, config = _bound_config(
+        tmp_path, monkeypatch, "hypothesis-source-restricted"
+    )
+    hypothesis_tools._STATES.pop("hypothesis-source-restricted", None)
+    request = make_request(
+        upstream_materials=[
+            {
+                "id": "accepted_data_artifact_v1",
+                "material_kind": "data_feature",
+                "title": "Accepted bounded SILSO result",
+                "locator": "research_review/artifacts/data-artifact/v0001.json",
+                "content_notes": (
+                    "[source_restricted_evidence_boundary] Only the accepted "
+                    "SILSO result capsule may be used."
+                ),
+                "experiment_summary": None,
+            }
+        ],
+        max_candidates=3,
+    )
+    request_path = workspace / "hypothesis_request.json"
+    request_path.write_text(json.dumps(request), encoding="utf-8")
+    hypothesis_tools.scientific_hypothesis_bind_request.invoke(
+        {"request_input": "@hypothesis_request.json"}, config=config
+    )
+
+    created = _update(
+        config,
+        "upsert_candidate",
+        {"id": "H1", "statement": "Rise time and peak strength are associated."},
+    )
+    warning_codes = {row["code"] for row in created["soft_warnings"]}
+
+    assert "literature_pass_missing" not in warning_codes
+    assert (
+        hypothesis_tools._STATES["hypothesis-source-restricted"]
+        .literature_bundle_attempted
+        is False
+    )
+
+
+def test_source_restricted_request_atomically_prebinds_host_evidence(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """A typed host capsule should remove the model's substring-guessing loop."""
+
+    workspace, config = _bound_config(
+        tmp_path, monkeypatch, "hypothesis-source-prebound"
+    )
+    hypothesis_tools._STATES.pop("hypothesis-source-prebound", None)
+    rows = {
+        "cycle_length_peak": "| cycle length vs peak strength | 24 | -0.3242 (0.1222) |",
+        "rise_time_peak": "| rise time vs peak strength | 24 | -0.7495 (<0.0001) |",
+        "decline_time_peak": "| decline time vs peak strength | 24 | 0.3827 (0.0649) |",
+    }
+    request = make_request(
+        research_question="SILSO 第1至24周的周期形态统计关系是什么？",
+        upstream_materials=[
+            {
+                "id": "accepted_data_artifact_v1",
+                "material_kind": "data_feature",
+                "title": "Accepted bounded SILSO result",
+                "locator": "outputs/cycle_morphology_strength_report.md",
+                "content_notes": (
+                    "[source_restricted_evidence_boundary]\n"
+                    + "\n".join(rows.values())
+                ),
+                "experiment_summary": None,
+            }
+        ],
+        max_candidates=3,
+    )
+    request_path = workspace / "work" / "research_quality" / "hypothesis_request.json"
+    request_path.parent.mkdir(parents=True, exist_ok=True)
+    request_path.write_text(json.dumps(request, ensure_ascii=False), encoding="utf-8")
+    seed = {
+        "schema_version": "scientific-hypothesis-evidence-seed-v1",
+        "request_sha256": canonical_json_sha256(request),
+        "evidence": [
+            {
+                "relationship_key": key,
+                "evidence_id": f"{key}_stats",
+                "evidence_kind": "upstream",
+                "material_id": "accepted_data_artifact_v1",
+                "excerpt": excerpt,
+                "verified_support": True,
+                "role": "supports",
+            }
+            for key, excerpt in rows.items()
+        ],
+    }
+    seed_path = request_path.with_name("hypothesis_evidence_seed.json")
+    seed_path.write_text(json.dumps(seed, ensure_ascii=False), encoding="utf-8")
+
+    first = json.loads(
+        hypothesis_tools.scientific_hypothesis_bind_request.invoke(
+            {"request_input": "@work/research_quality/hypothesis_request.json"},
+            config=config,
+        )
+    )
+    assert first["prebound_evidence_count"] == 3
+    assert set(first["prebound_evidence_ids_by_relationship"]) == set(rows)
+    assert len(hypothesis_tools._STATES["hypothesis-source-prebound"].evidence_register) == 3
+    assert first["next_required_action"]["tool"] == "scientific_hypothesis_update_draft"
+
+    second = json.loads(
+        hypothesis_tools.scientific_hypothesis_bind_request.invoke(
+            {"request_input": "@work/research_quality/hypothesis_request.json"},
+            config=config,
+        )
+    )
+    assert second["binding_status"] == "already_bound"
+    assert second["prebound_evidence_count"] == 3
+
+    # A tampered seed must fail before replacing the existing task state.
+    seed["request_sha256"] = "0" * 64
+    seed_path.write_text(json.dumps(seed, ensure_ascii=False), encoding="utf-8")
+    failed = json.loads(
+        hypothesis_tools.scientific_hypothesis_bind_request.invoke(
+            {"request_input": "@work/research_quality/hypothesis_request.json"},
+            config=config,
+        )
+    )
+    assert failed["status"] == "needs_revision"
+    assert len(hypothesis_tools._STATES["hypothesis-source-prebound"].evidence_register) == 3
+
+
+def test_upsert_candidate_replaces_candidate_and_removes_unsupported_keys() -> None:
+    config = _config("hypothesis-upsert-removes-field")
+    hypothesis_tools._STATES.pop("hypothesis-upsert-removes-field", None)
+    hypothesis_tools.scientific_hypothesis_bind_request.invoke(
+        {"request_input": "Explain this observation."},
+        config=config,
+    )
+
+    _update(
+        config,
+        "upsert_candidate",
+        {
+            "id": "H1",
+            "statement": "A provisional mechanism.",
+            "portfolio_notes": "This field is invalid inside a candidate.",
+        },
+    )
+    _update(
+        config,
+        "upsert_candidate",
+        {"id": "H1", "statement": "A repaired provisional mechanism."},
+    )
+    draft = json.loads(
+        hypothesis_tools.scientific_hypothesis_get_draft.invoke({}, config=config)
+    )["draft"]
+
+    assert draft["candidates"] == [
+        {"id": "H1", "statement": "A repaired provisional mechanism."}
+    ]
+
+
+def test_draft_update_warns_about_unknown_candidate_fields_before_checkpoint() -> None:
+    config = _config("hypothesis-draft-unknown-field-warning")
+    hypothesis_tools._STATES.pop(
+        "hypothesis-draft-unknown-field-warning", None
+    )
+    hypothesis_tools.scientific_hypothesis_bind_request.invoke(
+        {"request_input": "Explain this observation."},
+        config=config,
+    )
+    state = hypothesis_tools._STATES["hypothesis-draft-unknown-field-warning"]
+    response = make_response(state.request)
+    response["candidates"][0]["limiting_evidence"] = []
+
+    outcome = _update(config, "replace", response)
+    unknown_warnings = [
+        warning
+        for warning in outcome["soft_warnings"]
+        if warning["code"] == "candidate_unknown_field"
+    ]
+
+    assert unknown_warnings == [
+        {
+            "code": "candidate_unknown_field",
+            "candidate_id": "cand_dynamo",
+            "message": "Candidate contains undefined fields: limiting_evidence.",
+        }
+    ]
+
+
 def test_draft_update_warns_about_unbound_numeric_thresholds() -> None:
     config = _config("hypothesis-draft-numeric-warning")
     hypothesis_tools._STATES.pop("hypothesis-draft-numeric-warning", None)
@@ -1612,6 +1932,38 @@ def test_checkpoint_current_draft_without_resending_full_response(monkeypatch) -
     assert checked["checkpoint_available"] is True
     assert publish["status"] == "needs_revision"
     assert "current draft differs" in publish["validation_error"]
+
+
+def test_workspace_checkpoint_writes_host_owned_snapshot(tmp_path, monkeypatch) -> None:
+    workspace, config = _bound_config(
+        tmp_path, monkeypatch, "hypothesis-checkpoint-snapshot"
+    )
+    hypothesis_tools._STATES.pop("hypothesis-checkpoint-snapshot", None)
+    hypothesis_tools.scientific_hypothesis_bind_request.invoke(
+        {"request_input": "Compare two possible explanations for this observation."},
+        config=config,
+    )
+    state = hypothesis_tools._STATES["hypothesis-checkpoint-snapshot"]
+    response = make_response(state.request)
+    _update(config, "replace", response)
+    _review_tail(config, response)
+
+    checked = json.loads(
+        hypothesis_tools.scientific_hypothesis_checkpoint_draft.invoke(
+            {}, config=config
+        )
+    )
+
+    snapshot = workspace / "work" / "scientific_hypothesis_checkpoint.json"
+    assert checked["working_status"] == "checkpointed"
+    assert checked["checkpoint_snapshot_path"] == (
+        "work/scientific_hypothesis_checkpoint.json"
+    )
+    assert snapshot.is_file()
+    payload = json.loads(snapshot.read_text(encoding="utf-8"))
+    assert payload["checkpoint_sha256"] == canonical_json_sha256(
+        payload["checkpoint"]
+    )
 
 
 def test_multi_candidate_checkpoint_requires_current_tail_review() -> None:

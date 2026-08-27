@@ -7,11 +7,53 @@ readable in the run workspace (planning-declared provenance paths, empty inputs/
 so design.json was never persisted and experiment_design failed twice.
 """
 
+import hashlib
 import json
 from pathlib import Path
+from types import SimpleNamespace
+
+import pytest
 
 from jw.middleware.research_review_orchestration import _stage_data_produced_inputs
 from jw.research_review import ResearchReviewStore
+
+
+def test_stages_hash_bound_outputs_from_data_source_manifest(tmp_path: Path) -> None:
+    output = tmp_path / "outputs" / "cycle_morphology_table.csv"
+    output.parent.mkdir(parents=True)
+    output.write_text("cycle_number,value\n1,144.1\n", encoding="utf-8")
+    raw = output.read_bytes()
+    digest = hashlib.sha256(raw).hexdigest()
+    store = SimpleNamespace(
+        workspace_root=tmp_path,
+        accepted_artifacts=lambda: [
+            {
+                "stage": "data",
+                "payload": {
+                    "canonical_source_refs": [
+                        "receipts/datasets/silso_cycle_morphology.json"
+                    ],
+                    "source_manifest": [
+                        {
+                            "source_ref": "outputs/cycle_morphology_table.csv",
+                            "bytes": len(raw),
+                            "sha256": digest,
+                        }
+                    ],
+                },
+            }
+        ],
+        _current_manifest_input_records=lambda: [],
+    )
+
+    staged = _stage_data_produced_inputs(store)
+
+    staged_ref = (
+        "inputs/data_artifacts/"
+        f"{digest[:16]}-cycle_morphology_table.csv"
+    )
+    assert staged == [staged_ref, "inputs/_staged.json"]
+    assert (tmp_path / staged_ref).read_bytes() == raw
 
 
 def _accepted_data_store(
@@ -63,11 +105,19 @@ def test_stages_produced_csv_and_canonical_refs(tmp_path: Path) -> None:
 
     staged = _stage_data_produced_inputs(store)
 
-    assert "inputs/solar_precursor_cycle_features.csv" in staged
-    assert "inputs/solar_precursor_cycle_table.json" in staged
-    assert (
-        tmp_path / "inputs" / "solar_precursor_cycle_features.csv"
-    ).read_bytes() == csv_path.read_bytes()
+    csv_ref = (
+        "inputs/data_artifacts/"
+        f"{hashlib.sha256(csv_path.read_bytes()).hexdigest()[:16]}-"
+        "solar_precursor_cycle_features.csv"
+    )
+    receipt_ref = (
+        "inputs/data_artifacts/"
+        f"{hashlib.sha256(receipt.read_bytes()).hexdigest()[:16]}-"
+        "solar_precursor_cycle_table.json"
+    )
+    assert csv_ref in staged
+    assert receipt_ref in staged
+    assert (tmp_path / csv_ref).read_bytes() == csv_path.read_bytes()
 
 
 def test_staging_is_idempotent(tmp_path: Path) -> None:
@@ -79,12 +129,191 @@ def test_staging_is_idempotent(tmp_path: Path) -> None:
     )
 
     first = _stage_data_produced_inputs(store)
-    target = tmp_path / "inputs" / "features.csv"
+    target = (
+        tmp_path
+        / "inputs"
+        / "data_artifacts"
+        / f"{hashlib.sha256(csv_path.read_bytes()).hexdigest()[:16]}-features.csv"
+    )
     mtime = target.stat().st_mtime_ns
     second = _stage_data_produced_inputs(store)
 
-    assert first == second == ["inputs/features.csv", "inputs/_staged.json"]
+    assert (
+        first
+        == second
+        == [
+            target.relative_to(tmp_path).as_posix(),
+            "inputs/_staged.json",
+        ]
+    )
     assert target.stat().st_mtime_ns == mtime
+
+
+def test_data_staging_preserves_same_named_manifest_user_input(tmp_path: Path) -> None:
+    user_input = tmp_path / "inputs" / "features.csv"
+    user_input.parent.mkdir(parents=True)
+    user_input.write_text("source,user\n", encoding="utf-8")
+    user_bytes = user_input.read_bytes()
+    derived = tmp_path / "work" / "solar_data" / "features.csv"
+    derived.parent.mkdir(parents=True)
+    derived.write_text("source,derived\n", encoding="utf-8")
+    derived_bytes = derived.read_bytes()
+    (tmp_path / "task.json").write_text(
+        json.dumps({"thread_id": "task-1", "research_question": "question"}),
+        encoding="utf-8",
+    )
+    (tmp_path / "input_manifest.json").write_text(
+        json.dumps(
+            {
+                "schema_version": "task-input-manifest-v1",
+                "thread_id": "task-1",
+                "inputs": [
+                    {
+                        "path": "inputs/features.csv",
+                        "sha256": hashlib.sha256(user_bytes).hexdigest(),
+                        "bytes": len(user_bytes),
+                        "role": "user_input",
+                    }
+                ],
+                "project_inputs": [],
+            }
+        ),
+        encoding="utf-8",
+    )
+    store = _accepted_data_store(
+        tmp_path, data_content="data v1; wrote work/solar_data/features.csv"
+    )
+
+    staged = _stage_data_produced_inputs(store)
+
+    data_ref = (
+        "inputs/data_artifacts/"
+        f"{hashlib.sha256(derived_bytes).hexdigest()[:16]}-features.csv"
+    )
+    assert user_input.read_bytes() == user_bytes
+    assert (tmp_path / data_ref).read_bytes() == derived_bytes
+    assert staged == ["inputs/features.csv", data_ref, "inputs/_staged.json"]
+
+
+def test_data_staging_rejects_a_conflicting_content_addressed_target(
+    tmp_path: Path,
+) -> None:
+    derived = tmp_path / "work" / "solar_data" / "features.csv"
+    derived.parent.mkdir(parents=True)
+    derived.write_text("source,derived\n", encoding="utf-8")
+    store = _accepted_data_store(
+        tmp_path, data_content="data v1; wrote work/solar_data/features.csv"
+    )
+    target = (
+        tmp_path
+        / "inputs"
+        / "data_artifacts"
+        / f"{hashlib.sha256(derived.read_bytes()).hexdigest()[:16]}-features.csv"
+    )
+    target.parent.mkdir(parents=True)
+    target.write_text("tampered\n", encoding="utf-8")
+
+    with pytest.raises(RuntimeError, match="content-addressed staging conflict"):
+        _stage_data_produced_inputs(store)
+
+
+def test_data_staging_ignores_producer_result_traversal_outside_workspace(
+    tmp_path: Path,
+) -> None:
+    traversal_ref = "work/solar_data/../../../outside.csv"
+    outside = (tmp_path / traversal_ref).resolve()
+    assert not outside.is_relative_to(tmp_path.resolve())
+    try:
+        (tmp_path / "work" / "solar_data").mkdir(parents=True)
+        store = _accepted_data_store(
+            tmp_path,
+            data_content=f"data v1; wrote {traversal_ref}",
+        )
+        outside.write_text("source,outside\n", encoding="utf-8")
+
+        assert _stage_data_produced_inputs(store) == []
+        assert not (tmp_path / "inputs" / "data_artifacts").exists()
+    finally:
+        outside.unlink(missing_ok=True)
+
+
+def test_data_staging_ignores_producer_result_symlink_outside_workspace(
+    tmp_path: Path,
+) -> None:
+    outside = tmp_path.parent / f"{tmp_path.name}-outside.csv"
+    outside.write_text("source,outside\n", encoding="utf-8")
+    linked_output = tmp_path / "work" / "solar_data" / "linked.csv"
+    linked_output.parent.mkdir(parents=True)
+    linked_output.symlink_to(outside)
+    try:
+        store = _accepted_data_store(
+            tmp_path, data_content="data v1; wrote work/solar_data/linked.csv"
+        )
+
+        assert _stage_data_produced_inputs(store) == []
+        assert not (tmp_path / "inputs" / "data_artifacts").exists()
+    finally:
+        outside.unlink(missing_ok=True)
+
+
+def test_stages_verified_project_manifest_inputs_for_experiment(tmp_path: Path) -> None:
+    project = tmp_path / "projects" / "default"
+    workspace = project / "runs" / "run_task"
+    source = project / "shared" / "data" / "solar" / "source.csv"
+    source.parent.mkdir(parents=True)
+    source.write_text("month,value\n2026-06,94.4\n", encoding="utf-8")
+    raw = source.read_bytes()
+    digest = hashlib.sha256(raw).hexdigest()
+    catalog = project / "shared" / "project_data_catalog.json"
+    catalog.write_text(
+        json.dumps(
+            {
+                "files": [
+                    {
+                        "virtual_path": "/project/data/solar/source.csv",
+                        "path": "solar/source.csv",
+                        "sha256": digest,
+                        "bytes": len(raw),
+                        "role": "primary_data",
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    workspace.mkdir(parents=True)
+    (workspace / "task.json").write_text(
+        json.dumps({"thread_id": "task-1", "research_question": "question"}),
+        encoding="utf-8",
+    )
+    (workspace / "input_manifest.json").write_text(
+        json.dumps(
+            {
+                "schema_version": "task-input-manifest-v1",
+                "thread_id": "task-1",
+                "inputs": [],
+                "project_inputs": [
+                    {
+                        "path": "/project/data/solar/source.csv",
+                        "sha256": digest,
+                        "bytes": len(raw),
+                        "role": "primary_data",
+                        "dataset_id": "solar-source",
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    store = _accepted_data_store(workspace)
+
+    staged = _stage_data_produced_inputs(store)
+
+    staged_ref = f"inputs/project/{digest[:16]}-source.csv"
+    assert staged_ref in staged
+    assert (workspace / staged_ref).read_bytes() == raw
+    sidecar = json.loads((workspace / "inputs" / "_staged.json").read_text())
+    assert staged_ref in [row["path"] for row in sidecar["input_refs"]]
 
 
 def test_no_data_artifact_stages_nothing(tmp_path: Path) -> None:

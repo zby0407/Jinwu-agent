@@ -546,6 +546,9 @@ def _data_result_projection(
     recognized_contracts = {
         "solar-precursor-cycle-table-v2": "solar_precursor_cycle_table",
         "solar-cycle-pair-analysis-table-v2": "solar_cycle_pair_analysis_table",
+        "solar-cycle-26-readiness-receipt-v1": (
+            "solar_cycle_26_readiness_inventory"
+        ),
     }
     recognized: list[tuple[str, dict[str, Any]]] = []
     for row in documents:
@@ -580,7 +583,14 @@ def _data_result_projection(
             and output_hashes_match
         ):
             continue
-        if (schema == "solar-precursor-cycle-table-v2" and status == "verified") or (
+        if (
+            schema
+            in {
+                "solar-precursor-cycle-table-v2",
+                "solar-cycle-26-readiness-receipt-v1",
+            }
+            and status == "verified"
+        ) or (
             schema == "solar-cycle-pair-analysis-table-v2"
             and status
             in {
@@ -593,6 +603,72 @@ def _data_result_projection(
             recognized.append((source_ref, payload))
     if not recognized:
         return None
+
+    readiness = next(
+        (
+            (source_ref, payload)
+            for source_ref, payload in recognized
+            if payload.get("schema_version")
+            == "solar-cycle-26-readiness-receipt-v1"
+        ),
+        None,
+    )
+    if readiness is not None:
+        readiness_ref, readiness_receipt = readiness
+        output_refs = [
+            output["path"]
+            for output in readiness_receipt.get("outputs", [])
+            if isinstance(output, dict) and isinstance(output.get("path"), str)
+        ]
+        document_by_ref = {
+            row["source_ref"]: row["payload"]
+            for row in documents
+            if isinstance(row.get("source_ref"), str)
+            and isinstance(row.get("payload"), dict)
+        }
+        inventory = next(
+            (
+                document_by_ref[output_ref]
+                for output_ref in output_refs
+                if output_ref in document_by_ref
+                and document_by_ref[output_ref].get("schema_version")
+                == "solar-cycle-26-readiness-inventory-v1"
+            ),
+            {},
+        )
+        summary = {
+            "schema_version": "solar-data-readiness-summary-v1",
+            "status": readiness_receipt.get("status"),
+            "analysis_protocol": inventory.get(
+                "analysis_protocol", readiness_receipt.get("analysis_protocol")
+            ),
+            "cutoff_date": inventory.get(
+                "cutoff_date", readiness_receipt.get("cutoff_date")
+            ),
+            "dataset_ids": list(readiness_receipt.get("dataset_ids", [])),
+            "source_receipt_refs": [readiness_ref],
+            "output_refs": output_refs,
+            "launch_readiness": readiness_receipt.get("launch_readiness"),
+            "formal_classification_ready": readiness_receipt.get(
+                "formal_classification_ready"
+            ),
+            "testable_peak_interval_ready": readiness_receipt.get(
+                "testable_peak_interval_ready"
+            ),
+            "cycle_25_state_assessment": inventory.get(
+                "cycle_25_state_assessment", {}
+            ),
+            "cycle_26_precursor_assessment": inventory.get(
+                "cycle_26_precursor_assessment", {}
+            ),
+            "observations": inventory.get("observations", {}),
+            "evidence_gaps": readiness_receipt.get("evidence_gaps", []),
+            "interpretation_boundary": inventory.get("interpretation_boundary"),
+        }
+        return {
+            "summary": summary,
+            "supporting_refs": [readiness_ref, *output_refs],
+        }
 
     pair_payload = next(
         (

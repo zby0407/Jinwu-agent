@@ -8,11 +8,14 @@ from jw.research_protocols import (
     SOLAR_CYCLE_26_READINESS_PROTOCOL,
     SOLAR_POLAR_PRECURSOR_DATA_PRODUCT,
     SOLAR_POLAR_PRECURSOR_PROTOCOL,
+    SILSO_CYCLE_MORPHOLOGY_PROTOCOL,
     detect_analysis_protocol,
     f107_discontinuity_directive,
     plan_dataset_selection_conflicts_protocol,
     render_silso_cycle_reproduction_markdown,
     required_data_product_for_protocol,
+    silso_cycle_morphology_directive,
+    solar_cycle_26_readiness_directive,
     solar_polar_precursor_directive,
 )
 
@@ -74,6 +77,42 @@ def test_explicit_polar_precursor_request_has_separate_protocol() -> None:
     )
 
 
+def test_polar_precursor_survives_excluding_one_cycle_and_protocol_rerun() -> None:
+    request = """
+    使用本次上传的 solar_precursor_cycle_features.csv 完成极区磁场前兆统计。
+    不要重新调用 solar_polar_precursor_v1 或 silso_cycle_reproduction_v1。
+    排除预测窗口覆盖不完整的第 15 周后，比较 MWO 代理时期和 WSO 直接观测时期。
+    """
+    assert detect_analysis_protocol(request) == SOLAR_POLAR_PRECURSOR_PROTOCOL
+
+
+def test_morphology_excludes_polar_data_with_compact_chinese_negation() -> None:
+    request = (
+        "完成 SILSO 太阳活动周形态统计，分析上升时间与峰值，"
+        "不使用极区磁场数据，不分析第26周。"
+    )
+    assert detect_analysis_protocol(request) == SILSO_CYCLE_MORPHOLOGY_PROTOCOL
+
+
+def test_detects_independent_silso_cycle_morphology_experiment() -> None:
+    request = """
+    请完成一次独立的 SILSO 太阳活动周形态统计实验，分析第 1—24 周的周期长度、
+    上升时间、下降时间与峰值强度关系，报告 Waldmeier 效应、Bootstrap 和留一分析。
+    """
+    assert detect_analysis_protocol(request) == SILSO_CYCLE_MORPHOLOGY_PROTOCOL
+
+
+def test_morphology_directive_calibrates_claim_specific_confidence() -> None:
+    directive = silso_cycle_morphology_directive()
+
+    assert "claim-specific confidence" in directive
+    assert "source reconstruction" in directive
+    assert "rise-time association" in directive
+    assert "medium-high" in directive
+    assert "must never upgrade a causal mechanism" in directive
+    assert "do not call scientific_hypothesis_validate_response" in directive
+
+
 def test_cycle_26_launch_gate_has_broader_readiness_protocol() -> None:
     request = (
         "资料截止在 2026 年 6 月 30 日，请系统研究第 26 太阳活动周强度预测"
@@ -95,6 +134,44 @@ def test_cycle_26_launch_gate_has_broader_readiness_protocol() -> None:
         "wso-current-polar-field-v1",
     )
     assert detect_analysis_protocol("请判断第26太阳活动周预测是否可以启动") == "none"
+
+
+def test_cycle_26_preliminary_probability_forecast_uses_readiness_protocol() -> None:
+    request = (
+        "请系统研究并正式发布第 26 太阳活动周的初步概率预测，"
+        "给出 13 个月平滑峰值的点预测、80% 和 95% 预测区间。"
+    )
+
+    assert detect_analysis_protocol(request) == SOLAR_CYCLE_26_READINESS_PROTOCOL
+
+
+def test_cycle_26_directive_separates_preliminary_and_final_forecasts() -> None:
+    directive = solar_cycle_26_readiness_directive()
+
+    assert "preliminary operational probability forecast" in directive
+    assert "must not return only a not-ready decision" in directive
+    assert "13-month smoothed SILSO v2" in directive
+    assert "80% and 95% prediction intervals" in directive
+    assert "claim-specific confidence" in directive
+    assert "high confidence" in directive
+    assert "must not be upgraded" in directive
+
+
+def test_cycle_26_readiness_directive_pins_raw_parser_roles_and_anchors() -> None:
+    directive = solar_cycle_26_readiness_directive()
+
+    assert "semicolon-delimited" in directive
+    assert "fixed whitespace columns" in directive
+    assert "12-column annual calibration history" in directive
+    assert "Polar.html" in directive
+    assert "10-day current WSO observations" in directive
+    assert "2026-01-09" in directive
+    assert "17 explicit XXX rows" in directive
+    assert "2026-01" in directive
+    assert "104.2" in directive
+    assert "parser-validation anchors" in directive
+    assert "technical failure" in directive
+    assert "derive the reported values from the raw bytes" in directive
 
 
 def test_plan_dataset_selection_conflict_detection_matches_protocol() -> None:

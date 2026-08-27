@@ -32,7 +32,21 @@ import {
   isTerminalRunStatus,
   resumableRunStorageKey,
 } from "@/lib/runLifecycle";
+import {
+  RECOVERY_LEDGER_STATES,
+  beginTransientModelRecovery,
+  createRecoveryCancellation,
+  isTransientProviderError,
+  latestHumanTurnId,
+  recoveryLedgerMatchesFailure,
+  recoverableTransientModelCheckpoint,
+  settleRecoveryAttempt,
+  transitionOwnedRecoveryLedger,
+  transientModelRecoveryDelayMs,
+  writeRecoveryLedger,
+} from "@/lib/runRecovery.js";
 import { setThreadModelOverride } from "@/app/hooks/useThreads";
+import { bindThreadWorkspace } from "@/lib/workspaceBinding.js";
 
 export type StateType = {
   messages: Message[];
@@ -500,6 +514,14 @@ export function useChat({
       setStreamThreadMetadata({});
       setStreamThreadRecord(null);
       void setThreadId(createdThreadId);
+      // A fresh useStream submission creates the thread and reports its id
+      // before substantive workspace-backed tools run. Bind immediately so
+      // the backend and the WebUI status/artifact routes share one task root.
+      void bindThreadWorkspace(createdThreadId).catch((error) => {
+        toast.error(
+          error instanceof Error ? error.message : "无法绑定任务工作区。"
+        );
+      });
     },
     [setThreadId]
   );
@@ -525,6 +547,32 @@ export function useChat({
   const stoppedCheckpointRef = useRef<{
     threadId: string;
     checkpoint: Omit<Checkpoint, "thread_id">;
+  } | null>(null);
+  const transientModelRecoveryRef = useRef<
+    (error: unknown, run?: { run_id: string; thread_id: string }) => boolean
+  >(() => false);
+  const transientModelRecoveryCreatedRef = useRef<
+    (run: { run_id: string; thread_id: string }) => void
+  >(() => {});
+  const transientModelRecoverySettledRef = useRef<
+    (
+      state: "succeeded" | "failed",
+      run: { run_id: string; thread_id: string } | undefined,
+      callbackThreadId: string | null
+    ) => boolean
+  >(() => false);
+  const pendingTransientModelRecoveryRef = useRef<{
+    ledger: {
+      version: number;
+      state: string;
+      threadId: string;
+      turnId: string;
+      runId: string;
+      checkpointId: string | null;
+      recoveryRunId: string | null;
+    };
+    cancellation: ReturnType<typeof createRecoveryCancellation>;
+    submitted: boolean;
   } | null>(null);
   const progressiveThread = useProgressiveThreadHistory(
     client,
@@ -559,6 +607,7 @@ export function useChat({
     // occurred" and has to dig into the server log to learn that, e.g., a
     // model provider returned a quota error.
     onFinish: (_state, run) => {
+      transientModelRecoverySettledRef.current("succeeded", run, threadId);
       if (!run || activeRunRef.current?.run_id === run.run_id) {
         activeRunRef.current = null;
       }
@@ -579,9 +628,17 @@ export function useChat({
         recoverMissingThread(threadId);
         return;
       }
+      if (
+        transientModelRecoverySettledRef.current("failed", run, threadId)
+      ) {
+        toast.error(formatStreamError(error));
+        return;
+      }
+      if (transientModelRecoveryRef.current(error, run)) return;
       toast.error(formatStreamError(error));
     },
     onCreated: (run) => {
+      transientModelRecoveryCreatedRef.current(run);
       activeRunRef.current = run;
       setActiveRun(run);
       if (stoppedMessagesRef.current?.threadId === run.thread_id) {
@@ -1074,6 +1131,260 @@ export function useChat({
     return { ...base, configurable };
   }, [activeAssistant?.config, modelOverride]);
 
+  const persistPendingRecovery = useCallback(
+    (
+      pending: NonNullable<
+        typeof pendingTransientModelRecoveryRef.current
+      >,
+      state: string,
+      updates: Record<string, string | null> = {}
+    ) => {
+      const ledger = transitionOwnedRecoveryLedger(
+        pendingTransientModelRecoveryRef.current,
+        pending,
+        state,
+        updates
+      );
+      if (!ledger) return null;
+      pending.ledger = writeRecoveryLedger(window.sessionStorage, ledger);
+      return pending.ledger;
+    },
+    []
+  );
+
+  const cancelTransientModelRecovery = useCallback(
+    (pending = pendingTransientModelRecoveryRef.current) => {
+      if (
+        !pending ||
+        pendingTransientModelRecoveryRef.current !== pending
+      ) {
+        return false;
+      }
+      pending.cancellation.cancel();
+      try {
+        persistPendingRecovery(pending, RECOVERY_LEDGER_STATES.CANCELLED);
+      } finally {
+        if (pendingTransientModelRecoveryRef.current === pending) {
+          pendingTransientModelRecoveryRef.current = null;
+        }
+      }
+      return true;
+    },
+    [persistPendingRecovery]
+  );
+
+  useEffect(() => {
+    const effectThreadId = threadId;
+    return () => {
+      const pending = pendingTransientModelRecoveryRef.current;
+      if (pending?.ledger.threadId === effectThreadId) {
+        cancelTransientModelRecovery(pending);
+      }
+    };
+  }, [cancelTransientModelRecovery, threadId]);
+
+  const recoverTransientModelRun = useCallback(
+    (error: unknown, run?: { run_id: string; thread_id: string }): boolean => {
+      if (
+        !threadId ||
+        !run ||
+        run.thread_id !== threadId ||
+        !isTransientProviderError(error)
+      ) {
+        return false;
+      }
+
+      const turnId = latestHumanTurnId(messages);
+      if (!turnId) return false;
+      let ledger;
+      try {
+        ledger = beginTransientModelRecovery(window.sessionStorage, {
+          threadId,
+          turnId,
+          runId: run.run_id,
+          checkpointId: null,
+        });
+      } catch {
+        // Without a persisted ledger the harness cannot distinguish a pending
+        // recovery from a settled runtime error, so fail closed.
+        return false;
+      }
+      if (!ledger) return false;
+
+      const cancellation = createRecoveryCancellation();
+      const pending = {
+        ledger,
+        cancellation,
+        submitted: false,
+      };
+      pendingTransientModelRecoveryRef.current = pending;
+      setServerPending(true);
+      recoveryNeededRef.current = false;
+      recoveryRunRef.current += 1;
+
+      void (async () => {
+        const [failedState, failedRun] = await Promise.all([
+          client.threads.getState<StateType>(threadId),
+          client.runs.get(threadId, run.run_id),
+        ]);
+        if (
+          cancellation.isCancelled() ||
+          stopRequestedRef.current ||
+          recoveryThreadRef.current !== threadId
+        ) {
+          cancelTransientModelRecovery(pending);
+          return;
+        }
+        const failedCheckpoint =
+          recoverableTransientModelCheckpoint(failedState);
+        if (!failedCheckpoint) {
+          throw new Error("当前失败检查点不满足安全自动重试条件。");
+        }
+        const scheduledLedger = persistPendingRecovery(
+          pending,
+          RECOVERY_LEDGER_STATES.SCHEDULED,
+          { checkpointId: failedCheckpoint.checkpoint_id }
+        );
+        if (
+          !scheduledLedger ||
+          !recoveryLedgerMatchesFailure(scheduledLedger, {
+            threadId,
+            state: failedState,
+            run: failedRun,
+          })
+        ) {
+          throw new Error("失败运行身份与持久化检查点不一致。");
+        }
+
+        const recoveryDelayMs = transientModelRecoveryDelayMs(0);
+        toast.warning(
+          `上游连接中断，将在 ${Math.round(recoveryDelayMs / 1_000)} 秒后从失败检查点自动恢复。`
+        );
+        if (!(await cancellation.wait(recoveryDelayMs))) return;
+        if (
+          stopRequestedRef.current ||
+          recoveryThreadRef.current !== threadId
+        ) {
+          cancelTransientModelRecovery(pending);
+          return;
+        }
+
+        const [currentState, currentFailedRun] = await Promise.all([
+          client.threads.getState<StateType>(threadId),
+          client.runs.get(threadId, run.run_id),
+        ]);
+        if (
+          cancellation.isCancelled() ||
+          stopRequestedRef.current ||
+          recoveryThreadRef.current !== threadId ||
+          !recoveryLedgerMatchesFailure(scheduledLedger, {
+            threadId,
+            state: currentState,
+            run: currentFailedRun,
+          })
+        ) {
+          cancelTransientModelRecovery(pending);
+          return;
+        }
+        const currentCheckpoint =
+          recoverableTransientModelCheckpoint(currentState);
+        if (!currentCheckpoint) {
+          cancelTransientModelRecovery(pending);
+          return;
+        }
+
+        if (
+          !persistPendingRecovery(pending, RECOVERY_LEDGER_STATES.STARTED) ||
+          stopRequestedRef.current
+        ) {
+          cancelTransientModelRecovery(pending);
+          return;
+        }
+        pending.submitted = true;
+        const { thread_id: _threadId, ...resumeCheckpoint } = currentCheckpoint;
+        setFetchedInterrupt(undefined);
+        setFetchedMessages(null);
+        setFetchedMessagesScope(null);
+        setFetchedThreadId(null);
+        setRegenerationPreview(null);
+        setResolvedInterruptKey(null);
+        stream.submit(null, {
+          checkpoint: resumeCheckpoint,
+          config: buildRunConfig(),
+          streamSubgraphs: true,
+          streamMode: ["updates"],
+          streamResumable: true,
+          onDisconnect: "continue",
+        });
+        onHistoryRevalidate?.();
+      })().catch((recoveryError) => {
+        if (
+          pendingTransientModelRecoveryRef.current === pending &&
+          !pending.cancellation.isCancelled()
+        ) {
+          try {
+            persistPendingRecovery(pending, RECOVERY_LEDGER_STATES.FAILED);
+          } finally {
+            if (pendingTransientModelRecoveryRef.current === pending) {
+              pendingTransientModelRecoveryRef.current = null;
+            }
+          }
+          setServerPending(false);
+          toast.error(`自动恢复失败：${formatStreamError(recoveryError)}`);
+        }
+      });
+      return true;
+    },
+    [
+      buildRunConfig,
+      cancelTransientModelRecovery,
+      client.runs,
+      client.threads,
+      messages,
+      onHistoryRevalidate,
+      persistPendingRecovery,
+      stream,
+      threadId,
+    ]
+  );
+  transientModelRecoveryRef.current = recoverTransientModelRun;
+  transientModelRecoveryCreatedRef.current = (run) => {
+    const pending = pendingTransientModelRecoveryRef.current;
+    if (
+      !pending?.submitted ||
+      pending.ledger.threadId !== run.thread_id ||
+      pending.ledger.recoveryRunId
+    ) {
+      return;
+    }
+    persistPendingRecovery(pending, RECOVERY_LEDGER_STATES.STARTED, {
+      recoveryRunId: run.run_id,
+    });
+  };
+  transientModelRecoverySettledRef.current = (
+    state,
+    run,
+    callbackThreadId
+  ) => {
+    const pending = pendingTransientModelRecoveryRef.current;
+    if (!pending) return false;
+    const settledLedger = settleRecoveryAttempt(
+      pending,
+      state,
+      run,
+      callbackThreadId
+    );
+    if (!settledLedger) return false;
+    if (pendingTransientModelRecoveryRef.current !== pending) return false;
+    pending.ledger = writeRecoveryLedger(
+      window.sessionStorage,
+      settledLedger
+    );
+    pendingTransientModelRecoveryRef.current = null;
+    setServerPending(false);
+    return true;
+  };
+
   const sendMessage = useCallback(
     (content: string) => {
       const stoppedSnapshot =
@@ -1448,6 +1759,7 @@ export function useChat({
   const stopStream = useCallback(async () => {
     if (stopRequestedRef.current) return;
     stopRequestedRef.current = true;
+    cancelTransientModelRecovery();
     setStopState("stopping");
     setServerPending(false);
     recoveryNeededRef.current = false;
@@ -1538,7 +1850,13 @@ export function useChat({
       setStopState("stopped");
       onHistoryRevalidate?.();
     }
-  }, [client, onHistoryRevalidate, stream, threadId]);
+  }, [
+    cancelTransientModelRecovery,
+    client,
+    onHistoryRevalidate,
+    stream,
+    threadId,
+  ]);
 
   return {
     stream,

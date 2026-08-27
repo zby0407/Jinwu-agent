@@ -1808,6 +1808,21 @@ class CustomSandboxBackend(LocalShellBackend):
             env=env,
             inherit_env=inherit_env,
         )
+        if inherit_env:
+            # The application can be launched via an explicit virtualenv
+            # interpreter without activating that environment first.  Keep
+            # agent shell commands on the same runtime so a plain `python`
+            # does not fall through to a missing or inaccessible host entry.
+            path_key = next(
+                (key for key in self._env if key.upper() == "PATH"),
+                "PATH",
+            )
+            runtime_bin = str(Path(sys.executable).parent)
+            path_entries = self._env.get(path_key, "").split(os.pathsep)
+            if runtime_bin not in path_entries:
+                self._env[path_key] = os.pathsep.join(
+                    [runtime_bin, *filter(None, path_entries)]
+                )
         # Override parent's "local-" prefix with our own
         self._sandbox_id = f"jw-{uuid.uuid4().hex[:8]}"
         # Ensure working directory exists. Dynamic task backends are constructed

@@ -1,0 +1,24 @@
+{
+  "schema_version": "research-review-visible-suite-v2",
+  "requires_review_fields": true,
+  "defaults": {
+    "review_mode": "two_pass",
+    "reviewer_model": {"provider": "custom-openai", "model": "qwen3.7-plus"},
+    "repetitions": 1,
+    "expected_outcome": "released"
+  },
+  "cases": [
+    {
+      "id": "SILSO-CYCLE-MORPHOLOGY-B07",
+      "input_files": [],
+      "review_mode": "two_pass",
+      "reviewer_model": {"provider": "custom-openai", "model": "qwen3.7-plus"},
+      "repetitions": 1,
+      "expected_outcome": "released",
+      "focus": ["registered SILSO v2.0 provenance", "cycles 1-24", "Pearson Spearman bootstrap leave-one-out", "early-modern stability", "A2A handoff"],
+      "prompt_style": "independent-controlled-reproducible",
+      "allowed_user_intervention": "none",
+      "prompt": "请完成一次范围受控、独立且可复核的 SILSO 太阳活动周形态实验。\n\n本实验属于新的独立任务，不要继续或修改此前的“11 年周期起源机制证据挖掘”报告。\n\n研究问题：在已经完成的历史太阳活动周中，分析（1）活动周总长度与峰值强度的关系；（2）上升时间与峰值强度的关系，是否支持 Waldmeier 效应；（3）下降时间与峰值强度的关系；（4）这些关系在早期和较现代观测时期是否保持稳定。只研究统计关系，不把相关性表述为太阳发电机因果机制已经得到证明。\n\n数据范围：只使用 default 项目中已经注册并可以验证来源的 SILSO v2.0 月度太阳黑子数、SILSO v2.0 13 个月平滑太阳黑子数、SILSO 官方太阳活动周极小期、极大期和活动周边界表。不要联网寻找其他太阳黑子数据，不使用极区磁场数据，不分析或预测第26周。分析完整结束的第1—24周；第25周未完成，不得作为完整周期样本，也不得用于周期长度、下降时间或完整周期相关分析。必须采用官方活动周边界和官方极值日期，不通过局部峰值重新划分；若缺少官方极值表，明确报告缺失，不用推测值。\n\n变量：周期长度为本周期官方极小期至下一周期官方极小期，年；上升时间为本周期官方极小期至本周期官方极大期，年；下降时间为本周期官方极大期至下一周期官方极小期，年；峰值强度为本周期官方极大期对应的13个月平滑太阳黑子数。年月差统一换算十进制年，并说明换算方法。每行一个完整活动周。第1—12周标记早期组，第13—24周标记较现代组，分组预先固定。\n\n执行顺序：先核验输入文件、版本、范围和字段，确认能构建第1—24周完整周期表后再分析。生成逐周期表，字段必须为 cycle_number、minimum_date、maximum_date、next_minimum_date、cycle_length_years、rise_time_years、decline_time_years、peak_smoothed_sunspot_number、observation_period_group、data_quality_note。分别对三组关系报告有效样本数、Pearson及双侧p、Spearman及双侧p、95% bootstrap区间；bootstrap以完整活动周为单位，固定随机种子，至少10000次，并记录种子和重复次数。做逐周期留一分析，每次删除一个周期重算Pearson和Spearman，识别影响最大的周期；分别在第1—12和第13—24周重复分析，比较方向、大小和不确定性；异常值只报告影响，不删除。\n\n必须生成并真实核验：outputs/cycle_morphology_strength_report.md、outputs/cycle_morphology_table.csv、outputs/cycle_morphology_relationships.png。CSV必须有第1—24周24行；Markdown数字必须与CSV和统计计算一致；PNG可正常打开并含三个清晰标注周期编号的散点图（周期长度—峰值、上升时间—峰值、下降时间—峰值）和趋势拟合线。报告包含数据来源版本、变量定义、完整逐周期表、三组统计、bootstrap、留一敏感性、早期/现代比较、图表说明、主要结论、局限性和不可作出的因果推断。只有全部条件满足才报告实验成功，否则如实报告失败阶段、缺少数据或工具错误；不得把部分结果、计划文本、脚本或运行回执称为完整实验成果。"
+    }
+  ]
+}

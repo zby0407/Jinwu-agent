@@ -7,6 +7,8 @@ import hashlib
 import json
 import re
 import tempfile
+import time
+import urllib.error
 import urllib.parse
 import urllib.request
 from collections.abc import Iterable
@@ -29,12 +31,23 @@ _NOAA_MONTHLY_F107_URL = (
 _WSO_CURRENT_POLAR_URL = "http://wso.stanford.edu/Polar.html"
 _READINESS_CUTOFF = "2026-06-30"
 _READINESS_WINDOW_START = "2026-01-01"
+_FETCH_ATTEMPTS = 3
+_FETCH_RETRY_DELAY_SECONDS = 0.5
 
 
 def _fetch(url: str, *, timeout: float = 20.0) -> tuple[bytes, str]:
     request = urllib.request.Request(url, headers={"User-Agent": _USER_AGENT})
-    with urllib.request.urlopen(request, timeout=timeout) as response:
-        return response.read(), response.geturl()
+    for attempt in range(_FETCH_ATTEMPTS):
+        try:
+            with urllib.request.urlopen(request, timeout=timeout) as response:
+                return response.read(), response.geturl()
+        except urllib.error.HTTPError:
+            raise
+        except (OSError, TimeoutError):
+            if attempt + 1 == _FETCH_ATTEMPTS:
+                raise
+            time.sleep(_FETCH_RETRY_DELAY_SECONDS * (2**attempt))
+    raise RuntimeError("unreachable authoritative data fetch state")
 
 
 def _validate_silso_monthly(payload: bytes) -> dict[str, Any]:
@@ -469,13 +482,16 @@ def acquire_authoritative_solar_data(
                 for specification in specifications
                 if specification[0] in requested
             )
-        acquired = []
         for dataset_id, relative, acquire in specifications:
-            payload, provenance = acquire()
+            try:
+                payload, provenance = acquire()
+            except (OSError, ValueError, RuntimeError) as exc:
+                raise RuntimeError(
+                    "authoritative solar dataset "
+                    f"{dataset_id} acquisition failed: {type(exc).__name__}"
+                ) from exc
             temporary = temporary_root / Path(relative).name
             temporary.write_bytes(payload)
-            acquired.append((dataset_id, relative, temporary, provenance))
-        for dataset_id, relative, temporary, provenance in acquired:
             records.append(
                 register_project_data_file(
                     base_workspace,

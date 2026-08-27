@@ -92,6 +92,14 @@ _CANONICAL_CHECKPOINT_DIRECTIVE = {
     "experiment_design": (
         "Validate and persist automatic-experiment-design-v1 under the exact run; "
         "stop before execution and return experiment/runs/<run_id>/design.json. "
+        "For an Evidence revision (phase experiment_design_revision_from_experiment_design), "
+        "call automatic_experiment_bind_request first. The service inherits the prior "
+        "validated request and creates one immutable revision run. Capture its returned "
+        "run_id and use the returned run_id for every subsequent experiment tool call. "
+        "If binding reports RESEARCH_EXPERIMENT_SCOPE_ALREADY_BOUND, resume the run_id "
+        "in that response. Inspect that revision run's inputs before creating or "
+        "validating its replacement design. Never write to or validate against an "
+        "earlier design run. "
         "Bind input_refs to the accepted upstream data artifact's produced files "
         "(e.g. work/solar_data/solar_precursor_cycle_features.csv and receipts "
         "under receipts/datasets/), not to the planning artifact's originally "
@@ -139,7 +147,11 @@ _CANONICAL_CHECKPOINT_DIRECTIVE = {
         "diagnostic), and source_artifact (an exact artifact-path string literal, "
         "a module-level or function-local string constant assigned that literal, "
         "or null; no computed path). Call prepare_attempt once with files as a JSON "
-        "array. In scientific_payload, estimate must be a finite number or null; "
+        "array. measurement values must be finite numeric values; never emit null, "
+        "NaN, infinity, or a sentinel for an unavailable measurement. If a planned "
+        "quantity is unavailable, preserve that fact in a typed result or warning "
+        "and repair the parser or design instead of populating the measurement with "
+        "a placeholder. In scientific_payload, estimate must be a finite number or null; "
         "interval and equivalence_bounds must each be [low, high] or null; "
         "sensitivity must be text or null; "
         "uncertainty_reasons must be an array of strings. Do not put explanatory "
@@ -150,7 +162,15 @@ _CANONICAL_CHECKPOINT_DIRECTIVE = {
         "automatic_experiment_inspect_inputs once for the accepted run and copy the "
         "already-snapshotted response's required_worker_outputs exactly. Use its exact "
         "measurement names, result ids, endpoint ids, artifact paths, and JSON "
-        "traceability keys; do not infer or rename them from prose."
+        "traceability keys; do not infer or rename them from prose. Inspect the "
+        "actual raw delimiter and header of every declared input before authoring "
+        "its parser, and add parser self-checks against factual anchors in the "
+        "accepted upstream inventory. A non-empty source that yields zero relevant "
+        "rows, a parser result that contradicts the accepted upstream inventory, or "
+        "a required text result whose value is empty is a technical failure: raise "
+        "it before emitting a scientific result. Every text-valued result_item must "
+        "contain non-empty text. Inventory anchors validate the parser but never "
+        "replace computation from the immutable raw inputs."
         " For a hypothesis test, return the predeclared hypothesis_relation "
         "result item from the computed decision rule; never choose its value to "
         "preserve the incoming hypothesis."
@@ -473,6 +493,8 @@ def _upstream_context(store: ResearchReviewStore, stage: str) -> str:
 def _persist_experiment_scope(
     store: ResearchReviewStore,
     action: Mapping[str, Any],
+    *,
+    analysis_protocol: str = "none",
 ) -> dict[str, Any]:
     stage = str(action["stage"])
     upstream_stages = {
@@ -513,6 +535,8 @@ def _persist_experiment_scope(
         ),
         "design_validation_limit": 4,
     }
+    if analysis_protocol != "none":
+        scope["analysis_protocol"] = analysis_protocol
     path = store.root / "experiment_scope.json"
     _atomic_write_json(path, scope)
     return scope
@@ -562,7 +586,271 @@ def _data_pair_mapping_note(artifact: Mapping[str, Any]) -> str:
     )
 
 
-def _write_hypothesis_request(store: ResearchReviewStore) -> str:
+_HYPOTHESIS_RESULT_SECTION = re.compile(
+    r"(?:关系|统计|结果|结论|敏感|比较|局限|不确定|"
+    r"relationship|statistic|result|conclusion|sensitivity|comparison|"
+    r"limitation|uncertainty)",
+    re.IGNORECASE,
+)
+_SOURCE_RESTRICTED_EVIDENCE_MARKER = "[source_restricted_evidence_boundary]"
+_SILSO_PREBOUND_RELATIONSHIPS: tuple[tuple[str, str, str], ...] = (
+    (
+        "cycle_length_peak",
+        "cycle length vs peak strength",
+        "cycle_length_vs_peak_full_stats",
+    ),
+    (
+        "rise_time_peak",
+        "rise time vs peak strength",
+        "rise_time_vs_peak_full_stats",
+    ),
+    (
+        "decline_time_peak",
+        "decline time vs peak strength",
+        "decline_time_vs_peak_full_stats",
+    ),
+)
+
+
+def _silso_result_rows(materials: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
+    """Extract the three registered SILSO table rows into typed A2A evidence.
+
+    The host has already verified the source manifest before this function is
+    called.  We therefore copy only exact table rows from ``content_notes``;
+    the downstream specialist never has to guess a substring or open a file.
+    """
+
+    rows: list[dict[str, Any]] = []
+    for relationship_key, label, evidence_id in _SILSO_PREBOUND_RELATIONSHIPS:
+        matches: list[tuple[str, str]] = []
+        for material in materials:
+            material_id = material.get("id")
+            notes = material.get("content_notes")
+            if not isinstance(material_id, str) or not isinstance(notes, str):
+                continue
+            found = False
+            for line in notes.splitlines():
+                candidate = line.strip()
+                if (
+                    candidate.startswith("|")
+                    and label.casefold() in candidate.casefold()
+                    and candidate.count("|") >= 3
+                ):
+                    matches.append((material_id, candidate))
+                    found = True
+            if not found:
+                # Producer adapters may compact Markdown whitespace while
+                # preserving the reviewed bytes in the source manifest.  In
+                # that representation, delimit the row by the next registered
+                # relationship label instead of relying on newlines.
+                labels = "|".join(
+                    re.escape(item[1]) for item in _SILSO_PREBOUND_RELATIONSHIPS
+                )
+                pattern = re.compile(
+                    rf"\|\s*{re.escape(label)}\s*\|.*?(?=\|\s*(?:{labels})\s*\||\s*##|$)",
+                    re.IGNORECASE | re.DOTALL,
+                )
+                match = pattern.search(notes)
+                if match is not None:
+                    candidate = " ".join(match.group(0).split())
+                    if candidate.count("|") >= 3:
+                        matches.append((material_id, candidate))
+        if not matches:
+            raise RuntimeError(
+                "source-restricted SILSO request is missing the exact reviewed "
+                f"table row for {relationship_key}"
+            )
+        # Duplicate projections of the same frozen report are harmless.  Pick
+        # the first request-declared material deterministically, but reject
+        # conflicting rows so an ambiguous A2A capsule cannot be released.
+        unique_rows = {(material_id, excerpt) for material_id, excerpt in matches}
+        excerpts = {excerpt for _material_id, excerpt in unique_rows}
+        if len(excerpts) != 1:
+            raise RuntimeError(
+                "source-restricted SILSO request contains conflicting reviewed "
+                f"rows for {relationship_key}"
+            )
+        material_id, excerpt = next(
+            (item for item in matches if item[1] == next(iter(excerpts))),
+            matches[0],
+        )
+        rows.append(
+            {
+                "relationship_key": relationship_key,
+                "evidence_id": evidence_id,
+                "evidence_kind": "upstream",
+                "material_id": material_id,
+                "excerpt": excerpt,
+                "verified_support": True,
+                "role": "supports",
+            }
+        )
+    return rows
+
+
+def _write_silso_evidence_seed(
+    store: ResearchReviewStore,
+    request: Mapping[str, Any],
+    materials: Sequence[Mapping[str, Any]],
+) -> str | None:
+    """Persist a hash-bound, host-owned evidence seed for the SILSO route."""
+
+    if not any(
+        _SOURCE_RESTRICTED_EVIDENCE_MARKER in str(material.get("content_notes") or "")
+        for material in materials
+    ):
+        return None
+    rows = _silso_result_rows(materials)
+    from scientific_hypothesis.contracts import canonical_json_sha256
+    from scientific_hypothesis.harness import validate_evidence_provenance
+
+    evidence_rows: list[dict[str, Any]] = []
+    for row in rows:
+        evidence = {key: value for key, value in row.items() if key != "relationship_key"}
+        validate_evidence_provenance(dict(request), evidence)
+        evidence_rows.append(row)
+    payload = {
+        "schema_version": "scientific-hypothesis-evidence-seed-v1",
+        "request_sha256": canonical_json_sha256(dict(request)),
+        "source_materials": [
+            {"material_id": row["material_id"], "locator": next(
+                material["locator"]
+                for material in materials
+                if material.get("id") == row["material_id"]
+            )}
+            for row in evidence_rows
+        ],
+        "evidence": evidence_rows,
+    }
+    relative = Path("work") / "research_quality" / "hypothesis_evidence_seed.json"
+    _atomic_write_json(store.workspace_root / relative, payload)
+    return relative.as_posix()
+
+
+def _reviewed_text_result_excerpt(
+    store: ResearchReviewStore,
+    artifact: Mapping[str, Any],
+    *,
+    max_chars: int = 5_000,
+) -> str:
+    """Project useful facts from a hash-matched, Evidence-reviewed text source.
+
+    An accepted artifact path alone is not an actionable A2A handoff for a
+    capability-restricted Hypothesis agent.  This projection keeps the security
+    boundary narrow: only Markdown files already frozen in the artifact's source
+    manifest are eligible, and their current bytes must still match that manifest.
+    Result-oriented sections are copied verbatim so the downstream evidence tool
+    can bind an exact excerpt without receiving general filesystem access.
+    """
+
+    payload = artifact.get("payload")
+    manifest = payload.get("source_manifest") if isinstance(payload, Mapping) else None
+    if not isinstance(manifest, list):
+        return ""
+    candidates: list[tuple[str, Path]] = []
+    for row in manifest:
+        if not isinstance(row, Mapping):
+            continue
+        source_ref = row.get("source_ref")
+        expected_sha256 = row.get("sha256")
+        declared_bytes = row.get("bytes")
+        if (
+            not isinstance(source_ref, str)
+            or not source_ref.endswith(".md")
+            or not isinstance(expected_sha256, str)
+            or not isinstance(declared_bytes, int)
+        ):
+            continue
+        path = (store.workspace_root / source_ref).resolve()
+        if (
+            not path.is_relative_to(store.workspace_root.resolve())
+            or not path.is_file()
+            or path.stat().st_size != declared_bytes
+        ):
+            continue
+        actual_sha256 = hashlib.sha256(path.read_bytes()).hexdigest()
+        if actual_sha256 != expected_sha256:
+            continue
+        candidates.append((source_ref, path))
+
+    projected: list[str] = []
+    remaining = max_chars
+    for source_ref, path in candidates:
+        try:
+            text = path.read_text(encoding="utf-8")
+        except (OSError, UnicodeError):
+            continue
+        headings = list(re.finditer(r"(?m)^#{2,4}\s+(.+?)\s*$", text))
+        sections: list[tuple[int, str]] = []
+        for index, heading in enumerate(headings):
+            title = heading.group(1)
+            if _HYPOTHESIS_RESULT_SECTION.search(title) is None:
+                continue
+            end = headings[index + 1].start() if index + 1 < len(headings) else len(text)
+            section = text[heading.start() : end].strip()
+            # Conclusions and primary result tables are more useful than a long
+            # row-by-row sensitivity appendix when the A2A capsule is bounded.
+            priority = 0
+            if re.search(r"(?:主要结论|conclusion)", title, re.IGNORECASE):
+                priority = -3
+            elif re.search(r"(?:三组关系|统计|result)", title, re.IGNORECASE):
+                priority = -2
+            elif re.search(r"(?:比较|局限|limitation)", title, re.IGNORECASE):
+                priority = -1
+            sections.append((priority, section))
+        sections.sort(key=lambda item: item[0])
+        if not sections:
+            continue
+        source_header = f"Evidence-inspected source excerpt ({source_ref}):"
+        block_parts = [source_header]
+        block_budget = min(remaining, max_chars)
+        for _priority, section in sections:
+            if block_budget <= len(source_header) + 2:
+                break
+            available = block_budget - sum(len(part) + 2 for part in block_parts)
+            if available <= 0:
+                break
+            block_parts.append(section[:available])
+        block = "\n\n".join(block_parts).strip()
+        if len(block) > remaining:
+            block = block[:remaining]
+        if block:
+            projected.append(block)
+            remaining -= len(block) + 2
+        if remaining <= 0:
+            break
+    return "\n\n".join(projected)
+
+
+def _compose_hypothesis_material_notes(
+    *,
+    introduction: str,
+    reviewed_excerpt: str,
+    claim_text: str,
+    mapping_note: str,
+    limits: Sequence[str],
+) -> str:
+    """Fit an actionable evidence capsule while preserving accepted limits."""
+
+    tail = ""
+    if limits:
+        tail = "Accepted limitations:\n- " + "\n- ".join(limits)
+    middle = "\n\n".join(
+        value for value in (reviewed_excerpt, claim_text, mapping_note) if value
+    )
+    separators = 4 if middle and tail else 2
+    middle_budget = max(0, 8_000 - len(introduction) - len(tail) - separators)
+    parts = [introduction]
+    if middle_budget and middle:
+        parts.append(middle[:middle_budget])
+    if tail:
+        parts.append(tail)
+    return "\n\n".join(parts)[:8_000]
+
+
+def _write_hypothesis_request(
+    store: ResearchReviewStore, *, analysis_protocol: str = "none"
+) -> str:
     """Bind accepted Data, prior hypotheses, and verified experiment results."""
 
     question = _bound_research_question(store)
@@ -591,21 +879,22 @@ def _write_hypothesis_request(store: ResearchReviewStore) -> str:
             if str(value).strip()
         ]
         if stage == "data":
-            notes = (
+            introduction = (
                 "Evidence review accepted this Data artifact's declared data and "
                 "provenance boundary. This establishes the inspected feature "
-                "product, not predictive skill or a causal mechanism.\n\n" + claim_text
+                "product, not predictive skill or a causal mechanism."
             )
             mapping_note = _data_pair_mapping_note(artifact)
-            if mapping_note:
-                notes += "\n\n" + mapping_note
+            reviewed_excerpt = _reviewed_text_result_excerpt(store, artifact)
             material_kind = "data_feature"
             summary = None
         else:
-            notes = (
+            introduction = (
                 "Evidence review accepted the persisted experiment record within "
-                "its declared method and uncertainty boundary.\n\n" + claim_text
+                "its declared method and uncertainty boundary."
             )
+            mapping_note = ""
+            reviewed_excerpt = _reviewed_text_result_excerpt(store, artifact)
             material_kind = "experiment_result"
             summary = (artifact.get("payload") or {}).get("experiment_result_summary")
             if not isinstance(summary, Mapping):
@@ -622,8 +911,20 @@ def _write_hypothesis_request(store: ResearchReviewStore) -> str:
                     "record_sha256",
                 )
             }
-        if limits:
-            notes += "\n\nAccepted limitations:\n- " + "\n- ".join(limits)
+        if analysis_protocol == "silso_cycle_morphology_v1":
+            introduction = (
+                f"{_SOURCE_RESTRICTED_EVIDENCE_MARKER} The accepted upstream "
+                "materials are the complete evidence boundary for this independent "
+                "statistical task; cached literature and discovery are not applicable. "
+                + introduction
+            )
+        notes = _compose_hypothesis_material_notes(
+            introduction=introduction,
+            reviewed_excerpt=reviewed_excerpt,
+            claim_text=claim_text,
+            mapping_note=mapping_note,
+            limits=limits,
+        )
         relative = (
             store.root
             / "artifacts"
@@ -636,7 +937,7 @@ def _write_hypothesis_request(store: ResearchReviewStore) -> str:
                 "material_kind": material_kind,
                 "title": f"Accepted {artifact['artifact_id']} version {artifact['version']}",
                 "locator": relative.as_posix(),
-                "content_notes": notes[:8_000],
+                "content_notes": notes,
                 "experiment_summary": summary,
             }
         )
@@ -679,6 +980,8 @@ def _write_hypothesis_request(store: ResearchReviewStore) -> str:
     target.write_text(
         json.dumps(validated, ensure_ascii=False, indent=2), encoding="utf-8"
     )
+    if analysis_protocol == "silso_cycle_morphology_v1":
+        _write_silso_evidence_seed(store, validated, materials)
     return relative.as_posix()
 
 
@@ -686,9 +989,10 @@ def _stage_data_produced_inputs(store: ResearchReviewStore) -> list[str]:
     """Copy the accepted data artifact's produced files into the run workspace
     inputs/ directory so the experiment contract can resolve them as input_refs.
 
-    Returns the list of staged inputs/... relative paths. Deterministic and
-    idempotent: files are copied by content hash, existing identical files are
-    left untouched."""
+    Returns the list of staged inputs/... relative paths. Data-produced files
+    use a separate content-addressed namespace, so they cannot replace
+    manifest-bound user inputs. Existing identical targets are left untouched;
+    conflicting targets fail explicitly."""
 
     workspace = store.workspace_root
     inputs_dir = workspace / "inputs"
@@ -702,32 +1006,132 @@ def _stage_data_produced_inputs(store: ResearchReviewStore) -> list[str]:
         return staged
     payload = data_artifact.get("payload") or {}
     candidates: list[Path] = []
+    manifest_records = store._current_manifest_input_records() or []
+    manifest_source_refs = {
+        str(record.get("path"))
+        for record in manifest_records
+        if isinstance(record, Mapping) and isinstance(record.get("path"), str)
+    }
+
+    def add_workspace_candidate(
+        candidate: Path,
+        *,
+        expected_sha256: str | None = None,
+        expected_bytes: int | None = None,
+    ) -> None:
+        """Keep only regular files reached through a non-symlink workspace path."""
+
+        try:
+            relative = candidate.relative_to(workspace)
+            workspace_resolved = workspace.resolve(strict=True)
+        except (OSError, RuntimeError, ValueError):
+            return
+        if ".." in relative.parts:
+            return
+        cursor = workspace
+        for part in relative.parts:
+            cursor /= part
+            if cursor.is_symlink():
+                return
+        try:
+            resolved = candidate.resolve(strict=True)
+        except (OSError, RuntimeError, ValueError):
+            return
+        if not resolved.is_relative_to(workspace_resolved) or not resolved.is_file():
+            return
+        if expected_bytes is not None and resolved.stat().st_size != expected_bytes:
+            raise RuntimeError(
+                "accepted Data source size changed before experiment staging: "
+                f"{relative.as_posix()}"
+            )
+        if expected_sha256 is not None:
+            digest = hashlib.sha256(resolved.read_bytes()).hexdigest()
+            if digest != expected_sha256:
+                raise RuntimeError(
+                    "accepted Data source hash changed before experiment staging: "
+                    f"{relative.as_posix()}"
+                )
+        candidates.append(resolved)
+
     for ref in payload.get("canonical_source_refs") or []:
-        if isinstance(ref, str):
-            p = workspace / ref
-            if p.is_file():
-                candidates.append(p)
+        if isinstance(ref, str) and ref not in manifest_source_refs:
+            add_workspace_candidate(workspace / ref)
+    # The immutable Data artifact records every inspected source, including
+    # receipt-bound derived outputs, in source_manifest.  Stage those exact
+    # bytes as experiment inputs instead of relying on free-form producer prose
+    # or limiting the handoff to receipts alone.
+    for record in payload.get("source_manifest") or []:
+        if not isinstance(record, Mapping):
+            continue
+        ref = record.get("source_ref")
+        digest = record.get("sha256")
+        size = record.get("bytes")
+        if not isinstance(ref, str) or not isinstance(digest, str):
+            continue
+        # Manifest-bound inputs retain their original task-local path (or their
+        # inputs/project content-addressed path below).  source_manifest also
+        # records them for provenance, but copying the same bytes again into
+        # data_artifacts would create two input ids for one source.
+        if ref in manifest_source_refs:
+            continue
+        add_workspace_candidate(
+            workspace / ref,
+            expected_sha256=digest,
+            expected_bytes=size if isinstance(size, int) else None,
+        )
     producer_result = payload.get("producer_result") or ""
     if isinstance(producer_result, str):
         for match in re.finditer(r"work/solar_data/[\w./-]+\.csv", producer_result):
-            p = workspace / match.group(0)
-            if p.is_file():
-                candidates.append(p)
+            add_workspace_candidate(workspace / match.group(0))
     for relative in (
         "work/solar_data/solar_cycle_pair_analysis_table.csv",
         "receipts/datasets/solar_cycle_pair_analysis_table.json",
     ):
-        derived = workspace / relative
-        if derived.is_file():
-            candidates.append(derived)
+        add_workspace_candidate(workspace / relative)
     inputs_dir.mkdir(parents=True, exist_ok=True)
+    if manifest_records:
+        for record in manifest_records:
+            source_ref = str(record["path"])
+            if record.get("source_group") == "inputs":
+                if source_ref != "inputs/_staged.json":
+                    staged.append(source_ref)
+                continue
+            if record.get("source_group") != "project_inputs":
+                continue
+            source = store._resolve_project_data_manifest_path(source_ref)
+            if source is None:
+                raise RuntimeError(
+                    "accepted project input cannot be resolved for staging: "
+                    f"{source_ref}"
+                )
+            digest = str(record["sha256"])
+            target = inputs_dir / "project" / f"{digest[:16]}-{source.name}"
+            target.parent.mkdir(parents=True, exist_ok=True)
+            if target.exists() and (
+                not target.is_file() or target.read_bytes() != source.read_bytes()
+            ):
+                raise RuntimeError(
+                    "content-addressed staging conflict for "
+                    f"{target.relative_to(workspace).as_posix()}"
+                )
+            if not target.exists():
+                shutil.copyfile(source, target)
+            staged.append(target.relative_to(workspace).as_posix())
     for source in candidates:
-        target = inputs_dir / source.name
-        if target.is_file() and target.read_bytes() == source.read_bytes():
-            staged.append(f"inputs/{source.name}")
-            continue
-        shutil.copyfile(source, target)
-        staged.append(f"inputs/{source.name}")
+        payload = source.read_bytes()
+        digest = hashlib.sha256(payload).hexdigest()
+        relative = Path("inputs") / "data_artifacts" / f"{digest[:16]}-{source.name}"
+        target = workspace / relative
+        target.parent.mkdir(parents=True, exist_ok=True)
+        if target.exists():
+            if not target.is_file() or target.read_bytes() != payload:
+                raise RuntimeError(
+                    f"content-addressed staging conflict for {relative.as_posix()}"
+                )
+        else:
+            shutil.copyfile(source, target)
+        staged.append(relative.as_posix())
+    staged = list(dict.fromkeys(staged))
     if staged:
         sidecar = {
             "schema_version": "automatic-experiment-input-refs-v1",
@@ -735,7 +1139,10 @@ def _stage_data_produced_inputs(store: ResearchReviewStore) -> list[str]:
                 {
                     "id": f"input_{index:02d}",
                     "path": path,
-                    "description": "Accepted data-artifact produced file, hash-staged by the research state machine.",
+                    "description": (
+                        "Accepted Data-stage input, hash-staged by the research "
+                        "state machine."
+                    ),
                     "required": True,
                 }
                 for index, path in enumerate(staged, start=1)
@@ -913,6 +1320,7 @@ def _open_data_context_preflight(
 
     from ..research_protocols import (
         SILSO_CYCLE_REPRODUCTION_PROTOCOL,
+        SILSO_CYCLE_MORPHOLOGY_PROTOCOL,
         SOLAR_CYCLE_26_READINESS_PROTOCOL,
         SOLAR_POLAR_PRECURSOR_PROTOCOL,
         required_dataset_ids_for_protocol,
@@ -948,6 +1356,7 @@ def _open_data_context_preflight(
 
     supported_protocols = {
         SILSO_CYCLE_REPRODUCTION_PROTOCOL,
+        SILSO_CYCLE_MORPHOLOGY_PROTOCOL,
         SOLAR_CYCLE_26_READINESS_PROTOCOL,
         SOLAR_POLAR_PRECURSOR_PROTOCOL,
     }
@@ -976,8 +1385,10 @@ def _open_data_context_preflight(
                     dataset_ids=missing_ids,
                 )
             except (OSError, ValueError, RuntimeError) as exc:
+                detail = " ".join(str(exc).split())[:500]
                 raise RuntimeError(
-                    "authoritative solar data acquisition failed before Data dispatch"
+                    "authoritative solar data acquisition failed before Data dispatch: "
+                    f"{detail}"
                 ) from exc
             ensure_thread_workspace(
                 binding.thread_id,
@@ -1633,6 +2044,61 @@ def _data_context_projection(payload: Mapping[str, Any]) -> dict[str, Any]:
     }
 
 
+def build_a2a_handoff_envelope(
+    *,
+    task_id: str,
+    action: Mapping[str, Any],
+    specialist: str,
+    analysis_protocol: str,
+    accepted_upstream_refs: Sequence[str] = (),
+    data_context: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Build the small structured contract passed across an internal A2A hop.
+
+    The envelope is deliberately metadata-only: child agents still open the
+    hash-bound artifacts and receipts themselves.  It prevents stage, owner,
+    stop conditions, and expected return shape from being lost in free-form
+    delegation prose.
+    """
+
+    return {
+        "schema_version": "a2a-handoff-v1",
+        "task_id": task_id,
+        "stage": str(action.get("stage") or ""),
+        "phase": str(action.get("phase") or ""),
+        "owner": specialist,
+        "revision_review_id": action.get("revision_review_id"),
+        "analysis_protocol": analysis_protocol,
+        "accepted_upstream_refs": list(accepted_upstream_refs),
+        "data_context": (
+            {
+                "receipt_ref": data_context.get("receipt_ref"),
+                "context_sha256": data_context.get("context_sha256"),
+                "must_stop": bool(data_context.get("must_stop")),
+                "eligible_inputs": [
+                    {
+                        "dataset_id": item.get("dataset_id"),
+                        "path": item.get("path"),
+                        "sha256": item.get("sha256"),
+                    }
+                    for item in data_context.get("eligible_inputs", [])
+                    if isinstance(item, Mapping)
+                ],
+            }
+            if isinstance(data_context, Mapping)
+            else None
+        ),
+        "return_contract": {
+            "allowed_statuses": ["accepted", "accepted_with_limits", "blocked"],
+            "required_fields": ["status", "artifact_refs", "receipt_refs", "limitations"],
+            "hard_boundary": (
+                "Open only bound inputs and accepted upstream refs; do not invent "
+                "observations, measurements, artifact paths, or completion claims."
+            ),
+        },
+    }
+
+
 def _solar_cycle_pair_analysis_producer_text(
     workspace_root: Path, receipt_ref: str
 ) -> str:
@@ -1942,6 +2408,23 @@ class ResearchReviewOrchestrationMiddleware(AgentMiddleware[Any, Any, Any]):
                 Command(update={"messages": [message]}, goto="__end__"),
             )
         description = str(args.get("description") or "").strip()
+        data_context: dict[str, Any] | None = None
+        route = (
+            request.state.get("research_route", {})
+            if isinstance(request.state, Mapping)
+            else {}
+        )
+        analysis_protocol = (
+            str(route.get("required_analysis_protocol") or "none")
+            if isinstance(route, Mapping)
+            else "none"
+        )
+        if analysis_protocol == "none" and route_kind == "full":
+            from ..research_protocols import detect_analysis_protocol
+
+            analysis_protocol = detect_analysis_protocol(
+                _bound_research_question(store) or ""
+            )
         action_reserved = False
         if action["kind"] == "review":
             try:
@@ -1996,6 +2479,20 @@ class ResearchReviewOrchestrationMiddleware(AgentMiddleware[Any, Any, Any]):
                 "inspect the immutable artifact and sources, then submit exactly one "
                 "ReviewVerdictV2. Never edit the producer artifact."
             )
+            description += "\n[A2A_HANDOFF_V1]\n" + json.dumps(
+                build_a2a_handoff_envelope(
+                    task_id=store.task_id,
+                    action=action,
+                    specialist=expected,
+                    analysis_protocol=analysis_protocol,
+                    accepted_upstream_refs=[
+                        store.artifact_ref(item)
+                        for item in store.accepted_artifacts()
+                        if item["stage"] != action["stage"]
+                    ],
+                ),
+                ensure_ascii=False,
+            )
         else:
             if action["stage"] == "hypothesis":
                 # A Supervisor-generated task description is routing prose, not
@@ -2008,26 +2505,19 @@ class ResearchReviewOrchestrationMiddleware(AgentMiddleware[Any, Any, Any]):
                     "those bound records as authoritative; do not inherit factual "
                     "claims from any parent free-form task summary."
                 )
+            elif action["stage"] == "experiment_design":
+                # The parent chooses only the producer.  In particular, a model-authored
+                # retry can contain the prior immutable run id or replacement request
+                # text.  Rebuild the dispatch from host-bound scope and review context.
+                description = (
+                    "Produce the task-bound Experiment Design from the host-owned "
+                    "research scope, accepted upstream material, and revision capsule "
+                    "supplied below. Ignore any parent-authored run id or request text."
+                )
             revision_capsule = None
             planner_revision_checkpoint = None
-            data_context: dict[str, Any] | None = None
             if action["stage"] == "data":
                 try:
-                    route = (
-                        request.state.get("research_route", {})
-                        if isinstance(request.state, Mapping)
-                        else {}
-                    )
-                    analysis_protocol = (
-                        str(route.get("required_analysis_protocol") or "none")
-                        if isinstance(route, Mapping)
-                        else "none"
-                    )
-                    if analysis_protocol == "none" and route_kind == "full":
-                        from ..research_protocols import detect_analysis_protocol
-
-                        bound_question = _bound_research_question(store) or ""
-                        analysis_protocol = detect_analysis_protocol(bound_question)
                     data_context = _open_data_context_preflight(
                         config,
                         route_kind=route_kind,
@@ -2218,6 +2708,13 @@ class ResearchReviewOrchestrationMiddleware(AgentMiddleware[Any, Any, Any]):
                         "\nanalysis_protocol_contract="
                         + solar_cycle_26_readiness_directive()
                     )
+                elif experiment_analysis_protocol == "silso_cycle_morphology_v1":
+                    from ..research_protocols import silso_cycle_morphology_directive
+
+                    experiment_protocol_directive = (
+                        "\nanalysis_protocol_contract="
+                        + silso_cycle_morphology_directive()
+                    )
             data_context_directive = ""
             if data_context is not None:
                 data_context_directive = (
@@ -2244,12 +2741,25 @@ class ResearchReviewOrchestrationMiddleware(AgentMiddleware[Any, Any, Any]):
                         "label is orchestration metadata, not the research topic; "
                         "never substitute that label for bound_research_question."
                     )
+            planning_protocol_directive = ""
+            if action["stage"] == "planning" and analysis_protocol == "silso_cycle_morphology_v1":
+                from ..research_protocols import silso_cycle_morphology_directive
+
+                planning_protocol_directive = (
+                    "\nanalysis_protocol_contract="
+                    + silso_cycle_morphology_directive()
+                    + "\nPlanning evidence_refs may contain only existing bound inputs, "
+                    "receipts, and inspected artifacts. The three requested outputs "
+                    "are planned experiment_result deliverables, not current evidence."
+                )
             hypothesis_request_directive = ""
             if action["stage"] == "hypothesis" and any(
                 artifact["stage"] == "data" for artifact in store.accepted_artifacts()
             ):
                 try:
-                    request_path = _write_hypothesis_request(store)
+                    request_path = _write_hypothesis_request(
+                        store, analysis_protocol=analysis_protocol
+                    )
                 except Exception as exc:
                     return (
                         request,
@@ -2276,10 +2786,45 @@ class ResearchReviewOrchestrationMiddleware(AgentMiddleware[Any, Any, Any]):
                     "Data acceptance alone does not establish predictive skill or "
                     "causality."
                 )
+                if analysis_protocol == "silso_cycle_morphology_v1":
+                    seed_path = (
+                        store.workspace_root
+                        / "work"
+                        / "research_quality"
+                        / "hypothesis_evidence_seed.json"
+                    )
+                    if seed_path.is_file():
+                        hypothesis_request_directive += (
+                            "\nhost_prebound_evidence_seed="
+                            + seed_path.relative_to(store.workspace_root).as_posix()
+                            + "\nThe host has already validated and atomically "
+                            "prebound one exact statistical table row for each of "
+                            "the three registered relationships. After the bind "
+                            "receipt, do not call any evidence-bind tool again; "
+                            "use its evidence_id mapping directly in the three "
+                            "candidates."
+                        )
             description += (
-                "\n\n[RESEARCH_PRODUCER_V2]\n"
+                "\n[A2A_HANDOFF_V1]\n"
+                + json.dumps(
+                    build_a2a_handoff_envelope(
+                        task_id=store.task_id,
+                        action=action,
+                        specialist=expected,
+                        analysis_protocol=analysis_protocol,
+                        accepted_upstream_refs=[
+                            store.artifact_ref(item)
+                            for item in store.accepted_artifacts()
+                            if item["stage"] != action["stage"]
+                        ],
+                        data_context=data_context,
+                    ),
+                    ensure_ascii=False,
+                )
+                + "\n\n[RESEARCH_PRODUCER_V2]\n"
                 f"phase={action['phase']}\n"
                 f"stage={action['stage']}\n"
+                f"revision_review_id={action.get('revision_review_id')}\n"
                 "Return one bounded result owned by this producer. Never claim a "
                 "receipt that the dedicated tools did not produce. For a revision, "
                 "consume only revision_capsule, preserve accepted and unchanged "
@@ -2297,6 +2842,7 @@ class ResearchReviewOrchestrationMiddleware(AgentMiddleware[Any, Any, Any]):
                 f"{experiment_protocol_directive}"
                 f"{data_context_directive}"
                 f"{bound_question_directive}"
+                f"{planning_protocol_directive}"
                 f"{hypothesis_request_directive}"
                 "\ncanonical_checkpoint="
                 f"{_CANONICAL_CHECKPOINT_DIRECTIVE[action['stage']]}"
@@ -2318,7 +2864,11 @@ class ResearchReviewOrchestrationMiddleware(AgentMiddleware[Any, Any, Any]):
             "experiment_result",
         }:
             try:
-                _persist_experiment_scope(store, action)
+                _persist_experiment_scope(
+                    store,
+                    action,
+                    analysis_protocol=experiment_analysis_protocol,
+                )
             except Exception as exc:
                 return (
                     request,
@@ -2418,6 +2968,51 @@ class ResearchReviewOrchestrationMiddleware(AgentMiddleware[Any, Any, Any]):
                             "producer local preflight failed before Evidence review: "
                             f"{type(exc).__name__}: {exc}; deterministic planner "
                             f"freeze failed: {type(freeze_exc).__name__}: {freeze_exc}",
+                        )
+                elif action["stage"] == "experiment_design":
+                    scope_path = store.root / "experiment_scope.json"
+                    try:
+                        scope = json.loads(scope_path.read_text(encoding="utf-8"))
+                    except (OSError, json.JSONDecodeError):
+                        scope = None
+                    if isinstance(scope, Mapping) and scope.get(
+                        "analysis_protocol"
+                    ) == "silso_cycle_morphology_v1":
+                        try:
+                            from ..tools.automatic_experiment import (
+                                ensure_host_silso_morphology_design,
+                            )
+
+                            design_receipt = ensure_host_silso_morphology_design(
+                                config
+                            )
+                            producer_text += (
+                                "\n\n[HOST PROTOCOL DESIGN]\n"
+                                + json.dumps(design_receipt, ensure_ascii=False)
+                            )
+                            artifact = store.checkpoint_producer_result(
+                                stage=action["stage"],
+                                producer=action["producer"],
+                                content=producer_text,
+                                phase=action["phase"],
+                                require_canonical_source=True,
+                                revision_review_id=action.get(
+                                    "revision_review_id"
+                                ),
+                            )
+                        except Exception as host_exc:
+                            return self._blocked(
+                                request,
+                                "producer local preflight failed before Evidence "
+                                f"review: {type(exc).__name__}: {exc}; host "
+                                "protocol design recovery failed: "
+                                f"{type(host_exc).__name__}: {host_exc}",
+                            )
+                    else:
+                        return self._blocked(
+                            request,
+                            "producer local preflight failed before Evidence review: "
+                            f"{type(exc).__name__}: {exc}",
                         )
                 else:
                     detail = f"{type(exc).__name__}: {exc}"

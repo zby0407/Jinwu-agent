@@ -50,6 +50,7 @@ from research_review.contracts import (
 )
 from research_review.policies import policy_registry
 from scientific_hypothesis import TAIL_REVIEW_VERSION, candidate_pool_sha256
+from scientific_hypothesis.harness import validate_evidence_provenance
 
 
 def _checkpoint_from_process(
@@ -313,6 +314,96 @@ def test_hypothesis_request_declares_accepted_data_as_verified_material(
     assert "已生成周期 15 至 24" in material["content_notes"]
     assert "不能把特征表直接解释为预测技能" in material["content_notes"]
     assert "not predictive skill or a causal mechanism" in material["content_notes"]
+
+
+def test_hypothesis_request_transports_hash_matched_reviewed_result_excerpt(
+    tmp_path: Path,
+) -> None:
+    """A2A must carry usable accepted facts, not only an unreadable file path."""
+
+    store = ResearchReviewStore(tmp_path, "hypothesis-reviewed-result-capsule")
+    (tmp_path / "task.json").write_text(
+        json.dumps(
+            {
+                "research_question": (
+                    "SILSO 第1至24周的上升时间与峰值强度是否呈稳定负相关？"
+                )
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    outputs = tmp_path / "outputs"
+    outputs.mkdir()
+    report = outputs / "cycle_morphology_strength_report.md"
+    report.write_text(
+        "\n".join(
+            [
+                "# SILSO 周形态实验",
+                "",
+                "## 1. 数据来源",
+                "仅使用已注册的 SILSO v2.0 数据。",
+                "",
+                "## 4. 三组关系、p 值与 bootstrap 区间",
+                "| cycle length vs peak strength | 24 | -0.3242 (0.1222) | -0.3139 (0.1353) | [-0.7058, 0.0930] | [-0.6814, 0.1337] | 10000/10000 |",
+                "| rise time vs peak strength | 24 | -0.7495 (<0.0001) | -0.7619 (<0.0001) | [-0.8835, -0.5672] | [-0.8866, -0.5297] | 10000/10000 |",
+                "| decline time vs peak strength | 24 | 0.3827 (0.0649) | 0.3211 (0.1260) | [0.0551, 0.6415] | [-0.1171, 0.6711] | 10000/10000 |",
+                "上升时间—峰值强度：Pearson r=-0.7495，Spearman rho=-0.7619；",
+                "两种 95% bootstrap 区间均完全低于 0。",
+                "",
+                "## 8. 主要结论",
+                "历史第1至24周支持 Waldmeier 效应的统计表述，但不证明因果机制。",
+                "",
+                "## 9. 局限性与不可作出的因果推断",
+                "样本量仅24个完整周期，不用于分析或预测第26周。",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    data = store.checkpoint_producer_result(
+        stage="data",
+        producer="solar-data",
+        content=(
+            "已生成并核验 outputs/cycle_morphology_strength_report.md；"
+            "结果只用于描述历史统计关系。"
+        ),
+        phase="bounded_data",
+    )
+    store.submit_verdict(
+        mode="data",
+        decision="accept_with_limits",
+        issues=[],
+        accepted_claims=[data["claims"][0]["claim_id"]],
+        carry_forward_limits=["不得作太阳发电机因果解释。"],
+    )
+
+    relative = _write_hypothesis_request(
+        store, analysis_protocol="silso_cycle_morphology_v1"
+    )
+    request = json.loads((tmp_path / relative).read_text(encoding="utf-8"))
+    notes = request["upstream_materials"][0]["content_notes"]
+
+    assert "[source_restricted_evidence_boundary]" in notes
+    assert "Evidence-inspected source excerpt" in notes
+    assert "Pearson r=-0.7495" in notes
+    assert "Spearman rho=-0.7619" in notes
+    assert "不用于分析或预测第26周" in notes
+    assert "不得作太阳发电机因果解释" in notes
+
+    seed_path = tmp_path / "work/research_quality/hypothesis_evidence_seed.json"
+    seed = json.loads(seed_path.read_text(encoding="utf-8"))
+    assert seed["schema_version"] == "scientific-hypothesis-evidence-seed-v1"
+    assert seed["request_sha256"] == canonical_json_sha256(request)
+    assert {row["relationship_key"] for row in seed["evidence"]} == {
+        "cycle_length_peak",
+        "rise_time_peak",
+        "decline_time_peak",
+    }
+    material_ids = {material["id"] for material in request["upstream_materials"]}
+    for row in seed["evidence"]:
+        evidence = {key: value for key, value in row.items() if key != "relationship_key"}
+        assert evidence["material_id"] in material_ids
+        validate_evidence_provenance(request, evidence)
 
 
 def test_data_pair_mapping_note_keeps_target_cycles_on_pair_right_endpoints() -> None:
@@ -672,6 +763,161 @@ def test_policy_registry_severity_is_a_deterministic_floor(tmp_path: Path) -> No
     assert capsule["verdict_sha256"] == verdict["verdict_sha256"]
     assert capsule["unresolved_issues"][0]["fingerprint"] == issue["fingerprint"]
     assert "reviewer_context" not in capsule
+
+
+def test_planning_sample_count_gap_is_carried_to_data_stage(tmp_path: Path) -> None:
+    store = ResearchReviewStore(tmp_path, "planning-sample-count-gap-task")
+    artifact = store.checkpoint_producer_result(
+        stage="planning",
+        producer="solar-planner",
+        content="The planning contract leaves the sample count for the Data stage.",
+        phase="planning",
+    )
+    claim_id = artifact["claims"][0]["claim_id"]
+    issue = {
+        "issue_id": "sample-count-gap-001",
+        "rule_id": "NUMERIC_SOURCE_BOUND",
+        "severity": "major",
+        "claim_ref": "work/research_quality/planning.analysis_claim.json#independent_sample_count",
+        "evidence_refs": ["work/research_quality/planning.analysis_claim.json"],
+        "owner": "solar-data",
+        "message": (
+            "independent_sample_count is intentionally left null at planning stage; "
+            "the data stage must bind it from the actual six input receipts."
+        ),
+        "required_action": "Bind the count from the six Data receipts.",
+        "acceptance_test": "Data reports a derived count or an explicit gap row.",
+        "fingerprint": issue_fingerprint(
+            "NUMERIC_SOURCE_BOUND",
+            "work/research_quality/planning.analysis_claim.json#independent_sample_count",
+            "solar-data",
+        ),
+    }
+
+    verdict = store.submit_verdict(
+        mode="planning",
+        decision="accept_with_limits",
+        issues=[issue],
+        accepted_claims=[claim_id],
+    )
+
+    assert verdict["decision"] == "accept_with_limits"
+    assert verdict["issues"] == []
+    assert any(
+        "independent_sample_count" in limit for limit in verdict["carry_forward_limits"]
+    )
+
+
+def test_planning_sample_count_carry_forward_uses_structured_identity_only() -> None:
+    issue = {
+        "rule_id": "NUMERIC_SOURCE_BOUND",
+        "owner": "solar-data",
+        "claim_ref": "work/research_quality/planning.analysis_claim.json#independent_sample_count",
+        "message": "A reviewer narrative that is unrelated to the carry-forward rule.",
+    }
+
+    unresolved, limits = ResearchReviewStore._carry_planning_data_binding_gaps(
+        "planning", [issue]
+    )
+
+    assert unresolved == []
+    assert limits == [
+        "Planning does not bind independent_sample_count; Data must derive it "
+        "from accepted task inputs or record an explicit gap row."
+    ]
+    assert "six" not in limits[0].lower()
+
+
+def test_planning_sample_count_limit_does_not_depend_on_input_count(
+    tmp_path: Path,
+) -> None:
+    issue = {
+        "rule_id": "NUMERIC_SOURCE_BOUND",
+        "owner": "solar-data",
+        "claim_ref": "work/research_quality/planning.analysis_claim.json#independent_sample_count",
+        "message": "",
+    }
+
+    for input_count in (None, 1, 4, 6):
+        workspace = tmp_path / f"input-count-{input_count}"
+        workspace.mkdir()
+        task_id = f"input-count-{input_count}"
+        if input_count is not None:
+            input_rows = []
+            for index in range(input_count):
+                input_path = workspace / "inputs" / f"input-{index}.csv"
+                input_path.parent.mkdir(parents=True, exist_ok=True)
+                input_path.write_text(f"value\n{index}\n", encoding="utf-8")
+                raw = input_path.read_bytes()
+                input_rows.append(
+                    {
+                        "path": input_path.relative_to(workspace).as_posix(),
+                        "sha256": hashlib.sha256(raw).hexdigest(),
+                        "bytes": len(raw),
+                        "role": "user_input",
+                    }
+                )
+            (workspace / "task.json").write_text(
+                json.dumps({"thread_id": task_id, "research_question": "question"}),
+                encoding="utf-8",
+            )
+            (workspace / "input_manifest.json").write_text(
+                json.dumps(
+                    {
+                        "schema_version": "task-input-manifest-v1",
+                        "thread_id": task_id,
+                        "inputs": input_rows,
+                        "project_inputs": [],
+                    }
+                ),
+                encoding="utf-8",
+            )
+        store = ResearchReviewStore(workspace, task_id)
+        unresolved, limits = store._carry_planning_data_binding_gaps(
+            "planning", [issue]
+        )
+        assert unresolved == [], input_count
+        assert limits == [
+            "Planning does not bind independent_sample_count; Data must derive it "
+            "from accepted task inputs or record an explicit gap row."
+        ], input_count
+
+
+def test_other_planning_numeric_source_gap_remains_actionable(tmp_path: Path) -> None:
+    store = ResearchReviewStore(tmp_path, "planning-other-numeric-gap-task")
+    artifact = store.checkpoint_producer_result(
+        stage="planning",
+        producer="solar-planner",
+        content="The planning contract includes a date that needs a source.",
+        phase="planning",
+    )
+    issue = {
+        "issue_id": "date-gap-001",
+        "rule_id": "NUMERIC_SOURCE_BOUND",
+        "severity": "major",
+        "claim_ref": "planning-plan-v1#scope.population_or_period",
+        "evidence_refs": [],
+        "owner": "solar-planner",
+        "message": "A date is asserted without a source.",
+        "required_action": "Bind the date to an inspected source.",
+        "acceptance_test": "The plan points to the source for the date.",
+        "fingerprint": issue_fingerprint(
+            "NUMERIC_SOURCE_BOUND",
+            "planning-plan-v1#scope.population_or_period",
+            "solar-planner",
+        ),
+    }
+
+    verdict = store.submit_verdict(
+        mode="planning",
+        decision="accept_with_limits",
+        issues=[issue],
+        accepted_claims=[artifact["claims"][0]["claim_id"]],
+    )
+
+    assert verdict["decision"] == "revise"
+    assert verdict["next_owner"] == "solar-planner"
+    assert verdict["issues"][0]["rule_id"] == "NUMERIC_SOURCE_BOUND"
 
 
 def test_policy_version_has_one_canonical_source() -> None:
@@ -2071,6 +2317,40 @@ def test_data_canonical_readiness_requires_output_when_inputs_exist(
     assert store._canonical_stage_ready("data", [context, output]) is False
 
 
+def test_full_data_accepts_silso_cycle_morphology_receipt(
+    tmp_path: Path,
+) -> None:
+    """The morphology adapter receipt is a first-class full-research output."""
+
+    _write_curated_data_context(tmp_path, "morphology-receipt")
+    output = tmp_path / "outputs" / "cycle_morphology_table.csv"
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_text("cycle_number\n1\n", encoding="utf-8")
+    receipt_ref = "receipts/datasets/silso_cycle_morphology.json"
+    receipt = tmp_path / receipt_ref
+    receipt.parent.mkdir(parents=True, exist_ok=True)
+    receipt.write_text(
+        json.dumps(
+            {
+                "schema_version": "solar-cycle-morphology-receipt-v1",
+                "receipt_type": "silso_cycle_morphology",
+                "producer": "solar-data",
+                "task_id": "morphology-receipt",
+                "status": "verified",
+                "outputs": [
+                    {
+                        "path": "outputs/cycle_morphology_table.csv",
+                        "sha256": hashlib.sha256(output.read_bytes()).hexdigest(),
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    store = ResearchReviewStore(tmp_path, "morphology-receipt")
+    assert output in store._receipted_solar_data_outputs([receipt])
+
+
 def test_full_hypothesis_rejects_uncheckpointed_working_draft(
     tmp_path: Path,
 ) -> None:
@@ -2158,6 +2438,68 @@ def test_full_hypothesis_accepts_current_checkpoint_and_tail_review(
     store = ResearchReviewStore(tmp_path, "current-full-hypothesis")
 
     assert store._canonical_stage_ready("hypothesis", [state_path], phase="hypothesis")
+
+
+def test_full_hypothesis_accepts_immutable_checkpoint_snapshot_after_draft_edit(
+    tmp_path: Path,
+) -> None:
+    """A valid checkpoint remains canonical when the mutable draft changes later."""
+
+    payload = _current_full_hypothesis_state()
+    state_path = tmp_path / "work" / "scientific_hypothesis_state.json"
+    snapshot_path = tmp_path / "work" / "scientific_hypothesis_checkpoint.json"
+    state_path.parent.mkdir(parents=True)
+    edited = dict(payload["latest_draft"])
+    edited["candidates"] = [
+        {"id": "H-later", "statement": "A later mutable draft."}
+    ]
+    payload["latest_draft"] = edited
+    payload["latest_draft_sha256"] = canonical_json_sha256(edited)
+    state_path.write_text(json.dumps(payload), encoding="utf-8")
+    snapshot_path.write_text(
+        json.dumps(
+            {
+                "schema_version": "scientific-hypothesis-checkpoint-v1",
+                "checkpoint": payload["checkpoint"],
+                "checkpoint_sha256": payload["checkpoint_sha256"],
+                "checkpoint_evidence_sha256": payload["checkpoint_evidence_sha256"],
+                "evidence_register": payload["evidence_register"],
+                "tail_review": payload["tail_review"],
+            }
+        ),
+        encoding="utf-8",
+    )
+    store = ResearchReviewStore(tmp_path, "snapshot-after-edit")
+    sources = store._canonical_stage_sources("hypothesis")
+
+    assert snapshot_path in sources
+    assert state_path not in sources
+    assert store._canonical_stage_ready("hypothesis", sources, phase="hypothesis")
+
+
+def test_full_hypothesis_rejects_invalid_checkpoint_snapshot(
+    tmp_path: Path,
+) -> None:
+    payload = _current_full_hypothesis_state()
+    snapshot_path = tmp_path / "work" / "scientific_hypothesis_checkpoint.json"
+    snapshot_path.parent.mkdir(parents=True)
+    snapshot_path.write_text(
+        json.dumps(
+            {
+                "schema_version": "scientific-hypothesis-checkpoint-v1",
+                "checkpoint": payload["checkpoint"],
+                "checkpoint_sha256": "0" * 64,
+                "checkpoint_evidence_sha256": payload["checkpoint_evidence_sha256"],
+                "evidence_register": payload["evidence_register"],
+                "tail_review": payload["tail_review"],
+            }
+        ),
+        encoding="utf-8",
+    )
+    store = ResearchReviewStore(tmp_path, "invalid-snapshot")
+    assert store._canonical_stage_ready(
+        "hypothesis", [snapshot_path], phase="hypothesis"
+    ) is False
 
 
 @pytest.mark.parametrize(
@@ -3131,6 +3473,25 @@ def test_checkpoint_ignores_truncated_directory_reference_from_ellipsis(
     assert "receipts/source.json" in artifact["evidence_refs"]
 
 
+def test_checkpoint_drops_nonexistent_planned_output_refs(tmp_path: Path) -> None:
+    receipts = tmp_path / "receipts"
+    receipts.mkdir()
+    (receipts / "source.json").write_text("{}", encoding="utf-8")
+    store = ResearchReviewStore(tmp_path, "planned-output-task")
+
+    artifact = store.checkpoint_producer_result(
+        stage="planning",
+        producer="solar-planner",
+        content=(
+            "Planned outputs: outputs/cycle_morphology_table.csv and "
+            "outputs/cycle_morphology_strength_report.md. "
+            "Existing receipt: receipts/source.json."
+        ),
+    )
+
+    assert artifact["evidence_refs"] == ["receipts/source.json"]
+
+
 def test_known_hypothesis_v1_state_adapts_candidates_as_separate_claims() -> None:
     source_ref = "work/scientific_hypothesis_state.json"
     adapted = adapt_v1_producer_output(
@@ -3651,6 +4012,15 @@ def test_experiment_result_directive_reads_worker_contract_before_prepare() -> N
     assert "from the prepare response" not in directive
 
 
+def test_experiment_result_directive_rejects_empty_parser_outputs_and_text() -> None:
+    directive = _CANONICAL_CHECKPOINT_DIRECTIVE["experiment_result"]
+
+    assert "non-empty source" in directive
+    assert "accepted upstream inventory" in directive
+    assert "technical failure" in directive
+    assert "non-empty text" in directive
+
+
 def test_full_hypothesis_directive_requires_current_review_and_checkpoint() -> None:
     directive = _CANONICAL_CHECKPOINT_DIRECTIVE["hypothesis"]
 
@@ -4127,6 +4497,7 @@ def test_orchestration_uses_preliminary_data_stage_for_hypothesis_route(
         "Store",
         (),
         {
+            "task_id": "bounded-hypothesis-route",
             "bounded_sequence_action": lambda self, stages: {
                 "kind": "producer",
                 "stage": "data",
@@ -4564,6 +4935,34 @@ def test_data_preflight_acquires_curated_inputs_for_natural_language_task(
     assert {receipt["status"] for receipt in context_receipts} == {"inputs_available"}
 
 
+def test_data_preflight_preserves_failed_dataset_diagnostic(
+    tmp_path: Path, monkeypatch
+) -> None:
+    from jw.middleware import research_review_orchestration as orchestration
+
+    config = _config(tmp_path, monkeypatch, "data-preflight-diagnostic")
+
+    def acquire(*_args, **_kwargs):
+        raise RuntimeError(
+            "authoritative solar dataset noaa-swpc-monthly-f107-v1 "
+            "acquisition failed: TimeoutError"
+        )
+
+    monkeypatch.setattr(
+        "jw.solar_data_catalog.acquire_authoritative_solar_data", acquire
+    )
+
+    with pytest.raises(
+        RuntimeError,
+        match=r"noaa-swpc-monthly-f107-v1.*TimeoutError",
+    ):
+        orchestration._open_data_context_preflight(
+            config,
+            route_kind="bounded",
+            analysis_protocol="solar_cycle_26_readiness_v1",
+        )
+
+
 def test_experiment_input_staging_failure_is_explicit(
     tmp_path: Path, monkeypatch
 ) -> None:
@@ -4664,22 +5063,35 @@ def test_experiment_dispatch_persists_host_owned_research_scope(
         "_stage_data_produced_inputs",
         lambda _store: ["inputs/data.csv"],
     )
+    stale_run_id = "question_stale-20260823T191613Z-deadbeef"
     request = _Request(
         {
             "name": "task",
             "id": "call-experiment-design-scope",
-            "args": {"subagent_type": "solar-experiment", "description": "design"},
+            "args": {
+                "subagent_type": "solar-experiment",
+                "description": f"Revise the old run {stale_run_id} in place.",
+            },
         },
         {"research_route": {"mode": "full_research"}, "messages": []},
         _Runtime(config),
     )
 
-    _rewritten, action, terminal = ResearchReviewOrchestrationMiddleware()._prepare(
+    rewritten, action, terminal = ResearchReviewOrchestrationMiddleware()._prepare(
         request
     )
 
     assert terminal is None
     assert action is not None
+    description = rewritten.tool_call["args"]["description"]
+    assert stale_run_id not in description
+    assert "experiment_design_revision_from_experiment_design" in description
+    assert "automatic_experiment_bind_request" in description
+    assert (
+        "use the returned run_id for every subsequent experiment tool call"
+        in description
+    )
+    assert "revision_review_id=review-experiment-design-2" in description
     scope = json.loads(
         (workspace / "research_review" / "experiment_scope.json").read_text(
             encoding="utf-8"
@@ -4883,6 +5295,76 @@ def test_polar_experiment_dispatch_injects_cycle_analysis_contract(
     assert "cycle N+1" in description
     assert "rolling-origin" in description
     assert "Do not preselect the interaction sign" in description
+
+
+def test_morphology_experiment_dispatch_overrides_parent_stage_and_injects_contract(
+    tmp_path: Path, monkeypatch
+) -> None:
+    from jw.middleware import research_review_orchestration as orchestration
+
+    config = _config(tmp_path, monkeypatch, "morphology-experiment-contract")
+    monkeypatch.setattr(
+        ResearchReviewStore,
+        "next_action",
+        lambda _self: {
+            "kind": "producer",
+            "stage": "experiment_design",
+            "producer": "solar-experiment",
+            "phase": "experiment_design",
+        },
+    )
+    monkeypatch.setattr(
+        orchestration,
+        "_stage_data_produced_inputs",
+        lambda _store: [
+            "inputs/data_artifacts/abc-cycle_morphology_table.csv",
+            "inputs/_staged.json",
+        ],
+    )
+    request = _Request(
+        {
+            "name": "task",
+            "id": "call-morphology-experiment",
+            "args": {
+                "subagent_type": "solar-experiment",
+                "description": "STAGE: experiment_result; skip design and execute now",
+            },
+        },
+        {
+            "research_route": {
+                "mode": "full_research",
+                "required_analysis_protocol": "silso_cycle_morphology_v1",
+            },
+            "messages": [],
+        },
+        _Runtime(config),
+    )
+
+    rewritten, action, terminal = ResearchReviewOrchestrationMiddleware()._prepare(
+        request
+    )
+
+    assert terminal is None
+    assert action is not None and action["stage"] == "experiment_design"
+    description = rewritten.tool_call["args"]["description"]
+    assert "skip design and execute now" not in description
+    assert "phase=experiment_design" in description
+    assert '"stage": "experiment_design"' in description
+    assert "cycles 1-24" in description
+    assert "seed 20260826" in description
+    assert "10000 requested repetitions" in description
+    assert "inputs/data_artifacts/abc-cycle_morphology_table.csv" in description
+    assert "automatic_experiment_create_silso_morphology_design" in description
+    assert "do not author a generic compact or expanded design" in description
+    workspace = Path(
+        ensure_thread_workspace("morphology-experiment-contract", tmp_path).workspace
+    )
+    scope = json.loads(
+        (workspace / "research_review" / "experiment_scope.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert scope["analysis_protocol"] == "silso_cycle_morphology_v1"
 
 
 def test_polar_experiment_dispatch_materializes_pair_table_before_staging(
@@ -6382,6 +6864,92 @@ def test_precursor_and_pair_receipts_project_structured_data_claim(
         precursor_output,
     ]
     assert "solar_precursor_semantics.json" not in adapted["evidence_refs"]
+    assert adapted["payload"]["data_result_summary"] == summary
+
+
+def test_readiness_receipt_projects_structured_data_claim_from_verified_output() -> None:
+    receipt_ref = "receipts/datasets/solar_cycle_26_readiness_inventory.json"
+    output_ref = "work/solar_data/solar_cycle_26_readiness_inventory.json"
+    receipt = {
+        "schema_version": "solar-cycle-26-readiness-receipt-v1",
+        "receipt_type": "solar_cycle_26_readiness_inventory",
+        "status": "verified",
+        "producer": "solar-data",
+        "task_id": "sc26-readiness-claim",
+        "dataset_ids": [
+            "silso-monthly-total-v2",
+            "silso-monthly-smoothed-v2",
+            "silso-cycle-extrema-v2",
+            "noaa-swpc-monthly-f107-v1",
+            "mwo-wso-polar-field-v2",
+            "wso-current-polar-field-v1",
+        ],
+        "launch_readiness": "insufficient_evidence",
+        "formal_classification_ready": False,
+        "testable_peak_interval_ready": False,
+        "evidence_gaps": [
+            {
+                "code": "NEXT_MINIMUM_NOT_ESTABLISHED",
+                "effect": "The cycle-25/26 boundary is not yet observed.",
+            }
+        ],
+        "outputs": [{"path": output_ref, "sha256": "a" * 64}],
+    }
+    inventory = {
+        "schema_version": "solar-cycle-26-readiness-inventory-v1",
+        "analysis_protocol": "solar_cycle_26_readiness_v1",
+        "cutoff_date": "2026-06-30",
+        "launch_readiness": "insufficient_evidence",
+        "formal_classification_ready": False,
+        "testable_peak_interval_ready": False,
+        "cycle_25_state_assessment": {
+            "activity_below_observed_peaks": True,
+            "next_minimum_status": "not_established",
+        },
+        "cycle_26_precursor_assessment": {
+            "status": "unavailable",
+            "same_definition_ready": False,
+        },
+        "observations": {
+            "silso_smoothed": {
+                "cycle_25_smoothed_peak_month": "2024-10",
+                "cycle_25_smoothed_peak_value": 160.9,
+                "latest_month": "2026-01",
+                "latest_value": 104.2,
+            }
+        },
+        "evidence_gaps": receipt["evidence_gaps"],
+        "interpretation_boundary": (
+            "A cycle-26 precursor requires a confirmed next minimum and "
+            "same-definition polar measurements near that minimum."
+        ),
+    }
+
+    adapted = adapt_v1_producer_output(
+        stage="data",
+        version=1,
+        phase="data",
+        text="Let me try a different tool parameter format.",
+        evidence_refs=[receipt_ref, output_ref],
+        canonical_documents=[
+            {"source_ref": receipt_ref, "payload": receipt},
+            {"source_ref": output_ref, "payload": inventory},
+        ],
+        current_task_id="sc26-readiness-claim",
+        source_manifest=[
+            {"source_ref": receipt_ref, "sha256": "b" * 64},
+            {"source_ref": output_ref, "sha256": "a" * 64},
+        ],
+    )
+
+    claim = adapted["claims"][0]
+    summary = json.loads(claim["text"])
+    assert "different tool parameter" not in claim["text"]
+    assert summary["schema_version"] == "solar-data-readiness-summary-v1"
+    assert summary["launch_readiness"] == "insufficient_evidence"
+    assert summary["observations"] == inventory["observations"]
+    assert summary["evidence_gaps"] == receipt["evidence_gaps"]
+    assert claim["supporting_evidence"] == [receipt_ref, output_ref]
     assert adapted["payload"]["data_result_summary"] == summary
 
 

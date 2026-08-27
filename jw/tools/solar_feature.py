@@ -108,6 +108,7 @@ def _task_bound_research_question(
 
 _SOLAR_DATA_OUTPUT_RECEIPT_CONTRACTS = {
     ("research-dataset-receipt-v1", "silso_cycle_extrema_reproduction"),
+    ("solar-cycle-morphology-receipt-v1", "silso_cycle_morphology"),
     (
         "solar-cycle-26-readiness-receipt-v1",
         "solar_cycle_26_readiness_inventory",
@@ -972,6 +973,16 @@ def _build_solar_cycle_26_readiness_inventory(
                 "effect": "No same-definition polar precursor is available near the still-unestablished cycle-25 minimum.",
             }
         )
+    # Geomagnetic aa/Ap/Kp series are not part of the six hash-bound inputs
+    # for this readiness product.  Keep that absence in the canonical
+    # inventory so reviewers can downgrade/exclude the geomagnetic hypothesis
+    # without manufacturing a producer-side revision loop.
+    evidence_gaps.append(
+        {
+            "code": "GEOMAGNETIC_INDICES_UNAVAILABLE",
+            "effect": "No eligible aa/Ap/Kp time series is registered; the geomagnetic-precursor hypothesis is not testable in this run.",
+        }
+    )
 
     classification_ready = not evidence_gaps
     activity_below_observed_peaks = all(
@@ -2489,6 +2500,99 @@ def reproduce_silso_cycle_extrema(
 
 
 @tool(parse_docstring=True)
+def run_silso_cycle_morphology(
+    monthly_total_path: str,
+    smoothed_path: str,
+    official_extrema_path: str,
+    config: RunnableConfig = None,
+) -> str:
+    """Run the registered SILSO v2.0 cycles 1--24 morphology experiment.
+
+    The tool writes the three requested outputs under the task workspace and
+    never downloads data or uses polar-field/F10.7 inputs.
+
+    Args:
+        monthly_total_path: Eligible SILSO v2.0 monthly-total path.
+        smoothed_path: Eligible SILSO v2.0 13-month-smoothed path.
+        official_extrema_path: Eligible official cycle extrema/boundary path.
+        config: Runtime-injected task workspace configuration.
+
+    Returns:
+        Structured result with output paths, 24-row count, and fixed bootstrap settings.
+    """
+    try:
+        from jw.research_protocols import SILSO_CYCLE_MORPHOLOGY_PROTOCOL
+
+        monthly_total, monthly_record = _resolve_eligible_dataset_path(
+            monthly_total_path, "silso-monthly-total-v2", config
+        )
+        smoothed, smoothed_record = _resolve_eligible_dataset_path(
+            smoothed_path, "silso-monthly-smoothed-v2", config
+        )
+        extrema, extrema_record = _resolve_eligible_dataset_path(
+            official_extrema_path, "silso-cycle-extrema-v2", config
+        )
+        script_path = (
+            Path(__file__).resolve().parent.parent
+            / "subagents" / "solar" / "skills" / "solar-cycle" / "scripts"
+            / "run_cycle_morphology_experiment.py"
+        )
+        implementation = runpy.run_path(str(script_path))
+        root = workspace_root_from_config(config)
+        result = implementation["run"](
+            monthly_total, smoothed, extrema, root / "outputs"
+        )
+        workspace_resolved = root.resolve()
+
+        def relative_output_path(path: str) -> str:
+            candidate = Path(path).resolve()
+            if not candidate.is_relative_to(workspace_resolved):
+                raise RuntimeError(
+                    "morphology adapter returned an output outside the task workspace"
+                )
+            return candidate.relative_to(workspace_resolved).as_posix()
+
+        outputs = [
+            {
+                "path": relative_output_path(path),
+                "sha256": _file_sha256(Path(path)),
+            }
+            for path in result["outputs"]
+        ]
+        receipt = {
+            "schema_version": "solar-cycle-morphology-receipt-v1",
+            "receipt_type": "silso_cycle_morphology",
+            "status": "verified",
+            "analysis_protocol": SILSO_CYCLE_MORPHOLOGY_PROTOCOL,
+            "producer": "solar-data",
+            "task_id": _validated_task_metadata(config)[1],
+            "cycle_numbers": list(range(1, 25)),
+            "row_count": result["rows"],
+            "bootstrap_seed": 20260826,
+            "bootstrap_repetitions": 10000,
+            "inputs": [
+                {"dataset_id": record["dataset_id"], "path": record["path"], "sha256": record["sha256"]}
+                for record in (monthly_record, smoothed_record, extrema_record)
+            ],
+            "outputs": outputs,
+            "created_at": datetime.now(UTC).isoformat(),
+        }
+        receipt_path = root / "receipts" / "datasets" / "silso_cycle_morphology.json"
+        _atomic_write_json(receipt_path, receipt)
+        return _to_json({
+            "status": "verified",
+            "analysis_protocol": SILSO_CYCLE_MORPHOLOGY_PROTOCOL,
+            "row_count": result["rows"],
+            "artifact_refs": [item["path"] for item in outputs],
+            "receipt_refs": ["receipts/datasets/silso_cycle_morphology.json"],
+            "bootstrap_seed": 20260826,
+            "bootstrap_repetitions": 10000,
+        })
+    except Exception as exc:
+        return _error_json("run_silso_cycle_morphology", exc)
+
+
+@tool(parse_docstring=True)
 def bind_f107_dataset_semantics(
     csv_path: str,
     silso_total_path: str = "",
@@ -2572,6 +2676,7 @@ SOLAR_FEATURE_TOOLS = [
     prepare_solar_cycle_26_readiness,
     prepare_solar_precursor_cycle_table,
     reproduce_silso_cycle_extrema,
+    run_silso_cycle_morphology,
     bind_f107_dataset_semantics,
 ]
 
