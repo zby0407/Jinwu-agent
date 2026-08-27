@@ -13,23 +13,50 @@ from typing import Dict, Any
 
 # Okabe-Ito colorblind-friendly palette
 OKABE_ITO_COLORS = [
-    '#E69F00',  # Orange
-    '#56B4E9',  # Sky Blue
-    '#009E73',  # Bluish Green
-    '#F0E442',  # Yellow
-    '#0072B2',  # Blue
-    '#D55E00',  # Vermillion
-    '#CC79A7',  # Reddish Purple
-    '#000000'   # Black
+    "#E69F00",  # Orange
+    "#56B4E9",  # Sky Blue
+    "#009E73",  # Bluish Green
+    "#F0E442",  # Yellow
+    "#0072B2",  # Blue
+    "#D55E00",  # Vermillion
+    "#CC79A7",  # Reddish Purple
+    "#000000",  # Black
 ]
 
 # Paul Tol palettes
-TOL_BRIGHT = ['#4477AA', '#EE6677', '#228833', '#CCBB44', '#66CCEE', '#AA3377', '#BBBBBB']
-TOL_MUTED = ['#332288', '#88CCEE', '#44AA99', '#117733', '#999933', '#DDCC77', '#CC6677', '#882255', '#AA4499']
-TOL_HIGH_CONTRAST = ['#004488', '#DDAA33', '#BB5566']
+TOL_BRIGHT = [
+    "#4477AA",
+    "#EE6677",
+    "#228833",
+    "#CCBB44",
+    "#66CCEE",
+    "#AA3377",
+    "#BBBBBB",
+]
+TOL_MUTED = [
+    "#332288",
+    "#88CCEE",
+    "#44AA99",
+    "#117733",
+    "#999933",
+    "#DDCC77",
+    "#CC6677",
+    "#882255",
+    "#AA4499",
+]
+TOL_HIGH_CONTRAST = ["#004488", "#DDAA33", "#BB5566"]
 
 # Wong palette
-WONG_COLORS = ['#000000', '#E69F00', '#56B4E9', '#009E73', '#F0E442', '#0072B2', '#D55E00', '#CC79A7']
+WONG_COLORS = [
+    "#000000",
+    "#E69F00",
+    "#56B4E9",
+    "#009E73",
+    "#F0E442",
+    "#0072B2",
+    "#D55E00",
+    "#CC79A7",
+]
 
 
 def get_base_style() -> Dict[str, Any]:
@@ -43,72 +70,64 @@ def get_base_style() -> Dict[str, Any]:
     """
     return {
         # Figure
-        'figure.dpi': 100,  # Display DPI (changed on save)
-        'figure.facecolor': 'white',
-        'figure.autolayout': False,
-        'figure.constrained_layout.use': True,
-
+        "figure.dpi": 100,  # Display DPI (changed on save)
+        "figure.facecolor": "white",
+        "figure.autolayout": False,
+        "figure.constrained_layout.use": True,
         # Font
-        'font.size': 8,
-        'font.family': 'sans-serif',
-        'font.sans-serif': ['Arial', 'Helvetica', 'DejaVu Sans'],
-
+        "font.size": 8,
+        "font.family": "sans-serif",
+        "font.sans-serif": ["Arial", "Helvetica", "DejaVu Sans"],
         # Axes
-        'axes.linewidth': 0.5,
-        'axes.labelsize': 9,
-        'axes.titlesize': 9,
-        'axes.labelweight': 'normal',
-        'axes.spines.top': False,
-        'axes.spines.right': False,
-        'axes.spines.left': True,
-        'axes.spines.bottom': True,
-        'axes.edgecolor': 'black',
-        'axes.labelcolor': 'black',
-        'axes.axisbelow': True,
-        'axes.prop_cycle': mpl.cycler(color=OKABE_ITO_COLORS),
-
+        "axes.linewidth": 0.5,
+        "axes.labelsize": 9,
+        "axes.titlesize": 9,
+        "axes.labelweight": "normal",
+        "axes.spines.top": False,
+        "axes.spines.right": False,
+        "axes.spines.left": True,
+        "axes.spines.bottom": True,
+        "axes.edgecolor": "black",
+        "axes.labelcolor": "black",
+        "axes.axisbelow": True,
+        "axes.prop_cycle": mpl.cycler(color=OKABE_ITO_COLORS),
         # Grid
-        'axes.grid': False,
-
+        "axes.grid": False,
         # Ticks
-        'xtick.major.size': 3,
-        'xtick.minor.size': 2,
-        'xtick.major.width': 0.5,
-        'xtick.minor.width': 0.5,
-        'xtick.labelsize': 7,
-        'xtick.direction': 'out',
-        'ytick.major.size': 3,
-        'ytick.minor.size': 2,
-        'ytick.major.width': 0.5,
-        'ytick.minor.width': 0.5,
-        'ytick.labelsize': 7,
-        'ytick.direction': 'out',
-
+        "xtick.major.size": 3,
+        "xtick.minor.size": 2,
+        "xtick.major.width": 0.5,
+        "xtick.minor.width": 0.5,
+        "xtick.labelsize": 7,
+        "xtick.direction": "out",
+        "ytick.major.size": 3,
+        "ytick.minor.size": 2,
+        "ytick.major.width": 0.5,
+        "ytick.minor.width": 0.5,
+        "ytick.labelsize": 7,
+        "ytick.direction": "out",
         # Lines
-        'lines.linewidth': 1.5,
-        'lines.markersize': 4,
-        'lines.markeredgewidth': 0.5,
-
+        "lines.linewidth": 1.5,
+        "lines.markersize": 4,
+        "lines.markeredgewidth": 0.5,
         # Legend
-        'legend.fontsize': 7,
-        'legend.frameon': False,
-        'legend.loc': 'best',
-
+        "legend.fontsize": 7,
+        "legend.frameon": False,
+        "legend.loc": "best",
         # Savefig
-        'savefig.dpi': 300,
-        'savefig.format': 'pdf',
-        'savefig.bbox': 'tight',
-        'savefig.pad_inches': 0.05,
-        'savefig.transparent': False,
-        'savefig.facecolor': 'white',
-
+        "savefig.dpi": 300,
+        "savefig.format": "pdf",
+        "savefig.bbox": "tight",
+        "savefig.pad_inches": 0.05,
+        "savefig.transparent": False,
+        "savefig.facecolor": "white",
         # Image
-        'image.cmap': 'viridis',
-        'image.aspect': 'auto',
+        "image.cmap": "viridis",
+        "image.aspect": "auto",
     }
 
 
-def apply_publication_style(style_name: str = 'default') -> None:
+def apply_publication_style(style_name: str = "default") -> None:
     """
     Apply a pre-configured publication style.
 
@@ -132,59 +151,69 @@ def apply_publication_style(style_name: str = 'default') -> None:
     base_style = get_base_style()
 
     # Style-specific modifications
-    if style_name == 'nature':
-        base_style.update({
-            'font.size': 7,
-            'axes.labelsize': 8,
-            'axes.titlesize': 8,
-            'xtick.labelsize': 6,
-            'ytick.labelsize': 6,
-            'legend.fontsize': 6,
-            'savefig.dpi': 600,
-        })
+    if style_name == "nature":
+        base_style.update(
+            {
+                "font.size": 7,
+                "axes.labelsize": 8,
+                "axes.titlesize": 8,
+                "xtick.labelsize": 6,
+                "ytick.labelsize": 6,
+                "legend.fontsize": 6,
+                "savefig.dpi": 600,
+            }
+        )
 
-    elif style_name == 'science':
-        base_style.update({
-            'font.size': 7,
-            'axes.labelsize': 8,
-            'xtick.labelsize': 6,
-            'ytick.labelsize': 6,
-            'legend.fontsize': 6,
-            'savefig.dpi': 600,
-        })
+    elif style_name == "science":
+        base_style.update(
+            {
+                "font.size": 7,
+                "axes.labelsize": 8,
+                "xtick.labelsize": 6,
+                "ytick.labelsize": 6,
+                "legend.fontsize": 6,
+                "savefig.dpi": 600,
+            }
+        )
 
-    elif style_name == 'cell':
-        base_style.update({
-            'font.size': 8,
-            'axes.labelsize': 9,
-            'xtick.labelsize': 7,
-            'ytick.labelsize': 7,
-            'legend.fontsize': 7,
-            'savefig.dpi': 600,
-        })
+    elif style_name == "cell":
+        base_style.update(
+            {
+                "font.size": 8,
+                "axes.labelsize": 9,
+                "xtick.labelsize": 7,
+                "ytick.labelsize": 7,
+                "legend.fontsize": 7,
+                "savefig.dpi": 600,
+            }
+        )
 
-    elif style_name == 'minimal':
-        base_style.update({
-            'axes.linewidth': 0.8,
-            'xtick.major.width': 0.8,
-            'ytick.major.width': 0.8,
-            'lines.linewidth': 2,
-        })
+    elif style_name == "minimal":
+        base_style.update(
+            {
+                "axes.linewidth": 0.8,
+                "xtick.major.width": 0.8,
+                "ytick.major.width": 0.8,
+                "lines.linewidth": 2,
+            }
+        )
 
-    elif style_name == 'presentation':
-        base_style.update({
-            'font.size': 14,
-            'axes.labelsize': 16,
-            'axes.titlesize': 18,
-            'xtick.labelsize': 12,
-            'ytick.labelsize': 12,
-            'legend.fontsize': 12,
-            'axes.linewidth': 1.5,
-            'lines.linewidth': 2.5,
-            'lines.markersize': 8,
-        })
+    elif style_name == "presentation":
+        base_style.update(
+            {
+                "font.size": 14,
+                "axes.labelsize": 16,
+                "axes.titlesize": 18,
+                "xtick.labelsize": 12,
+                "ytick.labelsize": 12,
+                "legend.fontsize": 12,
+                "axes.linewidth": 1.5,
+                "lines.linewidth": 2.5,
+                "lines.markersize": 8,
+            }
+        )
 
-    elif style_name != 'default':
+    elif style_name != "default":
         print(f"Warning: Style '{style_name}' not recognized. Using 'default'.")
 
     # Apply the style
@@ -192,7 +221,7 @@ def apply_publication_style(style_name: str = 'default') -> None:
     print(f"✓ Applied '{style_name}' publication style")
 
 
-def set_color_palette(palette_name: str = 'okabe_ito') -> None:
+def set_color_palette(palette_name: str = "okabe_ito") -> None:
     """
     Set a colorblind-friendly color palette.
 
@@ -214,24 +243,24 @@ def set_color_palette(palette_name: str = 'okabe_ito') -> None:
     ...     ax.plot([1, 2, 3], [i, i+1, i+2])
     """
     palettes = {
-        'okabe_ito': OKABE_ITO_COLORS,
-        'wong': WONG_COLORS,
-        'tol_bright': TOL_BRIGHT,
-        'tol_muted': TOL_MUTED,
-        'tol_high_contrast': TOL_HIGH_CONTRAST,
+        "okabe_ito": OKABE_ITO_COLORS,
+        "wong": WONG_COLORS,
+        "tol_bright": TOL_BRIGHT,
+        "tol_muted": TOL_MUTED,
+        "tol_high_contrast": TOL_HIGH_CONTRAST,
     }
 
     if palette_name not in palettes:
-        available = ', '.join(palettes.keys())
+        available = ", ".join(palettes.keys())
         print(f"Warning: Palette '{palette_name}' not found. Available: {available}")
-        palette_name = 'okabe_ito'
+        palette_name = "okabe_ito"
 
     colors = palettes[palette_name]
-    plt.rcParams['axes.prop_cycle'] = plt.cycler(color=colors)
+    plt.rcParams["axes.prop_cycle"] = plt.cycler(color=colors)
     print(f"✓ Applied '{palette_name}' color palette ({len(colors)} colors)")
 
 
-def configure_for_journal(journal: str, figure_width: str = 'single') -> None:
+def configure_for_journal(journal: str, figure_width: str = "single") -> None:
     """
     Configure matplotlib for a specific journal.
 
@@ -251,56 +280,61 @@ def configure_for_journal(journal: str, figure_width: str = 'single') -> None:
 
     # Journal specifications
     journal_configs = {
-        'nature': {
-            'single_width': 89,  # mm
-            'double_width': 183,
-            'style': 'nature',
+        "nature": {
+            "single_width": 89,  # mm
+            "double_width": 183,
+            "style": "nature",
         },
-        'science': {
-            'single_width': 55,
-            'double_width': 175,
-            'style': 'science',
+        "science": {
+            "single_width": 55,
+            "double_width": 175,
+            "style": "science",
         },
-        'cell': {
-            'single_width': 85,
-            'double_width': 178,
-            'style': 'cell',
+        "cell": {
+            "single_width": 85,
+            "double_width": 178,
+            "style": "cell",
         },
-        'plos': {
-            'single_width': 83,
-            'double_width': 173,
-            'style': 'default',
+        "plos": {
+            "single_width": 83,
+            "double_width": 173,
+            "style": "default",
         },
-        'acs': {
-            'single_width': 82.5,
-            'double_width': 178,
-            'style': 'default',
+        "acs": {
+            "single_width": 82.5,
+            "double_width": 178,
+            "style": "default",
         },
-        'ieee': {
-            'single_width': 89,
-            'double_width': 182,
-            'style': 'default',
+        "ieee": {
+            "single_width": 89,
+            "double_width": 182,
+            "style": "default",
         },
     }
 
     if journal not in journal_configs:
-        available = ', '.join(journal_configs.keys())
+        available = ", ".join(journal_configs.keys())
         raise ValueError(f"Journal '{journal}' not recognized. Available: {available}")
 
     config = journal_configs[journal]
 
     # Apply style
-    apply_publication_style(config['style'])
+    apply_publication_style(config["style"])
 
     # Set default figure size
-    width_mm = config['single_width'] if figure_width == 'single' else config['double_width']
+    width_mm = (
+        config["single_width"] if figure_width == "single" else config["double_width"]
+    )
     width_inches = width_mm / 25.4
-    plt.rcParams['figure.figsize'] = (width_inches, width_inches * 0.75)  # 4:3 aspect ratio
+    plt.rcParams["figure.figsize"] = (
+        width_inches,
+        width_inches * 0.75,
+    )  # 4:3 aspect ratio
 
     print(f"✓ Configured for {journal.upper()} ({figure_width} column: {width_mm} mm)")
 
 
-def create_style_template(output_file: str = 'publication.mplstyle') -> None:
+def create_style_template(output_file: str = "publication.mplstyle") -> None:
     """
     Create a matplotlib style file that can be used with plt.style.use().
 
@@ -316,14 +350,14 @@ def create_style_template(output_file: str = 'publication.mplstyle') -> None:
     """
     style = get_base_style()
 
-    with open(output_file, 'w') as f:
+    with open(output_file, "w") as f:
         f.write("# Publication-quality matplotlib style\n")
         f.write("# Usage: plt.style.use('publication.mplstyle')\n\n")
 
         for key, value in style.items():
             if isinstance(value, mpl.cycler):
                 # Handle cycler specially
-                colors = [c['color'] for c in value]
+                colors = [c["color"] for c in value]
                 f.write(f"axes.prop_cycle : cycler('color', {colors})\n")
             else:
                 f.write(f"{key} : {value}\n")
@@ -337,11 +371,11 @@ def show_color_palettes() -> None:
     Display available color palettes for visual inspection.
     """
     palettes = {
-        'Okabe-Ito': OKABE_ITO_COLORS,
-        'Wong': WONG_COLORS,
-        'Tol Bright': TOL_BRIGHT,
-        'Tol Muted': TOL_MUTED,
-        'Tol High Contrast': TOL_HIGH_CONTRAST,
+        "Okabe-Ito": OKABE_ITO_COLORS,
+        "Wong": WONG_COLORS,
+        "Tol Bright": TOL_BRIGHT,
+        "Tol Muted": TOL_MUTED,
+        "Tol High Contrast": TOL_HIGH_CONTRAST,
     }
 
     fig, axes = plt.subplots(len(palettes), 1, figsize=(8, len(palettes) * 0.5))
@@ -354,12 +388,23 @@ def show_color_palettes() -> None:
         ax.set_ylabel(name, fontsize=10)
 
         for i, color in enumerate(colors):
-            ax.add_patch(plt.Rectangle((i, 0), 1, 1, facecolor=color, edgecolor='black', linewidth=0.5))
+            ax.add_patch(
+                plt.Rectangle(
+                    (i, 0), 1, 1, facecolor=color, edgecolor="black", linewidth=0.5
+                )
+            )
             # Add hex code
-            ax.text(i + 0.5, 0.5, color, ha='center', va='center',
-                   fontsize=7, color='white' if i >= len(colors) - 1 else 'black')
+            ax.text(
+                i + 0.5,
+                0.5,
+                color,
+                ha="center",
+                va="center",
+                fontsize=7,
+                color="white" if i >= len(colors) - 1 else "black",
+            )
 
-    fig.suptitle('Colorblind-Friendly Palettes', fontsize=12, fontweight='bold')
+    fig.suptitle("Colorblind-Friendly Palettes", fontsize=12, fontweight="bold")
     plt.tight_layout()
     plt.show()
 
@@ -399,15 +444,20 @@ if __name__ == "__main__":
 
     # Create example figure
     print("\nGenerating example figure with 'default' style...")
-    apply_publication_style('default')
+    apply_publication_style("default")
 
     fig, ax = plt.subplots(figsize=(3.5, 2.5))
     for i in range(5):
-        ax.plot([1, 2, 3, 4], [i, i+1, i+0.5, i+2], marker='o', label=f'Series {i+1}')
-    ax.set_xlabel('Time (hours)')
-    ax.set_ylabel('Response (AU)')
+        ax.plot(
+            [1, 2, 3, 4],
+            [i, i + 1, i + 0.5, i + 2],
+            marker="o",
+            label=f"Series {i + 1}",
+        )
+    ax.set_xlabel("Time (hours)")
+    ax.set_ylabel("Response (AU)")
     ax.legend()
-    fig.suptitle('Example with Publication Style')
+    fig.suptitle("Example with Publication Style")
     plt.tight_layout()
     plt.show()
 

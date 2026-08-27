@@ -25,12 +25,20 @@ def figure_rows(count: int) -> str:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Create a math-modeling figure gate record.")
-    parser.add_argument("--project-root", required=True, type=Path, help="Contest project root")
+    parser = argparse.ArgumentParser(
+        description="Create a math-modeling figure gate record."
+    )
+    parser.add_argument(
+        "--project-root", required=True, type=Path, help="Contest project root"
+    )
     parser.add_argument("--project", default="", help="Project display name")
     parser.add_argument("--paper", default="", help="Current paper source or PDF path")
-    parser.add_argument("--date", default=datetime.now().strftime("%Y%m%d"), help="Date label")
-    parser.add_argument("--figure-count", type=int, default=0, help="Pre-create rows for N figures")
+    parser.add_argument(
+        "--date", default=datetime.now().strftime("%Y%m%d"), help="Date label"
+    )
+    parser.add_argument(
+        "--figure-count", type=int, default=0, help="Pre-create rows for N figures"
+    )
     parser.add_argument("--output", type=Path, help="Output markdown path")
     args = parser.parse_args()
 

@@ -19,9 +19,15 @@ from scipy.stats import pearsonr, spearmanr
 BOOTSTRAP_SEED = 20260826
 BOOTSTRAP_REPS = 10_000
 FIELDS = [
-    "cycle_number", "minimum_date", "maximum_date", "next_minimum_date",
-    "cycle_length_years", "rise_time_years", "decline_time_years",
-    "peak_smoothed_sunspot_number", "observation_period_group",
+    "cycle_number",
+    "minimum_date",
+    "maximum_date",
+    "next_minimum_date",
+    "cycle_length_years",
+    "rise_time_years",
+    "decline_time_years",
+    "peak_smoothed_sunspot_number",
+    "observation_period_group",
     "data_quality_note",
 ]
 
@@ -37,7 +43,9 @@ def _parse_extrema(path: Path) -> dict[int, dict[str, Any]]:
             "minimum_date": f"{int(fields[1]):04d}-{int(fields[2]):02d}",
             "minimum_sn": float(fields[3]),
             "maximum_date": (
-                f"{int(fields[4]):04d}-{int(fields[5]):02d}" if len(fields) >= 7 else None
+                f"{int(fields[4]):04d}-{int(fields[5]):02d}"
+                if len(fields) >= 7
+                else None
             ),
             "peak": float(fields[6]) if len(fields) >= 7 else None,
         }
@@ -50,11 +58,7 @@ def _parse_smoothed(path: Path) -> dict[str, float]:
     rows: dict[str, float] = {}
     for line in path.read_text(encoding="utf-8").splitlines():
         fields = [field.strip() for field in line.split(";")]
-        if (
-            len(fields) < 4
-            or not fields[0].isdigit()
-            or not fields[1].isdigit()
-        ):
+        if len(fields) < 4 or not fields[0].isdigit() or not fields[1].isdigit():
             continue
         value = float(fields[3])
         if value < 0:
@@ -71,15 +75,27 @@ def _month_index(value: str) -> int:
 def _stats(x: np.ndarray, y: np.ndarray) -> dict[str, Any]:
     n = int(len(x))
     if n < 3:
-        return {"n": n, "pearson_r": None, "pearson_p": None,
-                "spearman_rho": None, "spearman_p": None}
+        return {
+            "n": n,
+            "pearson_r": None,
+            "pearson_p": None,
+            "spearman_rho": None,
+            "spearman_p": None,
+        }
     pr = pearsonr(x, y)
     sr = spearmanr(x, y)
-    return {"n": n, "pearson_r": float(pr.statistic), "pearson_p": float(pr.pvalue),
-            "spearman_rho": float(sr.statistic), "spearman_p": float(sr.pvalue)}
+    return {
+        "n": n,
+        "pearson_r": float(pr.statistic),
+        "pearson_p": float(pr.pvalue),
+        "spearman_rho": float(sr.statistic),
+        "spearman_p": float(sr.pvalue),
+    }
 
 
-def _bootstrap(x: np.ndarray, y: np.ndarray, seed: int = BOOTSTRAP_SEED) -> dict[str, Any]:
+def _bootstrap(
+    x: np.ndarray, y: np.ndarray, seed: int = BOOTSTRAP_SEED
+) -> dict[str, Any]:
     rng = np.random.default_rng(seed)
     pearson_values: list[float] = []
     spearman_values: list[float] = []
@@ -98,14 +114,22 @@ def _bootstrap(x: np.ndarray, y: np.ndarray, seed: int = BOOTSTRAP_SEED) -> dict
         "seed": seed,
         "requested_repetitions": BOOTSTRAP_REPS,
         "effective_repetitions": len(pearson_values),
-        "pearson_ci95": [float(np.quantile(pearson_values, .025)), float(np.quantile(pearson_values, .975))],
-        "spearman_ci95": [float(np.quantile(spearman_values, .025)), float(np.quantile(spearman_values, .975))],
+        "pearson_ci95": [
+            float(np.quantile(pearson_values, 0.025)),
+            float(np.quantile(pearson_values, 0.975)),
+        ],
+        "spearman_ci95": [
+            float(np.quantile(spearman_values, 0.025)),
+            float(np.quantile(spearman_values, 0.975)),
+        ],
     }
 
 
 def _relationship(rows: list[dict[str, Any]], x_key: str) -> dict[str, Any]:
     x = np.asarray([float(row[x_key]) for row in rows], dtype=float)
-    y = np.asarray([float(row["peak_smoothed_sunspot_number"]) for row in rows], dtype=float)
+    y = np.asarray(
+        [float(row["peak_smoothed_sunspot_number"]) for row in rows], dtype=float
+    )
     result = _stats(x, y)
     result["bootstrap"] = _bootstrap(x, y)
     loo = []
@@ -115,9 +139,15 @@ def _relationship(rows: list[dict[str, Any]], x_key: str) -> dict[str, Any]:
         loo.append(item)
     full_r = result.get("pearson_r")
     full_rho = result.get("spearman_rho")
+
     def influence(item: dict[str, Any]) -> float:
-        values = [abs(float(item[key]) - float(base)) for key, base in (("pearson_r", full_r), ("spearman_rho", full_rho)) if item.get(key) is not None and base is not None]
+        values = [
+            abs(float(item[key]) - float(base))
+            for key, base in (("pearson_r", full_r), ("spearman_rho", full_rho))
+            if item.get(key) is not None and base is not None
+        ]
         return max(values, default=-math.inf)
+
     result["leave_one_out"] = loo
     result["most_influential_removed_cycle"] = max(loo, key=influence)["removed_cycle"]
     result["most_influential_pearson_cycle"] = max(
@@ -164,18 +194,23 @@ def build_rows(extrema_path: Path, smoothed_path: Path) -> list[dict[str, Any]]:
                 f"13-month series value {series_peak:.1f}; the declared variable "
                 "definition uses the series value."
             )
-        rows.append({
-            "cycle_number": cycle,
-            "minimum_date": minimum,
-            "maximum_date": maximum,
-            "next_minimum_date": next_min,
-            "cycle_length_years": (_month_index(next_min) - _month_index(minimum)) / 12.0,
-            "rise_time_years": (_month_index(maximum) - _month_index(minimum)) / 12.0,
-            "decline_time_years": (_month_index(next_min) - _month_index(maximum)) / 12.0,
-            "peak_smoothed_sunspot_number": series_peak,
-            "observation_period_group": "early" if cycle <= 12 else "modern",
-            "data_quality_note": " ".join(notes),
-        })
+        rows.append(
+            {
+                "cycle_number": cycle,
+                "minimum_date": minimum,
+                "maximum_date": maximum,
+                "next_minimum_date": next_min,
+                "cycle_length_years": (_month_index(next_min) - _month_index(minimum))
+                / 12.0,
+                "rise_time_years": (_month_index(maximum) - _month_index(minimum))
+                / 12.0,
+                "decline_time_years": (_month_index(next_min) - _month_index(maximum))
+                / 12.0,
+                "peak_smoothed_sunspot_number": series_peak,
+                "observation_period_group": "early" if cycle <= 12 else "modern",
+                "data_quality_note": " ".join(notes),
+            }
+        )
     return rows
 
 
@@ -191,10 +226,15 @@ def _fmt_p(value: Any) -> str:
 
 
 def _stats_table(results: dict[str, dict[str, Any]]) -> str:
-    lines = ["| Relation | n | Pearson r (two-sided p) | Spearman rho (two-sided p) | Pearson 95% bootstrap | Spearman 95% bootstrap | Valid bootstrap |", "|---|---:|---:|---:|---|---|---:|"]
+    lines = [
+        "| Relation | n | Pearson r (two-sided p) | Spearman rho (two-sided p) | Pearson 95% bootstrap | Spearman 95% bootstrap | Valid bootstrap |",
+        "|---|---:|---:|---:|---|---|---:|",
+    ]
     for name, item in results.items():
         boot = item["bootstrap"]
-        lines.append(f"| {name} | {item['n']} | {_fmt(item['pearson_r'])} ({_fmt_p(item['pearson_p'])}) | {_fmt(item['spearman_rho'])} ({_fmt_p(item['spearman_p'])}) | [{boot['pearson_ci95'][0]:.4f}, {boot['pearson_ci95'][1]:.4f}] | [{boot['spearman_ci95'][0]:.4f}, {boot['spearman_ci95'][1]:.4f}] | {boot['effective_repetitions']}/{boot['requested_repetitions']} |")
+        lines.append(
+            f"| {name} | {item['n']} | {_fmt(item['pearson_r'])} ({_fmt_p(item['pearson_p'])}) | {_fmt(item['spearman_rho'])} ({_fmt_p(item['spearman_p'])}) | [{boot['pearson_ci95'][0]:.4f}, {boot['pearson_ci95'][1]:.4f}] | [{boot['spearman_ci95'][0]:.4f}, {boot['spearman_ci95'][1]:.4f}] | {boot['effective_repetitions']}/{boot['requested_repetitions']} |"
+        )
     return "\n".join(lines)
 
 
@@ -243,12 +283,20 @@ def _result_interpretation(
     ]
 
 
-def write_outputs(rows: list[dict[str, Any]], output_dir: Path, *, monthly_total: Path, smoothed: Path, extrema: Path) -> dict[str, Any]:
+def write_outputs(
+    rows: list[dict[str, Any]],
+    output_dir: Path,
+    *,
+    monthly_total: Path,
+    smoothed: Path,
+    extrema: Path,
+) -> dict[str, Any]:
     output_dir.mkdir(parents=True, exist_ok=True)
     csv_path = output_dir / "cycle_morphology_table.csv"
     with csv_path.open("w", encoding="utf-8", newline="") as handle:
         writer = csv.DictWriter(handle, fieldnames=FIELDS)
-        writer.writeheader(); writer.writerows(rows)
+        writer.writeheader()
+        writer.writerows(rows)
 
     relations = {
         "cycle length vs peak strength": _relationship(rows, "cycle_length_years"),
@@ -258,7 +306,14 @@ def write_outputs(rows: list[dict[str, Any]], output_dir: Path, *, monthly_total
     subgroup = {}
     for group in ("early", "modern"):
         selected = [row for row in rows if row["observation_period_group"] == group]
-        subgroup[group] = {name: _relationship(selected, key) for name, key in (("cycle length", "cycle_length_years"), ("rise time", "rise_time_years"), ("decline time", "decline_time_years"))}
+        subgroup[group] = {
+            name: _relationship(selected, key)
+            for name, key in (
+                ("cycle length", "cycle_length_years"),
+                ("rise time", "rise_time_years"),
+                ("decline time", "decline_time_years"),
+            )
+        }
 
     report = [
         "# SILSO 太阳活动周形态—峰值强度统计实验",
@@ -279,40 +334,68 @@ def write_outputs(rows: list[dict[str, Any]], output_dir: Path, *, monthly_total
         "",
         "## 3. 完整逐周期分析表",
         "",
-        "| " + " | ".join(FIELDS) + " |", "|" + "|".join(["---"] * len(FIELDS)) + "|",
+        "| " + " | ".join(FIELDS) + " |",
+        "|" + "|".join(["---"] * len(FIELDS)) + "|",
     ]
-    report += ["| " + " | ".join(str(row[field]) for field in FIELDS) + " |" for row in rows]
-    report += ["", "## 4. 三组关系、p 值与 bootstrap 区间", "", f"Pearson 与 Spearman 均报告双侧 p 值。Bootstrap 以完整活动周为重采样单位，固定随机种子 `{BOOTSTRAP_SEED}`，请求重复 `{BOOTSTRAP_REPS}` 次；表中同时列出排除常量重采样后的实际有效次数。", "", _stats_table(relations), "", "## 5. 逐周期留一敏感性分析", ""]
+    report += [
+        "| " + " | ".join(str(row[field]) for field in FIELDS) + " |" for row in rows
+    ]
+    report += [
+        "",
+        "## 4. 三组关系、p 值与 bootstrap 区间",
+        "",
+        f"Pearson 与 Spearman 均报告双侧 p 值。Bootstrap 以完整活动周为重采样单位，固定随机种子 `{BOOTSTRAP_SEED}`，请求重复 `{BOOTSTRAP_REPS}` 次；表中同时列出排除常量重采样后的实际有效次数。",
+        "",
+        _stats_table(relations),
+        "",
+        "## 5. 逐周期留一敏感性分析",
+        "",
+    ]
     for name, item in relations.items():
         report.append(
             f"### {name}（Pearson 影响最大：周期 {item['most_influential_pearson_cycle']}；"
             f"Spearman 影响最大：周期 {item['most_influential_spearman_cycle']}）"
         )
         report.append("")
-        report.append("| 删除周期 | Pearson r | Spearman rho | n |\n|---:|---:|---:|---:|")
-        report.extend(f"| {x['removed_cycle']} | {_fmt(x['pearson_r'])} | {_fmt(x['spearman_rho'])} | {x['n']} |" for x in item["leave_one_out"])
+        report.append(
+            "| 删除周期 | Pearson r | Spearman rho | n |\n|---:|---:|---:|---:|"
+        )
+        report.extend(
+            f"| {x['removed_cycle']} | {_fmt(x['pearson_r'])} | {_fmt(x['spearman_rho'])} | {x['n']} |"
+            for x in item["leave_one_out"]
+        )
         report.append("")
-    report += ["## 6. 早期与较现代时期比较", "", "分组边界预先固定，未按统计结果调整；各组 n=12，因此区间宽度与检验功效均需谨慎解释。", ""]
+    report += [
+        "## 6. 早期与较现代时期比较",
+        "",
+        "分组边界预先固定，未按统计结果调整；各组 n=12，因此区间宽度与检验功效均需谨慎解释。",
+        "",
+    ]
     for group, values in subgroup.items():
         report.append(f"### {group}（n=12）")
         report.append("")
         report.append(_stats_table(values))
         report.append("")
     report += [
-        "## 7. 图表说明", "",
+        "## 7. 图表说明",
+        "",
         "`cycle_morphology_relationships.png` 含周期长度、上升时间、下降时间与峰值强度的三个散点图。每个点标注周期编号，颜色区分固定的早期/较现代组，黑线为全样本线性拟合；图内给出 Pearson r 与双侧 p 值。拟合线仅用于展示统计关系，不代表因果机制。",
         "",
-        "## 8. 主要结论", "",
+        "## 8. 主要结论",
+        "",
         *_result_interpretation(relations, subgroup),
         "",
-        "### 结论置信度分层", "",
-        "| 结论 | 置信度 | 依据 |", "|---|---|---|",
+        "### 结论置信度分层",
+        "",
+        "| 结论 | 置信度 | 依据 |",
+        "|---|---|---|",
         "| 数据范围、日期边界与 24 行周期表 | 高 | 注册 SILSO v2.0 输入、官方边界、逐日期交叉核对与确定性行数检查 |",
         "| 上升时间与峰值强度的历史负相关 | 中高 | Pearson/Spearman、双侧 p 值、bootstrap、留一和分时期方向总体一致 |",
         "| 周期长度与峰值强度的稳定关系 | 低至中 | 点估计为负，但全样本区间跨 0，分组不确定性较大 |",
         "| 下降时间与峰值强度的稳定关系 | 低 | 指标与时期结果不一致 |",
         "",
-        "## 9. 局限性与不可作出的因果推断", "",
+        "## 9. 局限性与不可作出的因果推断",
+        "",
         "样本量仅 24 个完整周期，早期/较现代各 12 个；相邻活动周可能存在序列依赖，早期历史观测质量也较低。Pearson 反映线性关系并可能受个别周期影响，因此与 Spearman、bootstrap 和留一结果联合解释。三组关系及两种相关量未作事后筛选；不显著、不稳定和指标不一致均保留。",
         "",
         "这些结果只说明已结束历史周期中的统计关联。它们不能证明太阳发电机因果机制，不能把第 25 周当作完整样本，也不能用于分析或预测第 26 周。",
@@ -329,14 +412,33 @@ def write_outputs(rows: list[dict[str, Any]], output_dir: Path, *, monthly_total
     peak = np.asarray([row["peak_smoothed_sunspot_number"] for row in rows])
     for ax, (key, label, relation_name) in zip(axes, pairs, strict=True):
         x = np.asarray([row[key] for row in rows])
-        ax.scatter(x, peak, c=["#31688e" if row["observation_period_group"] == "early" else "#d95f02" for row in rows], edgecolor="white", linewidth=.5)
-        for row in rows: ax.annotate(str(row["cycle_number"]), (row[key], row["peak_smoothed_sunspot_number"]), xytext=(3, 3), textcoords="offset points", fontsize=7)
-        slope, intercept = np.polyfit(x, peak, 1); order = np.argsort(x)
+        ax.scatter(
+            x,
+            peak,
+            c=[
+                "#31688e" if row["observation_period_group"] == "early" else "#d95f02"
+                for row in rows
+            ],
+            edgecolor="white",
+            linewidth=0.5,
+        )
+        for row in rows:
+            ax.annotate(
+                str(row["cycle_number"]),
+                (row[key], row["peak_smoothed_sunspot_number"]),
+                xytext=(3, 3),
+                textcoords="offset points",
+                fontsize=7,
+            )
+        slope, intercept = np.polyfit(x, peak, 1)
+        order = np.argsort(x)
         ax.plot(x[order], slope * x[order] + intercept, color="black", linewidth=1)
         # Keep figure labels in the portable DejaVu/Latin subset.  The report
         # remains Chinese, while the PNG must render legibly on judges'
         # machines without a CJK font installed.
-        ax.set_xlabel(label); ax.set_ylabel("Peak smoothed sunspot number"); ax.grid(alpha=.25)
+        ax.set_xlabel(label)
+        ax.set_ylabel("Peak smoothed sunspot number")
+        ax.grid(alpha=0.25)
         item = relations[relation_name]
         ax.text(
             0.03,
@@ -346,33 +448,81 @@ def write_outputs(rows: list[dict[str, Any]], output_dir: Path, *, monthly_total
             ha="left",
             va="top",
             fontsize=8,
-            bbox={"boxstyle": "round,pad=0.25", "facecolor": "white", "alpha": 0.8, "edgecolor": "#bbbbbb"},
+            bbox={
+                "boxstyle": "round,pad=0.25",
+                "facecolor": "white",
+                "alpha": 0.8,
+                "edgecolor": "#bbbbbb",
+            },
         )
     axes[0].legend(
         handles=[
-            Line2D([0], [0], marker="o", color="none", markerfacecolor="#31688e", markeredgecolor="white", label="Early 1–12"),
-            Line2D([0], [0], marker="o", color="none", markerfacecolor="#d95f02", markeredgecolor="white", label="Modern 13–24"),
+            Line2D(
+                [0],
+                [0],
+                marker="o",
+                color="none",
+                markerfacecolor="#31688e",
+                markeredgecolor="white",
+                label="Early 1–12",
+            ),
+            Line2D(
+                [0],
+                [0],
+                marker="o",
+                color="none",
+                markerfacecolor="#d95f02",
+                markeredgecolor="white",
+                label="Modern 13–24",
+            ),
             Line2D([0], [0], color="black", linewidth=1, label="Linear fit"),
         ],
         fontsize=8,
         loc="best",
     )
     fig.suptitle("SILSO cycle morphology vs peak strength (cycles 1–24)")
-    png_path = output_dir / "cycle_morphology_relationships.png"; fig.savefig(png_path, dpi=180); plt.close(fig)
-    return {"rows": len(rows), "relationships": relations, "subgroups": subgroup, "outputs": [str(report_path), str(csv_path), str(png_path)]}
+    png_path = output_dir / "cycle_morphology_relationships.png"
+    fig.savefig(png_path, dpi=180)
+    plt.close(fig)
+    return {
+        "rows": len(rows),
+        "relationships": relations,
+        "subgroups": subgroup,
+        "outputs": [str(report_path), str(csv_path), str(png_path)],
+    }
 
 
-def run(monthly_total: Path, smoothed: Path, extrema: Path, output_dir: Path) -> dict[str, Any]:
+def run(
+    monthly_total: Path, smoothed: Path, extrema: Path, output_dir: Path
+) -> dict[str, Any]:
     if not all(path.is_file() for path in (monthly_total, smoothed, extrema)):
         raise FileNotFoundError("all three registered SILSO inputs are required")
-    return write_outputs(build_rows(extrema, smoothed), output_dir, monthly_total=monthly_total, smoothed=smoothed, extrema=extrema)
+    return write_outputs(
+        build_rows(extrema, smoothed),
+        output_dir,
+        monthly_total=monthly_total,
+        smoothed=smoothed,
+        extrema=extrema,
+    )
 
 
 if __name__ == "__main__":
     import argparse
+
     parser = argparse.ArgumentParser()
     parser.add_argument("--monthly-total", required=True, type=Path)
     parser.add_argument("--smoothed", required=True, type=Path)
     parser.add_argument("--extrema", required=True, type=Path)
     parser.add_argument("--output-dir", required=True, type=Path)
-    print(json.dumps(run(parser.parse_args().monthly_total, parser.parse_args().smoothed, parser.parse_args().extrema, parser.parse_args().output_dir), ensure_ascii=False, indent=2))
+    print(
+        json.dumps(
+            run(
+                parser.parse_args().monthly_total,
+                parser.parse_args().smoothed,
+                parser.parse_args().extrema,
+                parser.parse_args().output_dir,
+            ),
+            ensure_ascii=False,
+            indent=2,
+        )
+    )

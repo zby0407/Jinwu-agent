@@ -14,13 +14,13 @@ from typing import List, Union
 def save_publication_figure(
     fig: plt.Figure,
     filename: Union[str, Path],
-    formats: List[str] = ['pdf', 'png'],
+    formats: List[str] = ["pdf", "png"],
     dpi: int = 300,
     transparent: bool = False,
-    bbox_inches: str = 'tight',
+    bbox_inches: str = "tight",
     pad_inches: float = 0.1,
-    facecolor: str = 'white',
-    **kwargs
+    facecolor: str = "white",
+    **kwargs,
 ) -> List[Path]:
     """
     Save a matplotlib figure in multiple formats with publication-quality settings.
@@ -69,21 +69,23 @@ def save_publication_figure(
 
         # Set format-specific parameters
         save_kwargs = {
-            'dpi': dpi,
-            'bbox_inches': bbox_inches,
-            'pad_inches': pad_inches,
-            'facecolor': facecolor if not transparent else 'none',
-            'edgecolor': 'none',
-            'transparent': transparent,
-            'format': fmt,
+            "dpi": dpi,
+            "bbox_inches": bbox_inches,
+            "pad_inches": pad_inches,
+            "facecolor": facecolor if not transparent else "none",
+            "edgecolor": "none",
+            "transparent": transparent,
+            "format": fmt,
         }
 
         # Update with user-provided kwargs
         save_kwargs.update(kwargs)
 
         # Adjust DPI for vector formats (DPI less relevant)
-        if fmt in ['pdf', 'eps', 'svg']:
-            save_kwargs['dpi'] = min(dpi, 300)  # Lower DPI for embedded rasters in vector
+        if fmt in ["pdf", "eps", "svg"]:
+            save_kwargs["dpi"] = min(
+                dpi, 300
+            )  # Lower DPI for embedded rasters in vector
 
         try:
             fig.savefig(output_file, **save_kwargs)
@@ -99,7 +101,7 @@ def save_for_journal(
     fig: plt.Figure,
     filename: Union[str, Path],
     journal: str,
-    figure_type: str = 'combination'
+    figure_type: str = "combination",
 ) -> List[Path]:
     """
     Save figure with journal-specific requirements.
@@ -130,45 +132,47 @@ def save_for_journal(
 
     # Define journal-specific requirements
     journal_specs = {
-        'nature': {
-            'line_art': {'formats': ['pdf', 'eps'], 'dpi': 1000},
-            'photo': {'formats': ['tiff'], 'dpi': 300},
-            'combination': {'formats': ['pdf'], 'dpi': 600},
+        "nature": {
+            "line_art": {"formats": ["pdf", "eps"], "dpi": 1000},
+            "photo": {"formats": ["tiff"], "dpi": 300},
+            "combination": {"formats": ["pdf"], "dpi": 600},
         },
-        'science': {
-            'line_art': {'formats': ['eps', 'pdf'], 'dpi': 1000},
-            'photo': {'formats': ['tiff'], 'dpi': 300},
-            'combination': {'formats': ['eps'], 'dpi': 600},
+        "science": {
+            "line_art": {"formats": ["eps", "pdf"], "dpi": 1000},
+            "photo": {"formats": ["tiff"], "dpi": 300},
+            "combination": {"formats": ["eps"], "dpi": 600},
         },
-        'cell': {
-            'line_art': {'formats': ['pdf', 'eps'], 'dpi': 1000},
-            'photo': {'formats': ['tiff'], 'dpi': 300},
-            'combination': {'formats': ['pdf'], 'dpi': 600},
+        "cell": {
+            "line_art": {"formats": ["pdf", "eps"], "dpi": 1000},
+            "photo": {"formats": ["tiff"], "dpi": 300},
+            "combination": {"formats": ["pdf"], "dpi": 600},
         },
-        'plos': {
-            'line_art': {'formats': ['pdf', 'eps'], 'dpi': 600},
-            'photo': {'formats': ['tiff', 'png'], 'dpi': 300},
-            'combination': {'formats': ['tiff'], 'dpi': 300},
+        "plos": {
+            "line_art": {"formats": ["pdf", "eps"], "dpi": 600},
+            "photo": {"formats": ["tiff", "png"], "dpi": 300},
+            "combination": {"formats": ["tiff"], "dpi": 300},
         },
-        'acs': {
-            'line_art': {'formats': ['tiff', 'pdf'], 'dpi': 600},
-            'photo': {'formats': ['tiff'], 'dpi': 300},
-            'combination': {'formats': ['tiff'], 'dpi': 600},
+        "acs": {
+            "line_art": {"formats": ["tiff", "pdf"], "dpi": 600},
+            "photo": {"formats": ["tiff"], "dpi": 300},
+            "combination": {"formats": ["tiff"], "dpi": 600},
         },
-        'ieee': {
-            'line_art': {'formats': ['pdf', 'eps'], 'dpi': 600},
-            'photo': {'formats': ['tiff'], 'dpi': 300},
-            'combination': {'formats': ['pdf'], 'dpi': 300},
+        "ieee": {
+            "line_art": {"formats": ["pdf", "eps"], "dpi": 600},
+            "photo": {"formats": ["tiff"], "dpi": 300},
+            "combination": {"formats": ["pdf"], "dpi": 300},
         },
     }
 
     if journal not in journal_specs:
-        available = ', '.join(journal_specs.keys())
+        available = ", ".join(journal_specs.keys())
         raise ValueError(f"Journal '{journal}' not recognized. Available: {available}")
 
     if figure_type not in journal_specs[journal]:
-        available = ', '.join(journal_specs[journal].keys())
-        raise ValueError(f"Figure type '{figure_type}' not valid. Available: {available}")
+        available = ", ".join(journal_specs[journal].keys())
+        raise ValueError(
+            f"Figure type '{figure_type}' not valid. Available: {available}"
+        )
 
     specs = journal_specs[journal][figure_type]
 
@@ -177,14 +181,11 @@ def save_for_journal(
     print(f"  DPI: {specs['dpi']}")
 
     return save_publication_figure(
-        fig=fig,
-        filename=filename,
-        formats=specs['formats'],
-        dpi=specs['dpi']
+        fig=fig, filename=filename, formats=specs["formats"], dpi=specs["dpi"]
     )
 
 
-def check_figure_size(fig: plt.Figure, journal: str = 'nature') -> dict:
+def check_figure_size(fig: plt.Figure, journal: str = "nature") -> dict:
     """
     Check if figure dimensions are appropriate for journal requirements.
 
@@ -215,15 +216,15 @@ def check_figure_size(fig: plt.Figure, journal: str = 'nature') -> dict:
 
     # Journal specifications (widths in mm)
     specs = {
-        'nature': {'single': 89, 'double': 183, 'max_height': 247},
-        'science': {'single': 55, 'double': 175, 'max_height': 233},
-        'cell': {'single': 85, 'double': 178, 'max_height': 230},
-        'plos': {'single': 83, 'double': 173, 'max_height': 233},
-        'acs': {'single': 82.5, 'double': 178, 'max_height': 247},
+        "nature": {"single": 89, "double": 183, "max_height": 247},
+        "science": {"single": 55, "double": 175, "max_height": 233},
+        "cell": {"single": 85, "double": 178, "max_height": 230},
+        "plos": {"single": 83, "double": 173, "max_height": 233},
+        "acs": {"single": 82.5, "double": 178, "max_height": 247},
     }
 
     if journal not in specs:
-        journal_spec = specs['nature']
+        journal_spec = specs["nature"]
         print(f"Warning: Journal '{journal}' not found, using Nature specifications")
     else:
         journal_spec = specs[journal]
@@ -233,36 +234,36 @@ def check_figure_size(fig: plt.Figure, journal: str = 'nature') -> dict:
     width_ok = False
 
     tolerance = 5  # mm tolerance
-    if abs(width_mm - journal_spec['single']) < tolerance:
-        column_type = 'single'
+    if abs(width_mm - journal_spec["single"]) < tolerance:
+        column_type = "single"
         width_ok = True
-    elif abs(width_mm - journal_spec['double']) < tolerance:
-        column_type = 'double'
+    elif abs(width_mm - journal_spec["double"]) < tolerance:
+        column_type = "double"
         width_ok = True
 
-    height_ok = height_mm <= journal_spec['max_height']
+    height_ok = height_mm <= journal_spec["max_height"]
 
     result = {
-        'width_inches': width_inches,
-        'height_inches': height_inches,
-        'width_mm': width_mm,
-        'height_mm': height_mm,
-        'journal': journal,
-        'column_type': column_type,
-        'width_ok': width_ok,
-        'height_ok': height_ok,
-        'compliant': width_ok and height_ok,
-        'recommendations': {
-            'single_column_mm': journal_spec['single'],
-            'double_column_mm': journal_spec['double'],
-            'max_height_mm': journal_spec['max_height'],
-        }
+        "width_inches": width_inches,
+        "height_inches": height_inches,
+        "width_mm": width_mm,
+        "height_mm": height_mm,
+        "journal": journal,
+        "column_type": column_type,
+        "width_ok": width_ok,
+        "height_ok": height_ok,
+        "compliant": width_ok and height_ok,
+        "recommendations": {
+            "single_column_mm": journal_spec["single"],
+            "double_column_mm": journal_spec["double"],
+            "max_height_mm": journal_spec["max_height"],
+        },
     }
 
     # Print report
-    print(f"\n{'='*60}")
+    print(f"\n{'=' * 60}")
     print(f"Figure Size Check for {journal.upper()}")
-    print(f"{'='*60}")
+    print(f"{'=' * 60}")
     print(f"Current size: {width_mm:.1f} × {height_mm:.1f} mm")
     print(f"              ({width_inches:.2f} × {height_inches:.2f} inches)")
     print(f"\n{journal.upper()} specifications:")
@@ -270,10 +271,14 @@ def check_figure_size(fig: plt.Figure, journal: str = 'nature') -> dict:
     print(f"  Double column: {journal_spec['double']} mm")
     print(f"  Max height: {journal_spec['max_height']} mm")
     print("\nCompliance:")
-    print(f"  Width: {'✓ OK' if width_ok else '✗ Non-standard'} ({column_type or 'custom'})")
+    print(
+        f"  Width: {'✓ OK' if width_ok else '✗ Non-standard'} ({column_type or 'custom'})"
+    )
     print(f"  Height: {'✓ OK' if height_ok else '✗ Too tall'}")
-    print(f"  Overall: {'✓ COMPLIANT' if result['compliant'] else '✗ NEEDS ADJUSTMENT'}")
-    print(f"{'='*60}\n")
+    print(
+        f"  Overall: {'✓ COMPLIANT' if result['compliant'] else '✗ NEEDS ADJUSTMENT'}"
+    )
+    print(f"{'=' * 60}\n")
 
     return result
 
@@ -307,7 +312,9 @@ def verify_font_embedding(pdf_path: Union[str, Path]) -> bool:
         reader = PdfReader(pdf_path)
         # This is a simplified check; full verification is complex
         print(f"PDF has {len(reader.pages)} page(s)")
-        print("Note: Full font embedding verification requires detailed PDF inspection.")
+        print(
+            "Note: Full font embedding verification requires detailed PDF inspection."
+        )
         return True
     except Exception as e:
         print(f"Error reading PDF: {e}")
@@ -321,23 +328,25 @@ if __name__ == "__main__":
     # Create example figure
     fig, ax = plt.subplots(figsize=(3.5, 2.5))
     x = np.linspace(0, 10, 100)
-    ax.plot(x, np.sin(x), label='sin(x)')
-    ax.plot(x, np.cos(x), label='cos(x)')
-    ax.set_xlabel('x')
-    ax.set_ylabel('y')
+    ax.plot(x, np.sin(x), label="sin(x)")
+    ax.plot(x, np.cos(x), label="cos(x)")
+    ax.set_xlabel("x")
+    ax.set_ylabel("y")
     ax.legend()
-    ax.spines['top'].set_visible(False)
-    ax.spines['right'].set_visible(False)
+    ax.spines["top"].set_visible(False)
+    ax.spines["right"].set_visible(False)
 
     # Check size
-    check_figure_size(fig, journal='nature')
+    check_figure_size(fig, journal="nature")
 
     # Save in multiple formats
     print("\nSaving figure...")
-    save_publication_figure(fig, 'example_figure', formats=['pdf', 'png'], dpi=300)
+    save_publication_figure(fig, "example_figure", formats=["pdf", "png"], dpi=300)
 
     # Save with journal-specific requirements
     print("\nSaving for Nature...")
-    save_for_journal(fig, 'example_figure_nature', journal='nature', figure_type='line_art')
+    save_for_journal(
+        fig, "example_figure_nature", journal="nature", figure_type="line_art"
+    )
 
     plt.close(fig)

@@ -114,9 +114,7 @@ def audit(
 
     with zipfile.ZipFile(path) as archive:
         page_names = sorted(
-            name
-            for name in archive.namelist()
-            if PAGE_XML_RE.fullmatch(name)
+            name for name in archive.namelist() if PAGE_XML_RE.fullmatch(name)
         )
         for page_name in page_names:
             pages += 1
@@ -159,7 +157,9 @@ def audit(
                 cells = _direct_cells(shape)
                 width_formula = _formula_cell(cells, "Width")
                 height_formula = _formula_cell(cells, "Height")
-                content_fitted = bool(width_formula and "TEXTWIDTH(" in width_formula.upper())
+                content_fitted = bool(
+                    width_formula and "TEXTWIDTH(" in width_formula.upper()
+                )
                 geometry = {
                     "page": page_name,
                     "shape": label,
@@ -175,7 +175,11 @@ def audit(
                     "content_fitted": content_fitted,
                 }
                 text_geometry.append(geometry)
-                if content and any(pattern.search(label) for pattern in fit_patterns) and not content_fitted:
+                if (
+                    content
+                    and any(pattern.search(label) for pattern in fit_patterns)
+                    and not content_fitted
+                ):
                     findings.append(
                         {
                             "code": "text_box_not_content_fitted",
@@ -204,7 +208,11 @@ def audit(
                         )
                     if LATIN_DIGIT_RE.search(value) and font != latin_font:
                         findings.append(
-                            {"code": "latin_digit_font", "expected": latin_font, **where}
+                            {
+                                "code": "latin_digit_font",
+                                "expected": latin_font,
+                                **where,
+                            }
                         )
 
     summary = {
