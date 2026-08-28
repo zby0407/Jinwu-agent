@@ -51,6 +51,7 @@ from jw.research_protocols import (
     f107_discontinuity_directive,
     solar_cycle_26_readiness_directive,
     solar_cycle_26_forecast_backtest_directive,
+    is_literature_only_request,
     solar_polar_precursor_directive,
     silso_cycle_morphology_directive,
 )
@@ -246,6 +247,10 @@ _EXTERNAL_EVIDENCE_TOOLS = (
     "lit_search",
     "research_planner_search_literature",
     "web_search",
+)
+_LITERATURE_TOOL_PREFIXES = ("lit_",)
+_LITERATURE_ONLY_REASON = (
+    "literature-only request takes precedence over topic protocol and data stages"
 )
 _COMPUTE_TOOLS = ("execute",)
 _SOLAR_PRECURSOR_TABLE_TOOL = "prepare_solar_precursor_cycle_table"
@@ -637,6 +642,20 @@ def _with_analysis_protocol(
     """Attach narrow scientific obligations independently of model routing."""
 
     normalized = dict(route)
+    if is_literature_only_request(text):
+        normalized.pop("required_analysis_protocol", None)
+        normalized.update(
+            {
+                "mode": "verified_analysis",
+                "source_mode": "external",
+                "needs_computation": False,
+                "task_intent": "general",
+                "required_specialist": "none",
+                "literature_only": True,
+                "reason": _LITERATURE_ONLY_REASON,
+            }
+        )
+        return normalized
     protocol = detect_analysis_protocol(text)
     bounded_hypothesis = (
         normalized.get("mode") == "verified_analysis"
@@ -2374,7 +2393,11 @@ class ResearchRouterMiddleware(AgentMiddleware[ResearchRoutingState, Any, Any]):
         if state.get("research_route_turn") == key and state.get("research_route"):
             return None
         text = _message_text(latest[1])
-        continued = _continuation_route(state, text)
+        continued = (
+            None
+            if is_literature_only_request(text)
+            else _continuation_route(state, text)
+        )
         return {
             "research_route": (
                 attach_harness_metadata(continued)
@@ -2397,7 +2420,11 @@ class ResearchRouterMiddleware(AgentMiddleware[ResearchRoutingState, Any, Any]):
         if state.get("research_route_turn") == key and state.get("research_route"):
             return None
         text = _message_text(latest[1])
-        continued = _continuation_route(state, text)
+        continued = (
+            None
+            if is_literature_only_request(text)
+            else _continuation_route(state, text)
+        )
         return {
             "research_route": (
                 attach_harness_metadata(continued)
@@ -2422,9 +2449,16 @@ class ResearchRouterMiddleware(AgentMiddleware[ResearchRoutingState, Any, Any]):
         latest_human = _latest_human(messages)
         latest_text = _message_text(latest_human[1]) if latest_human else ""
         system_text = _message_text(request.system_message)
-        required_analysis_protocol = str(
-            route.get("required_analysis_protocol")
-            or detect_analysis_protocol(latest_text)
+        literature_only = route.get(
+            "literature_only"
+        ) is True or is_literature_only_request(latest_text)
+        required_analysis_protocol = (
+            "none"
+            if literature_only
+            else str(
+                route.get("required_analysis_protocol")
+                or detect_analysis_protocol(latest_text)
+            )
         )
         verified_precursor_table = _verified_solar_precursor_table_ready(
             route,
@@ -2448,6 +2482,18 @@ class ResearchRouterMiddleware(AgentMiddleware[ResearchRoutingState, Any, Any]):
         forced_tool: str | None = None
         suppress_tools = False
         release_generation_messages: list[object] | None = None
+        if literature_only:
+            directive.append(
+                "This is a literature-only request. Do not enter data, hypothesis, "
+                "experiment, or full-research stages; use only bound literature "
+                "evidence tools and report a blocker if they are unavailable."
+            )
+            if mode != "verified_analysis" or required_specialist != "none":
+                directive.append(
+                    "ROUTING BLOCKER: persisted route conflicts with the explicit "
+                    "literature-only boundary; data/experiment delegation is forbidden."
+                )
+                suppress_tools = True
         if verified_precursor_table:
             directive.append(
                 "The deterministic solar precursor table has already returned "
@@ -2802,6 +2848,14 @@ class ResearchRouterMiddleware(AgentMiddleware[ResearchRoutingState, Any, Any]):
                         "best artifact and unresolved issues; never claim acceptance."
                     )
 
+        # A persisted route can still carry a stale specialist or full-research
+        # mode.  Re-assert the hard literature-only boundary after all mode
+        # branches so they cannot reintroduce ``task`` or solar-data tools.
+        if literature_only and (
+            mode != "verified_analysis" or required_specialist != "none"
+        ):
+            suppress_tools = True
+            forced_tool = None
         directive.append("</research_route>")
         prepared = request.override(
             system_message=append_to_system_message(
@@ -2832,6 +2886,14 @@ class ResearchRouterMiddleware(AgentMiddleware[ResearchRoutingState, Any, Any]):
                 prepared = prepared.override(tools=[], tool_choice=None)
         elif suppress_tools:
             prepared = prepared.override(tools=[], tool_choice=None)
+        if literature_only and not suppress_tools:
+            literature_tools = [
+                tool
+                for tool in request.tools
+                if _tool_name(tool) in _EXTERNAL_EVIDENCE_TOOLS
+                or _tool_name(tool).startswith(_LITERATURE_TOOL_PREFIXES)
+            ]
+            prepared = prepared.override(tools=literature_tools, tool_choice=None)
         return prepared
 
     def wrap_model_call(

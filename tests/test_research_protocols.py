@@ -19,6 +19,7 @@ from jw.research_protocols import (
     solar_cycle_26_readiness_directive,
     solar_cycle_26_forecast_backtest_directive,
     solar_polar_precursor_directive,
+    is_literature_only_request,
 )
 
 
@@ -54,6 +55,21 @@ def test_detects_bounded_silso_cycle_extrema_reproduction() -> None:
     )
 
     assert detect_analysis_protocol(request) == SILSO_CYCLE_REPRODUCTION_PROTOCOL
+
+
+def test_literature_only_boundary_overrides_topic_protocol_keywords() -> None:
+    request = (
+        "请完成纯文献与规范知识审查。不得调用 solar-data，不得进入 Data 或 "
+        "Experiment。审查极区磁场、MWO/WSO、极小期和前兆意义，只使用文献工具。"
+    )
+    assert is_literature_only_request(request) is True
+    assert detect_analysis_protocol(request) == "none"
+
+
+def test_literature_only_does_not_override_explicit_polar_analysis() -> None:
+    request = "比较极小附近极区磁场作为下一周期振幅前兆"
+    assert is_literature_only_request(request) is False
+    assert detect_analysis_protocol(request) == SOLAR_POLAR_PRECURSOR_PROTOCOL
 
 
 def test_protocol_not_available_inputs_selects_required_data_product() -> None:

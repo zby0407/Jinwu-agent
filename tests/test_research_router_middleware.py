@@ -105,6 +105,59 @@ def test_f107_discontinuity_overrides_fast_answer_route() -> None:
     assert route["required_analysis_protocol"] == "f107_discontinuity_v1"
 
 
+def test_literature_only_route_overrides_polar_topic_keywords() -> None:
+    prompt = (
+        "请完成纯文献与规范知识审查。不得调用 solar-data，不得进入 Data、"
+        "Experiment 或预测阶段。审查极区磁场、MWO/WSO、极小期和前兆意义，"
+        "只使用绑定的文献检索工具。"
+    )
+    route = _with_analysis_protocol(
+        _route(
+            "full_research",
+            source_mode="mixed",
+            needs_computation=True,
+            required_specialist="none",
+        ),
+        text=prompt,
+    )
+
+    assert route["mode"] == "verified_analysis"
+    assert route["source_mode"] == "external"
+    assert route["needs_computation"] is False
+    assert route["required_specialist"] == "none"
+    assert route["literature_only"] is True
+    assert "required_analysis_protocol" not in route
+    assert "literature-only" in route["reason"]
+
+
+def test_literature_only_route_blocks_persisted_data_stage() -> None:
+    middleware = ResearchRouterMiddleware(model=MagicMock())
+    route = {
+        **_route(
+            "full_research",
+            source_mode="mixed",
+            needs_computation=True,
+            required_specialist="solar-data",
+        ),
+        "literature_only": True,
+        "required_analysis_protocol": SOLAR_POLAR_PRECURSOR_PROTOCOL,
+    }
+    prepared = _prepared(
+        middleware,
+        _request(
+            route=route,
+            tools=[
+                _tool("task"),
+                _tool("solar_research_analysis"),
+                _tool("lit_search"),
+            ],
+        ),
+    )
+
+    assert prepared.tools == []
+    assert "ROUTING BLOCKER" in str(prepared.system_message.content)
+
+
 def test_silso_cycle_reproduction_routes_to_bounded_data_specialist() -> None:
     route = _with_analysis_protocol(
         _route("fast_answer"),
