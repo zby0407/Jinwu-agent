@@ -2835,6 +2835,17 @@ class ResearchRouterMiddleware(AgentMiddleware[ResearchRoutingState, Any, Any]):
                         "accepted claim_id with a concise draft_excerpt, then call "
                         "research_release_prepare with the complete Markdown draft."
                     )
+                    if required_analysis_protocol == SOLAR_POLAR_PRECURSOR_PROTOCOL:
+                        directive.append(
+                            "For the solar forecast answer, state the 预测目标和预测时点 "
+                            "first, then available data, a point and interval only when "
+                            "that origin has been reached, 历史基线技能, 失效活动周, the "
+                            "H2/H3 comparison, and limitations. Keep early_cycle and "
+                            "cycle_minimum results separate. If accepted evidence has "
+                            "no registered current-cycle minimum-near precursor receipt, "
+                            "state 正式极小期前兆时点尚未到达 and do not invent a formal "
+                            "H2/H3 point forecast."
+                        )
                 elif action["kind"] == "released":
                     suppress_tools = True
                     directive.append(

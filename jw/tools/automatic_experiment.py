@@ -1526,6 +1526,7 @@ def run_experiment(context):
         "forecast_origin": "cycle_minimum",
         "hypothesis_ids": ["h2_polar_precursor"],
         "feature_ids": [row["feature_id"] for row in rows],
+        "observable_kinds": ["polar_aperture_field"],
         "baseline_names": ["training_mean", "persistence"],
         "candidate_name": "linear_polar_precursor",
         "training_cycles": cycles[:INITIAL_TRAINING_CYCLES],

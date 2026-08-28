@@ -65,6 +65,7 @@ _EXPERIMENT_FIELDS = {
     "forecast_origin",
     "hypothesis_ids",
     "feature_ids",
+    "observable_kinds",
     "baseline_names",
     "candidate_name",
     "training_cycles",
@@ -257,6 +258,17 @@ def validate_forecast_experiment_receipt(value: object) -> dict[str, object]:
     allow_empty = status in {"blocked_by_data", "execution_failed"}
     _require_string_list(receipt["hypothesis_ids"], "hypothesis_ids")
     _require_string_list(receipt["feature_ids"], "feature_ids", allow_empty=allow_empty)
+    observable_kinds = _require_string_list(
+        receipt["observable_kinds"],
+        "observable_kinds",
+        allow_empty=allow_empty,
+    )
+    unknown_observables = sorted(set(observable_kinds).difference(OBSERVABLE_KINDS))
+    if unknown_observables:
+        raise ValueError(
+            "observable_kinds contains unsupported values: "
+            + ", ".join(unknown_observables)
+        )
     baselines = _require_string_list(receipt["baseline_names"], "baseline_names")
     if "training_mean" not in baselines or "persistence" not in baselines:
         raise ValueError("baseline_names must include training_mean and persistence")
@@ -346,5 +358,19 @@ def validate_forecast_experiment_receipt(value: object) -> dict[str, object]:
     if leakage["passed"] is not True and not allow_empty:
         raise ValueError("completed forecast receipt requires a passed leakage audit")
     _require_nonempty_text(leakage["rule"], "leakage_audit.rule")
+
+    expected_status = classify_forecast_skill(
+        execution_completed=status != "execution_failed",
+        data_available=status != "blocked_by_data",
+        mae_improvement=float(metrics["mae_improvement"]),
+        ci_low=low,
+        ci_high=high,
+        regime_consistent=bool(sensitivity["regime_consistent"]),
+    )
+    if expected_status != status:
+        raise ValueError(
+            f"status {status!r} is inconsistent with deterministic metrics "
+            f"({expected_status!r})"
+        )
 
     return deepcopy(dict(receipt))

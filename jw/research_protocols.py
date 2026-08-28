@@ -403,7 +403,9 @@ def solar_polar_precursor_directive() -> str:
         "Use only the verified solar_precursor_cycle_features.csv table and its "
         "SolarPrecursorFeatureRecordV1 lineage. Treat one adjacent solar-cycle "
         "pair as the independent sample unit; monthly rows must never inflate "
-        "the sample count. Run the fixed rolling-origin tournament with five "
+        "the sample count. Predict target cycle N+1 only from information available "
+        "around the ending minimum of cycle N. Run the fixed rolling-origin "
+        "tournament with five "
         "initial training cycles, then predict each later cycle in chronological "
         "order. Refit all preprocessing and models inside each training fold. "
         "Compare the low-dimensional polar precursor model with both a "
@@ -416,7 +418,8 @@ def solar_polar_precursor_directive() -> str:
         "pre-registered regime check does not reverse direction. Compare an "
         "axial-dipole predictor only when a registered axial-dipole product or a "
         "fixed harmonic from registered synoptic maps is present; otherwise return "
-        "blocked_by_data for H3 without relabeling the polar aperture field."
+        "blocked_by_data for H3 without relabeling the polar aperture field. "
+        "Do not preselect the interaction sign or a preferred scientific outcome."
     )
 
 

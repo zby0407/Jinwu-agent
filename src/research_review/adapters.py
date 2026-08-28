@@ -6,7 +6,10 @@ import hashlib
 import json
 import posixpath
 import re
+from collections.abc import Mapping
 from typing import Any
+
+from jw.solar_forecast import validate_forecast_experiment_receipt
 
 from .contracts import CLAIM_VERSION
 
@@ -44,6 +47,63 @@ _HARNESS_PROVENANCE_BASENAMES = {
     "trace.json",
 }
 _HARNESS_RECEIPT_PARTS = 5
+
+
+def project_forecast_claim_from_receipt(
+    prose_claim: str,
+    receipt: Mapping[str, object],
+) -> dict[str, object]:
+    """Project deterministic forecast fields and reject physical-name conflicts.
+
+    The prose is inspected only for a physical-variable naming conflict; no
+    number or verdict is copied from it.
+    """
+
+    if not isinstance(prose_claim, str):
+        raise ValueError("prose_claim must be text")
+    validated = validate_forecast_experiment_receipt(receipt)
+    observable_kinds = sorted(
+        set(str(value) for value in validated["observable_kinds"])
+    )
+    normalized_claim = prose_claim.casefold()
+    claims_axial = "轴向偶极矩" in prose_claim or "axial dipole" in normalized_claim
+    if claims_axial and "axial_dipole_moment" not in observable_kinds:
+        raise ValueError(
+            "claim names axial_dipole_moment but the receipt contains no such observable"
+        )
+
+    metrics = validated["metrics"]
+    sensitivity = validated["sensitivity"]
+    assert isinstance(metrics, Mapping)
+    assert isinstance(sensitivity, Mapping)
+    interval = metrics["mae_improvement_interval"]
+    assert isinstance(interval, list)
+    h3_status = validated.get("h3_data_status")
+    normalized_h3: dict[str, object] | None = None
+    if isinstance(h3_status, Mapping):
+        status = h3_status.get("status")
+        data_gap = h3_status.get("data_gap")
+        normalized_h3 = {
+            "status": str(status) if isinstance(status, str) else "unknown",
+            "data_gap": str(data_gap) if isinstance(data_gap, str) else None,
+        }
+
+    return {
+        "hypothesis_ids": list(validated["hypothesis_ids"]),
+        "forecast_origin": str(validated["forecast_origin"]),
+        "feature_ids": list(validated["feature_ids"]),
+        "observable_kinds": observable_kinds,
+        "candidate_mae": float(metrics["candidate_mae"]),
+        "baseline_mae": float(metrics["training_mean_mae"]),
+        "mae_improvement": float(metrics["mae_improvement"]),
+        "mae_improvement_interval": [
+            float(interval[0]),
+            float(interval[1]),
+        ],
+        "skill_status": str(validated["status"]),
+        "regime_consistent": bool(sensitivity["regime_consistent"]),
+        "h3_data_status": normalized_h3,
+    }
 
 
 def _strip_hypothesis_metadata(value: Any) -> Any:
@@ -791,6 +851,15 @@ def adapt_v1_producer_output(
     experiment_projection = (
         _experiment_projection(documents) if stage == "experiment_result" else None
     )
+    forecast_projection = (
+        _forecast_receipt_projection(documents)
+        if stage == "experiment_result"
+        else None
+    )
+    if forecast_projection is not None:
+        if experiment_projection is None:
+            experiment_projection = {}
+        experiment_projection["forecast_summary"] = forecast_projection
     data_projection = (
         _data_result_projection(
             documents,
@@ -906,6 +975,9 @@ def adapt_v1_producer_output(
                     ],
                     "hypothesis_scientific_content": _strip_hypothesis_metadata(
                         hypothesis_projection["draft"]
+                    ),
+                    "hypothesis_portfolio_ranking": _strip_hypothesis_metadata(
+                        hypothesis_projection["portfolio_ranking"]
                     ),
                 }
                 if hypothesis_projection is not None
@@ -1111,6 +1183,27 @@ def _experiment_projection(
     return None
 
 
+def _forecast_receipt_projection(
+    documents: list[dict[str, Any]],
+) -> dict[str, object] | None:
+    """Expose only receipt-backed solar forecast fields to integration."""
+
+    for row in documents:
+        source_ref = row.get("source_ref")
+        payload = row.get("payload")
+        if not (
+            isinstance(source_ref, str)
+            and source_ref.endswith("/forecast_experiment_receipt.json")
+            and isinstance(payload, Mapping)
+            and payload.get("schema_version")
+            == "solar-forecast-experiment-receipt-v1"
+        ):
+            continue
+        projection = project_forecast_claim_from_receipt("", payload)
+        return {"source_ref": source_ref, **projection}
+    return None
+
+
 def _hypothesis_projection(
     documents: list[dict[str, Any]],
 ) -> dict[str, Any] | None:
@@ -1162,6 +1255,11 @@ def _hypothesis_projection(
             "evidence_refs": list(evidence_index),
             "limitations": limitations,
             "draft": draft,
+            "portfolio_ranking": (
+                payload.get("portfolio_ranking")
+                if isinstance(payload.get("portfolio_ranking"), dict)
+                else None
+            ),
         }
     return None
 
@@ -1349,6 +1447,36 @@ def _claims_from_known_v1(
                         []
                         if projection["outcome"] == "completed"
                         else [projection["uncertainty_notes"]]
+                    ),
+                )
+            ]
+        if (
+            stage == "experiment_result"
+            and schema == "solar-forecast-experiment-receipt-v1"
+            and source_ref.endswith("/forecast_experiment_receipt.json")
+        ):
+            projection = project_forecast_claim_from_receipt("", payload)
+            return [
+                _claim(
+                    claim_id=f"experiment-forecast-v{version}",
+                    kind="observation",
+                    text=json.dumps(
+                        projection,
+                        ensure_ascii=False,
+                        sort_keys=True,
+                        separators=(",", ":"),
+                    ),
+                    scope="Receipt-backed historical rolling-origin forecast skill.",
+                    supporting=[source_ref],
+                    confidence=(
+                        "medium"
+                        if projection["skill_status"] == "skill_supported"
+                        else "low"
+                    ),
+                    unknowns=(
+                        []
+                        if projection["skill_status"] == "skill_supported"
+                        else ["Forecast skill remains limited or unsupported."]
                     ),
                 )
             ]

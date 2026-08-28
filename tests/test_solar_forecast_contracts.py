@@ -44,6 +44,7 @@ def _receipt(**overrides: object) -> dict[str, object]:
         "forecast_origin": "cycle_minimum",
         "hypothesis_ids": ["H2"],
         "feature_ids": ["h2-cycle-20-polar-field"],
+        "observable_kinds": ["polar_aperture_field"],
         "baseline_names": ["training_mean", "persistence"],
         "candidate_name": "linear_polar_precursor",
         "training_cycles": [16, 17, 18, 19, 20],

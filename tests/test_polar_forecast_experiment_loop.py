@@ -175,5 +175,6 @@ def test_specialized_polar_worker_executes_and_emits_valid_receipt(
     )
     validated = validate_forecast_experiment_receipt(receipt)
     assert validated["test_cycles"] == [20, 21, 22, 23, 24]
+    assert validated["observable_kinds"] == ["polar_aperture_field"]
     assert validated["h3_data_status"]["status"] == "blocked_by_data"
     assert sum(1 for _ in (output_dir / "bootstrap_mae_improvement.csv").open()) == 10001

@@ -323,6 +323,7 @@ def run_precursor_backtest(
             {str(row["hypothesis_id"]) for row in ordered}
         ),
         "feature_ids": [str(row["feature_id"]) for row in ordered],
+        "observable_kinds": ["polar_aperture_field"],
         "baseline_names": ["training_mean", "persistence"],
         "candidate_name": "linear_polar_precursor",
         "training_cycles": [
