@@ -1,11 +1,17 @@
 ---
 name: find-skills
-description: Helps users discover agent skills from the open ecosystem. Searches skills.sh and presents options for installation via the built-in skill_manager tool.
+description: 当 JW 现有能力不足，需要从公开生态检索候选 Skill 并在人工审查后适配导入时使用；不得直接把外部 Skill 当成已启用能力。
 ---
 
-# Find Skills
+# 检索候选 Skills
 
-This skill helps you discover skills from the open agent skills ecosystem.
+本 Skill 用于发现公开 Agent Skills 生态中的候选能力。检索结果只是待审查来源；必须先判断与 JW 科研闭环、角色权限和证据边界是否兼容，再决定是否建立项目副本。
+
+## JW 使用边界
+
+- 只检索和提出候选，不自动安装、不修改 Codex 原始 Skills。
+- 导入 JW 项目时必须使用项目专用名称、中文触发描述和明确的目标子 Agent。
+- 外部 Skill 的宣传、示例结果和自报能力不构成科学证据。
 
 ## When to Use This Skill
 
