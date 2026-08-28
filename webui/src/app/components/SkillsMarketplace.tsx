@@ -396,9 +396,10 @@ export function SkillsMarketplace() {
               <section aria-label="子 Agent 技能分配">
                 <div className="mb-3 flex items-center justify-between gap-3">
                   <div>
-                    <h3 className="text-sm font-semibold">子 Agent 实际技能</h3>
+                    <h3 className="text-sm font-semibold">JW 主 Agent</h3>
                     <p className="mt-1 text-xs text-muted-foreground">
-                      这里展示 JW 实际科研闭环的六个太阳子
+                      主 Agent
+                      负责接收研究问题、选择路径并协调下面六个太阳科研子
                       Agent；共享基础技能会显示在每个角色的能力卡中。
                     </p>
                   </div>
@@ -423,7 +424,10 @@ export function SkillsMarketplace() {
                     </div>
                   </div>
                 )}
-                <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                <div className="mb-2 text-xs font-medium text-muted-foreground">
+                  六个太阳科研子 Agent
+                </div>
+                <div className="border-[var(--brand)]/20 grid grid-cols-1 gap-3 border-l-2 pl-3 md:grid-cols-2">
                   {agentGroups.map((group) => (
                     <div
                       key={group.name}
@@ -532,8 +536,8 @@ export function SkillsMarketplace() {
             )}
             {supportAgents.length > 0 && (
               <p className="text-xs text-muted-foreground">
-                底层支持 Agent：{supportAgents.join("、")}
-                （提供通用规划、代码、调试、分析和写作能力，不作为太阳科研角色单独展示）
+                主 Agent 的底层支持 Agent：{supportAgents.join("、")}
+                （提供通用规划、代码、调试、分析和写作能力，不作为独立太阳科研角色展示）
               </p>
             )}
             {other.length === 0 &&
