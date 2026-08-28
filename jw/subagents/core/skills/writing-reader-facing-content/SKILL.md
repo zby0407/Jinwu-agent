@@ -1,13 +1,17 @@
 ---
 name: writing-reader-facing-content
-description: Use when creating, revising, or finalizing reader-visible reports, manuals, lecture notes, papers, proposals, competition submissions, slide copy, posters, digests, or technical documentation, especially when an internal brief, user-agent discussion, revision history, or mixed evidence may leak into the deliverable.
+description: 当 JW 创建、修订或定稿报告、论文、手册、方案、幻灯片、海报或技术说明等读者可见内容时使用，尤其适合清除内部对话、版本史和证据层级混淆。
 ---
 
-# Writing reader-facing content
+# 撰写读者可见内容
 
 ## Overview
 
-Treat the brief as source material, not publishable prose. Convert internal constraints into reader-useful properties, keep evidence labels accurate, and review only the text the audience will actually see.
+把内部 brief 当作写作素材，而不是可直接发布的正文。将内部约束转化为读者需要的成品属性，准确标注证据层级，并只审校读者最终会看到的文字。
+
+## JW 使用边界
+
+JW 的科研正文使用“研究问题—数据—方法—证据—不确定性—结论”的自然叙事；内部 Agent 名、阶段状态、回执、候选内部 ID、rubric、hash 与调试记录留在系统状态，不进入读者成品。
 
 ## Required artifact contract
 

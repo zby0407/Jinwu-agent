@@ -1,6 +1,6 @@
 ---
 name: scientific-writing
-description: Use when writing or revising a scientific manuscript, research report, technical report, abstract, methods or results section, reviewer response, or other evidence-based research document; not for mathematical proof research, project orchestration, or presentation slides.
+description: 当 JW 需要撰写或修订科学论文、研究报告、技术报告、摘要、方法、结果或审稿回复等证据型文本时使用。
 allowed-tools: Read Write Edit Bash
 license: MIT license
 metadata:
@@ -8,6 +8,10 @@ metadata:
 ---
 
 # Scientific Writing
+
+## JW 使用边界
+
+面向读者的正文默认使用自然、严谨的中文，专业名词、模型名、数据产品名和 Schema 字段按需要保留英文。正文围绕研究问题、数据、方法、证据、不确定性和结论组织，不输出内部 workflow、评分、回执、hash 或调试过程。
 
 ## Overview
 

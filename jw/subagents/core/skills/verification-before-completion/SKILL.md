@@ -1,13 +1,17 @@
 ---
 name: verification-before-completion
-description: Use when about to claim work is complete, fixed, or passing, before committing or creating PRs - requires running verification commands and confirming output before making any success claims; evidence before assertions always
+description: 当 JW 准备声称任务完成、问题已修复、测试通过、实验有效或可以发布时使用；必须先取得与该层结论相匹配的新鲜验证证据。
 ---
 
-# Verification Before Completion
+# 完成前验证
 
 ## Overview
 
-Claiming work is complete without verification is dishonesty, not efficiency.
+未经验证就声称完成，会混淆工程进展与真实证据。
+
+## JW 使用边界
+
+静态检查、程序真实运行、自动测试、模型调用、WebUI 验收和科学结论是不同证据层级，不能互相替代。最终答复必须明确当前验证到了哪一层，以及哪些层仍未验证。
 
 **Core principle:** Evidence before claims, always.
 

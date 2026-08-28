@@ -1,17 +1,15 @@
 ---
 name: solar-cycle
-description: |
-  Solar-cycle research toolkit for Solar-Cycle Co-Scientist. Use this skill whenever the task involves
-  sunspot cycle prediction, solar-dynamo mechanism explanation, F10.7 or polar-field proxy analysis,
-  cycle-feature engineering, cross-cycle backtesting, index-drift detection, or structured hypothesis
-  cards for solar physics. It provides data loaders, experiment scripts, plotting helpers, and an
-  LLM Wiki of canonical solar-cycle knowledge.
+description: 当 JW 研究太阳活动周预测、solar dynamo 机制、F10.7 或极区磁场 proxy、活动周特征、跨周回测、指数漂移或结构化太阳物理假设时使用。
 ---
 
-# Solar-Cycle Co-Scientist Toolkit
+# JW 太阳活动周研究工具箱
 
-This skill supports end-to-end solar-cycle research: load observations, build physically meaningful
-features, run diagnostic experiments, generate structured hypotheses, and review evidence.
+本 Skill 支持端到端太阳活动周研究：读取观测、构造物理可解释特征、运行诊断实验、形成结构化假设并审查证据。
+
+## JW 使用边界
+
+活动周编号、forecast origin、information set、proxy/measurement 语义与独立样本单位必须随工件传递。历史相关、样本外 prediction skill 和机制证据分别陈述；任何一层不足都应保留为科学结果。
 
 For an explicit GOES-threshold flare target with an issue time and prediction
 window, also load the `solar-flare-forecasting` skill. Keep long-term

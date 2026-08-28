@@ -1,12 +1,16 @@
 ---
 name: scientific-visualization
-description: Meta-skill for publication-ready figures. Use when creating journal submission figures requiring multi-panel layouts, significance annotations, error bars, colorblind-safe palettes, and specific journal formatting (Nature, Science, Cell). Orchestrates matplotlib/seaborn/plotly with publication styles. For quick exploration use seaborn or plotly directly.
+description: 当 JW 需要把已核验数据或实验结果制作成论文级科学图表时使用，覆盖多面板、误差与不确定性、色盲友好配色、期刊格式和导出检查。
 license: MIT license
 metadata:
     skill-author: K-Dense Inc.
 ---
 
 # Scientific Visualization
+
+## JW 使用边界
+
+图表必须绑定当前任务的可追溯数据或实验工件，轴、单位、样本量、误差定义与测量制度必须明确。不得用视觉设计放大弱证据、隐藏阴性结果，或把 proxy、prediction 与 direct observation 混为一类。
 
 ## Overview
 
