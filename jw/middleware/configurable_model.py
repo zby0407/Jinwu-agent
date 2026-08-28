@@ -44,12 +44,6 @@ from langchain.agents.middleware.types import (
 logger = logging.getLogger(__name__)
 
 
-def _is_qwen_family_model(model_name: str) -> bool:
-    """Recognize both Qwen and QwQ ids, including provider-routed ids."""
-    normalized = model_name.casefold().rsplit("/", 1)[-1]
-    return normalized.startswith(("qwen", "qwq"))
-
-
 def _read_model_override() -> tuple[str | None, str | None]:
     """Pull ``(model, model_provider)`` from the active ``RunnableConfig``.
 
@@ -159,26 +153,20 @@ class ConfigurableModelMiddleware(AgentMiddleware):
         model_name, provider = _read_model_override()
         if model_name is None:
             return handler(request)
+        from ..llm.models import validate_model_override
+
+        model_name, provider = validate_model_override(model_name, provider)
         try:
             new_model = self._resolve(model_name, provider)
         except Exception:
-            if _is_qwen_family_model(model_name):
-                logger.error(
-                    "ConfigurableModelMiddleware could not activate requested "
-                    "Qwen model=%r provider=%r; refusing to run a different model",
-                    model_name,
-                    provider,
-                    exc_info=True,
-                )
-                raise
-            logger.warning(
-                "ConfigurableModelMiddleware failed to resolve model=%r "
-                "provider=%r; falling back to compile-time model",
+            logger.error(
+                "ConfigurableModelMiddleware could not activate requested "
+                "model=%r provider=%r; refusing to run a different model",
                 model_name,
                 provider,
                 exc_info=True,
             )
-            return handler(request)
+            raise
         self._log_override(model_name, provider)
         return handler(request.override(model=new_model))
 
@@ -190,6 +178,9 @@ class ConfigurableModelMiddleware(AgentMiddleware):
         model_name, provider = _read_model_override()
         if model_name is None:
             return await handler(request)
+        from ..llm.models import validate_model_override
+
+        model_name, provider = validate_model_override(model_name, provider)
         try:
             # Offload first-call SDK init off the event loop. ``_resolve`` calls
             # ``get_chat_model`` on a cache miss, which can spend hundreds of ms
@@ -199,22 +190,13 @@ class ConfigurableModelMiddleware(AgentMiddleware):
             # lookup); the thread-pool overhead is irrelevant once warm.
             new_model = await asyncio.to_thread(self._resolve, model_name, provider)
         except Exception:
-            if _is_qwen_family_model(model_name):
-                logger.error(
-                    "ConfigurableModelMiddleware could not activate requested "
-                    "Qwen model=%r provider=%r; refusing to run a different model",
-                    model_name,
-                    provider,
-                    exc_info=True,
-                )
-                raise
-            logger.warning(
-                "ConfigurableModelMiddleware failed to resolve model=%r "
-                "provider=%r; falling back to compile-time model",
+            logger.error(
+                "ConfigurableModelMiddleware could not activate requested "
+                "model=%r provider=%r; refusing to run a different model",
                 model_name,
                 provider,
                 exc_info=True,
             )
-            return await handler(request)
+            raise
         self._log_override(model_name, provider)
         return await handler(request.override(model=new_model))

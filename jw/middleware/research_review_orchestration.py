@@ -2534,6 +2534,56 @@ class ResearchReviewOrchestrationMiddleware(AgentMiddleware[Any, Any, Any]):
     name = "research_review_orchestration"
 
     @staticmethod
+    def _execution_transition(
+        request: ToolCallRequest,
+        action: Mapping[str, Any] | None,
+        transition: str,
+        *,
+        detail: str,
+    ) -> None:
+        if action is None:
+            return
+        config = getattr(request.runtime, "config", None)
+        store = store_from_config(config)
+        current = store.execution_state.snapshot(stale_after_seconds=float("inf"))
+        if current is None or current.get("status") not in {
+            "running",
+            "waiting_for_tool",
+        }:
+            return
+        stage = str(action.get("stage") or current["stage"])
+        owner = str(current["owner"])
+        if transition == "progress":
+            store.execution_state.progress(
+                stage=stage,
+                owner=owner,
+                action=detail,
+            )
+        else:
+            getattr(store.execution_state, transition)(
+                stage=stage,
+                owner=owner,
+                reason=detail,
+            )
+
+    def _finish_execution(
+        self,
+        request: ToolCallRequest,
+        action: Mapping[str, Any] | None,
+        result: ToolMessage | Command[Any],
+    ) -> None:
+        self._execution_transition(
+            request,
+            action,
+            "fail" if _result_failed(result) else "stop",
+            detail=(
+                "tool_or_postprocessing_failed"
+                if _result_failed(result)
+                else "action_completed"
+            ),
+        )
+
+    @staticmethod
     def _blocked(request: ToolCallRequest, reason: str) -> ToolMessage:
         return ToolMessage(
             content=f"[RESEARCH REVIEW BLOCKED] {reason}",
@@ -3452,6 +3502,7 @@ class ResearchReviewOrchestrationMiddleware(AgentMiddleware[Any, Any, Any]):
     ) -> ToolMessage | Command[Any]:
         rewritten, action, blocked = self._prepare(request)
         if blocked is not None:
+            self._finish_execution(request, action, blocked)
             return blocked
         if action is not None and isinstance(
             action.get("precomputed_producer_text"), str
@@ -3461,8 +3512,42 @@ class ResearchReviewOrchestrationMiddleware(AgentMiddleware[Any, Any, Any]):
                 tool_call_id=str(request.tool_call.get("id") or "data-readiness"),
                 name=str(request.tool_call.get("name") or "task"),
             )
-            return self._after(request, action, result)
-        return self._after(request, action, handler(rewritten))
+            processed = self._after(request, action, result)
+            self._finish_execution(request, action, processed)
+            return processed
+        self._execution_transition(
+            request,
+            action,
+            "waiting_for_tool",
+            detail="delegated_tool_call",
+        )
+        try:
+            result = handler(rewritten)
+        except KeyboardInterrupt:
+            self._execution_transition(
+                request,
+                action,
+                "interrupt",
+                detail="tool_call_interrupted",
+            )
+            raise
+        except Exception as exc:
+            self._execution_transition(
+                request,
+                action,
+                "fail",
+                detail=f"tool_handler_exception:{type(exc).__name__}",
+            )
+            raise
+        self._execution_transition(
+            request,
+            action,
+            "progress",
+            detail="tool_returned",
+        )
+        processed = self._after(request, action, result)
+        self._finish_execution(request, action, processed)
+        return processed
 
     async def awrap_tool_call(
         self,
@@ -3471,6 +3556,7 @@ class ResearchReviewOrchestrationMiddleware(AgentMiddleware[Any, Any, Any]):
     ) -> ToolMessage | Command[Any]:
         rewritten, action, blocked = await asyncio.to_thread(self._prepare, request)
         if blocked is not None:
+            await asyncio.to_thread(self._finish_execution, request, action, blocked)
             return blocked
         if action is not None and isinstance(
             action.get("precomputed_producer_text"), str
@@ -3480,9 +3566,46 @@ class ResearchReviewOrchestrationMiddleware(AgentMiddleware[Any, Any, Any]):
                 tool_call_id=str(request.tool_call.get("id") or "data-readiness"),
                 name=str(request.tool_call.get("name") or "task"),
             )
-            return await asyncio.to_thread(self._after, request, action, result)
-        result = await handler(rewritten)
-        return await asyncio.to_thread(self._after, request, action, result)
+            processed = await asyncio.to_thread(self._after, request, action, result)
+            await asyncio.to_thread(self._finish_execution, request, action, processed)
+            return processed
+        await asyncio.to_thread(
+            self._execution_transition,
+            request,
+            action,
+            "waiting_for_tool",
+            detail="delegated_tool_call",
+        )
+        try:
+            result = await handler(rewritten)
+        except asyncio.CancelledError:
+            await asyncio.to_thread(
+                self._execution_transition,
+                request,
+                action,
+                "interrupt",
+                detail="tool_call_interrupted",
+            )
+            raise
+        except Exception as exc:
+            await asyncio.to_thread(
+                self._execution_transition,
+                request,
+                action,
+                "fail",
+                detail=f"tool_handler_exception:{type(exc).__name__}",
+            )
+            raise
+        await asyncio.to_thread(
+            self._execution_transition,
+            request,
+            action,
+            "progress",
+            detail="tool_returned",
+        )
+        processed = await asyncio.to_thread(self._after, request, action, result)
+        await asyncio.to_thread(self._finish_execution, request, action, processed)
+        return processed
 
 
 __all__ = ["ResearchReviewOrchestrationMiddleware"]

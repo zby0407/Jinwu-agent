@@ -82,6 +82,58 @@ type PortfolioRankingRow = {
   forecast_receipt_ref?: unknown;
 };
 
+const EXECUTION_STATUSES = new Set([
+  "running",
+  "waiting_for_tool",
+  "interrupted",
+  "failed",
+  "stopped",
+]);
+
+function executionReasonLabel(reason: string, status: string): string {
+  const labels: Record<string, string> = {
+    heartbeat_stale: "执行心跳超时",
+    delegated_tool_call: "正在等待工具返回",
+    action_completed: "本次动作已完成",
+    tool_or_postprocessing_failed: "工具或结果处理失败",
+    required_specialist_failed_twice: "必需科研角色连续失败",
+    tool_call_interrupted: "执行已中断",
+  };
+  if (labels[reason]) return labels[reason];
+  if (reason.startsWith("tool_handler_exception:")) return "工具调用异常";
+  return status === "running" ? "科研动作正在执行" : "执行状态已更新";
+}
+
+async function readExecutionState(workspace: string) {
+  const record = await readJson(
+    resolveInside(workspace, "research_review/execution_state.json")
+  );
+  if (
+    record?.schema_version !== "research-execution-state-v1" ||
+    !EXECUTION_STATUSES.has(safeString(record.status)) ||
+    !safeString(record.stage) ||
+    !safeString(record.updated_at)
+  ) {
+    return undefined;
+  }
+  let status = safeString(record.status);
+  let reason = safeString(record.reason);
+  if (status === "running" || status === "waiting_for_tool") {
+    const updated = Date.parse(safeString(record.updated_at));
+    if (!Number.isFinite(updated)) return undefined;
+    if (Date.now() - updated > 300_000) {
+      status = "stopped";
+      reason = "heartbeat_stale";
+    }
+  }
+  return {
+    status,
+    stage: safeString(record.stage),
+    updatedAt: safeString(record.updated_at),
+    reason: executionReasonLabel(reason, status),
+  };
+}
+
 function boundedForecastReceiptRef(value: unknown): string | null {
   const receipt = safeString(value);
   return /^experiment\/runs\/[^/]+\/forecast_experiment_receipt\.json$/.test(
@@ -417,6 +469,7 @@ export async function GET(request: NextRequest) {
       };
     }
     const portfolioRanking = await readPortfolioRanking(workspace);
+    const execution = await readExecutionState(workspace);
 
     return NextResponse.json(
       {
@@ -432,6 +485,7 @@ export async function GET(request: NextRequest) {
         updatedAt: safeString(state.updated_at),
         stages,
         portfolioRanking,
+        execution,
         terminal,
       },
       { headers: { "Cache-Control": "no-store" } }

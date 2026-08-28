@@ -75,6 +75,12 @@ type ReviewStatus = {
     rankedHypotheses: PortfolioRankingRow[];
     selectedNextExperiment: NextExperiment;
   };
+  execution?: {
+    status: string;
+    stage: string;
+    updatedAt: string;
+    reason: string;
+  };
   terminal?: {
     status: "blocked";
     reasonCode: string;
@@ -269,6 +275,18 @@ export function ResearchReviewPanel({
         </span>
         <span className="font-medium text-foreground">下一步：</span>
         {NEXT_ACTION_LABELS[data.nextAction ?? ""] ?? "读取运行状态"}
+        {data.execution && (
+          <>
+            <span
+              className="mx-2"
+              aria-hidden="true"
+            >
+              ·
+            </span>
+            <span className="font-medium text-foreground">执行状态：</span>
+            {data.execution.reason}
+          </>
+        )}
       </div>
 
       {(data.portfolioRanking?.rankedHypotheses.length ?? 0) > 0 && (
