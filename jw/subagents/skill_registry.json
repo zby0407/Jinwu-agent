@@ -1,0 +1,82 @@
+{
+  "version": 1,
+  "shared": [
+    "verification-before-completion",
+    "scientific-writing",
+    "scientific-visualization"
+  ],
+  "agents": {
+    "planner-agent": [
+      "find-skills"
+    ],
+    "research-agent": [
+      "find-skills"
+    ],
+    "code-agent": [
+      "find-skills"
+    ],
+    "data-analysis-agent": [
+      "solar-cycle",
+      "solar-evidence-figure-production"
+    ],
+    "debug-agent": [],
+    "writing-agent": [
+      "writing-reader-facing-content",
+      "latex-quality-control",
+      "jw-release-export-qa"
+    ],
+    "scheduler": [],
+    "solar-planner": [
+      "solar-cycle",
+      "find-skills"
+    ],
+    "solar-data": [
+      "solar-cycle",
+      "solar-evidence-figure-production"
+    ],
+    "solar-hypothesis": [
+      "solar-cycle",
+      "find-skills"
+    ],
+    "solar-experiment": [
+      "solar-cycle",
+      "solar-flare-forecasting",
+      "solar-evidence-figure-production"
+    ],
+    "solar-evidence": [
+      "solar-cycle",
+      "solar-evidence-figure-production"
+    ],
+    "solar-knowledge": [
+      "knowledge-base-agent",
+      "find-skills",
+      "jw-release-export-qa"
+    ]
+  },
+  "adaptations": {
+    "math-modeling-figure-production": {
+      "name": "solar-evidence-figure-production",
+      "reviewed": true,
+      "source_kind": "codex-reference",
+      "adapted_copy_only": true,
+      "target_agents": [
+        "data-analysis-agent",
+        "solar-data",
+        "solar-experiment",
+        "solar-evidence"
+      ],
+      "reason": "将竞赛制图流程改造成 JW 太阳周期证据图生产流程"
+    },
+    "math-modeling-export-qa": {
+      "name": "jw-release-export-qa",
+      "reviewed": true,
+      "source_kind": "codex-reference",
+      "adapted_copy_only": true,
+      "target_agents": [
+        "writing-agent",
+        "solar-knowledge"
+      ],
+      "reason": "将竞赛导出质检改造成 JW 科研结果发布质检"
+    }
+  }
+}

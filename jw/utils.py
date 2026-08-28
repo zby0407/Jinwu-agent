@@ -303,7 +303,20 @@ def load_subagents(
             subagent["model"] = spec["model"]
 
         if "skills" in spec:
-            subagent["skills"] = spec["skills"]
+            declared_skills = spec["skills"]
+            # The registry narrows the shared /skills namespace to the exact
+            # skills assigned to this sub-agent. Keep the yaml fallback for
+            # older external bundles that do not ship a registry entry.
+            if declared_skills == ["/skills/"] or declared_skills == ("/skills/",):
+                try:
+                    from jw.subagents.skill_registry import skills_for_agent
+
+                    assigned = skills_for_agent(name)
+                except (ImportError, OSError, ValueError):
+                    assigned = []
+                subagent["skills"] = assigned or declared_skills
+            else:
+                subagent["skills"] = declared_skills
 
         if "tool_bundles" in spec or "tools" in spec:
             resolved: list[Any] = []

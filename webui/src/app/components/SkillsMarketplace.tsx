@@ -9,6 +9,9 @@ import {
   Trash2,
   Download,
   ArrowUpCircle,
+  Upload,
+  Users,
+  CheckCircle2,
 } from "lucide-react";
 import {
   SkillDetailDialog,
@@ -29,6 +32,10 @@ interface SkillCard {
   title: string;
   description: string;
   dir: string;
+  source: "installed" | "builtin";
+  bundle?: string;
+  assignment?: { shared: boolean; agents: string[] };
+  adaptation?: { name?: string; reason?: string } | null;
 }
 
 interface CatalogSkill {
@@ -40,10 +47,32 @@ interface CatalogSkill {
   latestVersion?: string;
   installedVersion?: string;
   updateAvailable: boolean;
+  assignment?: { shared: boolean; agents: string[] };
+  bundle?: string;
+  adaptation?: { name?: string; reason?: string } | null;
+}
+
+interface AgentGroup {
+  name: string;
+  skills: SkillCard[];
+}
+
+interface LocalCandidate {
+  name: string;
+  title: string;
+  description: string;
+  adaptedName: string;
+  targetAgents: string[];
+  source: "local";
+  imported?: boolean;
 }
 
 export function SkillsMarketplace() {
   const [other, setOther] = useState<SkillCard[]>([]);
+  const [agentGroups, setAgentGroups] = useState<AgentGroup[]>([]);
+  const [sharedSkills, setSharedSkills] = useState<SkillCard[]>([]);
+  const [localCandidates, setLocalCandidates] = useState<LocalCandidate[]>([]);
+  const [importing, setImporting] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   // The official JWSkills catalog stays hidden behind the header button and
@@ -69,13 +98,14 @@ export function SkillsMarketplace() {
     try {
       const res = await fetch("/api/skills");
       const d = await res.json();
-      if (!res.ok) throw new Error(d.error || "加载 Skills 失败" );
+      if (!res.ok) throw new Error(d.error || "加载 Skills 失败");
       setOther((d.skills ?? []) as SkillCard[]);
+      setAgentGroups((d.agents ?? []) as AgentGroup[]);
+      setSharedSkills((d.sharedSkills ?? []) as SkillCard[]);
+      setLocalCandidates((d.localCandidates ?? []) as LocalCandidate[]);
     } catch (e) {
       setOther([]);
-      setError(
-        e instanceof Error ? e.message : "加载已安装 Skills 失败。"
-      );
+      setError(e instanceof Error ? e.message : "加载已安装 Skills 失败。");
     }
     setLoading(false);
   }, []);
@@ -92,13 +122,11 @@ export function SkillsMarketplace() {
         `/api/skills/catalog${refresh ? "?refresh=1" : ""}`
       );
       const d = await res.json();
-      if (!res.ok) throw new Error(d.error || "加载目录失败" );
+      if (!res.ok) throw new Error(d.error || "加载目录失败");
       setCatalog((d.skills ?? []) as CatalogSkill[]);
     } catch (e) {
       setCatalog(null);
-      setCatalogError(
-        e instanceof Error ? e.message : "加载官方目录失败。"
-      );
+      setCatalogError(e instanceof Error ? e.message : "加载官方目录失败。");
     }
     setCatalogLoading(false);
   }, []);
@@ -126,7 +154,7 @@ export function SkillsMarketplace() {
         body: JSON.stringify({ name }),
       });
       const d = await res.json();
-      if (!res.ok) throw new Error(d.error || "安装失败" );
+      if (!res.ok) throw new Error(d.error || "安装失败");
       setCatalog((prev) =>
         prev
           ? prev.map((s) =>
@@ -143,9 +171,7 @@ export function SkillsMarketplace() {
       );
       await load();
     } catch (e) {
-      setCatalogError(
-        e instanceof Error ? e.message : "安装 Skill 失败。"
-      );
+      setCatalogError(e instanceof Error ? e.message : "安装 Skill 失败。");
     } finally {
       setBusy((b) => {
         const next = { ...b };
@@ -164,7 +190,7 @@ export function SkillsMarketplace() {
       });
       if (!res.ok) {
         const d = await res.json();
-        throw new Error(d.error || "卸载失败" );
+        throw new Error(d.error || "卸载失败");
       }
       setOther((prev) => prev.filter((s) => s.name !== name));
       setCatalog((prev) =>
@@ -177,7 +203,7 @@ export function SkillsMarketplace() {
           : prev
       );
     } catch (e) {
-      setError(e instanceof Error ? e.message : "卸载失败" );
+      setError(e instanceof Error ? e.message : "卸载失败");
     } finally {
       setBusy((b) => {
         const next = { ...b };
@@ -194,25 +220,68 @@ export function SkillsMarketplace() {
     await uninstall(target.name);
   };
 
+  const importImproved = async () => {
+    if (localCandidates.length === 0) return;
+    setImporting(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/skills", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          names: localCandidates.map((candidate) => candidate.name),
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "导入技能失败");
+      await load(true);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "导入技能失败");
+    } finally {
+      setImporting(false);
+    }
+  };
+
   return (
     <div className="h-full overflow-y-auto">
       <div className="mx-auto max-w-[960px] px-4 py-5 sm:px-5 sm:py-6">
         <header className="mb-4 flex items-start justify-between gap-3">
           <div>
             <h2 className="text-xl font-semibold sm:text-2xl">
-              Research Skills
+              JW 子 Agent 技能编排
             </h2>
             <p className="mt-1 text-sm leading-6 text-muted-foreground">
-              管理本地已安装的 Skills。
+              查看每个子 Agent 的实际技能边界，并将本地技能适配后导入项目。
             </p>
           </div>
           <div className="flex items-center gap-1">
             <button
               type="button"
+              onClick={importImproved}
+              disabled={importing || localCandidates.length === 0}
+              className="inline-flex items-center gap-1.5 rounded-md bg-[var(--brand-solid)] px-2.5 py-1.5 text-xs font-medium text-[var(--brand-foreground)] transition-opacity hover:opacity-90 disabled:opacity-50"
+              title="导入并适配本地技能"
+            >
+              {importing ? (
+                <Loader2
+                  className="size-4 animate-spin"
+                  aria-hidden="true"
+                />
+              ) : (
+                <Upload
+                  className="size-4"
+                  aria-hidden="true"
+                />
+              )}
+              一键导入改进技能
+              {localCandidates.length ? `（${localCandidates.length}）` : ""}
+            </button>
+            <button
+              type="button"
               onClick={toggleCatalog}
               aria-pressed={catalogOpen}
-              aria-label="官方目录"
-              title="官方目录"
+              aria-label="JW 官方内置目录"
+              title="JW 官方内置目录"
               className={`inline-flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs font-medium transition-colors focus-visible:ring-2 focus-visible:ring-ring ${
                 catalogOpen
                   ? "bg-accent text-foreground"
@@ -223,7 +292,7 @@ export function SkillsMarketplace() {
                 className="size-4"
                 aria-hidden="true"
               />
-              官方目录
+              JW 官方内置目录
             </button>
             <button
               type="button"
@@ -252,7 +321,7 @@ export function SkillsMarketplace() {
         {catalogOpen && (
           <section className="mb-6">
             <h3 className="mb-2.5 text-xs font-semibold uppercase tracking-wider text-tertiary">
-              官方目录
+              JW 官方内置目录
             </h3>
             {catalogError && (
               <p
@@ -303,9 +372,7 @@ export function SkillsMarketplace() {
                 ))}
               </div>
             ) : catalog ? (
-              <p className="text-sm text-muted-foreground">
-                官方目录为空。
-              </p>
+              <p className="text-sm text-muted-foreground">官方目录为空。</p>
             ) : null}
           </section>
         )}
@@ -323,42 +390,151 @@ export function SkillsMarketplace() {
           </div>
         ) : (
           <div className="space-y-6">
-            {other.length === 0 ? (
-              <p className="text-sm text-muted-foreground">
-                尚未安装 Skills。
-              </p>
-            ) : (
+            {(sharedSkills.length > 0 || agentGroups.length > 0) && (
+              <section aria-label="子 Agent 技能分配">
+                <div className="mb-3 flex items-center justify-between gap-3">
+                  <div>
+                    <h3 className="text-sm font-semibold">子 Agent 实际技能</h3>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      共享基础技能会显示在每个 Agent
+                      的能力卡中；专属技能只分配给对应角色。
+                    </p>
+                  </div>
+                  <Users
+                    className="size-5 text-[var(--brand)]"
+                    aria-hidden="true"
+                  />
+                </div>
+                {sharedSkills.length > 0 && (
+                  <div className="mb-3 rounded-lg border border-border/70 bg-muted/20 p-3">
+                    <div className="mb-2 text-xs font-medium text-muted-foreground">
+                      所有 Agent 共享
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      {sharedSkills.map((skill) => (
+                        <SkillBadge
+                          key={skill.name}
+                          skill={skill}
+                          shared
+                        />
+                      ))}
+                    </div>
+                  </div>
+                )}
+                <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                  {agentGroups.map((group) => (
+                    <div
+                      key={group.name}
+                      className="rounded-lg border border-border bg-card p-3"
+                    >
+                      <div className="mb-2 flex items-center gap-2">
+                        <Users
+                          className="size-4 text-[var(--brand)]"
+                          aria-hidden="true"
+                        />
+                        <h4 className="font-medium">{group.name}</h4>
+                        <span className="text-xs text-muted-foreground">
+                          {group.skills.length} 项专属技能
+                        </span>
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        {group.skills.map((skill) => (
+                          <SkillBadge
+                            key={`${group.name}-${skill.name}`}
+                            skill={skill}
+                          />
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </section>
+            )}
+            {localCandidates.length > 0 && (
+              <section
+                className="border-[var(--brand)]/40 bg-[var(--brand)]/5 rounded-lg border border-dashed p-3"
+                aria-label="待导入本地技能"
+              >
+                <div className="mb-2 flex items-center justify-between gap-3">
+                  <div>
+                    <h3 className="text-sm font-semibold">待导入的本地技能</h3>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      导入会改写名称、补充 JW
+                      科研边界，并按推荐角色分配；不会原样覆盖项目技能。
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={importImproved}
+                    disabled={importing}
+                    className="text-xs font-medium text-[var(--brand)] hover:underline"
+                  >
+                    立即导入
+                  </button>
+                </div>
+                <div className="space-y-2">
+                  {localCandidates.map((candidate) => (
+                    <div
+                      key={candidate.name}
+                      className="flex flex-wrap items-center justify-between gap-2 rounded-md bg-background/70 px-2.5 py-2 text-sm"
+                    >
+                      <span className="min-w-0">
+                        <span className="font-medium">{candidate.title}</span>
+                        <span className="ml-2 text-xs text-muted-foreground">
+                          → {candidate.adaptedName}
+                        </span>
+                      </span>
+                      <span className="text-xs text-muted-foreground">
+                        {candidate.targetAgents.length
+                          ? candidate.targetAgents.join("、")
+                          : "项目基础层"}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </section>
+            )}
+            {other.some((s) => s.source === "installed") && (
               <section>
                 <h3 className="mb-2.5 text-xs font-semibold uppercase tracking-wider text-tertiary">
                   已安装的 Skills
                 </h3>
                 <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
-                  {other.map((s) => (
-                    <SkillTile
-                      key={s.name}
-                      title={s.title}
-                      description={s.description}
-                      installed
-                      busy={busy[s.name]}
-                      onOpen={() =>
-                        setDetail({
-                          name: s.name,
-                          title: s.title,
-                          description: s.description,
-                          installed: true,
-                        })
-                      }
-                      onUninstall={() =>
-                        setUninstallTarget({
-                          name: s.name,
-                          title: s.title,
-                        })
-                      }
-                    />
-                  ))}
+                  {other
+                    .filter((s) => s.source === "installed")
+                    .map((s) => (
+                      <SkillTile
+                        key={s.name}
+                        title={s.title}
+                        description={s.description}
+                        installed
+                        busy={busy[s.name]}
+                        onOpen={() =>
+                          setDetail({
+                            name: s.name,
+                            title: s.title,
+                            description: s.description,
+                            installed: true,
+                          })
+                        }
+                        onUninstall={() =>
+                          setUninstallTarget({
+                            name: s.name,
+                            title: s.title,
+                          })
+                        }
+                      />
+                    ))}
                 </div>
               </section>
             )}
+            {other.length === 0 &&
+              agentGroups.length === 0 &&
+              localCandidates.length === 0 && (
+                <p className="text-sm text-muted-foreground">
+                  尚未发现可用的 JW Skills。
+                </p>
+              )}
           </div>
         )}
       </div>
@@ -377,7 +553,9 @@ export function SkillsMarketplace() {
           <DialogHeader>
             <DialogTitle>卸载 Skill？</DialogTitle>
             <DialogDescription>
-              将从 WebUI 中移除“{uninstallTarget?.title ?? uninstallTarget?.name}”。之后仍可重新安装。
+              将从 WebUI 中移除“
+              {uninstallTarget?.title ?? uninstallTarget?.name}
+              ”。之后仍可重新安装。
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
@@ -400,11 +578,34 @@ export function SkillsMarketplace() {
   );
 }
 
+function SkillBadge({
+  skill,
+  shared = false,
+}: {
+  skill: SkillCard;
+  shared?: boolean;
+}) {
+  return (
+    <span
+      className="inline-flex items-center gap-1 rounded-md border border-border bg-background px-2 py-1 text-xs"
+      title={skill.description}
+    >
+      <CheckCircle2
+        className="size-3 text-emerald-600"
+        aria-hidden="true"
+      />
+      {skill.title || skill.name}
+      {shared && <span className="text-muted-foreground">·共享</span>}
+    </span>
+  );
+}
+
 function SkillTile({
   title,
   description,
   meta,
   installed,
+  readOnly = false,
   installedVersion,
   latestVersion,
   updateAvailable,
@@ -418,6 +619,7 @@ function SkillTile({
   description: string;
   meta?: string;
   installed: boolean;
+  readOnly?: boolean;
   installedVersion?: string;
   latestVersion?: string;
   updateAvailable?: boolean;
@@ -490,7 +692,7 @@ function SkillTile({
               : "更新"}
           </button>
         )}
-        {installed ? (
+        {installed && !readOnly ? (
           <button
             type="button"
             onClick={onUninstall}

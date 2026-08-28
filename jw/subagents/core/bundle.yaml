@@ -38,5 +38,5 @@ skills:
   - verification-before-completion
   - scientific-slides
   - latex-quality-control
-  - math-modeling-figure-production
-  - math-modeling-export-qa
+  # Legacy math-modeling-* sources remain only as migration references.
+  - jw-release-export-qa
