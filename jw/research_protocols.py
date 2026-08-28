@@ -82,7 +82,7 @@ _SILSO_CYCLE_MORPHOLOGY_PATTERN = re.compile(
     re.IGNORECASE | re.DOTALL,
 )
 _POLAR_FIELD_PATTERN = re.compile(
-    r"(?:polar[\s-]?field|polar precursor|MWO|WSO|极区磁场|极地磁场|极区场强)",
+    r"(?:polar[\s-]?field|polar precursor|MWO|WSO|极区磁场|极地磁场|极区场强|极区场)",
     re.IGNORECASE,
 )
 _POLAR_PRECURSOR_INTENT_PATTERN = re.compile(
@@ -95,7 +95,7 @@ _POLAR_EXCLUSION_PATTERN = re.compile(
     r"exclude\s+(?:the\s+)?|不(?:要)?(?:使用|加入|分析)|不加入|"
     r"排除(?=(?:极区|极地|MWO|WSO|polar))"
     r"[^\n。！？!?；;]{0,30}"
-    r"(?:polar[\s-]?field|polar precursor|MWO|WSO|极区磁场|极地磁场))",
+    r"(?:polar[\s-]?field|polar precursor|MWO|WSO|极区磁场|极地磁场|极区场))",
     re.IGNORECASE,
 )
 
@@ -109,6 +109,19 @@ def _explicit_polar_data_exclusion(text: str) -> bool:
         if _POLAR_EXCLUSION_PATTERN.search(sentence):
             return True
     return False
+
+
+_LITERATURE_ONLY_INTENT_PATTERN = re.compile(
+    r"(?:纯文献|文献(?:与规范知识)?(?:审查|综述)|literature\s+(?:review|only)|"
+    r"literature[- ]only)",
+    re.IGNORECASE,
+)
+_LITERATURE_ONLY_BOUNDARY_PATTERN = re.compile(
+    r"(?:不得|不要|禁止|不进入|不调用|不做|不进行|只做|仅做|only|without|"
+    r"do\s+not|don't|must\s+not).{0,40}(?:data|solar[- ]?data|数据|experiment|"
+    r"实验|回测|预测|计算|regression|bootstrap)",
+    re.IGNORECASE | re.DOTALL,
+)
 
 
 _CYCLE_26_PATTERN = re.compile(
@@ -140,8 +153,19 @@ _CYCLE_26_BACKTEST_FORECAST_PATTERN = re.compile(
 )
 
 
+def is_literature_only_request(text: str) -> bool:
+    """Return whether a request explicitly scopes itself to literature evidence."""
+
+    if not _LITERATURE_ONLY_INTENT_PATTERN.search(text):
+        return False
+    return bool(_LITERATURE_ONLY_BOUNDARY_PATTERN.search(text))
+
+
 def detect_analysis_protocol(text: str) -> str:
     """Return the required deterministic analysis protocol for one request."""
+
+    if is_literature_only_request(text):
+        return "none"
 
     if _F107_PATTERN.search(text) and _F107_DISCONTINUITY_PATTERN.search(text):
         return F107_DISCONTINUITY_PROTOCOL
@@ -580,6 +604,7 @@ __all__ = [
     "SOLAR_POLAR_PRECURSOR_PROTOCOL",
     "DatasetSemanticManifest",
     "detect_analysis_protocol",
+    "is_literature_only_request",
     "f107_discontinuity_directive",
     "plan_dataset_selection_conflicts_protocol",
     "render_silso_cycle_reproduction_markdown",
