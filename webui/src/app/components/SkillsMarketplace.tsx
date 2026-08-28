@@ -34,7 +34,13 @@ interface SkillCard {
   dir: string;
   source: "installed" | "builtin";
   bundle?: string;
-  assignment?: { shared: boolean; agents: string[] };
+  assignment?: {
+    shared: boolean;
+    agents: string[];
+    conditional?: boolean;
+    conditionalAgents?: string[];
+    conditionalTrigger?: string;
+  };
   adaptation?: { name?: string; reason?: string } | null;
 }
 
@@ -79,7 +85,15 @@ export function SkillsMarketplace() {
   const [other, setOther] = useState<SkillCard[]>([]);
   const [agentGroups, setAgentGroups] = useState<AgentGroup[]>([]);
   const [supportAgents, setSupportAgents] = useState<AgentProfile[]>([]);
+  const [supportAgentGroups, setSupportAgentGroups] = useState<AgentGroup[]>([]);
+  const [mainAgent, setMainAgent] = useState<AgentProfile>({
+    name: "JW",
+    title: "JW 主 Agent",
+    description: "",
+  });
+  const [mainAgentSkills, setMainAgentSkills] = useState<SkillCard[]>([]);
   const [sharedSkills, setSharedSkills] = useState<SkillCard[]>([]);
+  const [conditionalSkills, setConditionalSkills] = useState<SkillCard[]>([]);
   const [localCandidates, setLocalCandidates] = useState<LocalCandidate[]>([]);
   const [importing, setImporting] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -111,10 +125,32 @@ export function SkillsMarketplace() {
       setOther((d.skills ?? []) as SkillCard[]);
       setAgentGroups((d.agents ?? []) as AgentGroup[]);
       setSupportAgents((d.supportAgentProfiles ?? []) as AgentProfile[]);
+      setSupportAgentGroups((d.supportAgentGroups ?? []) as AgentGroup[]);
+      setMainAgent(
+        (d.mainAgent ?? {
+          name: "JW",
+          title: "JW 主 Agent",
+          description: "",
+        }) as AgentProfile
+      );
+      setMainAgentSkills((d.mainAgentSkills ?? []) as SkillCard[]);
       setSharedSkills((d.sharedSkills ?? []) as SkillCard[]);
+      setConditionalSkills((d.conditionalSkills ?? []) as SkillCard[]);
       setLocalCandidates((d.localCandidates ?? []) as LocalCandidate[]);
     } catch (e) {
       setOther([]);
+      setAgentGroups([]);
+      setSupportAgents([]);
+      setSupportAgentGroups([]);
+      setMainAgent({
+        name: "JW",
+        title: "JW 主 Agent",
+        description: "",
+      });
+      setMainAgentSkills([]);
+      setSharedSkills([]);
+      setConditionalSkills([]);
+      setLocalCandidates([]);
       setError(e instanceof Error ? e.message : "加载已安装 Skills 失败。");
     }
     setLoading(false);
@@ -400,15 +436,16 @@ export function SkillsMarketplace() {
           </div>
         ) : (
           <div className="space-y-6">
-            {(sharedSkills.length > 0 || agentGroups.length > 0) && (
+            {(mainAgentSkills.length > 0 ||
+              sharedSkills.length > 0 ||
+              agentGroups.length > 0) && (
               <section aria-label="子 Agent 技能分配">
                 <div className="mb-3 flex items-center justify-between gap-3">
                   <div>
-                    <h3 className="text-sm font-semibold">JW 主 Agent</h3>
+                    <h3 className="text-sm font-semibold">{mainAgent.title}</h3>
                     <p className="mt-1 text-xs text-muted-foreground">
-                      主 Agent
-                      负责接收研究问题、选择路径并协调下面六个太阳科研子
-                      Agent；共享基础技能单独列出，并对所有角色生效。
+                      {mainAgent.description ||
+                        "接收研究问题、协调六个太阳科研子 Agent，并形成最终回答。"}
                     </p>
                   </div>
                   <Users
@@ -416,6 +453,18 @@ export function SkillsMarketplace() {
                     aria-hidden="true"
                   />
                 </div>
+                {mainAgentSkills.length > 0 && (
+                  <div className="mb-3 rounded-lg border border-[var(--brand)]/30 bg-[var(--brand)]/5 p-3">
+                    <div className="mb-2 text-xs font-medium text-foreground">
+                      主 Agent 专属
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      {mainAgentSkills.map((skill) => (
+                        <SkillBadge key={skill.name} skill={skill} />
+                      ))}
+                    </div>
+                  </div>
+                )}
                 {sharedSkills.length > 0 && (
                   <div className="mb-3 rounded-lg border border-border/70 bg-muted/20 p-3">
                     <div className="mb-2 text-xs font-medium text-muted-foreground">
@@ -468,6 +517,29 @@ export function SkillsMarketplace() {
                     </div>
                   ))}
                 </div>
+                {conditionalSkills.length > 0 && (
+                  <div className="mt-3 rounded-lg border border-dashed border-border bg-muted/20 p-3">
+                    <div className="mb-1 text-xs font-medium text-foreground">
+                      条件启用
+                    </div>
+                    <p className="mb-2 text-xs leading-5 text-muted-foreground">
+                      这些 Skill 不进入默认太阳活动周流程，仅在研究目标与触发条件明确匹配时加载。
+                    </p>
+                    <div className="space-y-2">
+                      {conditionalSkills.map((skill) => (
+                        <div key={skill.name}>
+                          <SkillBadge skill={skill} />
+                          <span className="ml-2 text-xs text-muted-foreground">
+                            {skill.assignment?.conditionalTrigger}
+                            {skill.assignment?.conditionalAgents?.length
+                              ? ` 适用：${skill.assignment.conditionalAgents.join("、")}`
+                              : ""}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </section>
             )}
             {localCandidates.length > 0 && (
@@ -558,6 +630,23 @@ export function SkillsMarketplace() {
                   。这些能力由 JW 主 Agent
                   按需调用，不作为独立太阳科研角色展示。
                 </p>
+                <div className="mt-2 space-y-1.5">
+                  {supportAgentGroups
+                    .filter((group) => group.skills.length > 0)
+                    .map((group) => (
+                      <div key={group.name} className="flex flex-wrap items-center gap-1.5">
+                        <span className="min-w-28 font-medium text-foreground">
+                          {group.title}
+                        </span>
+                        {group.skills.map((skill) => (
+                          <SkillBadge
+                            key={`${group.name}-${skill.name}`}
+                            skill={skill}
+                          />
+                        ))}
+                      </div>
+                    ))}
+                </div>
               </div>
             )}
             {other.length === 0 &&

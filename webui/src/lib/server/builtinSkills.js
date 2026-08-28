@@ -40,6 +40,10 @@ async function readRegistry(projectRoot) {
       throw new Error("invalid registry");
     return {
       version: Number(value.version) || 1,
+      mainAgent:
+        typeof value.main_agent === "string" && value.main_agent.trim()
+          ? value.main_agent.trim()
+          : "JW",
       primaryAgents: Array.isArray(value.primary_agents)
         ? value.primary_agents
         : [],
@@ -59,16 +63,22 @@ async function readRegistry(projectRoot) {
         value.adaptations && typeof value.adaptations === "object"
           ? value.adaptations
           : {},
+      conditionalSkills:
+        value.conditional_skills && typeof value.conditional_skills === "object"
+          ? value.conditional_skills
+          : {},
     };
   } catch {
     return {
       version: 1,
+      mainAgent: "JW",
       primaryAgents: [],
       supportAgents: [],
       agentProfiles: {},
       shared: [],
       agents: {},
       adaptations: {},
+      conditionalSkills: {},
     };
   }
 }
@@ -92,6 +102,7 @@ export async function readSkillTopology(projectRoot) {
     };
   };
   return {
+    mainAgent: profile(registry.mainAgent),
     primaryAgents: registry.primaryAgents.map(profile),
     supportAgents: registry.supportAgents.map(profile),
   };
@@ -111,7 +122,17 @@ function assignmentFor(registry, name) {
     .filter(([, names]) => Array.isArray(names) && names.includes(name))
     .map(([agent]) => agent);
   const shared = registry.shared.includes(name);
-  return { shared, agents: shared ? ["all", ...agents] : agents };
+  const conditional = registry.conditionalSkills[name];
+  return {
+    shared,
+    agents: shared ? ["all", ...agents] : agents,
+    conditional: Boolean(conditional),
+    conditionalAgents: Array.isArray(conditional?.agents)
+      ? conditional.agents.filter((agent) => typeof agent === "string")
+      : [],
+    conditionalTrigger:
+      typeof conditional?.trigger === "string" ? conditional.trigger : "",
+  };
 }
 
 function localSkillRoots() {

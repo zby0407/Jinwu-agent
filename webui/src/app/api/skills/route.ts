@@ -113,6 +113,11 @@ export async function GET() {
     let localCandidates: Awaited<ReturnType<typeof readLocalSkillCandidates>> =
       [];
     let topology = {
+      mainAgent: {
+        name: "JW",
+        title: "JW 主 Agent",
+        description: "",
+      },
       primaryAgents: [] as Array<{
         name: string;
         title: string;
@@ -144,11 +149,20 @@ export async function GET() {
     return NextResponse.json({
       skills,
       sharedSkills: bundled.filter((skill) => skill.assignment?.shared),
+      mainAgent: topology.mainAgent,
+      mainAgentSkills: byAgent.get(topology.mainAgent.name) || [],
+      conditionalSkills: bundled.filter(
+        (skill) => skill.assignment?.conditional
+      ),
       agents: buildPrimaryAgentGroups(topology.primaryAgents, byAgent),
       primaryAgents: topology.primaryAgents.map((agent) => agent.name),
       primaryAgentProfiles: topology.primaryAgents,
       supportAgents: topology.supportAgents.map((agent) => agent.name),
       supportAgentProfiles: topology.supportAgents,
+      supportAgentGroups: buildPrimaryAgentGroups(
+        topology.supportAgents,
+        byAgent
+      ),
       localCandidates: localCandidates.map(
         ({ sourceRoot, ...candidate }) => candidate
       ),

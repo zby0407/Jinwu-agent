@@ -61,6 +61,13 @@ DEFAULT_SKILL_SOURCES = ("/skills/",)
 HYPOTHESIS_SUBAGENT_MODEL_CALL_LIMIT_FLOOR = 32
 
 
+def _main_skill_sources() -> list[str]:
+    """Return the registry-governed Skill sources for the JW main agent."""
+    from .subagents.skill_registry import skills_for_agent
+
+    return skills_for_agent("JW")
+
+
 def _positive_call_limit(value: object, fallback: int | None) -> int | None:
     """Normalize a configured call budget; zero disables the limit."""
     if isinstance(value, bool):
@@ -726,7 +733,7 @@ def _build_base_kwargs(
         "subagents": subs,
         "middleware": base_middleware,
         "system_prompt": _configured_system_prompt(cfg),
-        "skills": list(DEFAULT_SKILL_SOURCES),
+        "skills": _main_skill_sources(),
     }
 
 
@@ -816,7 +823,7 @@ def load_mcp_and_build_kwargs(
         "subagents": subs,
         "middleware": base_middleware,
         "system_prompt": _configured_system_prompt(cfg),
-        "skills": list(DEFAULT_SKILL_SOURCES),
+        "skills": _main_skill_sources(),
     }
 
 
@@ -1296,7 +1303,7 @@ def _get_default_agent():
         mw = _get_default_middleware(
             backend_factory=be,
             skills_backend=be,
-            skill_sources=list(DEFAULT_SKILL_SOURCES),
+            skill_sources=_main_skill_sources(),
         )
 
         # HITL on main agent only (mirrors create_cli_agent). Use middleware,
