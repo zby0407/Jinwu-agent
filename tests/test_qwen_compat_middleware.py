@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import re
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -238,6 +239,214 @@ def test_middleware_keeps_qwen_thinking_available_for_auto_tool_choice():
         "thinking_budget": 4096,
         "preserve_thinking": True,
     }
+
+
+def test_source_restricted_morphology_hypothesis_hides_discovery_tools():
+    """The independent SILSO task must consume accepted A2A facts and converge."""
+
+    middleware = QwenToolCompatibilityMiddleware(default_model="qwen3.7-plus")
+    request = _request(
+        {"name": "kb_query"},
+        {"name": "kb_read"},
+        {"name": "read_file"},
+        {"name": "write_todos"},
+        {"name": "execute"},
+        {"name": "lit_bundle_read"},
+        {"name": "scientific_hypothesis_build_literature_bundle"},
+        {"name": "scientific_hypothesis_build_novelty_bundle"},
+        {"name": "scientific_hypothesis_bind_request"},
+        {"name": "scientific_hypothesis_bind_evidence"},
+        {"name": "scientific_hypothesis_update_draft"},
+        messages=[HumanMessage(content="continue the bounded hypothesis stage")],
+    )
+    request.system_message = SystemMessage(
+        content=(
+            "[RESEARCH_PRODUCER_V2]\n"
+            "stage=hypothesis\n"
+            'analysis_protocol="silso_cycle_morphology_v1"\n'
+            "Use only the accepted SILSO result capsule."
+        )
+    )
+    handler = MagicMock(return_value="ok")
+
+    with patch(
+        "jw.middleware.qwen_compat._read_model_override",
+        return_value=(None, None),
+    ):
+        assert middleware.wrap_model_call(request, handler) == "ok"
+
+    prepared = handler.call_args.args[0]
+    names = {tool["name"] for tool in prepared.tools}
+    assert names == {
+        "scientific_hypothesis_bind_request",
+        "scientific_hypothesis_bind_evidence",
+        "scientific_hypothesis_update_draft",
+    }
+    rendered = " ".join(
+        str(prepared.system_message.content).replace("\\n", " ").split()
+    )
+    assert "source-restricted statistical task" in rendered
+    assert "Do not call knowledge discovery tools" in rendered
+    assert "one candidate per preregistered relationship" in rendered
+    assert "Do not bind the same accepted excerpt twice" in rendered
+    assert "A high within-sample descriptive confidence" in rendered
+    assert "assign high to the rise-time within-sample descriptive claim" in rendered
+
+
+def test_source_restricted_sc26_backtest_hypothesis_hides_discovery_tools():
+    """The fixed SC26 backtest must not expand into an unrelated KB loop."""
+
+    middleware = QwenToolCompatibilityMiddleware(default_model="qwen3.7-plus")
+    request = _request(
+        {"name": "kb_query"},
+        {"name": "kb_read"},
+        {"name": "read_file"},
+        {"name": "write_todos"},
+        {"name": "execute"},
+        {"name": "scientific_hypothesis_bind_request"},
+        {"name": "scientific_hypothesis_bind_evidence"},
+        {"name": "scientific_hypothesis_update_draft"},
+        {"name": "scientific_hypothesis_get_draft"},
+        {"name": "scientific_hypothesis_review_tail"},
+        {"name": "scientific_hypothesis_checkpoint_draft"},
+        messages=[HumanMessage(content="continue the fixed SC26 backtest stage")],
+    )
+    request.system_message = SystemMessage(
+        content=(
+            "[RESEARCH_PRODUCER_V2]\n"
+            "stage=hypothesis\n"
+            'analysis_protocol="solar_cycle_26_forecast_backtest_v1"\n'
+            "Use only the accepted forecast/backtest result capsule."
+        )
+    )
+    handler = MagicMock(return_value="ok")
+
+    with patch(
+        "jw.middleware.qwen_compat._read_model_override",
+        return_value=(None, None),
+    ):
+        assert middleware.wrap_model_call(request, handler) == "ok"
+
+    prepared = handler.call_args.args[0]
+    names = {tool["name"] for tool in prepared.tools}
+    assert names == {
+        "scientific_hypothesis_bind_request",
+        "scientific_hypothesis_bind_evidence",
+        "scientific_hypothesis_update_draft",
+        "scientific_hypothesis_get_draft",
+        "scientific_hypothesis_review_tail",
+        "scientific_hypothesis_checkpoint_draft",
+    }
+    rendered = " ".join(str(prepared.system_message.content).replace("\n", " ").split())
+    assert "source-restricted statistical task" in rendered
+    assert "historical backtest skill" in rendered
+
+
+def test_source_restricted_morphology_hypothesis_uses_host_prebound_seed():
+    """After the host bind receipt, the model cannot re-enter substring binding."""
+
+    middleware = QwenToolCompatibilityMiddleware(default_model="qwen3.7-plus")
+    receipt = json.dumps(
+        {
+            "schema_version": "scientific-hypothesis-brief-v1",
+            "prebound_evidence_count": 3,
+            "prebound_evidence_ids_by_relationship": {
+                "cycle_length_peak": "cycle_length_vs_peak_full_stats",
+                "rise_time_peak": "rise_time_vs_peak_full_stats",
+                "decline_time_peak": "decline_time_vs_peak_full_stats",
+            },
+            "next_required_action": {
+                "tool": "scientific_hypothesis_update_draft",
+                "operation": "upsert_candidate",
+            },
+        }
+    )
+    request = _request(
+        {"name": "scientific_hypothesis_bind_request"},
+        {"name": "scientific_hypothesis_bind_evidence"},
+        {"name": "scientific_hypothesis_update_draft"},
+        {"name": "scientific_hypothesis_get_draft"},
+        messages=[
+            HumanMessage(content="continue the bounded hypothesis stage"),
+            AIMessage(
+                content="",
+                tool_calls=[
+                    {
+                        "name": "scientific_hypothesis_bind_request",
+                        "args": {
+                            "request_input": "@work/research_quality/hypothesis_request.json"
+                        },
+                        "id": "bind-1",
+                        "type": "tool_call",
+                    }
+                ],
+            ),
+            ToolMessage(
+                content=receipt,
+                tool_call_id="bind-1",
+                name="scientific_hypothesis_bind_request",
+            ),
+        ],
+    )
+    request.system_message = SystemMessage(
+        content=(
+            "[RESEARCH_PRODUCER_V2]\n"
+            "stage=hypothesis\n"
+            'analysis_protocol="silso_cycle_morphology_v1"\n'
+            "Use only the accepted SILSO result capsule."
+        )
+    )
+    handler = MagicMock(return_value="ok")
+
+    with patch(
+        "jw.middleware.qwen_compat._read_model_override",
+        return_value=(None, None),
+    ):
+        assert middleware.wrap_model_call(request, handler) == "ok"
+
+    prepared = handler.call_args.args[0]
+    names = {tool["name"] for tool in prepared.tools}
+    assert "scientific_hypothesis_bind_request" not in names
+    assert "scientific_hypothesis_bind_evidence" not in names
+    assert "scientific_hypothesis_update_draft" in names
+
+
+def test_final_release_generation_exposes_only_release_gate_tool():
+    """Late middleware must not reintroduce filesystem/todo tools at release."""
+
+    middleware = QwenToolCompatibilityMiddleware(default_model="qwen3.7-plus")
+    request = _request(
+        {"name": "read_file"},
+        {"name": "write_todos"},
+        {"name": "research_release_prepare"},
+        messages=[HumanMessage(content="complete the accepted research report")],
+    )
+    request.system_message = SystemMessage(
+        content=(
+            "ResearchRunStateV2\n"
+            "<research_route>\n"
+            'Deterministic next_action={"kind":"prepare_release",'
+            '"stage":"final_release"}\n'
+            "</research_route>"
+        )
+    )
+    handler = MagicMock(
+        return_value=ModelResponse(result=[AIMessage(content="release draft")])
+    )
+
+    with patch(
+        "jw.middleware.qwen_compat._read_model_override",
+        return_value=(None, None),
+    ):
+        middleware.wrap_model_call(request, handler)
+
+    prepared = handler.call_args.args[0]
+    assert [tool["name"] for tool in prepared.tools] == ["research_release_prepare"]
+    assert prepared.tool_choice is None
+    assert prepared.model_settings["parallel_tool_calls"] is False
+    rendered = str(prepared.system_message.content)
+    assert "only remaining action is the final release gate" in rendered
+    assert "Do not call read_file" in rendered
 
 
 def test_middleware_preserves_only_latest_actionable_qwen_reasoning_round():
@@ -791,6 +1000,69 @@ async def test_async_qwen_model_call_retries_one_truncated_stream():
 
 
 @pytest.mark.asyncio
+async def test_async_qwen_model_call_retries_one_total_wall_timeout():
+    middleware = QwenToolCompatibilityMiddleware(default_model="qwen3.7-plus")
+    request = _request(read_dataset, messages=[HumanMessage(content="continue")])
+    recovered = ModelResponse(result=[AIMessage(content="recovered")])
+    call_count = 0
+
+    async def handler(_request):
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:
+            await asyncio.sleep(1)
+        return recovered
+
+    with (
+        patch(
+            "jw.middleware.qwen_compat._read_model_override",
+            return_value=(None, None),
+        ),
+        patch(
+            "jw.middleware.qwen_compat._dashscope_request_timeout",
+            return_value=0.01,
+        ),
+    ):
+        response = await middleware.awrap_model_call(request, handler)
+
+    assert response.result == recovered.result
+    assert call_count == 2
+
+
+@pytest.mark.asyncio
+async def test_async_qwen_model_call_stops_after_two_total_wall_timeout_retries():
+    middleware = QwenToolCompatibilityMiddleware(default_model="qwen3.7-plus")
+    request = _request(read_dataset, messages=[HumanMessage(content="continue")])
+    call_count = 0
+
+    async def handler(_request):
+        nonlocal call_count
+        call_count += 1
+        await asyncio.sleep(1)
+        raise AssertionError("unreachable")
+
+    with (
+        patch(
+            "jw.middleware.qwen_compat._read_model_override",
+            return_value=(None, None),
+        ),
+        patch(
+            "jw.middleware.qwen_compat._dashscope_request_timeout",
+            return_value=0.01,
+        ),
+        patch(
+            "jw.middleware.qwen_compat._sleep_before_qwen_retry",
+            new_callable=AsyncMock,
+        ) as retry_sleep,
+        pytest.raises(TimeoutError),
+    ):
+        await middleware.awrap_model_call(request, handler)
+
+    assert call_count == 3
+    assert retry_sleep.await_count == 2
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize(
     ("model_name", "failure"),
     [
@@ -822,14 +1094,18 @@ async def test_async_model_retry_excludes_non_qwen_or_domain_errors(
 
 
 @pytest.mark.asyncio
-async def test_async_qwen_model_retry_stops_after_second_transport_failure():
+async def test_async_qwen_model_retry_allows_two_transient_transport_retries():
     class APIConnectionError(Exception):
         pass
 
     middleware = QwenToolCompatibilityMiddleware(default_model="qwen3.7-plus")
     request = _request(read_dataset, messages=[HumanMessage(content="continue")])
     handler = AsyncMock(
-        side_effect=[APIConnectionError("first"), APIConnectionError("second")]
+        side_effect=[
+            APIConnectionError("first"),
+            APIConnectionError("second"),
+            ModelResponse(result=[AIMessage(content="recovered")]),
+        ]
     )
 
     with (
@@ -837,11 +1113,18 @@ async def test_async_qwen_model_retry_stops_after_second_transport_failure():
             "jw.middleware.qwen_compat._read_model_override",
             return_value=(None, None),
         ),
-        pytest.raises(APIConnectionError, match="second"),
+        patch(
+            "jw.middleware.qwen_compat.asyncio.sleep",
+            new_callable=AsyncMock,
+        ) as retry_sleep,
     ):
-        await middleware.awrap_model_call(request, handler)
+        response = await middleware.awrap_model_call(request, handler)
 
-    assert handler.await_count == 2
+    assert response.result[0].content == "recovered"
+    assert handler.await_count == 3
+    assert retry_sleep.await_count == 2
+    assert retry_sleep.await_args_list[0].args == (20.0,)
+    assert retry_sleep.await_args_list[1].args == (20.0,)
 
 
 @pytest.mark.asyncio
@@ -985,6 +1268,117 @@ def test_data_stage_routes_curated_precursor_inputs_to_specialized_adapter():
     assert prepared.model.extra_body["enable_thinking"] is False
 
 
+def test_data_stage_synthesizes_cycle_26_readiness_adapter_after_rejection():
+    dataset_paths = {
+        "silso-monthly-total-v2": "/project/silso.txt",
+        "silso-monthly-smoothed-v2": "/project/smoothed.csv",
+        "silso-cycle-extrema-v2": "/project/extrema.txt",
+        "noaa-swpc-monthly-f107-v1": "/project/f107.json",
+        "mwo-wso-polar-field-v2": "/project/historical-polar.csv",
+        "wso-current-polar-field-v1": "/project/current-polar.html",
+    }
+    context = {
+        "status": "inputs_available",
+        "must_stop": False,
+        "analysis_protocol": "solar_cycle_26_readiness_v1",
+        "required_data_product": "solar_cycle_26_readiness_inventory_v1",
+        "eligible_inputs": [
+            {"dataset_id": dataset_id, "path": path}
+            for dataset_id, path in dataset_paths.items()
+        ],
+    }
+    request = _request(
+        {"name": "solar_data_open_context"},
+        {"name": "prepare_solar_cycle_26_readiness"},
+        messages=[HumanMessage(content="prepare readiness evidence")],
+    )
+    request.system_message = SystemMessage(
+        content=(
+            "[RESEARCH_PRODUCER_V2]\nstage=data\n"
+            f"deterministic_data_context={json.dumps(context)}"
+        )
+    )
+    handler = MagicMock(
+        side_effect=RuntimeError(
+            "The tool_choice parameter does not support being set to required "
+            "or object in thinking mode"
+        )
+    )
+
+    with patch(
+        "jw.middleware.qwen_compat._read_model_override",
+        return_value=(None, None),
+    ):
+        response = QwenToolCompatibilityMiddleware(
+            default_model="qwen3.7-plus"
+        ).wrap_model_call(request, handler)
+
+    [message] = response.result
+    [call] = message.tool_calls
+    assert call["name"] == "prepare_solar_cycle_26_readiness"
+    assert call["args"] == {
+        "monthly_total_path": dataset_paths["silso-monthly-total-v2"],
+        "smoothed_path": dataset_paths["silso-monthly-smoothed-v2"],
+        "official_extrema_path": dataset_paths["silso-cycle-extrema-v2"],
+        "f107_path": dataset_paths["noaa-swpc-monthly-f107-v1"],
+        "historical_polar_path": dataset_paths["mwo-wso-polar-field-v2"],
+        "current_polar_path": dataset_paths["wso-current-polar-field-v1"],
+        "cutoff_date": "2026-06-30",
+    }
+
+
+def test_data_stage_synthesizes_cycle_26_forecast_backtest_adapter_after_rejection():
+    dataset_paths = {
+        "silso-monthly-total-v2": "/project/silso.txt",
+        "silso-monthly-smoothed-v2": "/project/smoothed.csv",
+        "silso-cycle-extrema-v2": "/project/extrema.txt",
+    }
+    context = {
+        "status": "inputs_available",
+        "must_stop": False,
+        "analysis_protocol": "solar_cycle_26_forecast_backtest_v1",
+        "required_data_product": "solar_cycle_26_forecast_backtest_v1",
+        "eligible_inputs": [
+            {"dataset_id": dataset_id, "path": path}
+            for dataset_id, path in dataset_paths.items()
+        ],
+    }
+    request = _request(
+        {"name": "solar_data_open_context"},
+        {"name": "run_solar_cycle_26_historical_forecast"},
+        messages=[HumanMessage(content="run the historical backtest and forecast")],
+    )
+    request.system_message = SystemMessage(
+        content=(
+            "[RESEARCH_PRODUCER_V2]\nstage=data\n"
+            f"deterministic_data_context={json.dumps(context)}"
+        )
+    )
+    handler = MagicMock(
+        side_effect=RuntimeError(
+            "The tool_choice parameter does not support being set to required "
+            "or object in thinking mode"
+        )
+    )
+
+    with patch(
+        "jw.middleware.qwen_compat._read_model_override",
+        return_value=(None, None),
+    ):
+        response = QwenToolCompatibilityMiddleware(
+            default_model="qwen3.7-plus"
+        ).wrap_model_call(request, handler)
+
+    [message] = response.result
+    [call] = message.tool_calls
+    assert call["name"] == "run_solar_cycle_26_historical_forecast"
+    assert call["args"] == {
+        "monthly_total_path": dataset_paths["silso-monthly-total-v2"],
+        "smoothed_path": dataset_paths["silso-monthly-smoothed-v2"],
+        "official_extrema_path": dataset_paths["silso-cycle-extrema-v2"],
+    }
+
+
 @pytest.mark.parametrize("receipt_status", ["verified", "partial", "error"])
 def test_data_stage_suppresses_all_tools_only_after_verified_precursor_table(
     receipt_status: str,
@@ -1058,6 +1452,72 @@ def test_data_stage_suppresses_all_tools_only_after_verified_precursor_table(
         assert prepared.tool_choice is None
     else:
         assert prepared.tools == tools
+
+
+def test_data_stage_suppresses_tools_after_verified_readiness_payload_without_name():
+    """A local Data transition may return a nameless but typed terminal payload."""
+
+    tools = [
+        {"name": "prepare_solar_cycle_26_readiness"},
+        {"name": "solar_research_analysis"},
+        {"name": "read_file"},
+    ]
+    messages = [
+        HumanMessage(content="prepare the bounded SC26 readiness artifact"),
+        AIMessage(
+            content="",
+            tool_calls=[
+                {
+                    "name": "prepare_solar_cycle_26_readiness",
+                    "args": {},
+                    "id": "local-readiness",
+                }
+            ],
+        ),
+        ToolMessage(
+            content=json.dumps(
+                {
+                    "status": "verified",
+                    "artifact_refs": [
+                        "work/solar_data/solar_cycle_26_readiness_inventory.json"
+                    ],
+                    "receipt_refs": [
+                        "receipts/datasets/solar_cycle_26_readiness_inventory.json"
+                    ],
+                    "launch_readiness": "insufficient_evidence",
+                    "formal_classification_ready": False,
+                    "testable_peak_interval_ready": False,
+                }
+            ),
+            tool_call_id="local-readiness",
+        ),
+    ]
+    request = _request(*tools, messages=messages)
+    request.system_message = SystemMessage(
+        content=(
+            "[RESEARCH_PRODUCER_V2]\n"
+            "phase=data\n"
+            "stage=data\n"
+            'deterministic_data_context={"required_data_product":'
+            '"solar_cycle_26_readiness_inventory_v1"}'
+        )
+    )
+    handler = MagicMock(return_value="ok")
+
+    with patch(
+        "jw.middleware.qwen_compat._read_model_override",
+        return_value=(None, None),
+    ):
+        assert (
+            QwenToolCompatibilityMiddleware(
+                default_model="qwen3.7-plus"
+            ).wrap_model_call(request, handler)
+            == "ok"
+        )
+
+    prepared = handler.call_args.args[0]
+    assert prepared.tools == []
+    assert prepared.tool_choice is None
 
 
 def test_data_stage_uses_preopened_silso_context_and_forces_reproduction():
@@ -1351,6 +1811,262 @@ def test_middleware_allows_final_after_manifest_artifact_readback():
 
     assert response.result == [final]
     assert not response.result[0].tool_calls
+
+
+def test_middleware_refreshes_hypothesis_draft_before_tail_review_after_update():
+    middleware = QwenToolCompatibilityMiddleware(default_model="qwen3.7-plus")
+    update_call = AIMessage(
+        content="",
+        tool_calls=[
+            {
+                "name": "scientific_hypothesis_update_draft",
+                "args": {"operation": "patch_candidate"},
+                "id": "call_update",
+                "type": "tool_call",
+            }
+        ],
+    )
+    update_result = ToolMessage(
+        content='{"status":"draft_updated"}',
+        tool_call_id="call_update",
+        name="scientific_hypothesis_update_draft",
+    )
+    proposed_review = AIMessage(
+        content="",
+        tool_calls=[
+            {
+                "name": "scientific_hypothesis_review_tail",
+                "args": {"review_json": '{"candidate_pool_sha256":"stale"}'},
+                "id": "call_review",
+                "type": "tool_call",
+            }
+        ],
+    )
+    request = _request(
+        {"name": "scientific_hypothesis_get_draft"},
+        {"name": "scientific_hypothesis_review_tail"},
+        messages=[update_call, update_result],
+    )
+    handler = MagicMock(return_value=ModelResponse(result=[proposed_review]))
+
+    with patch(
+        "jw.middleware.qwen_compat._read_model_override",
+        return_value=(None, None),
+    ):
+        response = middleware.wrap_model_call(request, handler)
+
+    [call] = response.result[0].tool_calls
+    assert call["name"] == "scientific_hypothesis_get_draft"
+    assert call["args"] == {}
+    assert call["id"].startswith("call_qwen_hypothesis_refresh_")
+
+
+def test_middleware_reads_ready_hypothesis_draft_before_another_update():
+    """A warning-free persisted update must transition to draft readback."""
+
+    middleware = QwenToolCompatibilityMiddleware(default_model="qwen3.7-plus")
+    update_call = AIMessage(
+        content="",
+        tool_calls=[
+            {
+                "name": "scientific_hypothesis_update_draft",
+                "args": {"operation": "patch_candidate"},
+                "id": "call_update_ready",
+                "type": "tool_call",
+            }
+        ],
+    )
+    update_result = ToolMessage(
+        content=json.dumps(
+            {
+                "status": "draft",
+                "soft_warning_count": 0,
+                "return_gate": "get_draft_required",
+                "next_required_action": {"tool": "scientific_hypothesis_get_draft"},
+            }
+        ),
+        tool_call_id="call_update_ready",
+        name="scientific_hypothesis_update_draft",
+    )
+    repeated_update = AIMessage(
+        content="",
+        tool_calls=[
+            {
+                "name": "scientific_hypothesis_update_draft",
+                "args": {"operation": "patch_candidate"},
+                "id": "call_update_repeated",
+                "type": "tool_call",
+            }
+        ],
+    )
+    request = _request(
+        {"name": "scientific_hypothesis_update_draft"},
+        {"name": "scientific_hypothesis_get_draft"},
+        messages=[update_call, update_result],
+    )
+    handler = MagicMock(return_value=ModelResponse(result=[repeated_update]))
+
+    with patch(
+        "jw.middleware.qwen_compat._read_model_override",
+        return_value=(None, None),
+    ):
+        response = middleware.wrap_model_call(request, handler)
+
+    [call] = response.result[0].tool_calls
+    assert call["name"] == "scientific_hypothesis_get_draft"
+    assert call["args"] == {}
+    assert call["id"].startswith("call_qwen_hypothesis_ready_readback_")
+
+
+def test_middleware_keeps_hypothesis_repairs_while_warnings_remain():
+    middleware = QwenToolCompatibilityMiddleware(default_model="qwen3.7-plus")
+    update_call = AIMessage(
+        content="",
+        tool_calls=[
+            {
+                "name": "scientific_hypothesis_update_draft",
+                "args": {"operation": "upsert_candidate"},
+                "id": "call_update_incomplete",
+                "type": "tool_call",
+            }
+        ],
+    )
+    update_result = ToolMessage(
+        content=json.dumps(
+            {
+                "status": "draft",
+                "soft_warning_count": 2,
+                "return_gate": "blocked_until_warnings_resolved",
+                "next_required_action": {"tool": "scientific_hypothesis_update_draft"},
+            }
+        ),
+        tool_call_id="call_update_incomplete",
+        name="scientific_hypothesis_update_draft",
+    )
+    proposed_repair = AIMessage(
+        content="",
+        tool_calls=[
+            {
+                "name": "scientific_hypothesis_update_draft",
+                "args": {"operation": "patch_candidate"},
+                "id": "call_update_repair",
+                "type": "tool_call",
+            }
+        ],
+    )
+    request = _request(
+        {"name": "scientific_hypothesis_update_draft"},
+        {"name": "scientific_hypothesis_get_draft"},
+        messages=[update_call, update_result],
+    )
+    handler = MagicMock(return_value=ModelResponse(result=[proposed_repair]))
+
+    with patch(
+        "jw.middleware.qwen_compat._read_model_override",
+        return_value=(None, None),
+    ):
+        response = middleware.wrap_model_call(request, handler)
+
+    assert response.result == [proposed_repair]
+
+
+def test_middleware_allows_hypothesis_tail_review_after_current_draft_readback():
+    middleware = QwenToolCompatibilityMiddleware(default_model="qwen3.7-plus")
+    update_call = AIMessage(
+        content="",
+        tool_calls=[
+            {
+                "name": "scientific_hypothesis_update_draft",
+                "args": {"operation": "patch_candidate"},
+                "id": "call_update",
+                "type": "tool_call",
+            }
+        ],
+    )
+    update_result = ToolMessage(
+        content='{"status":"draft_updated"}',
+        tool_call_id="call_update",
+        name="scientific_hypothesis_update_draft",
+    )
+    read_call = AIMessage(
+        content="",
+        tool_calls=[
+            {
+                "name": "scientific_hypothesis_get_draft",
+                "args": {},
+                "id": "call_get_draft",
+                "type": "tool_call",
+            }
+        ],
+    )
+    read_result = ToolMessage(
+        content='{"status":"draft","candidate_pool_sha256":"current"}',
+        tool_call_id="call_get_draft",
+        name="scientific_hypothesis_get_draft",
+    )
+    proposed_review = AIMessage(
+        content="",
+        tool_calls=[
+            {
+                "name": "scientific_hypothesis_review_tail",
+                "args": {"review_json": '{"candidate_pool_sha256":"current"}'},
+                "id": "call_review",
+                "type": "tool_call",
+            }
+        ],
+    )
+    request = _request(
+        {"name": "scientific_hypothesis_get_draft"},
+        {"name": "scientific_hypothesis_review_tail"},
+        messages=[update_call, update_result, read_call, read_result],
+    )
+    handler = MagicMock(return_value=ModelResponse(result=[proposed_review]))
+
+    with patch(
+        "jw.middleware.qwen_compat._read_model_override",
+        return_value=(None, None),
+    ):
+        response = middleware.wrap_model_call(request, handler)
+
+    assert response.result == [proposed_review]
+
+
+def test_middleware_checkpoints_after_successful_hypothesis_tail_review():
+    middleware = QwenToolCompatibilityMiddleware(default_model="qwen3.7-plus")
+    review_call = AIMessage(
+        content="",
+        tool_calls=[
+            {
+                "name": "scientific_hypothesis_review_tail",
+                "args": {"review_json": "{}"},
+                "id": "call_review",
+                "type": "tool_call",
+            }
+        ],
+    )
+    review_result = ToolMessage(
+        content='{"status":"tail_reviewed","candidate_pool_sha256":"current"}',
+        tool_call_id="call_review",
+        name="scientific_hypothesis_review_tail",
+    )
+    request = _request(
+        {"name": "scientific_hypothesis_checkpoint_draft"},
+        messages=[review_call, review_result],
+    )
+    handler = MagicMock(
+        return_value=ModelResponse(result=[AIMessage(content="候选组合已经完成。")])
+    )
+
+    with patch(
+        "jw.middleware.qwen_compat._read_model_override",
+        return_value=(None, None),
+    ):
+        response = middleware.wrap_model_call(request, handler)
+
+    [call] = response.result[0].tool_calls
+    assert call["name"] == "scientific_hypothesis_checkpoint_draft"
+    assert call["args"] == {}
+    assert call["id"].startswith("call_qwen_hypothesis_checkpoint_")
 
 
 def test_middleware_stops_exact_tool_retry_after_research_review_block():
@@ -2331,6 +3047,198 @@ def test_kimi_evidence_normalizes_review_routing_and_quality_caps(monkeypatch):
     claim = normalized["scientific_quality_claims"][0]
     assert claim["quality_status"] == "evidence_constrained"
     assert claim["conclusion_cap"] == "evidence_constrained"
+
+
+def test_qwen_evidence_submit_normalizes_host_mode_and_supported_claim_ids(
+    monkeypatch,
+):
+    monkeypatch.setenv("JW_EVIDENCE_REVIEW_MODE", "two_pass")
+    middleware = QwenToolCompatibilityMiddleware(default_model="qwen3.7-plus")
+    request = _request(
+        evidence_review_submit_round,
+        messages=[
+            HumanMessage(content="[EVIDENCE_REVIEW_V2]\nreview_mode=experiment_result")
+        ],
+    )
+    response = ModelResponse(
+        result=[
+            AIMessage(
+                content="",
+                tool_calls=[
+                    {
+                        "name": "evidence_review_submit_round",
+                        "args": {
+                            "review_mode": "experiment_result",
+                            "assessment_review_mode": "experiment_result",
+                            "assessment_claims": [
+                                {
+                                    "claim_id": "experiment-result-v1#claim-result",
+                                    "disposition": "supported",
+                                },
+                                {
+                                    "claim_id": "experiment-result-v1#claim-limited",
+                                    "disposition": "limited_support",
+                                },
+                                {
+                                    "claim_id": "experiment-result-v1#claim-undecided",
+                                    "disposition": "undecided",
+                                },
+                            ],
+                            "scientific_quality_claims": [],
+                            "decision": "accept_with_limits",
+                            "issues": [],
+                            "accepted_claims": [],
+                            "blocked_claims": [],
+                            "carry_forward_limits": [
+                                "Small-sample uncertainty remains."
+                            ],
+                            "next_owner": "",
+                        },
+                        "id": "submit",
+                        "type": "tool_call",
+                    }
+                ],
+            )
+        ]
+    )
+
+    with patch(
+        "jw.middleware.qwen_compat._read_model_override",
+        return_value=(None, None),
+    ):
+        normalized = middleware.wrap_model_call(request, lambda _prepared: response)
+
+    args = normalized.result[0].tool_calls[0]["args"]
+    assert args["assessment_review_mode"] == "two_pass"
+    assert args["accepted_claims"] == [
+        "experiment-result-v1#claim-result",
+        "experiment-result-v1#claim-limited",
+    ]
+
+
+def test_qwen_evidence_submit_parses_json_list_arguments_without_splitting_chars(
+    monkeypatch,
+):
+    monkeypatch.setenv("JW_EVIDENCE_REVIEW_MODE", "two_pass")
+    middleware = QwenToolCompatibilityMiddleware(default_model="qwen3.7-plus")
+    request = _request(
+        evidence_review_submit_round,
+        messages=[HumanMessage(content="[EVIDENCE_REVIEW_V2]\nreview_mode=planning")],
+    )
+    assessment_rows = [
+        {
+            "claim_id": "planning-plan-v1",
+            "disposition": "limited_support",
+        }
+    ]
+    quality_rows = [
+        {
+            "claim_id": "planning-plan-v1",
+            "claim_component": "statement",
+            "evidence_matrix": [],
+        }
+    ]
+    response = ModelResponse(
+        result=[
+            AIMessage(
+                content="",
+                tool_calls=[
+                    {
+                        "name": "evidence_review_submit_round",
+                        "args": {
+                            "review_mode": "planning",
+                            "assessment_review_mode": "planning",
+                            "assessment_claims": json.dumps(assessment_rows),
+                            "scientific_quality_claims": json.dumps(quality_rows),
+                            "decision": "accept_with_limits",
+                            "issues": "[]",
+                            "accepted_claims": "[]",
+                            "blocked_claims": "[]",
+                            "carry_forward_limits": json.dumps(
+                                ["Registered inputs still require data-stage checks."]
+                            ),
+                            "next_owner": "",
+                        },
+                        "id": "submit",
+                        "type": "tool_call",
+                    }
+                ],
+            )
+        ]
+    )
+
+    with patch(
+        "jw.middleware.qwen_compat._read_model_override",
+        return_value=(None, None),
+    ):
+        normalized = middleware.wrap_model_call(request, lambda _prepared: response)
+
+    args = normalized.result[0].tool_calls[0]["args"]
+    assert args["assessment_claims"] == assessment_rows
+    assert args["scientific_quality_claims"] == quality_rows
+    assert args["issues"] == []
+    assert args["accepted_claims"] == ["planning-plan-v1"]
+    assert args["blocked_claims"] == []
+    assert args["carry_forward_limits"] == [
+        "Registered inputs still require data-stage checks."
+    ]
+
+
+@pytest.mark.asyncio
+async def test_async_qwen_evidence_submit_applies_the_same_contract_repair(
+    monkeypatch,
+):
+    monkeypatch.setenv("JW_EVIDENCE_REVIEW_MODE", "two_pass")
+    middleware = QwenToolCompatibilityMiddleware(default_model="qwen3.7-plus")
+    request = _request(
+        evidence_review_submit_round,
+        messages=[
+            HumanMessage(content="[EVIDENCE_REVIEW_V2]\nreview_mode=experiment_result")
+        ],
+    )
+    response = ModelResponse(
+        result=[
+            AIMessage(
+                content="",
+                tool_calls=[
+                    {
+                        "name": "evidence_review_submit_round",
+                        "args": {
+                            "review_mode": "experiment_result",
+                            "assessment_review_mode": "closed",
+                            "assessment_claims": [
+                                {
+                                    "claim_id": "experiment-result-v1#claim-result",
+                                    "disposition": "supported",
+                                }
+                            ],
+                            "scientific_quality_claims": [],
+                            "decision": "accept",
+                            "issues": [],
+                            "accepted_claims": [],
+                            "blocked_claims": [],
+                            "carry_forward_limits": [],
+                            "next_owner": "",
+                        },
+                        "id": "submit",
+                        "type": "tool_call",
+                    }
+                ],
+            )
+        ]
+    )
+
+    with patch(
+        "jw.middleware.qwen_compat._read_model_override",
+        return_value=(None, None),
+    ):
+        normalized = await middleware.awrap_model_call(
+            request, AsyncMock(return_value=response)
+        )
+
+    args = normalized.result[0].tool_calls[0]["args"]
+    assert args["assessment_review_mode"] == "two_pass"
+    assert args["accepted_claims"] == ["experiment-result-v1#claim-result"]
 
 
 def test_evidence_navigation_stops_after_two_unpersisted_submit_attempts():

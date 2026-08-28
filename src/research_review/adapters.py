@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-import json
 import hashlib
+import json
 import posixpath
 import re
 from typing import Any
@@ -546,6 +546,9 @@ def _data_result_projection(
     recognized_contracts = {
         "solar-precursor-cycle-table-v2": "solar_precursor_cycle_table",
         "solar-cycle-pair-analysis-table-v2": "solar_cycle_pair_analysis_table",
+        "solar-cycle-26-readiness-receipt-v1": (
+            "solar_cycle_26_readiness_inventory"
+        ),
     }
     recognized: list[tuple[str, dict[str, Any]]] = []
     for row in documents:
@@ -580,7 +583,14 @@ def _data_result_projection(
             and output_hashes_match
         ):
             continue
-        if (schema == "solar-precursor-cycle-table-v2" and status == "verified") or (
+        if (
+            schema
+            in {
+                "solar-precursor-cycle-table-v2",
+                "solar-cycle-26-readiness-receipt-v1",
+            }
+            and status == "verified"
+        ) or (
             schema == "solar-cycle-pair-analysis-table-v2"
             and status
             in {
@@ -593,6 +603,72 @@ def _data_result_projection(
             recognized.append((source_ref, payload))
     if not recognized:
         return None
+
+    readiness = next(
+        (
+            (source_ref, payload)
+            for source_ref, payload in recognized
+            if payload.get("schema_version")
+            == "solar-cycle-26-readiness-receipt-v1"
+        ),
+        None,
+    )
+    if readiness is not None:
+        readiness_ref, readiness_receipt = readiness
+        output_refs = [
+            output["path"]
+            for output in readiness_receipt.get("outputs", [])
+            if isinstance(output, dict) and isinstance(output.get("path"), str)
+        ]
+        document_by_ref = {
+            row["source_ref"]: row["payload"]
+            for row in documents
+            if isinstance(row.get("source_ref"), str)
+            and isinstance(row.get("payload"), dict)
+        }
+        inventory = next(
+            (
+                document_by_ref[output_ref]
+                for output_ref in output_refs
+                if output_ref in document_by_ref
+                and document_by_ref[output_ref].get("schema_version")
+                == "solar-cycle-26-readiness-inventory-v1"
+            ),
+            {},
+        )
+        summary = {
+            "schema_version": "solar-data-readiness-summary-v1",
+            "status": readiness_receipt.get("status"),
+            "analysis_protocol": inventory.get(
+                "analysis_protocol", readiness_receipt.get("analysis_protocol")
+            ),
+            "cutoff_date": inventory.get(
+                "cutoff_date", readiness_receipt.get("cutoff_date")
+            ),
+            "dataset_ids": list(readiness_receipt.get("dataset_ids", [])),
+            "source_receipt_refs": [readiness_ref],
+            "output_refs": output_refs,
+            "launch_readiness": readiness_receipt.get("launch_readiness"),
+            "formal_classification_ready": readiness_receipt.get(
+                "formal_classification_ready"
+            ),
+            "testable_peak_interval_ready": readiness_receipt.get(
+                "testable_peak_interval_ready"
+            ),
+            "cycle_25_state_assessment": inventory.get(
+                "cycle_25_state_assessment", {}
+            ),
+            "cycle_26_precursor_assessment": inventory.get(
+                "cycle_26_precursor_assessment", {}
+            ),
+            "observations": inventory.get("observations", {}),
+            "evidence_gaps": readiness_receipt.get("evidence_gaps", []),
+            "interpretation_boundary": inventory.get("interpretation_boundary"),
+        }
+        return {
+            "summary": summary,
+            "supporting_refs": [readiness_ref, *output_refs],
+        }
 
     pair_payload = next(
         (
@@ -726,6 +802,17 @@ def adapt_v1_producer_output(
     )
     if data_projection is not None:
         summary = data_projection["summary"]
+        verified_data_refs = {
+            ref for ref in data_projection["supporting_refs"] if isinstance(ref, str)
+        }
+        verified_data_refs.update(
+            row["source_ref"]
+            for row in documents
+            if isinstance(row.get("source_ref"), str)
+        )
+        projected_evidence_refs = sorted(
+            ref for ref in projected_evidence_refs if ref in verified_data_refs
+        )
         claims = [
             _claim(
                 claim_id=f"data-structured-v{version}",
@@ -843,6 +930,12 @@ def _experiment_projection(
 ) -> dict[str, Any] | None:
     """Project only verified fields already persisted by Automatic Experiment."""
 
+    scientific_outcomes = {
+        "completed_interpretable",
+        "scientific_null",
+        "high_uncertainty",
+        "partial_result",
+    }
     outcome_map = {
         "completed_interpretable": "completed",
         "scientific_null": "null_result",
@@ -850,6 +943,7 @@ def _experiment_projection(
         "partial_result": "uncertain",
         "technical_failure": "technical_failure",
         "budget_reached": "technical_failure",
+        "budget_stopped": "technical_failure",
     }
     for row in documents:
         source_ref = row.get("source_ref")
@@ -865,8 +959,17 @@ def _experiment_projection(
         worker = worker if isinstance(worker, dict) else {}
         assessment = payload.get("scientific_assessment")
         assessment = assessment if isinstance(assessment, dict) else {}
+        raw_outcome = str(
+            payload.get("outcome") or assessment.get("proposed_outcome") or ""
+        )
+        scientific_result_available = raw_outcome in scientific_outcomes and bool(
+            worker.get("execution_completed")
+        )
         measurements: list[dict[str, str]] = []
-        for measurement in worker.get("measurements") or []:
+        worker_measurements = (
+            worker.get("measurements") or [] if scientific_result_available else []
+        )
+        for measurement in worker_measurements:
             if not isinstance(measurement, dict) or not measurement.get("name"):
                 continue
             unit = str(measurement.get("unit") or "").strip()
@@ -884,9 +987,15 @@ def _experiment_projection(
                     "definition": "; ".join(definition_parts)[:500],
                 }
             )
-        result_items = [
-            item for item in worker.get("result_items") or [] if isinstance(item, dict)
-        ]
+        result_items = (
+            [
+                item
+                for item in worker.get("result_items") or []
+                if isinstance(item, dict)
+            ]
+            if scientific_result_available
+            else []
+        )
         for item in result_items:
             if not isinstance(item, dict) or not item.get("id"):
                 continue
@@ -906,20 +1015,19 @@ def _experiment_projection(
             if isinstance(worker.get("scientific_payload"), dict)
             else None,
         ):
-            for value in source or []:
+            for value in source if isinstance(source, list) else []:
                 text = str(value).strip()
                 if text and text not in uncertainty:
                     uncertainty.append(text)
         reason = str(payload.get("outcome_reason") or "").strip()
         if reason and reason not in uncertainty:
             uncertainty.insert(0, reason)
-        raw_outcome = str(
-            assessment.get("proposed_outcome") or payload.get("outcome") or ""
+        execution_completed = scientific_result_available
+        outcome = (
+            outcome_map.get(raw_outcome, "technical_failure")
+            if scientific_result_available
+            else "technical_failure"
         )
-        execution_completed = bool(worker.get("execution_completed"))
-        outcome = outcome_map.get(raw_outcome)
-        if outcome is None:
-            outcome = "completed" if execution_completed else "technical_failure"
         result_by_id = {
             str(item.get("id")): item
             for item in result_items

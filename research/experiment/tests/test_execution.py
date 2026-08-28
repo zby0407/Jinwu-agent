@@ -28,6 +28,7 @@ from automatic_experiment.verification import (
     _active_stage_design,
     _close_measurement,
     _comparison_consistency_errors,
+    _hypothesis_relation_consistency_errors,
     _paired_comparison_audit_errors,
     _paired_directional_result_errors,
     _sandbox_isolation_passed,
@@ -86,6 +87,14 @@ class ExecutionTests(unittest.TestCase):
             "真实任务应提供自己的输入；本文件只在临时测试目录中存在。",
             encoding="utf-8",
         )
+        (inputs / "polar_tail.html").write_text(
+            "<html><body>header\n"
+            + ("historical row\n" * 200)
+            + "2026:01:09_21h:07m:13s 1N 29S -14Avg\n"
+            + "2026:01:19_21h:07m:13s XXXN XXXS XXXAvg\n"
+            + "</body></html>\n",
+            encoding="utf-8",
+        )
         (handoff / "polar_overlap_features.csv").write_text(
             "month,phase,polar_field,overlap_index,quality_flag\n"
             "2014-06,declining,0.40,1.36,suspect_geometry\n"
@@ -116,6 +125,36 @@ class ExecutionTests(unittest.TestCase):
                 }
             )
         )
+
+    def test_supports_relation_cannot_conflict_with_declared_diagnostics(self) -> None:
+        worker_result = {
+            "result_items": [
+                {"id": "hypothesis_relation", "value": "supports"},
+                {"id": "main_effect_direction_confirmed", "value": True},
+                {"id": "out_of_sample_complete", "value": True},
+                {"id": "leave_one_unit_direction_stable", "value": True},
+                {"id": "influential_unit_changes_conclusion", "value": False},
+                {"id": "independent_sample_adequate", "value": False},
+                {"id": "interaction_survives_amplitude_adjustment", "value": True},
+                {"id": "complexity_fallback_used", "value": False},
+            ]
+        }
+
+        errors = _hypothesis_relation_consistency_errors(worker_result)
+
+        self.assertEqual(len(errors), 1)
+        self.assertIn("independent_sample_adequate=false", errors[0])
+
+    def test_non_supporting_relation_preserves_negative_diagnostics(self) -> None:
+        worker_result = {
+            "result_items": [
+                {"id": "hypothesis_relation", "value": "indeterminate"},
+                {"id": "independent_sample_adequate", "value": False},
+                {"id": "influential_unit_changes_conclusion", "value": True},
+            ]
+        }
+
+        self.assertEqual(_hypothesis_relation_consistency_errors(worker_result), [])
 
     def test_directional_typed_result_rejects_reversed_mae_claim(self) -> None:
         design_payload = {
@@ -431,6 +470,10 @@ class ExecutionTests(unittest.TestCase):
     def test_new_research_upstream_or_formal_revision_allows_a_new_run(self) -> None:
         req = request("unit_research_scope_revision")
         first = service.bind_request({"request": req}, research_scope=research_scope())
+        validated = service.validate_and_store_design(
+            first["run_id"], response(req), design(req)
+        )
+        self.assertEqual(validated["status"], "design_validated", validated)
         second = service.bind_request(
             {"request": req}, research_scope=research_scope(artifact_sha256="b" * 64)
         )
@@ -603,6 +646,25 @@ class ExecutionTests(unittest.TestCase):
             state["design_validation_budget"],
             {"limit": 3, "used": 3, "remaining": 0},
         )
+
+    def test_compact_design_attempt_log_preserves_validation_issue_details(self) -> None:
+        req = request("unit_compact_issue_audit")
+        bound = service.bind_request({"request": req}, research_scope=research_scope())
+        self.addCleanup(cleanup_run, bound["run_id"])
+
+        checked = service.build_and_store_single_stage_design(
+            bound["run_id"], response(req), {"measurements": ["not-an-object"]}
+        )
+
+        self.assertEqual(checked["status"], "design_invalid")
+        root, _state = load_state(bound["run_id"])
+        [record] = [
+            json.loads(line)
+            for line in (root / "compact_design_attempts.jsonl")
+            .read_text(encoding="utf-8")
+            .splitlines()
+        ]
+        self.assertEqual(record["issues"], checked["issues"])
 
     def test_concurrent_compact_calls_share_last_validation_budget_slot(self) -> None:
         req = request("unit_research_compact_budget_concurrent")
@@ -1409,8 +1471,78 @@ class ExecutionTests(unittest.TestCase):
         )
         self.assertGreater(refreshed["remaining_run_seconds"], 0)
 
-    def test_prepare_budget_exhaustion_persists_terminal_report(self) -> None:
-        req = request("unit_prepare_budget_terminal")
+    def test_reinspect_validated_run_keeps_worker_contract_inline(self) -> None:
+        req = request("unit_reinspect_inline_worker_contract")
+        run_id = service.bind_request({"request": req})["run_id"]
+        self.addCleanup(cleanup_run, run_id)
+        service.inspect_inputs(run_id)
+        checked = service.validate_and_store_design(
+            run_id,
+            response(req),
+            design(req),
+        )
+        large_previews = [
+            {
+                "input_id": f"input_{index:02d}",
+                "path": f"input_{index:02d}/large.csv",
+                "content": "column_a,column_b\n" + ("1,2\n" * 16_384),
+                "truncated": False,
+                "size_bytes": 65_536,
+                "sha256": f"{index:064x}",
+            }
+            for index in range(20)
+        ]
+
+        with patch(
+            "automatic_experiment.service.snapshot_input_previews",
+            return_value=large_previews,
+        ):
+            refreshed = service.inspect_inputs(run_id)
+
+        self.assertEqual(
+            refreshed["required_worker_outputs"],
+            checked["required_worker_outputs"],
+        )
+        self.assertLessEqual(len(refreshed["input_previews"]), 8)
+        self.assertTrue(
+            all(
+                len(row["content"].encode("utf-8")) <= 512
+                for row in refreshed["input_previews"]
+            )
+        )
+        self.assertLess(
+            len(json.dumps(refreshed, ensure_ascii=False).encode("utf-8")),
+            20 * 1024,
+        )
+
+    def test_reinspect_validated_run_keeps_preview_head_and_tail(self) -> None:
+        req = request("unit_reinspect_preview_tail")
+        run_id = service.bind_request({"request": req})["run_id"]
+        self.addCleanup(cleanup_run, run_id)
+        service.inspect_inputs(run_id)
+        service.validate_and_store_design(run_id, response(req), design(req))
+        preview = {
+            "input_id": "input_01",
+            "path": "input_01/long.txt",
+            "content": "HEAD:" + ("x" * 2_000) + ":TAIL",
+            "truncated": True,
+            "size_bytes": 2_010,
+            "sha256": "1" * 64,
+        }
+
+        with patch(
+            "automatic_experiment.service.snapshot_input_previews",
+            return_value=[preview],
+        ):
+            refreshed = service.inspect_inputs(run_id)
+
+        content = refreshed["input_previews"][0]["content"]
+        self.assertTrue(content.startswith("HEAD:"))
+        self.assertTrue(content.endswith(":TAIL"))
+        self.assertLessEqual(len(content.encode("utf-8")), 512)
+
+    def test_interrupted_first_prepare_starts_a_fresh_execution_budget(self) -> None:
+        req = request("unit_prepare_budget_restart")
         run_id = service.bind_request({"request": req})["run_id"]
         self.addCleanup(cleanup_run, run_id)
         service.inspect_inputs(run_id)
@@ -1420,20 +1552,22 @@ class ExecutionTests(unittest.TestCase):
         state["execution_budget_reset_at"] = state["created_at"]
         save_state(root, state)
 
-        with self.assertRaisesRegex(service.ServiceError, "预算已用尽"):
-            service.prepare(
-                run_id,
-                [{"path": "experiment.py", "content": SUCCESS_CODE}],
-                None,
-                "Initial reviewed implementation.",
-            )
+        prepared = service.prepare(
+            run_id,
+            [{"path": "experiment.py", "content": SUCCESS_CODE}],
+            None,
+            "Initial reviewed implementation.",
+        )
 
-        _, stopped = load_state(run_id)
-        self.assertEqual(stopped["outcome"], "budget_stopped")
-        finalized = service.finalize(run_id)
-        self.assertEqual(finalized["outcome"], "budget_stopped")
-        self.assertTrue((root / "record.json").is_file())
-        self.assertTrue((root / "report.md").is_file())
+        self.assertEqual(prepared["status"], "attempt_prepared")
+        _, persisted = load_state(run_id)
+        self.assertEqual(persisted["attempt_count"], 1)
+        self.assertEqual(persisted["created_at"], "2000-01-01T00:00:00Z")
+        self.assertNotEqual(
+            persisted["execution_budget_started_at"],
+            persisted["created_at"],
+        )
+        self.assertIsNone(persisted["outcome"])
 
     def test_research_report_localizes_upstream_roles_and_endpoint_semantics(
         self,
@@ -1683,6 +1817,20 @@ class ExecutionTests(unittest.TestCase):
         self.assertEqual(previews[0]["path"], "input_01/README.md")
         self.assertIn("真实任务应提供自己的输入", previews[0]["content"])
         self.assertFalse(previews[0]["truncated"])
+
+    def test_html_input_is_available_as_bounded_preview(self) -> None:
+        task = "读取 inputs/polar_tail.html，核对末尾日期编码与缺失标记。"
+        req = default_request(task)
+        req["task_name"] = "unit_html_preview"
+        run_id = service.bind_request({"request": req})["run_id"]
+        self.addCleanup(cleanup_run, run_id)
+
+        previews = service.inspect_inputs(run_id)["input_previews"]
+
+        self.assertEqual(len(previews), 1)
+        self.assertEqual(previews[0]["path"], "input_01/polar_tail.html")
+        self.assertIn("2026:01:09_21h:07m:13s", previews[0]["content"])
+        self.assertIn("XXXN", previews[0]["content"])
 
     def test_small_tabular_input_is_available_for_scientific_design(self) -> None:
         task = (

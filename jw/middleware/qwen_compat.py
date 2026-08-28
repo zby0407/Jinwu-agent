@@ -12,6 +12,7 @@ registry, so it also covers tools injected by Deep Agents and other middleware.
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 import logging
@@ -29,6 +30,7 @@ from langchain.agents.structured_output import ProviderStrategy
 from langchain_core.messages import AIMessage, BaseMessage, ToolMessage
 from langchain_core.tools import BaseTool
 
+from ..llm.models import _dashscope_request_timeout
 from .configurable_model import _read_model_override
 
 QWEN_TOOL_USE_PROMPT = """<qwen_tool_contract>
@@ -92,6 +94,80 @@ _REPEATED_TOOL_ERROR_STOP = (
     "resume only after changing the approach or external state."
 )
 _TOOL_ERROR_COMPACT_THRESHOLD = 1_200
+_QWEN_TRANSPORT_RETRY_DELAY_SECONDS = 20.0
+_QWEN_TRANSPORT_MAX_RETRIES = 2
+
+
+async def _sleep_before_qwen_retry(delay_seconds: float) -> None:
+    """Sleep between Qwen transport retries behind a testable seam."""
+
+    await asyncio.sleep(delay_seconds)
+
+
+_SOURCE_RESTRICTED_HYPOTHESIS_DISCOVERY_TOOLS = frozenset(
+    {
+        "kb_query",
+        "kb_read",
+        "lit_bundle_build",
+        "lit_bundle_read",
+        "scientific_hypothesis_bind_wiki_evidence",
+        "scientific_hypothesis_build_literature_bundle",
+        "scientific_hypothesis_build_novelty_bundle",
+        "scientific_hypothesis_bind_literature_evidence",
+    }
+)
+_SOURCE_RESTRICTED_PREBOUND_TOOLS = frozenset(
+    {"scientific_hypothesis_bind_request", "scientific_hypothesis_bind_evidence"}
+)
+_SOURCE_RESTRICTED_HYPOTHESIS_PROTOCOLS = frozenset(
+    {
+        "silso_cycle_morphology_v1",
+        "solar_cycle_26_forecast_backtest_v1",
+    }
+)
+_SOURCE_RESTRICTED_HYPOTHESIS_INSTRUCTION = """
+<source_restricted_statistical_task>
+This is a source-restricted statistical task. The accepted A2A material contains
+hash-matched, Evidence-inspected result excerpts. Treat those excerpts as the only
+scientific evidence for this stage. Do not call knowledge discovery tools, generic
+filesystem tools, or shell tools. If the host bind receipt reports a prebound seed,
+use its evidence_id mapping directly; otherwise bind exact text from the accepted material, then
+persist no more than three distinct candidates with
+scientific_hypothesis_update_draft. For silso_cycle_morphology_v1 these are cycle
+length, rise time, and decline time versus peak strength: persist one candidate per
+preregistered relationship. For
+solar_cycle_26_forecast_backtest_v1 keep historical backtest skill versus the fixed
+baseline, the conditional Cycle 26 forecast, and sensitivity/uncertainty distinct;
+preserve a negative skill result and its low forecast confidence. Do not bind the
+same accepted excerpt twice, and do not repeatedly rewrite a warning-free candidate.
+After the three candidates are complete, read the draft, complete the required tail
+review, checkpoint it, and read the final draft before returning prose. Calibrate
+confidence at the claim level: A high within-sample descriptive confidence is allowed
+when independent sample count, source quality, both correlation measures, bootstrap,
+leave-one-out, and fixed-subperiod directions converge. It never upgrades causal or
+out-of-sample confidence. When the accepted SILSO excerpt explicitly shows that all
+of those convergence conditions hold, assign high to the rise-time within-sample descriptive claim;
+retain lower confidence for mechanism, prediction, and the two non-convergent relations.
+An unavailable external literature bundle is not a blocker and must not be invented.
+</source_restricted_statistical_task>
+"""
+_SOURCE_RESTRICTED_PREBOUND_INSTRUCTION = """
+<source_restricted_prebound_evidence>
+The host has already validated and prebound the exact evidence rows for all three
+registered SILSO relationships. Do not call a bind tool again and do not reconstruct
+an excerpt from memory. Use the evidence_id mapping in the previous bind receipt,
+write one candidate per relationship, and proceed to draft review/checkpoint.
+</source_restricted_prebound_evidence>
+"""
+_FINAL_RELEASE_GATE_INSTRUCTION = """
+<final_release_gate>
+The only remaining action is the final release gate. Call
+research_release_prepare once with the complete reader-facing Markdown draft and
+its claim_citations. Do not call read_file, write_todos, ls, shell, memory, or
+any other context or workflow tool. The accepted claims and carried limitations
+in the research route are the complete evidence boundary for this synthesis.
+</final_release_gate>
+"""
 
 
 def _is_structured_tool_error_message(message: BaseMessage) -> bool:
@@ -109,6 +185,45 @@ def _is_structured_tool_error_message(message: BaseMessage) -> bool:
     except (TypeError, ValueError):
         return False
     return isinstance(payload, Mapping) and payload.get("status") == "error"
+
+
+def _source_restricted_host_seed_bound(messages: Sequence[BaseMessage]) -> bool:
+    """Detect a successful host evidence-seed receipt in the current turn."""
+
+    for message in messages:
+        if not isinstance(message, ToolMessage):
+            continue
+        if getattr(message, "name", None) not in {
+            None,
+            "scientific_hypothesis_bind_request",
+        }:
+            continue
+        try:
+            payload = json.loads(QwenToolCompatibilityMiddleware._message_text(message))
+        except (TypeError, ValueError):
+            continue
+        candidates: list[Mapping[str, Any]] = []
+        if isinstance(payload, Mapping):
+            candidates.append(payload)
+            nested = payload.get("result")
+            if isinstance(nested, Mapping):
+                candidates.append(nested)
+        for candidate in candidates:
+            count = candidate.get("prebound_evidence_count")
+            mapping = candidate.get("prebound_evidence_ids_by_relationship")
+            if (
+                isinstance(count, int)
+                and not isinstance(count, bool)
+                and count >= 3
+                and isinstance(mapping, Mapping)
+                and {
+                    "cycle_length_peak",
+                    "rise_time_peak",
+                    "decline_time_peak",
+                }.issubset(mapping)
+            ):
+                return True
+    return False
 
 
 _PLANNER_SERIAL_TOOL_NAMES = frozenset(
@@ -147,6 +262,8 @@ _PLANNER_LOCAL_NO_DELIBERATION_TOOLS = frozenset(
 _DATA_DETERMINISTIC_TOOLS = frozenset(
     {
         "solar_data_open_context",
+        "prepare_solar_cycle_26_readiness",
+        "run_solar_cycle_26_historical_forecast",
         "prepare_solar_precursor_cycle_table",
         "reproduce_silso_cycle_extrema",
     }
@@ -160,6 +277,20 @@ _SOLAR_PRECURSOR_DATASET_IDS = frozenset(
 _SILSO_REPRODUCTION_PROTOCOL = "silso_cycle_reproduction_v1"
 _SILSO_EXTREMA_DATA_PRODUCT = "silso_cycle_extrema_v1"
 _SOLAR_PRECURSOR_DATA_PRODUCT = "solar_polar_precursor_table_v1"
+_SOLAR_CYCLE_26_READINESS_PROTOCOL = "solar_cycle_26_readiness_v1"
+_SOLAR_CYCLE_26_READINESS_DATA_PRODUCT = "solar_cycle_26_readiness_inventory_v1"
+_SOLAR_CYCLE_26_FORECAST_BACKTEST_PROTOCOL = "solar_cycle_26_forecast_backtest_v1"
+_SOLAR_CYCLE_26_FORECAST_BACKTEST_DATA_PRODUCT = "solar_cycle_26_forecast_backtest_v1"
+_SOLAR_CYCLE_26_READINESS_DATASET_IDS = frozenset(
+    {
+        "silso-monthly-total-v2",
+        "silso-monthly-smoothed-v2",
+        "silso-cycle-extrema-v2",
+        "noaa-swpc-monthly-f107-v1",
+        "mwo-wso-polar-field-v2",
+        "wso-current-polar-field-v1",
+    }
+)
 _SILSO_REPRODUCTION_DATASET_IDS = frozenset(
     {
         "silso-monthly-total-v2",
@@ -179,6 +310,7 @@ _RETRYABLE_QWEN_TRANSPORT_ERRORS = frozenset(
         "ReadError",
         "ReadTimeout",
         "RemoteProtocolError",
+        "TimeoutError",
     }
 )
 
@@ -404,11 +536,40 @@ class QwenToolCompatibilityMiddleware(AgentMiddleware):
             "[RESEARCH_PRODUCER_V2]" in request_context
             and "stage=planning" in request_context
         )
+        experiment_design_context = (
+            "[RESEARCH_PRODUCER_V2]" in request_context
+            and "stage=experiment_design" in request_context
+        )
+        experiment_design_protocol = next(
+            (
+                protocol
+                for protocol in (
+                    "silso_cycle_morphology_v1",
+                    "solar_cycle_26_forecast_backtest_v1",
+                )
+                if protocol in request_context
+            ),
+            None,
+        )
         data_stage_context = (
             "[RESEARCH_PRODUCER_V2]" in request_context
             and "stage=data" in request_context
         )
         evidence_review_context = "[EVIDENCE_REVIEW_V2]" in request_context
+        source_restricted_hypothesis = (
+            "[RESEARCH_PRODUCER_V2]" in request_context
+            and "stage=hypothesis" in request_context
+            and any(
+                protocol in request_context
+                for protocol in _SOURCE_RESTRICTED_HYPOTHESIS_PROTOCOLS
+            )
+        )
+        final_release_context = (
+            "<research_route>" in request_context
+            and "Deterministic next_action=" in request_context
+            and '"prepare_release"' in request_context
+            and '"final_release"' in request_context
+        )
         closed_loop_context = any(
             marker in request_context
             for marker in ("[RESEARCH_PRODUCER_V2]", "[EVIDENCE_REVIEW_V2]")
@@ -422,6 +583,54 @@ class QwenToolCompatibilityMiddleware(AgentMiddleware):
                 tool for tool in request_tools if _tool_name(tool) != "think_tool"
             ]
             overrides["tools"] = request_tools
+        if source_restricted_hypothesis:
+            request_tools = [
+                tool
+                for tool in request_tools
+                if _tool_name(tool).startswith("scientific_hypothesis_")
+                and _tool_name(tool)
+                not in _SOURCE_RESTRICTED_HYPOTHESIS_DISCOVERY_TOOLS
+            ]
+            overrides["tools"] = request_tools
+            system_message = append_to_system_message(
+                system_message,
+                _SOURCE_RESTRICTED_HYPOTHESIS_INSTRUCTION,
+            )
+            overrides["system_message"] = system_message
+            model_settings = dict(getattr(request, "model_settings", None) or {})
+            model_settings["parallel_tool_calls"] = False
+            overrides["model_settings"] = model_settings
+            if _source_restricted_host_seed_bound(projected_messages):
+                request_tools = [
+                    tool
+                    for tool in request_tools
+                    if _tool_name(tool) not in _SOURCE_RESTRICTED_PREBOUND_TOOLS
+                ]
+                overrides["tools"] = request_tools
+                system_message = append_to_system_message(
+                    system_message,
+                    _SOURCE_RESTRICTED_PREBOUND_INSTRUCTION,
+                )
+                overrides["system_message"] = system_message
+        if final_release_context:
+            # ResearchRouter is intentionally earlier in the middleware stack,
+            # but generic filesystem/todo middleware can add tools afterwards.
+            # Re-assert the release boundary at the final provider edge so a
+            # stale context action cannot consume the only synthesis turn.
+            request_tools = [
+                tool
+                for tool in request_tools
+                if _tool_name(tool) == "research_release_prepare"
+            ]
+            overrides["tools"] = request_tools
+            system_message = append_to_system_message(
+                system_message,
+                _FINAL_RELEASE_GATE_INSTRUCTION,
+            )
+            overrides["system_message"] = system_message
+            model_settings = dict(getattr(request, "model_settings", None) or {})
+            model_settings["parallel_tool_calls"] = False
+            overrides["model_settings"] = model_settings
         if planning_revision_context or evidence_review_context:
             # Qwen frequently emits every planned JSON replacement in one
             # parallel tool-call response. Those responses are both too large
@@ -451,6 +660,13 @@ class QwenToolCompatibilityMiddleware(AgentMiddleware):
                 preopened_context=self._preopened_data_context(
                     str(system_message.content)
                 ),
+            )
+        if deterministic_tool is None:
+            deterministic_tool = self._deterministic_experiment_design_tool(
+                projected_messages,
+                request_tools,
+                enabled=experiment_design_context,
+                protocol=experiment_design_protocol,
             )
         if deterministic_tool is None:
             deterministic_tool = self._deterministic_evidence_submit_tool(
@@ -801,20 +1017,42 @@ class QwenToolCompatibilityMiddleware(AgentMiddleware):
             if getattr(message, "type", "") in {"human", "user"}:
                 latest_human_index = index
         terminal_tools = {
+            "prepare_solar_cycle_26_readiness",
+            "run_solar_cycle_26_historical_forecast",
             "prepare_solar_precursor_cycle_table",
             "reproduce_silso_cycle_extrema",
         }
+        terminal_receipts = {
+            "receipts/datasets/solar_cycle_26_readiness_inventory.json",
+            "receipts/datasets/solar_precursor_cycle_table.json",
+            "receipts/datasets/silso_cycle_extrema.json",
+            "receipts/datasets/solar_cycle_26_forecast_backtest.json",
+        }
         for message in reversed(messages[latest_human_index + 1 :]):
-            if (
-                not isinstance(message, ToolMessage)
-                or message.name not in terminal_tools
-            ):
+            if not isinstance(message, ToolMessage):
                 continue
             try:
                 payload = json.loads(cls._message_text(message))
             except (TypeError, ValueError):
-                return False
-            return isinstance(payload, Mapping) and payload.get("status") == "verified"
+                if message.name in terminal_tools:
+                    return False
+                continue
+            if not isinstance(payload, Mapping):
+                if message.name in terminal_tools:
+                    return False
+                continue
+            receipt_refs = payload.get("receipt_refs")
+            typed_terminal_payload = (
+                isinstance(receipt_refs, Sequence)
+                and not isinstance(receipt_refs, (str, bytes))
+                and any(
+                    isinstance(ref, str) and ref in terminal_receipts
+                    for ref in receipt_refs
+                )
+            )
+            if message.name not in terminal_tools and not typed_terminal_payload:
+                continue
+            return payload.get("status") == "verified"
         return False
 
     @classmethod
@@ -832,6 +1070,8 @@ class QwenToolCompatibilityMiddleware(AgentMiddleware):
             return None
         available = set(validate_qwen_tool_schema(tools))
         open_tool = "solar_data_open_context"
+        readiness_tool = "prepare_solar_cycle_26_readiness"
+        forecast_tool = "run_solar_cycle_26_historical_forecast"
         prepare_tool = "prepare_solar_precursor_cycle_table"
         reproduce_tool = "reproduce_silso_cycle_extrema"
 
@@ -844,9 +1084,15 @@ class QwenToolCompatibilityMiddleware(AgentMiddleware):
             message
             for message in messages[latest_human_index + 1 :]
             if isinstance(message, ToolMessage)
-            and message.name in {open_tool, prepare_tool, reproduce_tool}
+            and message.name
+            in {open_tool, readiness_tool, forecast_tool, prepare_tool, reproduce_tool}
         ]
-        if relevant and relevant[-1].name in {prepare_tool, reproduce_tool}:
+        if relevant and relevant[-1].name in {
+            readiness_tool,
+            forecast_tool,
+            prepare_tool,
+            reproduce_tool,
+        }:
             return None
         if preopened_context is None:
             if not relevant:
@@ -876,6 +1122,23 @@ class QwenToolCompatibilityMiddleware(AgentMiddleware):
             if isinstance(item, Mapping)
         }
         if (
+            payload.get("analysis_protocol") == _SOLAR_CYCLE_26_READINESS_PROTOCOL
+            and payload.get("required_data_product")
+            == _SOLAR_CYCLE_26_READINESS_DATA_PRODUCT
+            and _SOLAR_CYCLE_26_READINESS_DATASET_IDS <= dataset_ids
+            and readiness_tool in available
+        ):
+            return readiness_tool
+        if (
+            payload.get("analysis_protocol")
+            == _SOLAR_CYCLE_26_FORECAST_BACKTEST_PROTOCOL
+            and payload.get("required_data_product")
+            == _SOLAR_CYCLE_26_FORECAST_BACKTEST_DATA_PRODUCT
+            and _SILSO_REPRODUCTION_DATASET_IDS <= dataset_ids
+            and forecast_tool in available
+        ):
+            return forecast_tool
+        if (
             payload.get("analysis_protocol") == _SILSO_REPRODUCTION_PROTOCOL
             and payload.get("required_data_product") == _SILSO_EXTREMA_DATA_PRODUCT
             and _SILSO_REPRODUCTION_DATASET_IDS <= dataset_ids
@@ -889,6 +1152,59 @@ class QwenToolCompatibilityMiddleware(AgentMiddleware):
         ):
             return prepare_tool
         return None
+
+    @classmethod
+    def _deterministic_experiment_design_tool(
+        cls,
+        messages: Sequence[BaseMessage],
+        tools: list[BaseTool | dict[str, Any]],
+        *,
+        enabled: bool,
+        protocol: str | None,
+    ) -> str | None:
+        """Route registered protocols to their host-owned design adapter.
+
+        The generic single-stage schema is intentionally flexible, but it is
+        the wrong boundary for the two registered solar protocols: their
+        design (and worker contract) is pre-registered and deterministic.
+        Qwen can otherwise spend its whole design budget repairing a free-form
+        schema even though the host already has a valid design builder.
+        """
+        if not enabled or protocol not in {
+            "silso_cycle_morphology_v1",
+            "solar_cycle_26_forecast_backtest_v1",
+        }:
+            return None
+        specialized = {
+            "silso_cycle_morphology_v1": "automatic_experiment_create_silso_morphology_design",
+            "solar_cycle_26_forecast_backtest_v1": "automatic_experiment_create_sc26_forecast_design",
+        }[protocol]
+        available = {name for tool in tools if (name := _tool_name(tool)) is not None}
+        if specialized not in available:
+            return None
+
+        latest_human_index = -1
+        for index, message in enumerate(messages):
+            if getattr(message, "type", "") in {"human", "user"}:
+                latest_human_index = index
+        # Once the specialized builder has returned its typed success receipt,
+        # let the producer continue to checkpoint the result instead of
+        # invoking the same builder again.
+        for message in reversed(messages[latest_human_index + 1 :]):
+            if not isinstance(message, ToolMessage) or message.name != specialized:
+                continue
+            try:
+                payload = json.loads(cls._message_text(message))
+            except (TypeError, ValueError):
+                return specialized
+            result = payload.get("result") if isinstance(payload, Mapping) else None
+            if (
+                isinstance(result, Mapping)
+                and result.get("status") == "design_validated"
+            ):
+                return None
+            return specialized
+        return specialized
 
     @staticmethod
     def _preopened_data_context(content: str) -> Mapping[str, Any] | None:
@@ -1379,6 +1695,238 @@ class QwenToolCompatibilityMiddleware(AgentMiddleware):
         )
 
     @staticmethod
+    def _completed_tool_events(
+        messages: Sequence[BaseMessage],
+    ) -> list[tuple[str, int, int, ToolMessage]]:
+        """Return completed tool calls with their call and result positions."""
+        calls: dict[str, tuple[str, int]] = {}
+        events: list[tuple[str, int, int, ToolMessage]] = []
+        for index, message in enumerate(messages):
+            if isinstance(message, AIMessage):
+                for call in message.tool_calls:
+                    call_id = call.get("id")
+                    name = call.get("name")
+                    if isinstance(call_id, str) and isinstance(name, str):
+                        calls[call_id] = (name, index)
+                continue
+            if not isinstance(message, ToolMessage):
+                continue
+            completed = calls.get(str(message.tool_call_id))
+            if completed is None:
+                continue
+            name, call_index = completed
+            events.append((name, call_index, index, message))
+        return events
+
+    @classmethod
+    def _enforce_hypothesis_readback_after_ready_update(
+        cls,
+        response: ModelResponse,
+        messages: Sequence[BaseMessage],
+        tools: list[BaseTool | dict[str, Any]],
+    ) -> ModelResponse:
+        """Follow a warning-free draft update with its required readback."""
+        if not isinstance(response, ModelResponse):
+            return response
+        if len(response.result) != 1 or not isinstance(response.result[0], AIMessage):
+            return response
+        if "scientific_hypothesis_get_draft" not in validate_qwen_tool_schema(tools):
+            return response
+
+        events = cls._completed_tool_events(messages)
+        latest_update: tuple[int, ToolMessage] | None = None
+        last_read = -1
+        for name, _, result_index, tool_message in events:
+            if name == "scientific_hypothesis_update_draft":
+                latest_update = (result_index, tool_message)
+            elif name == "scientific_hypothesis_get_draft":
+                last_read = result_index
+        if latest_update is None or last_read > latest_update[0]:
+            return response
+
+        try:
+            update_result = json.loads(cls._message_text(latest_update[1]))
+        except (TypeError, ValueError):
+            return response
+        next_action = update_result.get("next_required_action")
+        if not (
+            update_result.get("status") == "draft"
+            and update_result.get("soft_warning_count") == 0
+            and update_result.get("return_gate") == "get_draft_required"
+            and isinstance(next_action, dict)
+            and next_action.get("tool") == "scientific_hypothesis_get_draft"
+        ):
+            return response
+
+        message = response.result[0]
+        if (
+            len(message.tool_calls) == 1
+            and message.tool_calls[0].get("name") == "scientific_hypothesis_get_draft"
+        ):
+            return response
+        digest = hashlib.sha256(
+            f"hypothesis-ready-readback:{len(messages)}:{latest_update[0]}".encode()
+        ).hexdigest()[:24]
+        metadata = dict(message.response_metadata)
+        metadata["finish_reason"] = "tool_calls"
+        refreshed = message.model_copy(
+            update={
+                "content": "",
+                "tool_calls": [
+                    {
+                        "name": "scientific_hypothesis_get_draft",
+                        "args": {},
+                        "id": f"call_qwen_hypothesis_ready_readback_{digest}",
+                        "type": "tool_call",
+                    }
+                ],
+                "invalid_tool_calls": [],
+                "response_metadata": metadata,
+            }
+        )
+        return ModelResponse(
+            result=[refreshed],
+            structured_response=response.structured_response,
+        )
+
+    @classmethod
+    def _enforce_current_hypothesis_draft_before_tail_review(
+        cls,
+        response: ModelResponse,
+        messages: Sequence[BaseMessage],
+        tools: list[BaseTool | dict[str, Any]],
+    ) -> ModelResponse:
+        """Make Qwen read the current candidate-pool hash before tail review."""
+        if not isinstance(response, ModelResponse):
+            return response
+        if len(response.result) != 1 or not isinstance(response.result[0], AIMessage):
+            return response
+        message = response.result[0]
+        if not any(
+            call.get("name") == "scientific_hypothesis_review_tail"
+            for call in message.tool_calls
+        ):
+            return response
+        if "scientific_hypothesis_get_draft" not in validate_qwen_tool_schema(tools):
+            return response
+
+        events = cls._completed_tool_events(messages)
+        last_update = max(
+            (
+                result_index
+                for name, _, result_index, _ in events
+                if name == "scientific_hypothesis_update_draft"
+            ),
+            default=-1,
+        )
+        last_read = max(
+            (
+                result_index
+                for name, _, result_index, _ in events
+                if name == "scientific_hypothesis_get_draft"
+            ),
+            default=-1,
+        )
+        if last_read > last_update:
+            return response
+
+        digest = hashlib.sha256(
+            f"hypothesis-refresh:{len(messages)}:{last_update}".encode()
+        ).hexdigest()[:24]
+        metadata = dict(message.response_metadata)
+        metadata["finish_reason"] = "tool_calls"
+        refreshed = message.model_copy(
+            update={
+                "content": "",
+                "tool_calls": [
+                    {
+                        "name": "scientific_hypothesis_get_draft",
+                        "args": {},
+                        "id": f"call_qwen_hypothesis_refresh_{digest}",
+                        "type": "tool_call",
+                    }
+                ],
+                "invalid_tool_calls": [],
+                "response_metadata": metadata,
+            }
+        )
+        return ModelResponse(
+            result=[refreshed],
+            structured_response=response.structured_response,
+        )
+
+    @classmethod
+    def _enforce_hypothesis_checkpoint_after_tail_review(
+        cls,
+        response: ModelResponse,
+        messages: Sequence[BaseMessage],
+        tools: list[BaseTool | dict[str, Any]],
+    ) -> ModelResponse:
+        """Convert a premature Qwen final into the required checkpoint call."""
+        if not isinstance(response, ModelResponse):
+            return response
+        if len(response.result) != 1 or not isinstance(response.result[0], AIMessage):
+            return response
+        message = response.result[0]
+        if message.tool_calls or message.invalid_tool_calls:
+            return response
+        if "scientific_hypothesis_checkpoint_draft" not in validate_qwen_tool_schema(
+            tools
+        ):
+            return response
+
+        events = cls._completed_tool_events(messages)
+        latest_review: tuple[int, ToolMessage] | None = None
+        last_draft_change = -1
+        last_checkpoint = -1
+        for name, _, result_index, tool_message in events:
+            if name == "scientific_hypothesis_update_draft":
+                last_draft_change = result_index
+            elif name == "scientific_hypothesis_review_tail":
+                latest_review = (result_index, tool_message)
+            elif name == "scientific_hypothesis_checkpoint_draft":
+                last_checkpoint = result_index
+        if latest_review is None:
+            return response
+        review_index, review_message = latest_review
+        if review_index <= max(last_draft_change, last_checkpoint):
+            return response
+        try:
+            review_result = json.loads(cls._message_text(review_message))
+        except (TypeError, ValueError):
+            return response
+        if (
+            not isinstance(review_result, Mapping)
+            or review_result.get("status") != "tail_reviewed"
+        ):
+            return response
+
+        digest = hashlib.sha256(
+            f"hypothesis-checkpoint:{len(messages)}:{review_index}".encode()
+        ).hexdigest()[:24]
+        metadata = dict(message.response_metadata)
+        metadata["finish_reason"] = "tool_calls"
+        checkpointed = message.model_copy(
+            update={
+                "content": "",
+                "tool_calls": [
+                    {
+                        "name": "scientific_hypothesis_checkpoint_draft",
+                        "args": {},
+                        "id": f"call_qwen_hypothesis_checkpoint_{digest}",
+                        "type": "tool_call",
+                    }
+                ],
+                "invalid_tool_calls": [],
+                "response_metadata": metadata,
+            }
+        )
+        return ModelResponse(
+            result=[checkpointed],
+            structured_response=response.structured_response,
+        )
+
+    @staticmethod
     def _tool_call_signature(message: AIMessage) -> tuple[tuple[str, str], ...]:
         """Return a stable signature that ignores provider-generated call IDs."""
         signature: list[tuple[str, str]] = []
@@ -1652,6 +2200,22 @@ class QwenToolCompatibilityMiddleware(AgentMiddleware):
                     "sunspot_path": paths.get("silso-monthly-total-v2"),
                     "polar_field_path": paths.get("mwo-wso-polar-field-v2"),
                 }
+            elif name == "prepare_solar_cycle_26_readiness":
+                required = {
+                    "monthly_total_path": paths.get("silso-monthly-total-v2"),
+                    "smoothed_path": paths.get("silso-monthly-smoothed-v2"),
+                    "official_extrema_path": paths.get("silso-cycle-extrema-v2"),
+                    "f107_path": paths.get("noaa-swpc-monthly-f107-v1"),
+                    "historical_polar_path": paths.get("mwo-wso-polar-field-v2"),
+                    "current_polar_path": paths.get("wso-current-polar-field-v1"),
+                    "cutoff_date": "2026-06-30",
+                }
+            elif name == "run_solar_cycle_26_historical_forecast":
+                required = {
+                    "monthly_total_path": paths.get("silso-monthly-total-v2"),
+                    "smoothed_path": paths.get("silso-monthly-smoothed-v2"),
+                    "official_extrema_path": paths.get("silso-cycle-extrema-v2"),
+                }
             else:
                 required = {
                     "monthly_total_path": paths.get("silso-monthly-total-v2"),
@@ -1861,6 +2425,27 @@ class QwenToolCompatibilityMiddleware(AgentMiddleware):
         submission: Mapping[str, Any],
     ) -> dict[str, Any]:
         normalized = dict(submission)
+        for field in (
+            "assessment_claims",
+            "scientific_quality_claims",
+            "issues",
+            "accepted_claims",
+            "blocked_claims",
+            "carry_forward_limits",
+        ):
+            raw_value = normalized.get(field)
+            if not isinstance(raw_value, str):
+                continue
+            try:
+                parsed_value = json.loads(raw_value)
+            except (TypeError, ValueError):
+                continue
+            if isinstance(parsed_value, list):
+                # Qwen sometimes JSON-encodes an array inside a tool argument
+                # even though the provider schema also permits a native array.
+                # Parse that one boundary representation before iterating it;
+                # otherwise a valid matrix becomes one list entry per character.
+                normalized[field] = parsed_value
         assessment_mode = (
             os.environ.get("JW_EVIDENCE_REVIEW_MODE", "two_pass").strip().lower()
         )
@@ -1889,6 +2474,36 @@ class QwenToolCompatibilityMiddleware(AgentMiddleware):
             if owners:
                 normalized["next_owner"] = owners[0]
 
+        if normalized.get("decision") in {
+            "accept",
+            "accept_with_limits",
+        } and not normalized.get("accepted_claims"):
+            blocked_claims = {
+                claim_id
+                for claim_id in normalized.get("blocked_claims", [])
+                if isinstance(claim_id, str) and claim_id
+            }
+            accepted_claims: list[str] = []
+            for row in normalized.get("assessment_claims", []):
+                if not isinstance(row, Mapping):
+                    continue
+                claim_id = row.get("claim_id")
+                if (
+                    isinstance(claim_id, str)
+                    and claim_id
+                    and claim_id not in blocked_claims
+                    and row.get("disposition") in {"supported", "limited_support"}
+                    and claim_id not in accepted_claims
+                ):
+                    accepted_claims.append(claim_id)
+            if accepted_claims:
+                # This is a provider-boundary repair, not a new scientific
+                # judgment: the reviewer already marked these exact artifact
+                # claims supported in ReviewAssessmentV1 and selected an
+                # accepting verdict. Leave undecided/opposed claims absent so
+                # the server-side contract still rejects an incoherent round.
+                normalized["accepted_claims"] = accepted_claims
+
         quality_claims: list[Any] = []
         for raw_claim in normalized.get("scientific_quality_claims", []):
             if not isinstance(raw_claim, Mapping):
@@ -1911,6 +2526,54 @@ class QwenToolCompatibilityMiddleware(AgentMiddleware):
             quality_claims.append(claim)
         normalized["scientific_quality_claims"] = quality_claims
         return normalized
+
+    @classmethod
+    def _normalize_qwen_evidence_submission_response(
+        cls,
+        response: ModelResponse,
+    ) -> ModelResponse:
+        """Repair host-owned fields in Qwen's atomic Evidence tool call.
+
+        ``assessment_review_mode`` is runtime configuration rather than a
+        reviewer decision. Likewise, an accepting verdict can recover omitted
+        claim ids only from the same call's explicit supported/limited-support
+        assessment rows. All evidence content and scientific judgments remain
+        model-authored and are still validated by the persistence tool.
+        """
+
+        if not isinstance(response, ModelResponse):
+            return response
+
+        changed = False
+        messages: list[BaseMessage] = []
+        for message in response.result:
+            if not isinstance(message, AIMessage):
+                messages.append(message)
+                continue
+            tool_calls: list[dict[str, Any]] = []
+            message_changed = False
+            for call in message.tool_calls:
+                if call.get("name") == _EVIDENCE_SUBMIT_TOOL and isinstance(
+                    call.get("args"), Mapping
+                ):
+                    normalized_args = cls._normalize_kimi_evidence_submission(
+                        call["args"]
+                    )
+                    tool_calls.append({**call, "args": normalized_args})
+                    message_changed = message_changed or normalized_args != call["args"]
+                else:
+                    tool_calls.append(call)
+            if message_changed:
+                messages.append(message.model_copy(update={"tool_calls": tool_calls}))
+                changed = True
+            else:
+                messages.append(message)
+        if not changed:
+            return response
+        return ModelResponse(
+            result=messages,
+            structured_response=response.structured_response,
+        )
 
     @classmethod
     def _kimi_evidence_structured_failure(
@@ -2099,7 +2762,10 @@ class QwenToolCompatibilityMiddleware(AgentMiddleware):
             return response
         tools = list(prepared.tools)
         audit_messages = list(request.messages)
-        recovered = self._recover_reasoning_tool_call(response, tools)
+        evidence_normalized = self._normalize_qwen_evidence_submission_response(
+            response
+        )
+        recovered = self._recover_reasoning_tool_call(evidence_normalized, tools)
         serialized = self._serialize_planner_revision_calls(
             recovered,
             enabled=(
@@ -2109,13 +2775,32 @@ class QwenToolCompatibilityMiddleware(AgentMiddleware):
                 in str(getattr(prepared.system_message, "content", ""))
             ),
         )
+        hypothesis_ready_readback = (
+            self._enforce_hypothesis_readback_after_ready_update(
+                serialized,
+                audit_messages,
+                tools,
+            )
+        )
+        hypothesis_refreshed = (
+            self._enforce_current_hypothesis_draft_before_tail_review(
+                hypothesis_ready_readback,
+                audit_messages,
+                tools,
+            )
+        )
         readback_checked = self._enforce_artifact_readback(
-            serialized,
+            hypothesis_refreshed,
+            audit_messages,
+            tools,
+        )
+        hypothesis_checkpointed = self._enforce_hypothesis_checkpoint_after_tail_review(
+            readback_checked,
             audit_messages,
             tools,
         )
         blocked_checked = self._stop_repeated_blocked_tool_call(
-            readback_checked,
+            hypothesis_checkpointed,
             audit_messages,
         )
         return self._stop_after_two_identical_tool_errors(
@@ -2152,7 +2837,9 @@ class QwenToolCompatibilityMiddleware(AgentMiddleware):
         if self._is_kimi_evidence_structured_submit(prepared):
             return await self._ainvoke_kimi_evidence_structured(prepared)
         try:
-            response = await handler(prepared)
+            response = await self._await_handler_with_qwen_wall_timeout(
+                request, prepared, handler
+            )
         except Exception as exc:
             if self._is_thinking_tool_choice_rejection(exc):
                 local_data = self._synthesize_data_transition_response(prepared)
@@ -2164,18 +2851,38 @@ class QwenToolCompatibilityMiddleware(AgentMiddleware):
                         "[jw.middleware.qwen_compat] Qwen rejected forced "
                         "tool_choice; retrying once with a single auto-selected tool"
                     )
-                    response = await handler(safe_retry)
+                    response = await self._await_handler_with_qwen_wall_timeout(
+                        request, safe_retry, handler
+                    )
                 else:
                     raise
             elif self._active_model_is_qwen(
                 request
             ) and _is_retryable_qwen_transport_error(exc):
-                _logger.warning(
-                    "[jw.middleware.qwen_compat] transient Qwen transport failure; "
-                    "retrying the same model request once (%s)",
-                    type(exc).__name__,
-                )
-                response = await handler(prepared)
+                current = exc
+                for retry_index in range(_QWEN_TRANSPORT_MAX_RETRIES):
+                    _logger.warning(
+                        "[jw.middleware.qwen_compat] transient Qwen transport "
+                        "failure; retry %d/%d after %.0f seconds (%s)",
+                        retry_index + 1,
+                        _QWEN_TRANSPORT_MAX_RETRIES,
+                        _QWEN_TRANSPORT_RETRY_DELAY_SECONDS,
+                        type(current).__name__,
+                    )
+                    await _sleep_before_qwen_retry(_QWEN_TRANSPORT_RETRY_DELAY_SECONDS)
+                    try:
+                        response = await self._await_handler_with_qwen_wall_timeout(
+                            request, prepared, handler
+                        )
+                        break
+                    except Exception as retry_exc:
+                        current = retry_exc
+                        if (
+                            not self._active_model_is_qwen(request)
+                            or not _is_retryable_qwen_transport_error(retry_exc)
+                            or retry_index + 1 >= _QWEN_TRANSPORT_MAX_RETRIES
+                        ):
+                            raise
             else:
                 raise
         _logger.info(
@@ -2191,7 +2898,10 @@ class QwenToolCompatibilityMiddleware(AgentMiddleware):
             return response
         tools = list(prepared.tools)
         audit_messages = list(request.messages)
-        recovered = self._recover_reasoning_tool_call(response, tools)
+        evidence_normalized = self._normalize_qwen_evidence_submission_response(
+            response
+        )
+        recovered = self._recover_reasoning_tool_call(evidence_normalized, tools)
         serialized = self._serialize_planner_revision_calls(
             recovered,
             enabled=(
@@ -2201,19 +2911,59 @@ class QwenToolCompatibilityMiddleware(AgentMiddleware):
                 in str(getattr(prepared.system_message, "content", ""))
             ),
         )
+        hypothesis_ready_readback = (
+            self._enforce_hypothesis_readback_after_ready_update(
+                serialized,
+                audit_messages,
+                tools,
+            )
+        )
+        hypothesis_refreshed = (
+            self._enforce_current_hypothesis_draft_before_tail_review(
+                hypothesis_ready_readback,
+                audit_messages,
+                tools,
+            )
+        )
         readback_checked = self._enforce_artifact_readback(
-            serialized,
+            hypothesis_refreshed,
+            audit_messages,
+            tools,
+        )
+        hypothesis_checkpointed = self._enforce_hypothesis_checkpoint_after_tail_review(
+            readback_checked,
             audit_messages,
             tools,
         )
         blocked_checked = self._stop_repeated_blocked_tool_call(
-            readback_checked,
+            hypothesis_checkpointed,
             audit_messages,
         )
         return self._stop_after_two_identical_tool_errors(
             blocked_checked,
             audit_messages,
         )
+
+    async def _await_handler_with_qwen_wall_timeout(
+        self,
+        request: ModelRequest,
+        prepared: ModelRequest,
+        handler: Callable[[ModelRequest], Awaitable[ModelResponse]],
+    ) -> ModelResponse:
+        """Bound one complete Qwen request, including a live response stream."""
+
+        if not self._active_model_is_qwen(request):
+            return await handler(prepared)
+        timeout_s = _dashscope_request_timeout()
+        try:
+            return await asyncio.wait_for(handler(prepared), timeout=timeout_s)
+        except TimeoutError:
+            _logger.warning(
+                "[jw.middleware.qwen_compat] Qwen model request exceeded the "
+                "%.0f-second total wall-clock timeout",
+                timeout_s,
+            )
+            raise
 
 
 __all__ = [

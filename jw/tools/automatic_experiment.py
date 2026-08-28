@@ -138,6 +138,44 @@ def _host_research_scope(config: RunnableConfig) -> dict[str, Any] | None:
     return scope
 
 
+def _host_staged_input_refs(config: RunnableConfig) -> list[dict[str, Any]] | None:
+    """Load the host-owned staged input contract for an integrated experiment."""
+
+    sidecar_path = workspace_root_from_config(config) / "inputs" / "_staged.json"
+    if not sidecar_path.is_file():
+        return None
+    sidecar = json.loads(sidecar_path.read_text(encoding="utf-8"))
+    if not isinstance(sidecar, dict) or sidecar.get("schema_version") != (
+        "automatic-experiment-input-refs-v1"
+    ):
+        raise ValueError("the host staged-input sidecar has an invalid schema")
+    rows = sidecar.get("input_refs")
+    if not isinstance(rows, list) or not rows:
+        raise ValueError("the host staged-input sidecar has no input_refs")
+    refs: list[dict[str, Any]] = []
+    seen_paths: set[str] = set()
+    for index, row in enumerate(rows, start=1):
+        if not isinstance(row, dict):
+            raise ValueError(f"host staged input_refs[{index - 1}] must be an object")
+        path = _normalize_model_input_path(row.get("path"))
+        if path == "inputs/_staged.json" or path in seen_paths:
+            continue
+        seen_paths.add(path)
+        refs.append(
+            {
+                "id": str(row.get("id") or f"input_{index:02d}"),
+                "path": path,
+                "description": str(
+                    row.get("description") or "Accepted Data-stage input."
+                ),
+                "required": bool(row.get("required", True)),
+            }
+        )
+    if not refs:
+        raise ValueError("the host staged-input sidecar has no usable input_refs")
+    return refs
+
+
 def _normalize_model_input_path(value: object) -> str:
     path = str(value or "").strip().replace("\\", "/")
     while path.startswith("./"):
@@ -151,6 +189,57 @@ def _normalize_model_input_path(value: object) -> str:
         "experiment inputs must be staged under inputs/ or reference "
         "runs/<run_id>/public/; do not pass /work, ./data, or host paths"
     )
+
+
+def _apply_host_analysis_protocol(
+    request: dict[str, Any], research_scope: dict[str, Any] | None
+) -> dict[str, Any]:
+    """Preserve deterministic protocol requirements in the immutable request.
+
+    A specialist may accurately summarize the broad analysis while omitting a
+    required output metric from its bind text.  In integrated research runs the
+    host-owned analysis protocol is authoritative, so enrich only the narrow
+    protocol requirement before the request is frozen.
+    """
+
+    enriched = dict(request)
+    if not isinstance(research_scope, dict):
+        return enriched
+    if research_scope.get("analysis_protocol") == "silso_cycle_morphology_v1":
+        requirement = (
+            "Host protocol requirement: report Pearson and Spearman two-sided "
+            "p-values for all three relationships."
+        )
+        task = str(enriched.get("task") or "").strip()
+        if requirement not in task:
+            enriched["task"] = f"{task}\n\n{requirement}" if task else requirement
+    elif research_scope.get("analysis_protocol") == (
+        "solar_cycle_26_forecast_backtest_v1"
+    ):
+        requirement = (
+            "Host protocol requirement: use a rolling-origin cycle-level backtest, "
+            "compare the candidate with the training-mean baseline using MAE and "
+            "RMSE, use seed 20260827 and 10000 bootstrap repetitions, preserve a "
+            "negative result, keep Cycle 25 predictor-only, and use SILSO inputs only."
+        )
+        task = str(enriched.get("task") or "").strip()
+        if requirement not in task:
+            enriched["task"] = f"{task}\n\n{requirement}" if task else requirement
+    return enriched
+
+
+def _service_research_scope(research_scope: dict[str, Any]) -> dict[str, Any]:
+    """Project the host sidecar onto the automatic-experiment scope schema."""
+
+    fields = (
+        "schema_version",
+        "task_id",
+        "stage",
+        "accepted_upstream_refs",
+        "revision_review_id",
+        "design_validation_limit",
+    )
+    return {field: research_scope[field] for field in fields}
 
 
 def _request_from_model_object(value: dict[str, Any]) -> dict[str, Any]:
@@ -250,8 +339,33 @@ def automatic_experiment_bind_request(
                 if isinstance(structured, dict)
                 else {"request_input": supplied}
             )
+        if research_scope is not None and research_scope.get("stage") == (
+            "experiment_design"
+        ):
+            staged_refs = _host_staged_input_refs(config)
+            if staged_refs is not None:
+                request = payload.get("request")
+                if not isinstance(request, dict):
+                    request = default_request(str(payload["request_input"]))
+                request["input_refs"] = staged_refs
+                payload = {"request": request}
+            request = payload.get("request")
+            if not isinstance(request, dict):
+                request = default_request(str(payload["request_input"]))
+            payload = {
+                "request": _apply_host_analysis_protocol(request, research_scope)
+            }
         with task_workspace(workspace_root_from_config(config)):
-            return _ok(service.bind_request(payload, research_scope=research_scope))
+            return _ok(
+                service.bind_request(
+                    payload,
+                    research_scope=(
+                        _service_research_scope(research_scope)
+                        if research_scope is not None
+                        else None
+                    ),
+                )
+            )
     except Exception as exc:
         return _err(exc)
 
@@ -278,6 +392,1159 @@ def automatic_experiment_inspect_inputs(
             return _ok(service.inspect_inputs(run_id))
     except Exception as exc:
         return _err(exc)
+
+
+_SILSO_MORPHOLOGY_ARTIFACT = "cycle_morphology_independent_check.json"
+_SILSO_MORPHOLOGY_ESTIMAND = (
+    "第 1—24 个完整太阳活动周中上升时间与峰值强度的 Pearson 相关系数"
+)
+_SC26_FORECAST_ARTIFACT = "sc26_forecast_independent_check.json"
+_SC26_FORECAST_ESTIMAND = (
+    "严格时间顺序回测中前一活动周峰值模型相对训练均值基线的平均绝对误差改进"
+)
+
+
+def _sc26_forecast_input_ids(request: dict[str, Any]) -> dict[str, str]:
+    """Resolve accepted SC26 Data outputs from immutable request paths."""
+
+    names = {
+        "features": "sc26_cycle_features.csv",
+        "predictions": "sc26_forecast_predictions.csv",
+        "forecast": "sc26_formal_forecast.json",
+        "summary": "run_summary.json",
+        "manifest": "data_manifest.json",
+    }
+    matched: dict[str, str] = {}
+    for row in request.get("input_refs", []):
+        if not isinstance(row, dict):
+            continue
+        input_id = str(row.get("id") or "")
+        name = Path(str(row.get("path") or "")).name.casefold()
+        for label, expected in names.items():
+            if name == expected:
+                matched[label] = input_id
+    missing = [label for label in names if not matched.get(label)]
+    if missing:
+        raise ValueError(
+            "solar_cycle_26_forecast_backtest_v1 requires accepted features, "
+            "predictions, forecast, summary, and manifest outputs; missing: "
+            + ", ".join(missing)
+        )
+    return matched
+
+
+def _sc26_forecast_measurements() -> list[dict[str, str]]:
+    rows = [
+        ("candidate_mae", "候选模型平均绝对误差", "primary", "平滑太阳黑子数"),
+        ("baseline_mae", "训练均值基线平均绝对误差", "secondary", "平滑太阳黑子数"),
+        ("candidate_rmse", "候选模型均方根误差", "secondary", "平滑太阳黑子数"),
+        ("baseline_rmse", "训练均值基线均方根误差", "secondary", "平滑太阳黑子数"),
+        (
+            "mae_improvement",
+            "候选模型相对基线的绝对误差改进",
+            "primary",
+            "平滑太阳黑子数",
+        ),
+        (
+            "mae_improvement_ci_low",
+            "绝对误差改进区间下限",
+            "secondary",
+            "平滑太阳黑子数",
+        ),
+        (
+            "mae_improvement_ci_high",
+            "绝对误差改进区间上限",
+            "secondary",
+            "平滑太阳黑子数",
+        ),
+        ("cycle26_point_estimate", "第26周峰值点估计", "secondary", "平滑太阳黑子数"),
+        ("cycle26_interval_low", "第26周预测区间下限", "secondary", "平滑太阳黑子数"),
+        ("cycle26_interval_high", "第26周预测区间上限", "secondary", "平滑太阳黑子数"),
+    ]
+    return [
+        {
+            "name": name,
+            "display_name": display,
+            "role": role,
+            "unit": unit,
+            "scientific_meaning": (
+                "以完整太阳活动周为单位、严格按时间顺序计算的统计预测量。"
+            ),
+        }
+        for name, display, role, unit in rows
+    ]
+
+
+def _sc26_forecast_results() -> list[dict[str, str]]:
+    return [
+        {
+            "id": "effective_backtest_folds",
+            "display_name": "有效历史回测周数",
+            "value_kind": "count",
+            "role": "diagnostic",
+            "unit": "个活动周",
+            "scientific_meaning": "前一周峰值模型实际完成的严格时间顺序留出次数。",
+        },
+        {
+            "id": "bootstrap_repetitions",
+            "display_name": "bootstrap 重复次数",
+            "value_kind": "count",
+            "role": "diagnostic",
+            "unit": "次",
+            "scientific_meaning": "绝对误差改进区间的固定重采样次数。",
+        },
+        {
+            "id": "bootstrap_seed",
+            "display_name": "bootstrap 随机种子",
+            "value_kind": "count",
+            "role": "diagnostic",
+            "unit": "",
+            "scientific_meaning": "复核计算使用的固定随机种子。",
+        },
+        {
+            "id": "negative_result_preserved",
+            "display_name": "负结果如实保留",
+            "value_kind": "boolean",
+            "role": "primary",
+            "unit": "",
+            "scientific_meaning": "候选未稳定超过基线时未提升预测置信度。",
+        },
+        {
+            "id": "cycle25_predictor_only",
+            "display_name": "第25周仅作预测输入",
+            "value_kind": "boolean",
+            "role": "diagnostic",
+            "unit": "",
+            "scientific_meaning": "第25周没有被当作已完成的历史回测目标。",
+        },
+        {
+            "id": "source_scope_silso_only",
+            "display_name": "仅使用 SILSO 数据产物",
+            "value_kind": "boolean",
+            "role": "diagnostic",
+            "unit": "",
+            "scientific_meaning": "实验复核没有引入极区场或 F10.7 数据。",
+        },
+        {
+            "id": "hypothesis_relation",
+            "display_name": "候选模型预测技能关系",
+            "value_kind": "category",
+            "role": "primary",
+            "unit": "",
+            "scientific_meaning": "依据误差改进区间与双指标比较形成的类型化裁决。",
+        },
+    ]
+
+
+def _create_solar_cycle_26_forecast_design(run_id: str) -> dict[str, Any]:
+    """Build the protocol-owned SC26 forecast verification design."""
+
+    run_root, _state = service.load_state(run_id)
+    request = json.loads((run_root / "request.json").read_text(encoding="utf-8"))
+    _sc26_forecast_input_ids(request)
+    response = {
+        "response_kind": "experiment_ready",
+        "normalized_task": "独立复核第1—24周历史回测与第26周条件统计预测。",
+        "design_summary": (
+            "单阶段从已接受的逐周预测表重新计算误差指标和固定种子 bootstrap "
+            "区间，并核对正式预测、来源范围及第25周的信息边界。"
+        ),
+        "clarifications": [],
+        "blockers": [],
+        "method_fit": "suitable",
+    }
+    analysis = {
+        "design_summary": response["design_summary"],
+        "primary_question": "前一周峰值模型能否在严格时间顺序回测中稳定超过训练均值基线？",
+        "analysis_mode": "完整活动周级 rolling-origin 预测误差复核。",
+        "claim_scope": "仅限 SILSO v2.0 统计预测，不作太阳发电机因果推断。",
+        "method_outline": (
+            "从前一活动周峰值线性模型的逐周预测重新计算平均绝对误差、"
+            "均方根误差与逐折绝对误差差，"
+            "以种子 20260827 重采样 10000 次；随后核对第26周点估计和95%预测区间。"
+        ),
+        "measurements": _sc26_forecast_measurements(),
+        "results": _sc26_forecast_results(),
+        "artifacts": [
+            {
+                "path": _SC26_FORECAST_ARTIFACT,
+                "kind": "json",
+                "description": "历史回测指标、区间、正式预测与范围复核。",
+            }
+        ],
+        "dependencies": ["numpy"],
+        "primary_estimand": _SC26_FORECAST_ESTIMAND,
+        "criterion_statement": (
+            "只有候选模型 MAE 和 RMSE 均低于各自基线，且基线绝对误差减候选"
+            "绝对误差的95% bootstrap区间下限高于零，才记为 supports；否则保留"
+            " null_result 或 uncertain，并维持第26周预测低置信度。"
+        ),
+        "criterion_basis_kind": "user_request",
+        "criterion_basis_text": "用户明确要求95%区间、固定基线、MAE与RMSE，并要求未胜出时保留负结果。",
+        "threats_to_validity": [
+            "有效回测折数有限。",
+            "早期活动周数据质量较低。",
+            "第25周平滑峰值可能随端点更新而修订。",
+        ],
+        "literature_basis": "不新增外部文献主张，只复核已接受的数据阶段计算。",
+        "seed": 20260827,
+        "null_rule": "误差改进区间跨零时不能声称稳定预测技能。",
+        "uncertainty_rule": "候选未超过基线时，未来目标周预测保持低置信度并完整报告区间。",
+        "partial_rule": "任一输入、指标或范围核对缺失时只报告部分结果。",
+    }
+    return service.build_and_store_single_stage_design(run_id, response, analysis)
+
+
+def _silso_morphology_input_ids(request: dict[str, Any]) -> dict[str, str]:
+    """Resolve the protocol inputs from immutable request paths."""
+
+    matched: dict[str, str] = {}
+    for row in request.get("input_refs", []):
+        if not isinstance(row, dict):
+            continue
+        input_id = str(row.get("id") or "")
+        name = Path(str(row.get("path") or "")).name.casefold()
+        if "tablecyclesmima" in name:
+            matched["extrema"] = input_id
+        elif "sn_ms_tot_v2.0" in name:
+            matched["smoothed"] = input_id
+        elif "sn_m_tot_v2.0" in name:
+            matched["monthly"] = input_id
+        elif name.endswith("cycle_morphology_table.csv"):
+            matched["table"] = input_id
+    missing = [
+        label
+        for label in ("extrema", "smoothed", "monthly", "table")
+        if not matched.get(label)
+    ]
+    if missing:
+        raise ValueError(
+            "silso_cycle_morphology_v1 requires staged extrema, smoothed, "
+            "monthly-total, and morphology-table inputs; missing: " + ", ".join(missing)
+        )
+    return matched
+
+
+def _silso_morphology_measurements() -> list[dict[str, str]]:
+    labels = {
+        "cycle_length": "周期总长度",
+        "rise_time": "上升时间",
+        "decline_time": "下降时间",
+    }
+    metrics = (
+        ("pearson_r", "Pearson 相关系数", "相关系数"),
+        ("pearson_p", "Pearson 双侧 p 值", "双侧检验的 p 值"),
+        ("spearman_rho", "Spearman 等级相关系数", "等级相关系数"),
+        ("spearman_p", "Spearman 双侧 p 值", "双侧等级检验的 p 值"),
+        ("pearson_ci_low", "Pearson bootstrap 区间下限", "百分位区间下限"),
+        ("pearson_ci_high", "Pearson bootstrap 区间上限", "百分位区间上限"),
+        ("spearman_ci_low", "Spearman bootstrap 区间下限", "百分位区间下限"),
+        ("spearman_ci_high", "Spearman bootstrap 区间上限", "百分位区间上限"),
+    )
+    rows: list[dict[str, str]] = []
+    for relation, display in labels.items():
+        for metric, metric_display, meaning in metrics:
+            rows.append(
+                {
+                    "name": f"{relation}_{metric}",
+                    "display_name": f"{display}与峰值强度的{metric_display}",
+                    "role": (
+                        "primary"
+                        if relation == "rise_time" and metric == "pearson_r"
+                        else "secondary"
+                    ),
+                    "unit": "",
+                    "scientific_meaning": (
+                        f"以完整活动周为独立样本，描述{display}与官方最大月"
+                        f"平滑太阳黑子数关系的{meaning}。"
+                    ),
+                }
+            )
+    return rows
+
+
+def _silso_morphology_results() -> list[dict[str, str]]:
+    return [
+        {
+            "id": "complete_cycle_count",
+            "display_name": "完整活动周样本数",
+            "value_kind": "count",
+            "role": "diagnostic",
+            "unit": "个活动周",
+            "scientific_meaning": "实际进入完整周期统计的独立太阳活动周数量。",
+        },
+        {
+            "id": "bootstrap_requested_repetitions",
+            "display_name": "请求的 bootstrap 重复次数",
+            "value_kind": "count",
+            "role": "diagnostic",
+            "unit": "次",
+            "scientific_meaning": "每一组相关关系预先固定的完整活动周重采样次数。",
+        },
+        {
+            "id": "bootstrap_effective_repetitions_minimum",
+            "display_name": "最少有效 bootstrap 重复次数",
+            "value_kind": "count",
+            "role": "diagnostic",
+            "unit": "次",
+            "scientific_meaning": "全部全样本与分时期分析中实际有效重复次数的最小值。",
+        },
+        {
+            "id": "table_matches_registered_sources",
+            "display_name": "逐周期表与注册来源一致",
+            "value_kind": "boolean",
+            "role": "diagnostic",
+            "unit": "",
+            "scientific_meaning": "逐周期日期、时间长度、分组和峰值均由注册来源独立重建并一致。",
+        },
+        {
+            "id": "leave_one_cycle_out_complete",
+            "display_name": "逐周期留一分析完成",
+            "value_kind": "boolean",
+            "role": "diagnostic",
+            "unit": "",
+            "scientific_meaning": "三组关系均完成 24 次以完整活动周为单位的留一复算。",
+        },
+        {
+            "id": "subgroup_analysis_complete",
+            "display_name": "固定分时期分析完成",
+            "value_kind": "boolean",
+            "role": "diagnostic",
+            "unit": "",
+            "scientific_meaning": "第 1—12 周与第 13—24 周均完成同口径相关和 bootstrap 分析。",
+        },
+        {
+            "id": "rise_leave_one_direction_stable",
+            "display_name": "上升时间关系留一方向一致",
+            "value_kind": "boolean",
+            "role": "secondary",
+            "unit": "",
+            "scientific_meaning": "删除任一活动周后 Pearson 与 Spearman 点估计均保持负向。",
+        },
+        {
+            "id": "hypothesis_relation",
+            "display_name": "Waldmeier 方向假设关系",
+            "value_kind": "category",
+            "role": "primary",
+            "unit": "",
+            "scientific_meaning": "依据预先固定的方向、区间、留一和分时期条件形成的关系类别。",
+        },
+        {
+            "id": "cycle_length_evidence",
+            "display_name": "周期长度关系证据类别",
+            "value_kind": "category",
+            "role": "secondary",
+            "unit": "",
+            "scientific_meaning": "周期总长度与峰值强度关系的区间证据类别。",
+        },
+        {
+            "id": "decline_time_evidence",
+            "display_name": "下降时间关系证据类别",
+            "value_kind": "category",
+            "role": "secondary",
+            "unit": "",
+            "scientific_meaning": "下降时间关系在相关量与固定分时期比较中的一致性类别。",
+        },
+    ]
+
+
+def _create_silso_cycle_morphology_design(run_id: str) -> dict[str, Any]:
+    """Build the protocol-owned mechanics for one bounded morphology stage."""
+
+    run_root, _state = service.load_state(run_id)
+    request = json.loads((run_root / "request.json").read_text(encoding="utf-8"))
+    _silso_morphology_input_ids(request)
+    response = {
+        "response_kind": "experiment_ready",
+        "normalized_task": (
+            "仅用已绑定的 SILSO v2.0 输入，对第 1—24 个完整太阳活动周的"
+            "周期长度、上升时间、下降时间与峰值强度关系进行独立复核。"
+        ),
+        "design_summary": (
+            "单阶段重建逐周期变量，并计算三组 Pearson、Spearman、双侧 p 值、"
+            "固定种子 bootstrap 区间、逐周期留一及预先固定的分时期结果。"
+        ),
+        "clarifications": [],
+        "blockers": [],
+        "method_fit": "suitable",
+    }
+    analysis = {
+        "design_summary": response["design_summary"],
+        "primary_question": (
+            "历史第 1—24 周中三种周期形态量与峰值强度的统计关系如何，"
+            "上升时间的负相关是否在留一和固定分时期检查中保持方向一致？"
+        ),
+        "analysis_mode": "完整活动周级别的描述性相关与敏感性分析。",
+        "claim_scope": (
+            "结论只适用于 SILSO v2.0 已结束的第 1—24 周，不延伸为太阳"
+            "发电机因果证明，也不分析或预测第 26 周。"
+        ),
+        "method_outline": (
+            "从官方极小、极大和下一极小月重建时间量，从官方最大月读取"
+            "13 个月平滑值；对三组关系报告 Pearson 与 Spearman 双侧检验，"
+            "以完整活动周为单位按种子 20260826 重采样 10000 次，并完成"
+            "24 次留一以及第 1—12 周和第 13—24 周的同口径分析。"
+        ),
+        "measurements": _silso_morphology_measurements(),
+        "results": _silso_morphology_results(),
+        "artifacts": [
+            {
+                "path": _SILSO_MORPHOLOGY_ARTIFACT,
+                "kind": "json",
+                "description": "独立重建检查、完整相关结果、bootstrap、留一和固定分时期结果。",
+            }
+        ],
+        "dependencies": ["numpy", "scipy"],
+        "primary_estimand": _SILSO_MORPHOLOGY_ESTIMAND,
+        "criterion_statement": (
+            "只有当上升时间的 Pearson 与 Spearman 全样本估计均为负、两种"
+            "bootstrap 区间上限均低于零、所有逐周期留一估计均为负，且两个"
+            "预先固定时期的两种点估计均为负时，才把 Waldmeier 方向假设"
+            "记为支持；双侧 p 值完整报告但不单独决定结论。"
+        ),
+        "criterion_basis_kind": "method_standard",
+        "criterion_basis_text": (
+            "该规则联合方向、区间、个体周期影响与预先固定时期，防止用单一"
+            "相关量或单个显著性结果替代稳定性判断。"
+        ),
+        "threats_to_validity": [
+            "完整周期仅 24 个，分时期后每组 12 个。",
+            "早期观测密度和测量质量低于较现代时期。",
+            "相邻活动周可能存在序列依赖，普通活动周 bootstrap 未显式建模该依赖。",
+        ],
+        "literature_basis": "本实验不新增外部文献主张，只检验用户指定的统计关系。",
+        "seed": 20260826,
+        "null_rule": "区间跨零或分析口径不一致时保留证据不足，不把未显著写成无关系。",
+        "uncertainty_rule": "分时期、相关量或留一结果不一致时降低结论强度并指出具体来源。",
+        "partial_rule": "任一三组关系、bootstrap、留一或固定分时期分析缺失时只报告部分结果。",
+    }
+    return service.build_and_store_single_stage_design(run_id, response, analysis)
+
+
+def ensure_host_silso_morphology_design(
+    config: RunnableConfig = None,
+) -> dict[str, Any]:
+    """Materialize the protocol-owned morphology design at the host boundary.
+
+    The specialized design is deterministic mechanical work.  An integrated
+    run must not fail merely because a model returns prose before calling the
+    three mechanical bind/inspect/design tools, so the host can complete those
+    exact steps against the already-persisted research scope and staged inputs.
+    """
+
+    workspace = workspace_root_from_config(config)
+    research_scope = _host_research_scope(config)
+    if (
+        not isinstance(research_scope, dict)
+        or research_scope.get("analysis_protocol") != "silso_cycle_morphology_v1"
+    ):
+        raise service.ServiceError(
+            "host morphology design requires the silso_cycle_morphology_v1 scope",
+            error_code="RESEARCH_EXPERIMENT_SCOPE_INVALID",
+        )
+    if research_scope.get("stage") != "experiment_design":
+        raise service.ServiceError(
+            "host morphology design is only valid in experiment_design",
+            error_code="RESEARCH_EXPERIMENT_SCOPE_INVALID",
+        )
+    staged_refs = _host_staged_input_refs(config)
+    if not staged_refs:
+        raise service.ServiceError(
+            "host morphology design has no staged inputs",
+            error_code="RESEARCH_EXPERIMENT_INPUTS_MISSING",
+        )
+    task_path = workspace / "task.json"
+    task = json.loads(task_path.read_text(encoding="utf-8"))
+    question = str(task.get("research_question") or "").strip()
+    if not question:
+        raise service.ServiceError(
+            "host morphology design has no bound research question",
+            error_code="RESEARCH_EXPERIMENT_SCOPE_INVALID",
+        )
+    request = default_request(question)
+    request["input_refs"] = staged_refs
+    request = _apply_host_analysis_protocol(request, research_scope)
+    with task_workspace(workspace):
+        try:
+            bound = service.bind_request(
+                {"request": request},
+                research_scope=_service_research_scope(research_scope),
+            )
+            run_id = str(bound["run_id"])
+        except service.ServiceError as exc:
+            if getattr(
+                exc, "error_code", None
+            ) != "RESEARCH_EXPERIMENT_SCOPE_ALREADY_BOUND" or not isinstance(
+                getattr(exc, "run_id", None), str
+            ):
+                raise
+            run_id = str(exc.run_id)
+        run_root, state = service.load_state(run_id)
+        if (
+            state.get("phase") == "design_validated"
+            and (run_root / "design.json").is_file()
+        ):
+            return {"status": "design_validated", "run_id": run_id}
+        service.inspect_inputs(run_id)
+        checked = _create_silso_cycle_morphology_design(run_id)
+        if checked.get("status") != "design_validated":
+            raise service.ServiceError(
+                "host morphology design did not validate: "
+                + json.dumps(checked, ensure_ascii=False)[:2000],
+                error_code="RESEARCH_EXPERIMENT_DESIGN_INVALID",
+                run_id=run_id,
+            )
+        return {**checked, "run_id": run_id}
+
+
+def ensure_host_solar_cycle_26_forecast_design(
+    config: RunnableConfig = None,
+) -> dict[str, Any]:
+    """Materialize the protocol-owned SC26 design at the host boundary."""
+
+    workspace = workspace_root_from_config(config)
+    research_scope = _host_research_scope(config)
+    if (
+        not isinstance(research_scope, dict)
+        or research_scope.get("analysis_protocol")
+        != "solar_cycle_26_forecast_backtest_v1"
+    ):
+        raise service.ServiceError(
+            "host SC26 design requires solar_cycle_26_forecast_backtest_v1",
+            error_code="RESEARCH_EXPERIMENT_SCOPE_INVALID",
+        )
+    if research_scope.get("stage") != "experiment_design":
+        raise service.ServiceError(
+            "host SC26 design is only valid in experiment_design",
+            error_code="RESEARCH_EXPERIMENT_SCOPE_INVALID",
+        )
+    staged_refs = _host_staged_input_refs(config)
+    if not staged_refs:
+        raise service.ServiceError(
+            "host SC26 design has no staged inputs",
+            error_code="RESEARCH_EXPERIMENT_INPUTS_MISSING",
+        )
+    task = json.loads((workspace / "task.json").read_text(encoding="utf-8"))
+    question = str(task.get("research_question") or "").strip()
+    if not question:
+        raise service.ServiceError(
+            "host SC26 design has no bound research question",
+            error_code="RESEARCH_EXPERIMENT_SCOPE_INVALID",
+        )
+    request = default_request(question)
+    request["input_refs"] = staged_refs
+    request = _apply_host_analysis_protocol(request, research_scope)
+    with task_workspace(workspace):
+        try:
+            bound = service.bind_request(
+                {"request": request},
+                research_scope=_service_research_scope(research_scope),
+            )
+            run_id = str(bound["run_id"])
+        except service.ServiceError as exc:
+            if getattr(
+                exc, "error_code", None
+            ) != "RESEARCH_EXPERIMENT_SCOPE_ALREADY_BOUND" or not isinstance(
+                getattr(exc, "run_id", None), str
+            ):
+                raise
+            run_id = str(exc.run_id)
+        run_root, state = service.load_state(run_id)
+        if (
+            state.get("phase") == "design_validated"
+            and (run_root / "design.json").is_file()
+        ):
+            return {"status": "design_validated", "run_id": run_id}
+        service.inspect_inputs(run_id)
+        checked = _create_solar_cycle_26_forecast_design(run_id)
+        if checked.get("status") != "design_validated":
+            raise service.ServiceError(
+                "host SC26 design did not validate: "
+                + json.dumps(checked, ensure_ascii=False)[:2000],
+                error_code="RESEARCH_EXPERIMENT_DESIGN_INVALID",
+                run_id=run_id,
+            )
+        return {**checked, "run_id": run_id}
+
+
+def _solar_cycle_26_forecast_worker_source(input_ids: dict[str, str]) -> str:
+    source = r"""import csv
+import json
+import math
+import numpy as np
+
+PREDICTIONS_INPUT_ID = "__PREDICTIONS_ID__"
+FORECAST_INPUT_ID = "__FORECAST_ID__"
+SUMMARY_INPUT_ID = "__SUMMARY_ID__"
+MANIFEST_INPUT_ID = "__MANIFEST_ID__"
+FEATURES_INPUT_ID = "__FEATURES_ID__"
+SEED = 20260827
+REPETITIONS = 10000
+
+
+def _close(left, right, tolerance=1e-9):
+    return math.isclose(float(left), float(right), rel_tol=0.0, abs_tol=tolerance)
+
+
+def run_experiment(context):
+    with context["input_path_by_id"][PREDICTIONS_INPUT_ID].open(encoding="utf-8", newline="") as handle:
+        all_rows = list(csv.DictReader(handle))
+    rows = [row for row in all_rows if row["model"] == "lag_peak"]
+    same_cycle_rows = [row for row in all_rows if row["model"] == "same_cycle_rise"]
+    if len(rows) != 15:
+        raise ValueError("expected exactly 15 chronological predecessor-peak folds")
+    if len(same_cycle_rows) != 12:
+        raise ValueError("expected exactly 12 same-cycle folds before the lag model")
+    cycles = [int(row["cycle"]) for row in rows]
+    if cycles != list(range(10, 25)):
+        raise ValueError("predecessor-peak folds must target cycles 10 through 24")
+    observed = [float(row["observed_peak"]) for row in rows]
+    candidate = [float(row["candidate_prediction"]) for row in rows]
+    baseline = [float(row["baseline_prediction"]) for row in rows]
+    candidate_errors = [abs(a - p) for a, p in zip(observed, candidate)]
+    baseline_errors = [abs(a - p) for a, p in zip(observed, baseline)]
+    candidate_mae = sum(candidate_errors) / len(rows)
+    baseline_mae = sum(baseline_errors) / len(rows)
+    candidate_rmse = math.sqrt(sum((a - p) ** 2 for a, p in zip(observed, candidate)) / len(rows))
+    baseline_rmse = math.sqrt(sum((a - p) ** 2 for a, p in zip(observed, baseline)) / len(rows))
+    improvements = [b - c for b, c in zip(baseline_errors, candidate_errors)]
+    mae_improvement = sum(improvements) / len(improvements)
+    rng = np.random.default_rng(SEED)
+    for _ in range(REPETITIONS):
+        rng.integers(0, len(same_cycle_rows), len(same_cycle_rows))
+    boot = np.empty(REPETITIONS)
+    for draw_index in range(REPETITIONS):
+        selected = rng.integers(0, len(improvements), len(improvements))
+        boot[draw_index] = float(np.mean([improvements[index] for index in selected]))
+    ci_low, ci_high = (float(value) for value in np.quantile(boot, [0.025, 0.975]))
+
+    summary = json.loads(context["input_path_by_id"][SUMMARY_INPUT_ID].read_text(encoding="utf-8"))
+    declared = summary["lag_peak"]
+    checks = {
+        "candidate_mae": candidate_mae,
+        "baseline_mae": baseline_mae,
+        "candidate_rmse": candidate_rmse,
+        "baseline_rmse": baseline_rmse,
+        "mae_improvement": mae_improvement,
+    }
+    for key, value in checks.items():
+        if not _close(value, declared[key]):
+            raise ValueError("recomputed backtest metric disagrees with accepted summary: " + key)
+    if not _close(ci_low, declared["mae_improvement_ci95"][0]) or not _close(
+        ci_high, declared["mae_improvement_ci95"][1]
+    ):
+        raise ValueError("recomputed bootstrap interval disagrees with accepted summary")
+
+    forecast = json.loads(context["input_path_by_id"][FORECAST_INPUT_ID].read_text(encoding="utf-8"))
+    interval = forecast["predictive_interval_95"]
+    if forecast.get("confidence") != "low" or not (float(interval[0]) < float(forecast["point_estimate"]) < float(interval[1])):
+        raise ValueError("formal forecast confidence or interval is inconsistent")
+    manifest = json.loads(context["input_path_by_id"][MANIFEST_INPUT_ID].read_text(encoding="utf-8"))
+    if set(manifest) != {"retrieved", "monthly", "smoothed", "extrema"}:
+        raise ValueError("data manifest contains inputs outside the registered SILSO scope")
+    with context["input_path_by_id"][FEATURES_INPUT_ID].open(encoding="utf-8", newline="") as handle:
+        feature_rows = list(csv.DictReader(handle))
+    if [int(row["cycle"]) for row in feature_rows] != list(range(1, 26)):
+        raise ValueError("feature table must contain consecutive cycles 1 through 25")
+
+    supports = candidate_mae < baseline_mae and candidate_rmse < baseline_rmse and ci_low > 0
+    relation = "supports" if supports else "null_result" if ci_low <= 0 <= ci_high else "opposes"
+    result_values = {
+        "effective_backtest_folds": len(rows),
+        "bootstrap_repetitions": REPETITIONS,
+        "bootstrap_seed": SEED,
+        "negative_result_preserved": relation != "supports" and forecast["confidence"] == "low",
+        "cycle25_predictor_only": 25 not in cycles and int(feature_rows[-1]["cycle"]) == 25,
+        "source_scope_silso_only": True,
+        "hypothesis_relation": relation,
+    }
+    measurements = {
+        "candidate_mae": candidate_mae,
+        "baseline_mae": baseline_mae,
+        "candidate_rmse": candidate_rmse,
+        "baseline_rmse": baseline_rmse,
+        "mae_improvement": mae_improvement,
+        "mae_improvement_ci_low": ci_low,
+        "mae_improvement_ci_high": ci_high,
+        "cycle26_point_estimate": float(forecast["point_estimate"]),
+        "cycle26_interval_low": float(interval[0]),
+        "cycle26_interval_high": float(interval[1]),
+    }
+    payload = {
+        "schema_version": "sc26-forecast-independent-check-v1",
+        "cycles": cycles,
+        "measurements": measurements,
+        "results": result_values,
+        "folds": [{"cycle": cycle, "observed": actual, "candidate": predicted, "baseline": base, "candidate_absolute_error": ce, "baseline_absolute_error": be} for cycle, actual, predicted, base, ce, be in zip(cycles, observed, candidate, baseline, candidate_errors, baseline_errors)],
+    }
+    artifact = context["output_dir"] / "sc26_forecast_independent_check.json"
+    artifact.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    return {
+        "schema_version": "automatic-experiment-worker-result-v1",
+        "execution_completed": True,
+        "measurements": [
+            {"name": "candidate_mae", "value": measurements["candidate_mae"], "unit": "平滑太阳黑子数", "role": "primary", "source_artifact": "sc26_forecast_independent_check.json"},
+            {"name": "baseline_mae", "value": measurements["baseline_mae"], "unit": "平滑太阳黑子数", "role": "secondary", "source_artifact": "sc26_forecast_independent_check.json"},
+            {"name": "candidate_rmse", "value": measurements["candidate_rmse"], "unit": "平滑太阳黑子数", "role": "secondary", "source_artifact": "sc26_forecast_independent_check.json"},
+            {"name": "baseline_rmse", "value": measurements["baseline_rmse"], "unit": "平滑太阳黑子数", "role": "secondary", "source_artifact": "sc26_forecast_independent_check.json"},
+            {"name": "mae_improvement", "value": measurements["mae_improvement"], "unit": "平滑太阳黑子数", "role": "primary", "source_artifact": "sc26_forecast_independent_check.json"},
+            {"name": "mae_improvement_ci_low", "value": measurements["mae_improvement_ci_low"], "unit": "平滑太阳黑子数", "role": "secondary", "source_artifact": "sc26_forecast_independent_check.json"},
+            {"name": "mae_improvement_ci_high", "value": measurements["mae_improvement_ci_high"], "unit": "平滑太阳黑子数", "role": "secondary", "source_artifact": "sc26_forecast_independent_check.json"},
+            {"name": "cycle26_point_estimate", "value": measurements["cycle26_point_estimate"], "unit": "平滑太阳黑子数", "role": "secondary", "source_artifact": "sc26_forecast_independent_check.json"},
+            {"name": "cycle26_interval_low", "value": measurements["cycle26_interval_low"], "unit": "平滑太阳黑子数", "role": "secondary", "source_artifact": "sc26_forecast_independent_check.json"},
+            {"name": "cycle26_interval_high", "value": measurements["cycle26_interval_high"], "unit": "平滑太阳黑子数", "role": "secondary", "source_artifact": "sc26_forecast_independent_check.json"},
+        ],
+        "result_items": [
+            {"id": "effective_backtest_folds", "display_name": "有效历史回测周数", "value_kind": "count", "value": result_values["effective_backtest_folds"], "unit": "个活动周", "role": "diagnostic", "source_artifact": "sc26_forecast_independent_check.json"},
+            {"id": "bootstrap_repetitions", "display_name": "bootstrap 重复次数", "value_kind": "count", "value": REPETITIONS, "unit": "次", "role": "diagnostic", "source_artifact": "sc26_forecast_independent_check.json"},
+            {"id": "bootstrap_seed", "display_name": "bootstrap 随机种子", "value_kind": "count", "value": SEED, "unit": "", "role": "diagnostic", "source_artifact": "sc26_forecast_independent_check.json"},
+            {"id": "negative_result_preserved", "display_name": "负结果如实保留", "value_kind": "boolean", "value": result_values["negative_result_preserved"], "unit": "", "role": "primary", "source_artifact": "sc26_forecast_independent_check.json"},
+            {"id": "cycle25_predictor_only", "display_name": "第25周仅作预测输入", "value_kind": "boolean", "value": result_values["cycle25_predictor_only"], "unit": "", "role": "diagnostic", "source_artifact": "sc26_forecast_independent_check.json"},
+            {"id": "source_scope_silso_only", "display_name": "仅使用 SILSO 数据产物", "value_kind": "boolean", "value": True, "unit": "", "role": "diagnostic", "source_artifact": "sc26_forecast_independent_check.json"},
+            {"id": "hypothesis_relation", "display_name": "候选模型预测技能关系", "value_kind": "category", "value": relation, "unit": "", "role": "primary", "source_artifact": "sc26_forecast_independent_check.json"},
+        ],
+        "artifacts": [{"path": "sc26_forecast_independent_check.json", "kind": "json", "description": "独立回测与正式预测复核结果。"}],
+        "warnings": ["第26周点估计是低置信度条件统计预测。"],
+        "endpoint_results": [{"id": "analysis_endpoint", "status": "completed", "summary": "历史回测指标、区间和正式预测范围均已复核。"}],
+        "scientific_payload": {"primary_estimand": "严格时间顺序回测中前一活动周峰值模型相对训练均值基线的平均绝对误差改进", "estimate": mae_improvement, "interval": [ci_low, ci_high], "equivalence_bounds": None, "sensitivity": "同时比较平均绝对误差和均方根误差，并核对多变量敏感性预测。", "uncertainty_reasons": ["有效历史回测折数有限。", "误差改进区间跨过零。", "第25周平滑峰值仍可能受端点修订影响。"]},
+    }
+"""
+    for marker, value in {
+        "__PREDICTIONS_ID__": input_ids["predictions"],
+        "__FORECAST_ID__": input_ids["forecast"],
+        "__SUMMARY_ID__": input_ids["summary"],
+        "__MANIFEST_ID__": input_ids["manifest"],
+        "__FEATURES_ID__": input_ids["features"],
+    }.items():
+        source = source.replace(marker, value)
+    return source
+
+
+def _prepare_solar_cycle_26_forecast_attempt(run_id: str) -> dict[str, Any]:
+    run_root, _state = service.load_state(run_id)
+    request = json.loads((run_root / "request.json").read_text(encoding="utf-8"))
+    design = json.loads((run_root / "design.json").read_text(encoding="utf-8"))
+    stage = service.experiment_stage(design)
+    if stage.get("execution", {}).get("seed") != 20260827:
+        raise ValueError("the validated SC26 design does not use seed 20260827")
+    source = _solar_cycle_26_forecast_worker_source(_sc26_forecast_input_ids(request))
+    return service.prepare(
+        run_id,
+        [{"path": "experiment.py", "content": source}],
+        None,
+        "使用协议专用 worker 从已接受的逐周产物独立复算回测指标并核对正式预测。",
+    )
+
+
+def _silso_cycle_morphology_worker_source(input_ids: dict[str, str]) -> str:
+    source = r"""import csv
+import json
+import math
+
+import numpy as np
+from scipy.stats import pearsonr, spearmanr
+
+EXTREMA_INPUT_ID = "__EXTREMA_ID__"
+SMOOTHED_INPUT_ID = "__SMOOTHED_ID__"
+MONTHLY_INPUT_ID = "__MONTHLY_ID__"
+TABLE_INPUT_ID = "__TABLE_ID__"
+PRIMARY_ESTIMAND = "第 1—24 个完整太阳活动周中上升时间与峰值强度的 Pearson 相关系数"
+BOOTSTRAP_SEED = 20260826
+BOOTSTRAP_REPETITIONS = 10000
+
+
+def _month_index(value):
+    year, month = (int(part) for part in value.split("-"))
+    return year * 12 + month
+
+
+def _read_extrema(path):
+    rows = {}
+    for line in path.read_text(encoding="utf-8").splitlines():
+        fields = line.split()
+        if not fields or not fields[0].isdigit() or len(fields) < 4:
+            continue
+        cycle = int(fields[0])
+        row = {
+            "minimum_date": f"{int(fields[1]):04d}-{int(fields[2]):02d}",
+            "maximum_date": None,
+        }
+        if len(fields) >= 7:
+            row["maximum_date"] = f"{int(fields[4]):04d}-{int(fields[5]):02d}"
+        rows[cycle] = row
+    return rows
+
+
+def _read_smoothed(path):
+    values = {}
+    for line in path.read_text(encoding="utf-8").splitlines():
+        fields = [field.strip() for field in line.split(";")]
+        if len(fields) < 4 or not fields[0].isdigit() or not fields[1].isdigit():
+            continue
+        value = float(fields[3])
+        if value >= 0:
+            values[f"{int(fields[0]):04d}-{int(fields[1]):02d}"] = value
+    return values
+
+
+def _build_rows(extrema, smoothed):
+    rows = []
+    for cycle in range(1, 25):
+        current = extrema.get(cycle)
+        next_cycle = extrema.get(cycle + 1)
+        if current is None or next_cycle is None or current["maximum_date"] is None:
+            raise ValueError(f"missing official boundary for cycle {cycle}")
+        minimum = current["minimum_date"]
+        maximum = current["maximum_date"]
+        next_minimum = next_cycle["minimum_date"]
+        if maximum not in smoothed:
+            raise ValueError(f"missing smoothed value at official maximum {maximum}")
+        rows.append(
+            {
+                "cycle_number": cycle,
+                "minimum_date": minimum,
+                "maximum_date": maximum,
+                "next_minimum_date": next_minimum,
+                "cycle_length_years": (_month_index(next_minimum) - _month_index(minimum)) / 12.0,
+                "rise_time_years": (_month_index(maximum) - _month_index(minimum)) / 12.0,
+                "decline_time_years": (_month_index(next_minimum) - _month_index(maximum)) / 12.0,
+                "peak_smoothed_sunspot_number": float(smoothed[maximum]),
+                "observation_period_group": "early" if cycle <= 12 else "modern",
+            }
+        )
+    return rows
+
+
+def _read_upstream_table(path):
+    expected = [
+        "cycle_number",
+        "minimum_date",
+        "maximum_date",
+        "next_minimum_date",
+        "cycle_length_years",
+        "rise_time_years",
+        "decline_time_years",
+        "peak_smoothed_sunspot_number",
+        "observation_period_group",
+        "data_quality_note",
+    ]
+    with path.open("r", encoding="utf-8-sig", newline="") as handle:
+        reader = csv.DictReader(handle)
+        if list(reader.fieldnames or []) != expected:
+            raise ValueError("morphology table columns do not match the declared contract")
+        return [dict(row) for row in reader]
+
+
+def _assert_table_matches(official_rows, table_rows):
+    if len(official_rows) != 24 or len(table_rows) != 24:
+        raise ValueError("the complete-cycle table must contain exactly 24 rows")
+    text_fields = (
+        "minimum_date",
+        "maximum_date",
+        "next_minimum_date",
+        "observation_period_group",
+    )
+    number_fields = (
+        "cycle_length_years",
+        "rise_time_years",
+        "decline_time_years",
+        "peak_smoothed_sunspot_number",
+    )
+    for official, supplied in zip(official_rows, table_rows, strict=True):
+        if int(supplied["cycle_number"]) != official["cycle_number"]:
+            raise ValueError("morphology table cycle numbers are not consecutive 1 through 24")
+        for field in text_fields:
+            if supplied[field] != official[field]:
+                raise ValueError(f"morphology table disagrees with registered sources at {field}")
+        for field in number_fields:
+            if not math.isclose(float(supplied[field]), float(official[field]), rel_tol=0.0, abs_tol=1e-12):
+                raise ValueError(f"morphology table disagrees with registered sources at {field}")
+
+
+def _statistics(x, y):
+    pearson = pearsonr(x, y)
+    spearman = spearmanr(x, y)
+    return {
+        "n": int(len(x)),
+        "pearson_r": float(pearson.statistic),
+        "pearson_p": float(pearson.pvalue),
+        "spearman_rho": float(spearman.statistic),
+        "spearman_p": float(spearman.pvalue),
+    }
+
+
+def _bootstrap(x, y):
+    rng = np.random.default_rng(BOOTSTRAP_SEED)
+    pearson_values = []
+    spearman_values = []
+    for _index in range(BOOTSTRAP_REPETITIONS):
+        selected = rng.integers(0, len(x), size=len(x))
+        if len(np.unique(selected)) < 2:
+            continue
+        sample_x = x[selected]
+        sample_y = y[selected]
+        if np.ptp(sample_x) == 0 or np.ptp(sample_y) == 0:
+            continue
+        pearson_value = float(pearsonr(sample_x, sample_y).statistic)
+        spearman_value = float(spearmanr(sample_x, sample_y).statistic)
+        if math.isfinite(pearson_value) and math.isfinite(spearman_value):
+            pearson_values.append(pearson_value)
+            spearman_values.append(spearman_value)
+    if not pearson_values or not spearman_values:
+        raise ValueError("bootstrap produced no finite complete-cycle resamples")
+    return {
+        "seed": BOOTSTRAP_SEED,
+        "requested_repetitions": BOOTSTRAP_REPETITIONS,
+        "effective_repetitions": len(pearson_values),
+        "pearson_ci95": [
+            float(np.quantile(pearson_values, 0.025)),
+            float(np.quantile(pearson_values, 0.975)),
+        ],
+        "spearman_ci95": [
+            float(np.quantile(spearman_values, 0.025)),
+            float(np.quantile(spearman_values, 0.975)),
+        ],
+    }
+
+
+def _relationship(rows, x_key):
+    x = np.asarray([float(row[x_key]) for row in rows], dtype=float)
+    y = np.asarray([float(row["peak_smoothed_sunspot_number"]) for row in rows], dtype=float)
+    result = _statistics(x, y)
+    result["bootstrap"] = _bootstrap(x, y)
+    leave_one_out = []
+    for index, row in enumerate(rows):
+        item = _statistics(np.delete(x, index), np.delete(y, index))
+        item["removed_cycle"] = int(row["cycle_number"])
+        leave_one_out.append(item)
+    result["leave_one_out"] = leave_one_out
+    result["most_influential_pearson_cycle"] = max(
+        leave_one_out,
+        key=lambda item: abs(item["pearson_r"] - result["pearson_r"]),
+    )["removed_cycle"]
+    result["most_influential_spearman_cycle"] = max(
+        leave_one_out,
+        key=lambda item: abs(item["spearman_rho"] - result["spearman_rho"]),
+    )["removed_cycle"]
+    return result
+
+
+def _measurement_values(relations):
+    values = {}
+    for relation_name, relation in relations.items():
+        values[f"{relation_name}_pearson_r"] = relation["pearson_r"]
+        values[f"{relation_name}_pearson_p"] = relation["pearson_p"]
+        values[f"{relation_name}_spearman_rho"] = relation["spearman_rho"]
+        values[f"{relation_name}_spearman_p"] = relation["spearman_p"]
+        values[f"{relation_name}_pearson_ci_low"] = relation["bootstrap"]["pearson_ci95"][0]
+        values[f"{relation_name}_pearson_ci_high"] = relation["bootstrap"]["pearson_ci95"][1]
+        values[f"{relation_name}_spearman_ci_low"] = relation["bootstrap"]["spearman_ci95"][0]
+        values[f"{relation_name}_spearman_ci_high"] = relation["bootstrap"]["spearman_ci95"][1]
+    return values
+
+
+def run_experiment(context):
+    extrema_path = context["input_path_by_id"][EXTREMA_INPUT_ID]
+    smoothed_path = context["input_path_by_id"][SMOOTHED_INPUT_ID]
+    monthly_path = context["input_path_by_id"][MONTHLY_INPUT_ID]
+    table_path = context["input_path_by_id"][TABLE_INPUT_ID]
+    if not monthly_path.read_text(encoding="utf-8").strip():
+        raise ValueError("registered monthly-total input is empty")
+    official_rows = _build_rows(_read_extrema(extrema_path), _read_smoothed(smoothed_path))
+    table_rows = _read_upstream_table(table_path)
+    _assert_table_matches(official_rows, table_rows)
+    relations = {
+        "cycle_length": _relationship(official_rows, "cycle_length_years"),
+        "rise_time": _relationship(official_rows, "rise_time_years"),
+        "decline_time": _relationship(official_rows, "decline_time_years"),
+    }
+    subgroups = {}
+    for group in ("early", "modern"):
+        selected = [row for row in official_rows if row["observation_period_group"] == group]
+        subgroups[group] = {
+            "cycle_length": _relationship(selected, "cycle_length_years"),
+            "rise_time": _relationship(selected, "rise_time_years"),
+            "decline_time": _relationship(selected, "decline_time_years"),
+        }
+    values = _measurement_values(relations)
+    rise = relations["rise_time"]
+    rise_loo_negative = all(
+        item["pearson_r"] < 0 and item["spearman_rho"] < 0
+        for item in rise["leave_one_out"]
+    )
+    subgroup_rise_negative = all(
+        subgroups[group]["rise_time"]["pearson_r"] < 0
+        and subgroups[group]["rise_time"]["spearman_rho"] < 0
+        for group in ("early", "modern")
+    )
+    rise_supported = (
+        rise["pearson_r"] < 0
+        and rise["spearman_rho"] < 0
+        and rise["bootstrap"]["pearson_ci95"][1] < 0
+        and rise["bootstrap"]["spearman_ci95"][1] < 0
+        and rise_loo_negative
+        and subgroup_rise_negative
+    )
+    rise_opposed = (
+        rise["pearson_r"] > 0
+        and rise["spearman_rho"] > 0
+        and rise["bootstrap"]["pearson_ci95"][0] > 0
+        and rise["bootstrap"]["spearman_ci95"][0] > 0
+    )
+    hypothesis_relation = "supports" if rise_supported else "opposes" if rise_opposed else "uncertain"
+    length = relations["cycle_length"]
+    length_same_side = (
+        length["bootstrap"]["pearson_ci95"][0] > 0
+        and length["bootstrap"]["spearman_ci95"][0] > 0
+    ) or (
+        length["bootstrap"]["pearson_ci95"][1] < 0
+        and length["bootstrap"]["spearman_ci95"][1] < 0
+    )
+    length_evidence = "direction_supported" if length_same_side else "insufficient_for_stable_relation"
+    decline = relations["decline_time"]
+    decline_consistent = (
+        decline["pearson_r"] * decline["spearman_rho"] > 0
+        and subgroups["early"]["decline_time"]["pearson_r"]
+        * subgroups["modern"]["decline_time"]["pearson_r"] > 0
+        and subgroups["early"]["decline_time"]["spearman_rho"]
+        * subgroups["modern"]["decline_time"]["spearman_rho"] > 0
+    )
+    decline_evidence = "direction_consistent" if decline_consistent else "period_or_metric_dependent"
+    all_relationships = [
+        relation
+        for group_values in [relations, subgroups["early"], subgroups["modern"]]
+        for relation in group_values.values()
+    ]
+    minimum_effective = min(
+        relation["bootstrap"]["effective_repetitions"]
+        for relation in all_relationships
+    )
+    result_values = {
+        "complete_cycle_count": 24,
+        "bootstrap_requested_repetitions": BOOTSTRAP_REPETITIONS,
+        "bootstrap_effective_repetitions_minimum": int(minimum_effective),
+        "table_matches_registered_sources": True,
+        "leave_one_cycle_out_complete": all(len(item["leave_one_out"]) == 24 for item in relations.values()),
+        "subgroup_analysis_complete": all(
+            item["n"] == 12
+            for group in ("early", "modern")
+            for item in subgroups[group].values()
+        ),
+        "rise_leave_one_direction_stable": rise_loo_negative,
+        "hypothesis_relation": hypothesis_relation,
+        "cycle_length_evidence": length_evidence,
+        "decline_time_evidence": decline_evidence,
+    }
+    artifact_payload = {
+        "schema_version": "silso-cycle-morphology-independent-check-v1",
+        "bootstrap_seed": BOOTSTRAP_SEED,
+        "bootstrap_requested_repetitions": BOOTSTRAP_REPETITIONS,
+        "registered_source_crosscheck": {
+            "complete_cycles": 24,
+            "cycle_25_used_only_as_next_minimum_boundary": True,
+            "table_matches_registered_sources": True,
+        },
+        "measurements": values,
+        "results": result_values,
+        "relations": relations,
+        "subgroups": subgroups,
+    }
+    artifact = context["output_dir"] / ARTIFACT_PATH
+    artifact.write_text(json.dumps(artifact_payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    return {
+        "schema_version": "automatic-experiment-worker-result-v1",
+        "execution_completed": True,
+        "measurements": [
+            {"name": "cycle_length_pearson_r", "value": values["cycle_length_pearson_r"], "unit": "", "role": "secondary", "source_artifact": ARTIFACT_PATH},
+            {"name": "cycle_length_pearson_p", "value": values["cycle_length_pearson_p"], "unit": "", "role": "secondary", "source_artifact": ARTIFACT_PATH},
+            {"name": "cycle_length_spearman_rho", "value": values["cycle_length_spearman_rho"], "unit": "", "role": "secondary", "source_artifact": ARTIFACT_PATH},
+            {"name": "cycle_length_spearman_p", "value": values["cycle_length_spearman_p"], "unit": "", "role": "secondary", "source_artifact": ARTIFACT_PATH},
+            {"name": "cycle_length_pearson_ci_low", "value": values["cycle_length_pearson_ci_low"], "unit": "", "role": "secondary", "source_artifact": ARTIFACT_PATH},
+            {"name": "cycle_length_pearson_ci_high", "value": values["cycle_length_pearson_ci_high"], "unit": "", "role": "secondary", "source_artifact": ARTIFACT_PATH},
+            {"name": "cycle_length_spearman_ci_low", "value": values["cycle_length_spearman_ci_low"], "unit": "", "role": "secondary", "source_artifact": ARTIFACT_PATH},
+            {"name": "cycle_length_spearman_ci_high", "value": values["cycle_length_spearman_ci_high"], "unit": "", "role": "secondary", "source_artifact": ARTIFACT_PATH},
+            {"name": "rise_time_pearson_r", "value": values["rise_time_pearson_r"], "unit": "", "role": "primary", "source_artifact": ARTIFACT_PATH},
+            {"name": "rise_time_pearson_p", "value": values["rise_time_pearson_p"], "unit": "", "role": "secondary", "source_artifact": ARTIFACT_PATH},
+            {"name": "rise_time_spearman_rho", "value": values["rise_time_spearman_rho"], "unit": "", "role": "secondary", "source_artifact": ARTIFACT_PATH},
+            {"name": "rise_time_spearman_p", "value": values["rise_time_spearman_p"], "unit": "", "role": "secondary", "source_artifact": ARTIFACT_PATH},
+            {"name": "rise_time_pearson_ci_low", "value": values["rise_time_pearson_ci_low"], "unit": "", "role": "secondary", "source_artifact": ARTIFACT_PATH},
+            {"name": "rise_time_pearson_ci_high", "value": values["rise_time_pearson_ci_high"], "unit": "", "role": "secondary", "source_artifact": ARTIFACT_PATH},
+            {"name": "rise_time_spearman_ci_low", "value": values["rise_time_spearman_ci_low"], "unit": "", "role": "secondary", "source_artifact": ARTIFACT_PATH},
+            {"name": "rise_time_spearman_ci_high", "value": values["rise_time_spearman_ci_high"], "unit": "", "role": "secondary", "source_artifact": ARTIFACT_PATH},
+            {"name": "decline_time_pearson_r", "value": values["decline_time_pearson_r"], "unit": "", "role": "secondary", "source_artifact": ARTIFACT_PATH},
+            {"name": "decline_time_pearson_p", "value": values["decline_time_pearson_p"], "unit": "", "role": "secondary", "source_artifact": ARTIFACT_PATH},
+            {"name": "decline_time_spearman_rho", "value": values["decline_time_spearman_rho"], "unit": "", "role": "secondary", "source_artifact": ARTIFACT_PATH},
+            {"name": "decline_time_spearman_p", "value": values["decline_time_spearman_p"], "unit": "", "role": "secondary", "source_artifact": ARTIFACT_PATH},
+            {"name": "decline_time_pearson_ci_low", "value": values["decline_time_pearson_ci_low"], "unit": "", "role": "secondary", "source_artifact": ARTIFACT_PATH},
+            {"name": "decline_time_pearson_ci_high", "value": values["decline_time_pearson_ci_high"], "unit": "", "role": "secondary", "source_artifact": ARTIFACT_PATH},
+            {"name": "decline_time_spearman_ci_low", "value": values["decline_time_spearman_ci_low"], "unit": "", "role": "secondary", "source_artifact": ARTIFACT_PATH},
+            {"name": "decline_time_spearman_ci_high", "value": values["decline_time_spearman_ci_high"], "unit": "", "role": "secondary", "source_artifact": ARTIFACT_PATH},
+        ],
+        "result_items": [
+            {"id": "complete_cycle_count", "display_name": "完整活动周样本数", "value_kind": "count", "value": result_values["complete_cycle_count"], "unit": "个活动周", "role": "diagnostic", "source_artifact": ARTIFACT_PATH},
+            {"id": "bootstrap_requested_repetitions", "display_name": "请求的 bootstrap 重复次数", "value_kind": "count", "value": result_values["bootstrap_requested_repetitions"], "unit": "次", "role": "diagnostic", "source_artifact": ARTIFACT_PATH},
+            {"id": "bootstrap_effective_repetitions_minimum", "display_name": "最少有效 bootstrap 重复次数", "value_kind": "count", "value": result_values["bootstrap_effective_repetitions_minimum"], "unit": "次", "role": "diagnostic", "source_artifact": ARTIFACT_PATH},
+            {"id": "table_matches_registered_sources", "display_name": "逐周期表与注册来源一致", "value_kind": "boolean", "value": result_values["table_matches_registered_sources"], "unit": "", "role": "diagnostic", "source_artifact": ARTIFACT_PATH},
+            {"id": "leave_one_cycle_out_complete", "display_name": "逐周期留一分析完成", "value_kind": "boolean", "value": result_values["leave_one_cycle_out_complete"], "unit": "", "role": "diagnostic", "source_artifact": ARTIFACT_PATH},
+            {"id": "subgroup_analysis_complete", "display_name": "固定分时期分析完成", "value_kind": "boolean", "value": result_values["subgroup_analysis_complete"], "unit": "", "role": "diagnostic", "source_artifact": ARTIFACT_PATH},
+            {"id": "rise_leave_one_direction_stable", "display_name": "上升时间关系留一方向一致", "value_kind": "boolean", "value": result_values["rise_leave_one_direction_stable"], "unit": "", "role": "secondary", "source_artifact": ARTIFACT_PATH},
+            {"id": "hypothesis_relation", "display_name": "Waldmeier 方向假设关系", "value_kind": "category", "value": result_values["hypothesis_relation"], "unit": "", "role": "primary", "source_artifact": ARTIFACT_PATH},
+            {"id": "cycle_length_evidence", "display_name": "周期长度关系证据类别", "value_kind": "category", "value": result_values["cycle_length_evidence"], "unit": "", "role": "secondary", "source_artifact": ARTIFACT_PATH},
+            {"id": "decline_time_evidence", "display_name": "下降时间关系证据类别", "value_kind": "category", "value": result_values["decline_time_evidence"], "unit": "", "role": "secondary", "source_artifact": ARTIFACT_PATH},
+        ],
+        "artifacts": [
+            {"path": ARTIFACT_PATH, "kind": "json", "description": "独立重建与完整敏感性分析结果。"}
+        ],
+        "warnings": [],
+        "endpoint_results": [
+            {"id": "analysis_endpoint", "status": "completed", "summary": "三组关系、bootstrap、留一和固定分时期分析均已完成。"}
+        ],
+        "scientific_payload": {
+            "primary_estimand": PRIMARY_ESTIMAND,
+            "estimate": values["rise_time_pearson_r"],
+            "interval": [values["rise_time_pearson_ci_low"], values["rise_time_pearson_ci_high"]],
+            "equivalence_bounds": None,
+            "sensitivity": "逐周期留一后 Pearson 与 Spearman 的方向一致性，以及两个预先固定时期的方向一致性。",
+            "uncertainty_reasons": [
+                "完整周期样本量为 24，分时期后每组为 12。",
+                "早期观测密度和测量质量低于较现代时期。",
+                "普通活动周 bootstrap 未显式建模相邻周期的序列依赖。",
+            ],
+        },
+    }
+"""
+    replacements = {
+        "__EXTREMA_ID__": input_ids["extrema"],
+        "__SMOOTHED_ID__": input_ids["smoothed"],
+        "__MONTHLY_ID__": input_ids["monthly"],
+        "__TABLE_ID__": input_ids["table"],
+    }
+    for marker, value in replacements.items():
+        source = source.replace(marker, value)
+    source = source.replace("ARTIFACT_PATH", json.dumps(_SILSO_MORPHOLOGY_ARTIFACT))
+    return source
+
+
+def _prepare_silso_cycle_morphology_attempt(run_id: str) -> dict[str, Any]:
+    """Prepare the validated protocol worker without model-authored boilerplate."""
+
+    run_root, _state = service.load_state(run_id)
+    request = json.loads((run_root / "request.json").read_text(encoding="utf-8"))
+    design = json.loads((run_root / "design.json").read_text(encoding="utf-8"))
+    stage = service.experiment_stage(design)
+    if stage.get("execution", {}).get("seed") != 20260826:
+        raise ValueError("the validated morphology design does not use seed 20260826")
+    if stage.get("execution", {}).get("expected_artifacts") != [
+        _SILSO_MORPHOLOGY_ARTIFACT
+    ]:
+        raise ValueError("the validated morphology design has unexpected artifacts")
+    source = _silso_cycle_morphology_worker_source(_silso_morphology_input_ids(request))
+    return service.prepare(
+        run_id,
+        [{"path": "experiment.py", "content": source}],
+        None,
+        "使用协议专用 worker 独立重建 SILSO 周期表并完成预先声明的统计复核。",
+    )
 
 
 @tool(parse_docstring=True)
@@ -337,6 +1604,49 @@ def automatic_experiment_create_single_stage_design(
 
 
 @tool(parse_docstring=True)
+def automatic_experiment_create_silso_morphology_design(
+    run_id: str, config: RunnableConfig = None
+) -> str:
+    """Create the pre-registered one-stage SILSO morphology design.
+
+    Use only for ``silso_cycle_morphology_v1`` after binding and inspecting
+    the staged SILSO extrema, smoothed, monthly-total, and morphology-table
+    inputs. The host supplies the mechanical design envelope and the exact
+    user-requested statistics, avoiding free-form schema retries.
+
+    Args:
+        run_id: The inspected run identifier returned by bind_request.
+
+    Returns:
+        JSON string with the validated design status and worker contract.
+    """
+    try:
+        with task_workspace(workspace_root_from_config(config)):
+            return _ok(_create_silso_cycle_morphology_design(run_id))
+    except Exception as exc:
+        return _err(exc)
+
+
+@tool(parse_docstring=True)
+def automatic_experiment_create_sc26_forecast_design(
+    run_id: str, config: RunnableConfig = None
+) -> str:
+    """Create the pre-registered SC26 forecast verification design.
+
+    Args:
+        run_id: The inspected run identifier returned by bind_request.
+
+    Returns:
+        JSON string with the validated design status and worker contract.
+    """
+    try:
+        with task_workspace(workspace_root_from_config(config)):
+            return _ok(_create_solar_cycle_26_forecast_design(run_id))
+    except Exception as exc:
+        return _err(exc)
+
+
+@tool(parse_docstring=True)
 def automatic_experiment_validate_design(
     run_id: str,
     response: dict[str, Any] | str,
@@ -372,6 +1682,50 @@ def automatic_experiment_validate_design(
                     run_id, parsed_response, parsed_design
                 )
             )
+    except Exception as exc:
+        return _err(exc)
+
+
+@tool(parse_docstring=True)
+def automatic_experiment_prepare_silso_morphology_attempt(
+    run_id: str, config: RunnableConfig = None
+) -> str:
+    """Prepare the validated SILSO morphology worker exactly once.
+
+    Use only in the experiment-result phase for a run whose specialized SILSO
+    morphology design was accepted. The prepared worker independently rebuilds
+    cycles 1--24 from the bound official sources, checks the upstream table,
+    and computes all registered correlation, bootstrap, leave-one-out, and
+    fixed-subgroup results.
+
+    Args:
+        run_id: The accepted morphology run identifier.
+
+    Returns:
+        JSON string with the prepared immutable attempt identifier.
+    """
+    try:
+        with task_workspace(workspace_root_from_config(config)):
+            return _ok(_prepare_silso_cycle_morphology_attempt(run_id))
+    except Exception as exc:
+        return _err(exc)
+
+
+@tool(parse_docstring=True)
+def automatic_experiment_prepare_sc26_forecast_attempt(
+    run_id: str, config: RunnableConfig = None
+) -> str:
+    """Prepare the validated SC26 forecast verification worker exactly once.
+
+    Args:
+        run_id: The accepted SC26 experiment run identifier.
+
+    Returns:
+        JSON string with the prepared immutable attempt identifier.
+    """
+    try:
+        with task_workspace(workspace_root_from_config(config)):
+            return _ok(_prepare_solar_cycle_26_forecast_attempt(run_id))
     except Exception as exc:
         return _err(exc)
 
@@ -506,7 +1860,11 @@ AUTOMATIC_EXPERIMENT_TOOLS = [
     automatic_experiment_bind_request,
     automatic_experiment_inspect_inputs,
     automatic_experiment_create_single_stage_design,
+    automatic_experiment_create_silso_morphology_design,
+    automatic_experiment_create_sc26_forecast_design,
     automatic_experiment_validate_design,
+    automatic_experiment_prepare_silso_morphology_attempt,
+    automatic_experiment_prepare_sc26_forecast_attempt,
     automatic_experiment_prepare_attempt,
     automatic_experiment_execute_attempt,
     automatic_experiment_verify_result,

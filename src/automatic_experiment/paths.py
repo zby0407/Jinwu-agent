@@ -54,7 +54,16 @@ SECRET_CONTENT = re.compile(
 )
 TABULAR_PROFILE_MAX_BYTES = 5 * 1024 * 1024
 TABULAR_PROFILE_MAX_ROWS = 100_000
-TEXT_PREVIEW_SUFFIXES = {".csv", ".json", ".md", ".tsv", ".txt", ".yaml", ".yml"}
+TEXT_PREVIEW_SUFFIXES = {
+    ".csv",
+    ".html",
+    ".json",
+    ".md",
+    ".tsv",
+    ".txt",
+    ".yaml",
+    ".yml",
+}
 TEXT_PREVIEW_MAX_BYTES = 64 * 1024
 TABULAR_PREVIEW_MAX_BYTES = 16 * 1024
 TEXT_PREVIEW_TOTAL_BYTES = 256 * 1024
@@ -647,7 +656,13 @@ def snapshot_input_previews(
                 maximum = min(maximum, TABULAR_PREVIEW_MAX_BYTES)
             raw = path.read_bytes()
             truncated = len(raw) > maximum
-            selected = raw[:maximum]
+            if truncated:
+                marker = b"\n...[preview middle omitted]...\n"
+                head_size = (maximum - len(marker)) // 2
+                tail_size = maximum - len(marker) - head_size
+                selected = raw[:head_size] + marker + raw[-tail_size:]
+            else:
+                selected = raw
             content = selected.decode("utf-8-sig", errors="replace")
             used_bytes += len(selected)
             previews.append(

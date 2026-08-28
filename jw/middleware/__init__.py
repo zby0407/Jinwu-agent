@@ -11,6 +11,9 @@ from .ask_user import (
     Choice,
     Question,
 )
+from .automatic_experiment_terminal import (
+    AutomaticExperimentTerminalGuardMiddleware,
+)
 from .closed_loop_orchestration import (
     ClosedLoopOrchestrationGuardMiddleware,
     closed_loop_receipts,
@@ -57,6 +60,7 @@ __all__ = [
     "AskUserMiddleware",
     "AskUserRequest",
     "AskUserWidgetResult",
+    "AutomaticExperimentTerminalGuardMiddleware",
     "Choice",
     "ClosedLoopOrchestrationGuardMiddleware",
     "ConfigurableModelMiddleware",

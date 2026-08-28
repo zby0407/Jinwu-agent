@@ -96,7 +96,9 @@ def skill_manager(
         if system_skills:
             if lines:
                 lines.append("")
-            lines.append(f"System Skills ({len(system_skills)}):")
+            lines.append(
+                f"JW Official Skills（JW 官方内置技能） ({len(system_skills)}):"
+            )
             for skill in system_skills:
                 tags_str = f" [{', '.join(skill.tags)}]" if skill.tags else ""
                 lines.append(f"  - {skill.name}: {skill.description}{tags_str}")

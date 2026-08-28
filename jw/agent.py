@@ -411,6 +411,7 @@ def _inject_subagent_middleware(
     path doesn't fall back to the global-writing ``_ensure_chat_model()``.
     """
     from .middleware import (
+        AutomaticExperimentTerminalGuardMiddleware,
         ContextOverflowMapperMiddleware,
         ContractToolAllowlistMiddleware,
         QwenToolCompatibilityMiddleware,
@@ -445,6 +446,11 @@ def _inject_subagent_middleware(
         )
         middleware = [
             TaskCancellationMiddleware(),
+            *(
+                [AutomaticExperimentTerminalGuardMiddleware()]
+                if name == "solar-experiment"
+                else []
+            ),
             *_call_limit_middleware(
                 cfg,
                 subagent=True,
@@ -1086,6 +1092,7 @@ def _get_default_middleware(
             capability bundles used by the synchronous sub-agent.
     """
     from .middleware import (
+        AutomaticExperimentTerminalGuardMiddleware,
         ClosedLoopOrchestrationGuardMiddleware,
         ConfigurableModelMiddleware,
         ContextOverflowMapperMiddleware,
@@ -1177,6 +1184,11 @@ def _get_default_middleware(
     mw.extend(
         [
             *([TaskCancellationMiddleware()] if for_async_subagent else []),
+            *(
+                [AutomaticExperimentTerminalGuardMiddleware()]
+                if for_async_subagent and memory_source_agent == "solar-experiment"
+                else []
+            ),
             VirtualPathCodeGuardMiddleware(),
             *(
                 [ResearchRouterMiddleware(model=model)]

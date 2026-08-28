@@ -27,7 +27,9 @@ from .solar_feature import (
     bind_f107_dataset_semantics,
     dataset_statistics,
     engineer_solar_features,
+    prepare_solar_cycle_26_readiness,
     prepare_solar_experiment,
+    run_solar_cycle_26_historical_forecast,
     solar_data_open_context,
 )
 from .think import think_tool
@@ -52,7 +54,9 @@ __all__ = [
     "get_builtin_tool_registry",
     "get_main_agent_tools",
     "get_tool_bundles",
+    "prepare_solar_cycle_26_readiness",
     "prepare_solar_experiment",
+    "run_solar_cycle_26_historical_forecast",
     "register_tool_bundle",
     "resolve_tool_bundles",
     "skill_manager",

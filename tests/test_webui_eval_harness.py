@@ -144,6 +144,10 @@ def test_eval_launchers_pin_the_shared_workspace_root() -> None:
     assert "JW_EVAL_AUXILIARY_MODEL:-qwen3.7-plus" in backend
     assert "solar-data" in backend
     assert "solar-knowledge" in backend
+    assert (
+        'JW_DASHSCOPE_REQUEST_TIMEOUT_S="${JW_DASHSCOPE_REQUEST_TIMEOUT_S:-900}"'
+        in backend
+    )
 
     campaign = (EVALS / "run_eval_campaign.mjs").read_text(encoding="utf-8")
     assert 'process.env.JW_EVAL_REVIEWER || "kimi"' in campaign
@@ -176,12 +180,27 @@ def test_main_task_suite_uses_a_natural_user_prompt() -> None:
     suite = json.loads(
         (EVALS / "main_task_frontend_v1.json").read_text(encoding="utf-8")
     )
-    case = suite["cases"][0]
+    cases = {case["id"]: case for case in suite["cases"]}
+    case = cases["MAIN-SC26-B07"]
     prompt = case["prompt"]
 
+    assert suite["research_scope"] == {
+        "official_track": "赛道一",
+        "official_direction": "方向二",
+        "official_topic": "B3 太阳活动周起源探秘",
+        "official_source": "https://university.aliyun.com/action/tzbjbgs2026",
+    }
+    assert suite["exposure_status"] == "checked_in_visible"
+    assert suite["release_gate_eligible"] is False
+    assert case["acceptance_role"] == "primary_scientific_acceptance"
+    assert case["expected_outcome"] == "preliminary_probability_forecast"
+    assert cases["MAIN-SC26-B06"]["acceptance_role"] == "scientific_limitation_gate"
+    assert "expected_conclusion_class" not in case
     assert case["prompt_style"] == "natural_user"
-    assert case["allowed_user_intervention"] == "answer_agent_clarification_only"
+    assert case["allowed_user_intervention"] == "none"
     assert "研究包" in prompt
+    assert "80%" in prompt and "95%" in prompt
+    assert "不得为了满足等级" in prompt
     for internal_term in (
         "full research",
         "Planning",
@@ -197,6 +216,45 @@ def test_main_task_suite_uses_a_natural_user_prompt() -> None:
     runner = (EVALS / "run_webui_case.mjs").read_text(encoding="utf-8")
     assert "operator_guidance_count: 0" in runner
     assert "prompt_style: selectedCase.prompt_style" in runner
+
+
+def test_b3_visible_stress_suite_is_not_primary_or_hidden_evidence() -> None:
+    suite = json.loads(
+        (EVALS / "next_stage_closed_loop_frontend_v1.json").read_text(encoding="utf-8")
+    )
+
+    assert suite["research_scope"] == {
+        "official_track": "赛道一",
+        "official_direction": "方向二",
+        "official_topic": "B3 太阳活动周起源探秘",
+        "official_source": "https://university.aliyun.com/action/tzbjbgs2026",
+    }
+    cases = {case["id"]: case for case in suite["cases"]}
+    stress = cases["EXT-POLAR-LENGTH-FULL-01"]
+    transfer = cases["EXT-RISE-AMPLITUDE-GENERALIZATION-01"]
+
+    assert suite["exposure_status"] == "checked_in_visible"
+    assert suite["release_gate_eligible"] is False
+    assert stress["acceptance_role"] == "engineering_stress_benchmark"
+    assert transfer["acceptance_role"] == "checked_in_transfer_benchmark"
+    assert stress["allowed_user_intervention"] == "none"
+    assert stress["prompt"] == (
+        "在太阳活动周15至24的逐周期观测中，上一活动周较长是否会削弱极小期"
+        "极区场强对下一活动周振幅的预测关系？请提出一个最值得检验、可证伪的"
+        "交互作用假设，并说明现有证据与最强零假设。"
+    )
+    for internal_term in (
+        "Planning",
+        "Data Agent",
+        "Evidence",
+        "Experiment",
+        "Integration",
+        "Final Release",
+        "run_python",
+        ".csv",
+        "β3",
+    ):
+        assert internal_term not in stress["prompt"]
 
 
 def test_main_hypothesis_suite_keeps_internal_evidence_review() -> None:
@@ -248,6 +306,15 @@ def test_webui_runner_checks_workspace_after_thread_binding() -> None:
     assert "threadIsActive" in text
     assert "runIsActive" in text
     assert "!threadIsActive && !runIsActive" in text
+
+
+def test_webui_runner_waits_for_a_real_run_before_terminal_polling() -> None:
+    text = (EVALS / "run_webui_case.mjs").read_text(encoding="utf-8")
+
+    gate = text.index('"submitted LangGraph run before terminal polling"')
+    terminal_poll = text.index("const terminal = await waitFor(")
+    assert gate < terminal_poll
+    assert "submittedRuns[0]?.run_id" in text
 
 
 def test_webui_runner_records_controller_and_artifact_producer_separately() -> None:

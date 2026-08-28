@@ -1,0 +1,4 @@
+interface:
+  display_name: "Math Modeling Figure Production"
+  short_description: "Validate semantics, geometry, typography, and figure insertion"
+  default_prompt: "Use $math-modeling-figure-production to create a structured figure contract and validate meaning, coordinates, native layout, typography, 600 dpi export, and actual paper insertion in order."

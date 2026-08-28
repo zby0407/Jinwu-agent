@@ -13,6 +13,20 @@ F107_DISCONTINUITY_PROTOCOL = "f107_discontinuity_v1"
 GENERIC_DATA_PRODUCT = "generic_data_artifact"
 SILSO_CYCLE_REPRODUCTION_PROTOCOL = "silso_cycle_reproduction_v1"
 SILSO_CYCLE_EXTREMA_DATA_PRODUCT = "silso_cycle_extrema_v1"
+SILSO_CYCLE_MORPHOLOGY_PROTOCOL = "silso_cycle_morphology_v1"
+SILSO_CYCLE_MORPHOLOGY_DATA_PRODUCT = "silso_cycle_morphology_v1"
+SOLAR_CYCLE_26_READINESS_PROTOCOL = "solar_cycle_26_readiness_v1"
+SOLAR_CYCLE_26_READINESS_DATA_PRODUCT = "solar_cycle_26_readiness_inventory_v1"
+SOLAR_CYCLE_26_FORECAST_BACKTEST_PROTOCOL = "solar_cycle_26_forecast_backtest_v1"
+SOLAR_CYCLE_26_FORECAST_BACKTEST_DATA_PRODUCT = "solar_cycle_26_forecast_backtest_v1"
+SOLAR_CYCLE_26_READINESS_DATASET_IDS: tuple[str, ...] = (
+    "silso-monthly-total-v2",
+    "silso-monthly-smoothed-v2",
+    "silso-cycle-extrema-v2",
+    "noaa-swpc-monthly-f107-v1",
+    "mwo-wso-polar-field-v2",
+    "wso-current-polar-field-v1",
+)
 SOLAR_POLAR_PRECURSOR_PROTOCOL = "solar_polar_precursor_v1"
 SOLAR_POLAR_PRECURSOR_DATA_PRODUCT = "solar_polar_precursor_table_v1"
 SOLAR_POLAR_PRECURSOR_DATASET_IDS: tuple[str, ...] = (
@@ -61,6 +75,12 @@ _SILSO_CYCLE_ENGLISH_PATTERN = re.compile(
     r"(?:minimum|maximum|extrema|rise\s+time).*(?:solar\s+)?cycles?",
     re.IGNORECASE | re.DOTALL,
 )
+_SILSO_CYCLE_MORPHOLOGY_PATTERN = re.compile(
+    r"(?:周期形态|形态统计|cycle\s+morphology|Waldmeier|"
+    r"周期长度.{0,20}(?:上升|下降)|"
+    r"rise\s+time.{0,30}decline\s+time)",
+    re.IGNORECASE | re.DOTALL,
+)
 _POLAR_FIELD_PATTERN = re.compile(
     r"(?:polar[\s-]?field|polar precursor|MWO|WSO|极区磁场|极地磁场|极区场强)",
     re.IGNORECASE,
@@ -71,9 +91,52 @@ _POLAR_PRECURSOR_INTENT_PATTERN = re.compile(
     re.IGNORECASE,
 )
 _POLAR_EXCLUSION_PATTERN = re.compile(
-    r"(?:do not|without|exclude|不要|不加入|排除).{0,30}"
-    r"(?:polar[\s-]?field|polar precursor|MWO|WSO|极区磁场|极地磁场)",
+    r"(?:do not\s+(?:use|include|analyze)|without\s+(?:using|including)|"
+    r"exclude\s+(?:the\s+)?|不(?:要)?(?:使用|加入|分析)|不加入|"
+    r"排除(?=(?:极区|极地|MWO|WSO|polar))"
+    r"[^\n。！？!?；;]{0,30}"
+    r"(?:polar[\s-]?field|polar precursor|MWO|WSO|极区磁场|极地磁场))",
+    re.IGNORECASE,
+)
+
+
+def _explicit_polar_data_exclusion(text: str) -> bool:
+    """Match data exclusions, not instructions to avoid rerunning a protocol."""
+
+    for sentence in re.split(r"[\n。！？!?；;]", text):
+        if re.search(r"(?:调用|重新|重跑|call|invoke|rerun|re-run)", sentence, re.I):
+            continue
+        if _POLAR_EXCLUSION_PATTERN.search(sentence):
+            return True
+    return False
+
+
+_CYCLE_26_PATTERN = re.compile(
+    r"(?:第\s*26\s*(?:太阳活动)?周|太阳活动周\s*26|solar\s+cycle\s*26|cycle\s*26)",
+    re.IGNORECASE,
+)
+_CYCLE_26_READINESS_PATTERN = re.compile(
+    r"(?:是否.{0,16}(?:启动|发布)|可以启动|暂不启动|正式分类|峰值区间|"
+    r"launch|readiness|ready\s+to|formal\s+(?:forecast|classification)|"
+    r"prediction.{0,16}(?:start|launch))",
     re.IGNORECASE | re.DOTALL,
+)
+_CYCLE_26_READINESS_CUTOFF_PATTERN = re.compile(
+    r"(?:2026\s*年\s*6\s*月\s*30\s*日|2026[-/.]0?6[-/.]30)",
+    re.IGNORECASE,
+)
+_CYCLE_26_OPERATIONAL_FORECAST_PATTERN = re.compile(
+    r"(?:初步.{0,12}(?:概率)?预测|点预测|(?:80|95)\s*%.{0,12}预测区间|"
+    r"preliminary.{0,20}(?:probabilistic|probability|operational).{0,12}forecast|"
+    r"point\s+forecast|prediction\s+interval)",
+    re.IGNORECASE | re.DOTALL,
+)
+_CYCLE_26_BACKTEST_FORECAST_PATTERN = re.compile(
+    r"(?:历史回测|时间顺序回测|historical\s+backtest|chronological\s+backtest)"
+    r"[\s\S]{0,500}(?:第\s*26\s*(?:太阳活动)?周|solar\s+cycle\s*26|cycle\s*26)"
+    r"|(?:第\s*26\s*(?:太阳活动)?周|solar\s+cycle\s*26|cycle\s*26)"
+    r"[\s\S]{0,500}(?:历史回测|时间顺序回测|historical\s+backtest|chronological\s+backtest)",
+    re.IGNORECASE,
 )
 
 
@@ -82,12 +145,26 @@ def detect_analysis_protocol(text: str) -> str:
 
     if _F107_PATTERN.search(text) and _F107_DISCONTINUITY_PATTERN.search(text):
         return F107_DISCONTINUITY_PROTOCOL
+    if _CYCLE_26_BACKTEST_FORECAST_PATTERN.search(text):
+        return SOLAR_CYCLE_26_FORECAST_BACKTEST_PROTOCOL
+    if _CYCLE_26_PATTERN.search(text) and _CYCLE_26_OPERATIONAL_FORECAST_PATTERN.search(
+        text
+    ):
+        return SOLAR_CYCLE_26_READINESS_PROTOCOL
+    if (
+        _CYCLE_26_PATTERN.search(text)
+        and _CYCLE_26_READINESS_PATTERN.search(text)
+        and _CYCLE_26_READINESS_CUTOFF_PATTERN.search(text)
+    ):
+        return SOLAR_CYCLE_26_READINESS_PROTOCOL
     if (
         _POLAR_FIELD_PATTERN.search(text)
         and _POLAR_PRECURSOR_INTENT_PATTERN.search(text)
-        and not _POLAR_EXCLUSION_PATTERN.search(text)
+        and not _explicit_polar_data_exclusion(text)
     ):
         return SOLAR_POLAR_PRECURSOR_PROTOCOL
+    if _SILSO_PATTERN.search(text) and _SILSO_CYCLE_MORPHOLOGY_PATTERN.search(text):
+        return SILSO_CYCLE_MORPHOLOGY_PROTOCOL
     if _SILSO_PATTERN.search(text) and (
         _SILSO_CYCLE_REPRODUCTION_PATTERN.search(text)
         or _SILSO_CYCLE_ENGLISH_PATTERN.search(text)
@@ -101,6 +178,9 @@ def required_data_product_for_protocol(protocol: str) -> str:
 
     return {
         SILSO_CYCLE_REPRODUCTION_PROTOCOL: SILSO_CYCLE_EXTREMA_DATA_PRODUCT,
+        SILSO_CYCLE_MORPHOLOGY_PROTOCOL: SILSO_CYCLE_MORPHOLOGY_DATA_PRODUCT,
+        SOLAR_CYCLE_26_READINESS_PROTOCOL: SOLAR_CYCLE_26_READINESS_DATA_PRODUCT,
+        SOLAR_CYCLE_26_FORECAST_BACKTEST_PROTOCOL: SOLAR_CYCLE_26_FORECAST_BACKTEST_DATA_PRODUCT,
         SOLAR_POLAR_PRECURSOR_PROTOCOL: SOLAR_POLAR_PRECURSOR_DATA_PRODUCT,
     }.get(protocol, GENERIC_DATA_PRODUCT)
 
@@ -110,6 +190,9 @@ def required_dataset_ids_for_protocol(protocol: str) -> tuple[str, ...]:
 
     return {
         SILSO_CYCLE_REPRODUCTION_PROTOCOL: SILSO_CYCLE_REPRODUCTION_DATASET_IDS,
+        SILSO_CYCLE_MORPHOLOGY_PROTOCOL: SILSO_CYCLE_REPRODUCTION_DATASET_IDS,
+        SOLAR_CYCLE_26_READINESS_PROTOCOL: SOLAR_CYCLE_26_READINESS_DATASET_IDS,
+        SOLAR_CYCLE_26_FORECAST_BACKTEST_PROTOCOL: SILSO_CYCLE_REPRODUCTION_DATASET_IDS,
         SOLAR_POLAR_PRECURSOR_PROTOCOL: SOLAR_POLAR_PRECURSOR_DATASET_IDS,
     }.get(protocol, ())
 
@@ -314,6 +397,120 @@ def solar_polar_precursor_directive() -> str:
     )
 
 
+def silso_cycle_morphology_directive() -> str:
+    """Return the fixed contract for the independent cycles 1--24 experiment."""
+
+    return (
+        "Run silso_cycle_morphology_v1 only from the three bound SILSO v2.0 "
+        "inputs. Use official minima, maxima, and next-minimum boundaries for "
+        "completed cycles 1-24; C25 is a boundary for C24 only and is not a "
+        "sample. Write outputs/cycle_morphology_strength_report.md, "
+        "outputs/cycle_morphology_table.csv, and "
+        "outputs/cycle_morphology_relationships.png. The CSV must have exactly "
+        "24 cycle rows and the declared fields. Compute calendar-month differences "
+        "divided by 12, peak smoothed number from the official maximum, Pearson "
+        "and Spearman two-sided p-values, cycle-level bootstrap intervals with "
+        "seed 20260826 and 10000 requested repetitions, leave-one-cycle-out "
+        "results, and fixed early (1-12) versus modern (13-24) comparisons. "
+        "In experiment_design, bind and inspect the staged registered sources plus "
+        "the accepted morphology table, then call "
+        "automatic_experiment_create_silso_morphology_design exactly once; do not "
+        "author a generic compact or expanded design. In experiment_result, inspect "
+        "the accepted run, call automatic_experiment_prepare_silso_morphology_attempt "
+        "exactly once, execute that returned attempt, obtain the verification preview, "
+        "submit the evidence-bounded scientific assessment, and finalize. "
+        "Planned output paths are not evidence_refs until the files actually exist "
+        "and are inspected; keep planning-stage evidence_refs limited to registered "
+        "inputs and existing receipts. Do not search for local peaks, use polar-field/F10.7 data, browse, or "
+        "make causal dynamo claims. Use claim-specific confidence in the reader-facing "
+        "synthesis: directly verified source reconstruction, official date bindings, "
+        "the 24-row table, and deterministic cross-checks may reach high confidence. "
+        "The bounded historical rise-time association may be reported as medium-high "
+        "when Pearson and Spearman agree, both bootstrap intervals exclude zero, all "
+        "leave-one-cycle-out directions agree, and both fixed subgroup directions agree. "
+        "Keep cycle-length and decline-time claims lower when intervals cross zero or "
+        "periods disagree. This calibration must never upgrade a causal mechanism. "
+        "During the post-result hypothesis update, bind the verified experiment evidence, "
+        "update and read the persistent draft, run the tail review, record the analysis "
+        "claim, and checkpoint the draft; do not call scientific_hypothesis_validate_response, "
+        "which is only a legacy one-shot compatibility path. "
+        "Do not return success until all three files "
+        "exist, the CSV has 24 rows, and the PNG opens."
+    )
+
+
+def solar_cycle_26_readiness_directive() -> str:
+    """Return the evidence boundary for the SC26 forecast launch gate."""
+
+    return (
+        "Apply the 2026-06-30 evidence cutoff. Treat SILSO sunspot number and "
+        "monthly F10.7 as cycle-25 state indicators, not cycle-26 precursors. "
+        "Require an established cycle-25/26 minimum and same-definition polar-"
+        "field observations near that minimum before releasing a formal cycle-26 "
+        "strength class or testable peak interval. Preserve explicit WSO missing "
+        "rows as an observed evidence gap. Historical MWO/WSO cycle pairs provide "
+        "calibration context only and do not substitute for the current precursor. "
+        "Bind each raw parser to the actual declared product rather than guessing "
+        "from its extension: the SILSO smoothed product is semicolon-delimited; "
+        "the monthly-total and cycle-extrema products use fixed whitespace columns, "
+        "and the cycle-extrema rows do not repeat the words Minimum or Maximum. "
+        "The MWO/WSO CSV is a 12-column annual calibration history with separate "
+        "decimal-year date, field, and uncertainty columns for north and south; it "
+        "is not the current 10-day WSO feed. Polar.html contains the 10-day current "
+        "WSO observations and explicit XXX missing rows. Use the accepted data "
+        "inventory only as parser-validation anchors: the raw smoothed series must "
+        "recover the non-missing 2026-01 value 104.2, while the raw Polar.html must "
+        "recover the last valid observation 2026-01-09 and 17 explicit XXX rows "
+        "through the cutoff. If a non-empty declared source parses to zero relevant "
+        "rows or disagrees with those anchors, raise a technical failure before "
+        "forming any scientific result. The anchors are checks only: derive the "
+        "reported values from the raw bytes, never hard-code them as results. "
+        "When these conditions are unmet, carry the verified data inventory through "
+        "competition, experiment, and opposing-evidence review and return an honest "
+        "not-ready decision with concrete re-evaluation triggers for a final narrow "
+        "precursor forecast. If the user instead requests a preliminary operational "
+        "probability forecast, the workflow must not return only a not-ready decision. "
+        "Use a single target throughout: the peak 13-month smoothed SILSO v2 sunspot "
+        "number. Compare target-compatible published scenarios with a reproducible "
+        "historical baseline, keep shared-data model families non-independent, and "
+        "quantify model discrepancy. The reviewed release must report a point forecast, "
+        "80% and 95% prediction intervals, peak-time distribution, comparison with "
+        "cycles 24 and 25, and observation-triggered update rules. Use claim-specific "
+        "confidence: official target definitions, source identity, and deterministic "
+        "reproduction may reach high confidence when directly verified; the future "
+        "amplitude, timing, narrow interval, or causal mechanism must not be upgraded "
+        "merely to satisfy a requested confidence label."
+    )
+
+
+def solar_cycle_26_forecast_backtest_directive() -> str:
+    """Return the bounded contract for historical SC26 forecast validation."""
+
+    return (
+        "Run the dedicated solar_cycle_26_forecast_backtest_v1 product from the three "
+        "bound SILSO v2.0 inputs only. First complete the chronological historical "
+        "backtest for target cycles 1-24 without future leakage, then fit the formal "
+        "Cycle 26 forecast using the observed Cycle 25 state. Persist the script's "
+        "CSV, JSON, Markdown, PNG, and a verified receipt under the task workspace. "
+        "Use cycle-level rows as independent units, fixed seed 20260827 and 10000 "
+        "bootstrap repetitions, report MAE/RMSE against the training-mean baseline, "
+        "and retain negative or low-skill results. Cycle 25 is a predictor only, not "
+        "a completed backtest target; no causal dynamo claim is allowed. Do not use "
+        "F10.7, polar-field data, unregistered files, or guessed paths. Do not return "
+        "success until all canonical output files exist and the receipt is hash-bound. "
+        "In experiment_design, bind and inspect the staged forecast feature, prediction, "
+        "formal-forecast, summary, and manifest files, then call "
+        "automatic_experiment_create_sc26_forecast_design exactly once; do not author "
+        "a generic compact or expanded design. In experiment_result, resume the accepted "
+        "run, call automatic_experiment_prepare_sc26_forecast_attempt exactly once, "
+        "execute that returned attempt, obtain the verification preview, submit an "
+        "evidence-bounded scientific assessment, and finalize. Directly verified source "
+        "identity and deterministic reproduction of the negative backtest may be high "
+        "confidence; the future Cycle 26 amplitude remains low confidence when the "
+        "candidate does not outperform baseline or its improvement interval crosses zero."
+    )
+
+
 def sha256_file(path: Path) -> str:
     """Hash one immutable artifact without loading it fully into memory."""
 
@@ -369,20 +566,30 @@ __all__ = [
     "F107_DISCONTINUITY_REQUIRED_MEASUREMENTS",
     "GENERIC_DATA_PRODUCT",
     "SILSO_CYCLE_EXTREMA_DATA_PRODUCT",
+    "SILSO_CYCLE_MORPHOLOGY_DATA_PRODUCT",
+    "SILSO_CYCLE_MORPHOLOGY_PROTOCOL",
     "SILSO_CYCLE_REPRODUCTION_DATASET_IDS",
     "SILSO_CYCLE_REPRODUCTION_PROTOCOL",
-    "SOLAR_POLAR_PRECURSOR_DATA_PRODUCT",
+    "SOLAR_CYCLE_26_READINESS_DATASET_IDS",
+    "SOLAR_CYCLE_26_READINESS_DATA_PRODUCT",
+    "SOLAR_CYCLE_26_READINESS_PROTOCOL",
+    "SOLAR_CYCLE_26_FORECAST_BACKTEST_PROTOCOL",
+    "SOLAR_CYCLE_26_FORECAST_BACKTEST_DATA_PRODUCT",
     "SOLAR_POLAR_PRECURSOR_DATASET_IDS",
+    "SOLAR_POLAR_PRECURSOR_DATA_PRODUCT",
     "SOLAR_POLAR_PRECURSOR_PROTOCOL",
     "DatasetSemanticManifest",
     "detect_analysis_protocol",
     "f107_discontinuity_directive",
+    "plan_dataset_selection_conflicts_protocol",
     "render_silso_cycle_reproduction_markdown",
     "required_data_product_for_protocol",
     "required_dataset_ids_for_protocol",
-    "plan_dataset_selection_conflicts_protocol",
     "resolve_required_dataset_ids",
     "selected_dataset_ids_from_plan",
     "sha256_file",
+    "solar_cycle_26_readiness_directive",
+    "solar_cycle_26_forecast_backtest_directive",
     "solar_polar_precursor_directive",
+    "silso_cycle_morphology_directive",
 ]

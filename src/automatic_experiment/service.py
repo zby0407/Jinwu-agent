@@ -91,6 +91,40 @@ class ServiceError(RuntimeError):
         self.run_id = run_id
 
 
+EXECUTION_INPUT_PREVIEW_MAX_FILES = 8
+EXECUTION_INPUT_PREVIEW_MAX_BYTES = 512
+
+
+def _compact_execution_input_previews(
+    previews: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Keep the execution contract inline for specialists without file tools."""
+
+    compact: list[dict[str, Any]] = []
+    for preview in previews[:EXECUTION_INPUT_PREVIEW_MAX_FILES]:
+        row = dict(preview)
+        content = row.get("content")
+        if isinstance(content, str):
+            encoded = content.encode("utf-8")
+            maximum = EXECUTION_INPUT_PREVIEW_MAX_BYTES
+            if len(encoded) > maximum:
+                marker = b"\n...[preview middle omitted]...\n"
+                head_size = (maximum - len(marker)) // 2
+                tail_size = maximum - len(marker) - head_size
+                selected_bytes = (
+                    encoded[:head_size] + marker + encoded[-tail_size:]
+                )
+            else:
+                selected_bytes = encoded
+            selected = selected_bytes.decode("utf-8", errors="ignore")
+            row["content"] = selected
+            row["truncated"] = bool(row.get("truncated")) or len(encoded) > len(
+                selected.encode("utf-8")
+            )
+        compact.append(row)
+    return compact
+
+
 _LOG_SECRET = re.compile(
     r"(?:sk-[A-Za-z0-9_-]{12,}|AKIA[0-9A-Z]{16}|"
     r"(?:api[_-]?key|access[_-]?token|password|secret)\s*[:=]\s*[^\s\"']{8,}|"
@@ -160,7 +194,14 @@ def _load_request(root: Path) -> dict[str, Any]:
 
 
 def _elapsed_run_seconds(state: dict[str, Any]) -> float:
-    created = datetime.fromisoformat(str(state["created_at"]).replace("Z", "+00:00"))
+    started_at = state["created_at"]
+    if int(state.get("attempt_count", 0)) > 0:
+        started_at = (
+            state.get("execution_budget_started_at")
+            or state.get("execution_budget_reset_at")
+            or started_at
+        )
+    created = datetime.fromisoformat(str(started_at).replace("Z", "+00:00"))
     return max(0.0, (datetime.now(timezone.utc) - created).total_seconds())
 
 
@@ -168,6 +209,11 @@ def _remaining_run_seconds(
     state: dict[str, Any],
     request: dict[str, Any],
 ) -> int:
+    if (
+        state.get("phase") == "design_validated"
+        and int(state.get("attempt_count", 0)) == 0
+    ):
+        return int(request["run_budget"]["total_wall_seconds"])
     return max(
         0,
         int(request["run_budget"]["total_wall_seconds"] - _elapsed_run_seconds(state)),
@@ -636,13 +682,36 @@ def _stage_worker_output_guide(
         == "json"
     ]
     exact_value_ids = [*stage["measurement_refs"], *stage["result_refs"]]
+    stage_measurements = set(stage["measurement_refs"])
+    stage_results = set(stage["result_refs"])
     return {
         "schema_version": "automatic-experiment-worker-result-v1",
         "execution_completed": True,
         "measurement_names": list(stage["measurement_refs"]),
         "result_item_ids": list(stage["result_refs"]),
+        "measurement_contracts": [
+            {field: row[field] for field in ("name", "unit", "role")}
+            for row in design["measurement_plan"]
+            if row["name"] in stage_measurements
+        ],
+        "result_item_contracts": [
+            {
+                field: row[field]
+                for field in ("id", "display_name", "value_kind", "unit", "role")
+            }
+            for row in design["result_plan"]
+            if row["id"] in stage_results
+        ],
         "endpoint_ids": list(stage["endpoint_ids"]),
         "artifact_paths": expected_artifacts,
+        "artifact_output_paths": {
+            path: f"context['output_dir'] / {path!r}" for path in expected_artifacts
+        },
+        "artifact_output_rule": (
+            "Write each declared output below context['output_dir'] using its exact "
+            "relative artifact path; never context['artifact_path_by_id'], which contains "
+            "read-only prior-stage artifacts only."
+        ),
         "json_artifact_paths": json_artifacts,
         "json_traceability": {
             "exact_value_keys": exact_value_ids,
@@ -652,9 +721,24 @@ def _stage_worker_output_guide(
                 "The key may appear at any nesting level; do not duplicate the value."
             ),
         },
+        "primary_estimand": design["interpretation_policy"]["primary_estimand"],
+        "primary_estimand_rule": (
+            "Copy this exact string into scientific_payload.primary_estimand, either "
+            "directly or through a module-level string constant or function-local "
+            "constant; "
+            "do not concatenate, format, or compute it."
+        ),
         "source_artifact_rule": (
-            "Use an exact artifact-path string literal, a local constant assigned that literal, "
-            "or null; reject helpers, expressions, and computed paths."
+            "Use an exact artifact-path string literal, a module-level string constant "
+            "or function-local constant assigned that literal, or null; reject helpers, "
+            "expressions, and computed paths."
+        ),
+        "measurement_value_rule": (
+            "Every measurement value must be a finite numeric value. Never emit null, "
+            "NaN, infinity, or a sentinel for an unavailable measurement. If a planned "
+            "quantity is unavailable, preserve that fact in a typed result or warning "
+            "and repair the parser or design so the measurement contract is not falsely "
+            "populated."
         ),
     }
 
@@ -699,6 +783,56 @@ def _design_repair_guide(issues: list[dict[str, Any]]) -> dict[str, Any]:
     if "experiment_stages" in paths:
         guide["stage_fields"] = full["stage_fields"]
         guide["stage_nested_shapes"] = full["stage_nested_shapes"]
+    issue_messages = " ".join(
+        str(row.get("message") or "") for row in issues
+    ).casefold()
+    if (
+        "fitted-condition sensitivity lacks a same-row candidate comparison"
+        in issue_messages
+    ):
+        guide["paired_comparison_repair"] = {
+            "required_comparison_kind": "candidate_vs_candidate",
+            "audit_action": (
+                "append one candidate_vs_candidate audit for the two fitted "
+                "conditions and their declared delta; keep other required audits"
+            ),
+            "evaluation_rule": (
+                "both fitted conditions must be compared on the same evaluation rows, "
+                "with the inclusion or exclusion difference written only in their "
+                "fit-condition fields"
+            ),
+            "measurement_rule": (
+                "baseline_measurement and candidate_measurement name the two condition "
+                "metrics; delta_measurement names their declared difference and follows "
+                "delta_formula"
+            ),
+            "non_substitution_rule": (
+                "an existing source_baseline_vs_candidate audit does not satisfy this "
+                "candidate_vs_candidate requirement"
+            ),
+        }
+    if "reader-facing design fields must use the user's chinese language" in issue_messages:
+        named_paths: list[str] = []
+        for row in issues:
+            message = str(row.get("message") or "")
+            if "Chinese language:" not in message:
+                continue
+            for path in message.split("Chinese language:", 1)[1].split(","):
+                path = path.strip()
+                if path.startswith("design.") and path not in named_paths:
+                    named_paths.append(path)
+        guide["reader_language_repair"] = {
+            "required_language": "Chinese",
+            "named_paths": named_paths,
+            "repair_action": (
+                "Rewrite only the named reader-facing values as natural Chinese "
+                "scientific phrases; do not translate or rename structural keys."
+            ),
+            "preserve_rule": (
+                "Preserve machine ids, input_id values, measurement names, result "
+                "ids, endpoint ids, artifact ids, and all fields not named above."
+            ),
+        }
     return guide
 
 
@@ -1592,8 +1726,8 @@ def _normalized_research_scope(scope: dict[str, Any]) -> dict[str, Any]:
     stage = scope["stage"]
     if stage not in {"experiment_design", "experiment_result"}:
         raise ServiceError("research experiment scope has an invalid stage")
-    if scope["design_validation_limit"] != 3:
-        raise ServiceError("research design validation limit must be 3")
+    if scope["design_validation_limit"] not in {3, 4}:
+        raise ServiceError("research design validation limit must be 3 or 4")
     revision_review_id = scope["revision_review_id"]
     if revision_review_id is not None and (
         not isinstance(revision_review_id, str) or not revision_review_id.strip()
@@ -1653,7 +1787,7 @@ def _normalized_research_scope(scope: dict[str, Any]) -> dict[str, Any]:
         "stage": stage,
         "accepted_upstream_refs": refs,
         "revision_review_id": revision_review_id,
-        "design_validation_limit": 3,
+        "design_validation_limit": scope["design_validation_limit"],
     }
 
 
@@ -1666,6 +1800,43 @@ def _run_bound_to_research_scope(scope_identity: str) -> str | None:
         if state.get("research_scope_identity") == scope_identity:
             return path.parent.name
     return None
+
+
+def _validated_request_for_design_revision(
+    research_scope: dict[str, Any],
+) -> dict[str, Any]:
+    """Return the immutable request owned by the latest validated base design.
+
+    Evidence revisions receive a new experiment run so their design remains
+    immutable.  The scientific request itself is not revision-owned, however;
+    accepting model-authored replacement text here can detach the new design
+    from the reviewed question and accepted inputs.
+    """
+
+    candidates: list[tuple[int, Path]] = []
+    for state_path in runs_root().glob("*/state.json"):
+        state = read_json(state_path)
+        prior_scope = state.get("research_scope")
+        if not isinstance(prior_scope, dict):
+            continue
+        if state.get("phase") != "design_validated":
+            continue
+        if not all(
+            prior_scope.get(field) == research_scope.get(field)
+            for field in ("task_id", "stage", "accepted_upstream_refs")
+        ):
+            continue
+        root = state_path.parent
+        if not all((root / name).is_file() for name in ("request.json", "design.json")):
+            continue
+        candidates.append((state_path.stat().st_mtime_ns, root))
+    if not candidates:
+        raise ServiceError(
+            "an experiment-design Evidence revision requires a prior validated design request",
+            error_code="RESEARCH_EXPERIMENT_REVISION_BASE_MISSING",
+        )
+    _mtime_ns, root = max(candidates, key=lambda item: (item[0], item[1].name))
+    return validate_request(read_json(root / "request.json"))
 
 
 def bind_request(
@@ -1694,7 +1865,14 @@ def bind_request(
     scope_identity = (
         canonical_sha256(normalized_scope) if normalized_scope is not None else None
     )
-    request = _request_from_payload(payload)
+    if (
+        normalized_scope is not None
+        and normalized_scope["stage"] == "experiment_design"
+        and normalized_scope["revision_review_id"] is not None
+    ):
+        request = _validated_request_for_design_revision(normalized_scope)
+    else:
+        request = _request_from_payload(payload)
     request_fingerprint = _request_fingerprint(request)
     input_fingerprint = fingerprint_input_references(request)["input_fingerprint"]
     if scope_identity is not None:
@@ -1782,11 +1960,17 @@ def _validate_stage_code(
     code_files: list[dict[str, str]],
 ) -> None:
     stage = experiment_stage(design, stage_id)
+    stage_measurement_ids = set(stage["measurement_refs"])
     stage_result_ids = set(stage["result_refs"])
     validate_code_files(
         [{"path": row["path"], "content": row["content"]} for row in code_files],
         stage_execution(design, stage_id)["dependencies"],
-        required_measurements=set(stage["measurement_refs"]),
+        required_measurements=stage_measurement_ids,
+        required_measurement_contracts={
+            row["name"]: {field: row[field] for field in ("unit", "role")}
+            for row in design["measurement_plan"]
+            if row["name"] in stage_measurement_ids
+        },
         required_results=stage_result_ids,
         required_result_contracts={
             row["id"]: {
@@ -2072,11 +2256,28 @@ def inspect_inputs(run_id: str) -> dict[str, Any]:
             result = {
                 "status": "already_snapshotted",
                 "run_id": run_id,
+                "phase": state["phase"],
                 "input_snapshot": manifest,
                 "input_previews": snapshot_input_previews(root, manifest),
             }
+            if state["phase"] != "inputs_snapshotted":
+                result["input_previews"] = _compact_execution_input_previews(
+                    result["input_previews"]
+                )
             request = _load_request(root)
             result["remaining_run_seconds"] = _remaining_run_seconds(state, request)
+            if state["phase"] == "report_finalized":
+                entry = _validated_finalized_entry(root, state)
+                result.update(
+                    {
+                        "status": "terminal",
+                        "outcome": entry["outcome"],
+                        "must_stop": True,
+                        "record_path": entry["record_path"],
+                        "report_path": entry["report_path"],
+                    }
+                )
+                return result
             stage_id = state.get("current_stage_id")
             design_path = state.get("design_path")
             if (
@@ -2605,6 +2806,11 @@ def _build_and_store_single_stage_design_unlocked(
             ),
             "summary": summary,
             "issue_paths": issue_paths,
+            "issues": (
+                result.get("issues", [])
+                if isinstance(result, dict) and isinstance(result.get("issues"), list)
+                else []
+            ),
             "error": error,
         }
         with (root / "compact_design_attempts.jsonl").open(
@@ -2917,19 +3123,6 @@ def prepare(
     ):
         raise ServiceError("only technical_failure permits a repair attempt")
     request = _load_request(root)
-    # A design validated in an earlier (design-phase) session carries a wall budget
-    # measured from bind time; resuming that frozen design for execution must start a
-    # fresh execution budget, otherwise the design-phase clock makes execution
-    # impossible. Reset once, at the first attempt of a validated design with no
-    # prior attempts. Attempt-count limits are untouched (no attempts have run yet).
-    if (
-        state["phase"] == "design_validated"
-        and int(state.get("attempt_count", 0)) == 0
-        and not state.get("execution_budget_reset_at")
-    ):
-        state["created_at"] = utc_now()
-        state["execution_budget_reset_at"] = state["created_at"]
-        save_state(root, state)
     _require_run_budget(root, state, request)
     design = read_json(root / "design.json")
     stage_id = state.get("current_stage_id")
@@ -2954,6 +3147,11 @@ def prepare(
         parent_attempt=parent_attempt,
         change_reason=change_reason,
     )
+    if int(state.get("attempt_count", 0)) == 0:
+        # Lock the execution clock only after the first immutable attempt has
+        # actually been allocated. If a model call or process dies before this
+        # point, a later resume still receives the full execution budget.
+        state["execution_budget_started_at"] = utc_now()
     state["current_attempt"] = attempt_id
     state["attempt_count"] += 1
     state["remaining_attempts"] -= 1

@@ -127,7 +127,7 @@ _QUOTED_INPUT_PATTERNS = (
 _UNQUOTED_INPUT_PATTERN = re.compile(
     rf"(?<![A-Za-z0-9_./-])"
     rf"(?P<path>{_INPUT_PREFIX}/"
-    r"""[^\s"'`“”‘’，。；：！？、<>{}\[\]()（）]+)"""
+    r"""[^\s"'`“”‘’，。；：！？、,;:!?<>{}\[\]()（）]+)"""
 )
 _STAGED_SIDECAR_PATH = re.compile(
     r"""(?:@|staged\s+sidecar\s+|staged_data_inputs\s*[=:]\s*\[?\"?)"""
@@ -385,7 +385,8 @@ def _normalize_fit_condition_text(value: Any) -> Any:
 
 
 P_VALUE_REQUEST = re.compile(
-    r"p\s*值|p[-_\s]?value|显著性|假设检验|hypothesis\s+test|significance",
+    r"p\s*值|p[-_\s]?value|(?:^|[^A-Za-z0-9_])p\s*(?:[<=>≤≥]|less\s+than|greater\s+than)|"
+    r"显著性|假设检验|hypothesis\s+test|significance",
     re.IGNORECASE,
 )
 NONCLAIM_GENERALIZATION_LANGUAGE = re.compile(
@@ -468,6 +469,33 @@ class ContractError(ValueError):
         self.error_code = error_code
         self.field_path = field_path
         self.suggestion = suggestion
+
+
+def _reject_reader_internal_terms(
+    label: str,
+    *,
+    statement: str,
+    basis_text: str,
+) -> None:
+    for field_name, text in (
+        ("statement", statement),
+        ("basis_text", basis_text),
+    ):
+        match = READER_INTERNAL_TOKEN.search(text)
+        if match is None:
+            continue
+        matched_term = match.group(0)
+        field_path = f"{label}.{field_name}"
+        raise ContractError(
+            f"{field_path} reader text must not expose internal contracts or "
+            f"workflow terms; matched {matched_term!r}",
+            error_code="reader_internal_term",
+            field_path=field_path,
+            suggestion=(
+                f"把 {matched_term!r} 改写为该判据直接表达的自然语言科研含义；"
+                "不要改动机器字段、引用关系或科学阈值。"
+            ),
+        )
 
 
 def _walk_text_values(value: Any) -> list[str]:
@@ -1475,12 +1503,11 @@ def validate_request(payload: dict[str, Any]) -> dict[str, Any]:
         statement = _text(row["statement"], f"{label}.statement")
         basis_kind = _enum(row["basis_kind"], BASIS_KINDS, f"{label}.basis_kind")
         basis_text = _text(row["basis_text"], f"{label}.basis_text")
-        if READER_INTERNAL_TOKEN.search(statement) or READER_INTERNAL_TOKEN.search(
-            basis_text
-        ):
-            raise ContractError(
-                f"{label} reader text must not expose internal contracts or workflow terms"
-            )
+        _reject_reader_internal_terms(
+            label,
+            statement=statement,
+            basis_text=basis_text,
+        )
         _text_array(row["source_refs"], f"{label}.source_refs", 20)
         _text_array(row["artifact_refs"], f"{label}.artifact_refs", 20)
         _validate_numeric_cutoff_basis(
@@ -2449,12 +2476,11 @@ def validate_design(
         statement = _text(row["statement"], f"{label}.statement")
         basis_kind = _enum(row["basis_kind"], BASIS_KINDS, f"{label}.basis_kind")
         basis_text = _text(row["basis_text"], f"{label}.basis_text")
-        if READER_INTERNAL_TOKEN.search(statement) or READER_INTERNAL_TOKEN.search(
-            basis_text
-        ):
-            raise ContractError(
-                f"{label} reader text must not expose internal contracts or workflow terms"
-            )
+        _reject_reader_internal_terms(
+            label,
+            statement=statement,
+            basis_text=basis_text,
+        )
         source_refs = _text_array(row["source_refs"], f"{label}.source_refs", 20)
         _text_array(row["artifact_refs"], f"{label}.artifact_refs", 20)
         measurement_refs = _array(

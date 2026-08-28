@@ -12,6 +12,12 @@ def test_evidence_prompt_spells_out_retry_repairs_for_atomic_round() -> None:
     )
 
 
+def test_evidence_prompt_caps_experiment_design_before_execution() -> None:
+    text = Path("jw/subagents/solar/solar_evidence.yaml").read_text(encoding="utf-8")
+    assert "experiment_design 阶段还没有真实实验结果" in text
+    assert "quality_status 和 conclusion_cap 都不得使用 release_candidate" in text
+
+
 def test_final_release_review_owns_semantic_reader_quality() -> None:
     text = Path("jw/subagents/solar/solar_evidence.yaml").read_text(encoding="utf-8")
     assert "semantic coverage, not verbatim string matching" in text

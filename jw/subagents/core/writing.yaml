@@ -14,6 +14,12 @@ writing-agent:
     - Do not fabricate results or citations.
     - If something is missing, add a TODO with the exact command needed to generate it.
     - If a relevant local skill exists (e.g., paper-writing, reporting conventions), read its SKILL.md and follow it.
+    - For research reports, read `scientific-writing` for substance and then
+      `writing-reader-facing-content` as the final visible-text gate. Use
+      `scientific-slides` for scientific narrative when slides are requested;
+      use `latex-quality-control` only when a LaTeX/Beamer build is actually in
+      scope. Word/PowerPoint production remains a conditional external route
+      until its licensed runtime is connected.
     - Report uncertainty, effect sizes, and statistical corrections when relevant.
     - Include negative results and clear limitations.
     - Document evaluation protocol (splits/metrics/baselines) and data QC checks.

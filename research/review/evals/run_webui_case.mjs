@@ -36,8 +36,10 @@ import { fileURLToPath } from "node:url";
 import {
   blockedResearchOutcome,
   classifyOutcome,
-  isTerminalOutcome,
+  recoveryAwareStageStopDecision,
+  shouldReturnTerminalOutcome,
 } from "./terminal_outcome.mjs";
+import { currentRecoveryLedgerStorageKey } from "../../../webui/src/lib/runRecovery.js";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const DEFAULT_SUITE = path.join(HERE, "sc26_core_e2e_v1.json");
@@ -46,7 +48,7 @@ const [caseId, requestedRunLabel, requestedProvider, requestedModel] =
   process.argv.slice(2);
 if (!caseId) {
   throw new Error(
-    "Usage: node run_webui_case.mjs <case-id> [run-label] [provider] [model]",
+    "Usage: node run_webui_case.mjs <case-id> [run-label] [provider] [model]"
   );
 }
 
@@ -136,7 +138,7 @@ if (process.env.JW_EVAL_RESOLVE_ONLY === "1") {
       prompt_style: selectedCase.prompt_style || "diagnostic",
       allowed_user_intervention:
         selectedCase.allowed_user_intervention || "unspecified",
-    })}\n`,
+    })}\n`
   );
   process.exit(0);
 }
@@ -160,7 +162,7 @@ const reviewerProvider =
   reviewerSpec.provider ||
   "custom-openai";
 const inputFiles = (selectedCase.input_files || []).map((value) =>
-  path.resolve(path.dirname(suiteFile), String(value)),
+  path.resolve(path.dirname(suiteFile), String(value))
 );
 for (const inputFile of inputFiles) await access(inputFile);
 
@@ -207,8 +209,7 @@ const chromePath =
   (onWindows
     ? "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe"
     : WSL_CHROMIUM);
-const hasWslg =
-  !onWindows && existsSync("/mnt/wslg/runtime-dir/wayland-0");
+const hasWslg = !onWindows && existsSync("/mnt/wslg/runtime-dir/wayland-0");
 if (
   !headless &&
   !onWindows &&
@@ -217,7 +218,7 @@ if (
   !hasWslg
 ) {
   throw new Error(
-    "Visible frontend validation requires a graphical display; use JW_EVAL_HEADLESS=1 only for automation diagnostics",
+    "Visible frontend validation requires a graphical display; use JW_EVAL_HEADLESS=1 only for automation diagnostics"
   );
 }
 const chromeEnv = { ...process.env };
@@ -256,7 +257,9 @@ async function runProcess(command, args) {
   const exitCode = await new Promise((resolve) => child.once("exit", resolve));
   if (exitCode !== 0) {
     throw new Error(
-      `Probe setup failed (${exitCode}): ${Buffer.concat(stderr).toString("utf8").slice(-2000)}`,
+      `Probe setup failed (${exitCode}): ${Buffer.concat(stderr)
+        .toString("utf8")
+        .slice(-2000)}`
     );
   }
   return Buffer.concat(stdout).toString("utf8").trim();
@@ -275,7 +278,7 @@ async function waitFor(fn, timeoutMs, label, intervalMs = 500) {
     await delay(intervalMs);
   }
   throw new Error(
-    `Timed out waiting for ${label}${lastError ? `: ${lastError.message}` : ""}`,
+    `Timed out waiting for ${label}${lastError ? `: ${lastError.message}` : ""}`
   );
 }
 
@@ -291,8 +294,8 @@ async function readReviewStatus(threadId) {
   try {
     return await fetchJson(
       `${frontendUrl}api/research-review/status?threadId=${encodeURIComponent(
-        threadId,
-      )}`,
+        threadId
+      )}`
     );
   } catch (error) {
     return { active: false, error: String(error?.message || error) };
@@ -303,8 +306,8 @@ async function listWorkspace(threadId, relPath) {
   try {
     const doc = await fetchJson(
       `${frontendUrl}api/workspace?threadId=${encodeURIComponent(
-        threadId,
-      )}&path=${encodeURIComponent(relPath)}`,
+        threadId
+      )}&path=${encodeURIComponent(relPath)}`
     );
     return Array.isArray(doc.entries) ? doc.entries : [];
   } catch {
@@ -316,8 +319,8 @@ async function readWorkspaceJson(threadId, relPath) {
   try {
     const response = await fetch(
       `${frontendUrl}api/workspace/file?threadId=${encodeURIComponent(
-        threadId,
-      )}&path=${encodeURIComponent(relPath)}`,
+        threadId
+      )}&path=${encodeURIComponent(relPath)}`
     );
     if (!response.ok) return null;
     const value = await response.json();
@@ -334,12 +337,12 @@ async function collectAssessments(threadId) {
     if (entry.type !== "file" || !entry.name.endsWith(".json")) continue;
     const doc = await readWorkspaceJson(
       threadId,
-      `research_review/assessments/${entry.name}`,
+      `research_review/assessments/${entry.name}`
     );
     if (doc) rows.push(doc);
   }
   rows.sort((a, b) =>
-    String(a.assessment_id).localeCompare(String(b.assessment_id)),
+    String(a.assessment_id).localeCompare(String(b.assessment_id))
   );
   return rows;
 }
@@ -347,19 +350,19 @@ async function collectAssessments(threadId) {
 async function collectScientificQualityAssessments(threadId) {
   const entries = await listWorkspace(
     threadId,
-    "research_review/scientific_quality_assessments",
+    "research_review/scientific_quality_assessments"
   );
   const rows = [];
   for (const entry of entries) {
     if (entry.type !== "file" || !entry.name.endsWith(".json")) continue;
     const doc = await readWorkspaceJson(
       threadId,
-      `research_review/scientific_quality_assessments/${entry.name}`,
+      `research_review/scientific_quality_assessments/${entry.name}`
     );
     if (doc) rows.push(doc);
   }
   rows.sort((a, b) =>
-    String(a.assessment_id).localeCompare(String(b.assessment_id)),
+    String(a.assessment_id).localeCompare(String(b.assessment_id))
   );
   return rows;
 }
@@ -371,7 +374,7 @@ async function collectVerdicts(threadId) {
     if (entry.type !== "file" || !entry.name.endsWith(".json")) continue;
     const doc = await readWorkspaceJson(
       threadId,
-      `research_review/verdicts/${entry.name}`,
+      `research_review/verdicts/${entry.name}`
     );
     if (doc) rows.push(doc);
   }
@@ -405,12 +408,14 @@ function assessmentRoundIntegrity(assessments, qualityAssessments, verdicts) {
     review_verdicts: verdictCounts.get(key) || 0,
   }));
   return {
-    exact_one_each: rounds.length > 0 && rounds.every(
-      (row) =>
-        row.review_assessments === 1 &&
-        row.scientific_quality_assessments === 1 &&
-        row.review_verdicts === 1,
-    ),
+    exact_one_each:
+      rounds.length > 0 &&
+      rounds.every(
+        (row) =>
+          row.review_assessments === 1 &&
+          row.scientific_quality_assessments === 1 &&
+          row.review_verdicts === 1
+      ),
     rounds,
   };
 }
@@ -469,7 +474,7 @@ class CdpClient {
       this.socket.addEventListener(
         "error",
         () => reject(new Error("CDP WebSocket connection failed.")),
-        { once: true },
+        { once: true }
       );
     });
     this.socket.addEventListener("message", (event) => {
@@ -501,15 +506,15 @@ class CdpClient {
 }
 
 const chromeArgs = [
-    ...(headless ? ["--headless=new"] : []),
-    "--disable-gpu",
-    "--no-first-run",
-    "--no-default-browser-check",
-    `--remote-debugging-port=${debugPort}`,
-    `--user-data-dir=${chromeProfile}`,
-    "--window-size=1600,1000",
-    "about:blank",
-  ];
+  ...(headless ? ["--headless=new"] : []),
+  "--disable-gpu",
+  "--no-first-run",
+  "--no-default-browser-check",
+  `--remote-debugging-port=${debugPort}`,
+  `--user-data-dir=${chromeProfile}`,
+  "--window-size=1600,1000",
+  "about:blank",
+];
 const chrome = spawn(chromePath, chromeArgs, {
   env: chromeEnv,
   stdio: ["ignore", "pipe", "pipe"],
@@ -531,11 +536,11 @@ try {
       if (!response.ok) return null;
       const targets = await response.json();
       return targets.find(
-        (entry) => entry.type === "page" && entry.webSocketDebuggerUrl,
+        (entry) => entry.type === "page" && entry.webSocketDebuggerUrl
       );
     },
     30_000,
-    "Chrome DevTools target",
+    "Chrome DevTools target"
   );
 
   cdp = new CdpClient(target.webSocketDebuggerUrl);
@@ -564,8 +569,9 @@ try {
   await waitFor(
     () => evaluate("document.readyState === 'complete'"),
     30_000,
-    "initial frontend load",
+    "initial frontend load"
   );
+  await new Promise((resolve) => setTimeout(resolve, 750));
   await evaluate(`
     localStorage.setItem(
       "jw-config",
@@ -581,7 +587,7 @@ try {
   await waitFor(
     () => evaluate("Boolean(document.querySelector('textarea'))"),
     90_000,
-    "hydrated chat composer",
+    "hydrated chat composer"
   );
 
   // Fail before submission when the production WebUI cannot reach the live
@@ -591,7 +597,7 @@ try {
     () => fetchJson(`${backendUrl}/api/models`),
     120_000,
     "live backend model registry",
-    1_000,
+    1_000
   );
 
   // Model selection via the page command. The send button's aria-label is the
@@ -608,21 +614,21 @@ try {
         return Boolean(b && !b.disabled);
       })()`),
     10_000,
-    "enabled Send button for model command",
+    "enabled Send button for model command"
   );
   await evaluate(`document.querySelector('${SEND_BTN}').click(); true;`);
   await waitFor(
     () =>
       evaluate(
-        `document.body.innerText.includes(${JSON.stringify(modelName)})`,
+        `document.body.innerText.includes(${JSON.stringify(modelName)})`
       ),
     15_000,
-    "thread model override",
+    "thread model override"
   );
   await waitFor(
     () => evaluate(`document.querySelector("textarea").value === ""`),
     10_000,
-    "model command composer reset",
+    "model command composer reset"
   );
 
   let threadId = null;
@@ -641,6 +647,13 @@ try {
       nodeId: inputNode.nodeId,
       files: inputFiles,
     });
+    // Chromium's CDP file injection does not consistently dispatch the
+    // browser change event under both headless and WSLG headed modes.  Fire
+    // the same bubbling event explicitly so React's onChange handler starts
+    // the real upload path in either production-browser mode.
+    await evaluate(
+      `document.querySelector('input[type="file"]')?.dispatchEvent(new Event('change', { bubbles: true })); true;`
+    );
     const uploadedNames = inputFiles.map((value) => path.basename(value));
     threadId = await waitFor(
       () =>
@@ -652,7 +665,7 @@ try {
           return uploaded && input && !input.disabled && id ? id : null;
         })()`),
       90_000,
-      "workspace file upload",
+      "workspace file upload"
     );
   }
 
@@ -660,7 +673,7 @@ try {
   if (selectedCase.probe_artifact_stage) {
     if (selectedCase.probe_artifact_stage !== "data") {
       throw new Error(
-        `Unsupported probe_artifact_stage: ${selectedCase.probe_artifact_stage}`,
+        `Unsupported probe_artifact_stage: ${selectedCase.probe_artifact_stage}`
       );
     }
     if (!threadId || inputFiles.length === 0) {
@@ -685,13 +698,13 @@ try {
         return Boolean(b && !b.disabled);
       })()`),
     10_000,
-    "enabled Send button after prompt entry",
+    "enabled Send button after prompt entry"
   );
   await evaluate(`document.querySelector('${SEND_BTN}').click(); true;`);
   threadId ||= await waitFor(
     () => evaluate(`new URL(location.href).searchParams.get("threadId")`),
     30_000,
-    "frontend thread id",
+    "frontend thread id"
   );
 
   // Do not enter the potentially long research poll until the frontend and
@@ -700,11 +713,11 @@ try {
     () =>
       fetchJson(
         `${frontendUrl}api/workspace?threadId=${encodeURIComponent(
-          threadId,
-        )}&path=`,
+          threadId
+        )}&path=`
       ),
     30_000,
-    "task workspace binding",
+    "task workspace binding"
   );
 
   const observerUrl = new URL(frontendUrl);
@@ -720,31 +733,36 @@ try {
   await writeFile(
     path.join(outputDir, "observer.json"),
     `${JSON.stringify(observer, null, 2)}\n`,
-    "utf8",
+    "utf8"
   );
   process.stdout.write(`${JSON.stringify(observer)}\n`);
 
+  // A freshly created thread is initially idle and has no checkpoint. Do not
+  // classify that transient shell as completed_without_answer: the WebUI can
+  // expose the workspace binding a few seconds before it has submitted the
+  // LangGraph run to the backend.
+  const submittedRuns = await waitFor(
+    async () => {
+      const rows = await fetchJson(`${backendUrl}/threads/${threadId}/runs`);
+      return Array.isArray(rows) && rows.length > 0 ? rows : null;
+    },
+    60_000,
+    "submitted LangGraph run before terminal polling"
+  );
+
   if (submitOnly) {
-    const runs = await waitFor(
-      async () => {
-        const rows = await fetchJson(`${backendUrl}/threads/${threadId}/runs`);
-        return Array.isArray(rows) && rows.length > 0 ? rows : null;
-      },
-      30_000,
-      "submitted LangGraph run",
-    );
     const submission = {
       schema_version: "webui-eval-submission-v1",
       case_id: caseId,
       run_label: runLabel,
       submitted_at: new Date().toISOString(),
       thread_id: threadId,
-      run_id: runs[0]?.run_id ?? null,
+      run_id: submittedRuns[0]?.run_id ?? null,
     };
     await writeFile(
       path.join(outputDir, "submission.json"),
       `${JSON.stringify(submission, null, 2)}\n`,
-      "utf8",
+      "utf8"
     );
     process.stdout.write(`${JSON.stringify(submission)}\n`);
     try {
@@ -776,8 +794,28 @@ try {
       ]);
       const latestRun = Array.isArray(runs) && runs.length > 0 ? runs[0] : null;
       const evidence = classifyOutcome(thread, state, latestRun);
+      const recoveryLedgerKey = currentRecoveryLedgerStorageKey(
+        threadId,
+        state
+      );
+      const rawRecoveryLedger = recoveryLedgerKey
+        ? await evaluate(
+            `sessionStorage.getItem(${JSON.stringify(recoveryLedgerKey)})`
+          )
+        : null;
+      const recoveryDecision = recoveryAwareStageStopDecision(
+        threadId,
+        state,
+        evidence,
+        runs,
+        rawRecoveryLedger
+      );
+      if (recoveryDecision === "wait_for_recovery") return null;
+      const preserveRuntimeError =
+        recoveryDecision === "preserve_runtime_error";
+      if (preserveRuntimeError) stageStop = null;
 
-      if (stopStage === "planning" && !stageStop) {
+      if (stopStage === "planning" && !stageStop && !preserveRuntimeError) {
         const plans = await collectPlannerPlans(threadId);
         const frozen = plans.find((row) => row.plan?.status === "frozen");
         if (frozen) {
@@ -831,14 +869,14 @@ try {
         }
       }
 
-      if (stopStage === "evidence" && !stageStop) {
+      if (stopStage === "evidence" && !stageStop && !preserveRuntimeError) {
         const [assessments, qualityAssessments, verdicts] = await Promise.all([
           collectAssessments(threadId),
           collectScientificQualityAssessments(threadId),
           collectVerdicts(threadId),
         ]);
         const reviewedStage = (reviewStatus?.stages || []).find(
-          (stage) => stage?.decision && Number(stage?.round || 0) >= 1,
+          (stage) => stage?.decision && Number(stage?.round || 0) >= 1
         );
         if (
           Number(reviewStatus?.reviewInvocations || 0) >= 1 &&
@@ -859,7 +897,7 @@ try {
         }
       }
 
-      if (!stageStop) {
+      if (!stageStop && !(stopStage && preserveRuntimeError)) {
         stageStop = blockedResearchOutcome(reviewStatus, evidence);
       }
 
@@ -914,10 +952,7 @@ try {
         return null;
       }
 
-      if (
-        isTerminalOutcome(evidence.outcome) &&
-        !["busy", "pending", "running", "queued"].includes(thread.status)
-      ) {
+      if (shouldReturnTerminalOutcome(thread, evidence, latestRun)) {
         return { thread, state, runs, latestRun, evidence };
       }
       return null;
@@ -926,7 +961,7 @@ try {
     stopStage
       ? `${stopStage} stage outcome`
       : "terminal LangGraph thread state",
-    1_000,
+    1_000
   );
 
   // Structured scientific status + assessment sidecars (read-only).
@@ -938,7 +973,7 @@ try {
   const assessmentIntegrity = assessmentRoundIntegrity(
     assessments,
     scientificQualityAssessments,
-    verdicts,
+    verdicts
   );
   const answers = assistantAnswers(terminal.state);
   const usage = observedUsage(terminal.state);
@@ -1036,7 +1071,7 @@ try {
         /(?:HTTP|status|code|error)[^\n]{0,40}\b400\b/i.test(errorSignalText),
       illegal_route:
         /illegal route|illegal transition|非法路由|非法.*转换/i.test(
-          errorSignalText,
+          errorSignalText
         ),
     },
     expected_outcome:
@@ -1052,53 +1087,53 @@ try {
     writeFile(
       path.join(outputDir, "metadata.json"),
       `${JSON.stringify(metadata, null, 2)}\n`,
-      "utf8",
+      "utf8"
     ),
     writeFile(
       path.join(outputDir, "thread_terminal.json"),
       `${JSON.stringify(
         { thread: terminal.thread, state: terminal.state, runs: terminal.runs },
         null,
-        2,
+        2
       )}\n`,
-      "utf8",
+      "utf8"
     ),
     writeFile(
       path.join(outputDir, "review_status.json"),
       `${JSON.stringify(reviewStatus, null, 2)}\n`,
-      "utf8",
+      "utf8"
     ),
     writeFile(
       path.join(outputDir, "assessments.json"),
       `${JSON.stringify(assessments, null, 2)}\n`,
-      "utf8",
+      "utf8"
     ),
     writeFile(
       path.join(outputDir, "scientific_quality_assessments.json"),
       `${JSON.stringify(scientificQualityAssessments, null, 2)}\n`,
-      "utf8",
+      "utf8"
     ),
     writeFile(
       path.join(outputDir, "assistant_answers.json"),
       `${JSON.stringify(answers, null, 2)}\n`,
-      "utf8",
+      "utf8"
     ),
     writeFile(
       path.join(outputDir, "network_console_events.json"),
       `${JSON.stringify(relevantEvents, null, 2)}\n`,
-      "utf8",
+      "utf8"
     ),
     writeFile(
       path.join(outputDir, "screenshot.png"),
-      Buffer.from(screenshot.data, "base64"),
+      Buffer.from(screenshot.data, "base64")
     ),
     writeFile(
       path.join(outputDir, "chrome.stdout.log"),
-      Buffer.concat(chromeStdout),
+      Buffer.concat(chromeStdout)
     ),
     writeFile(
       path.join(outputDir, "chrome.stderr.log"),
-      Buffer.concat(chromeStderr),
+      Buffer.concat(chromeStderr)
     ),
   ]);
 
@@ -1119,11 +1154,11 @@ try {
       automation_browser_mode: metadata.automation_browser_mode,
       observer_url: metadata.observer_url,
       latency_seconds: metadata.latency_seconds,
-    })}\n`,
+    })}\n`
   );
   if (
     !["completed_with_answer", "planning_frozen", "evidence_reviewed"].includes(
-      terminalEvidence.outcome,
+      terminalEvidence.outcome
     )
   ) {
     process.exitCode = 2;
@@ -1140,7 +1175,7 @@ try {
   await writeFile(
     path.join(outputDir, "harness_failure.json"),
     `${JSON.stringify(failure, null, 2)}\n`,
-    "utf8",
+    "utf8"
   ).catch(() => {});
   throw error;
 } finally {

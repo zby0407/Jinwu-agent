@@ -39,7 +39,11 @@ class SkillsCommand(Command):
                 "green",
             ),
             ("Global Skills", [s for s in skills if s.source == "global"], "cyan"),
-            ("Built-in Skills", [s for s in skills if s.source == "builtin"], "blue"),
+            (
+                "JW Official Skills（JW 官方内置技能）",
+                [s for s in skills if s.source == "builtin"],
+                "blue",
+            ),
         ]
 
         for title, group, color in sections:

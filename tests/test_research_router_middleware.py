@@ -24,7 +24,10 @@ from jw.middleware.research_router import (
     _successful_specialists,
     _with_analysis_protocol,
 )
-from jw.research_protocols import SOLAR_POLAR_PRECURSOR_PROTOCOL
+from jw.research_protocols import (
+    SOLAR_CYCLE_26_READINESS_PROTOCOL,
+    SOLAR_POLAR_PRECURSOR_PROTOCOL,
+)
 
 
 def _tool(name: str):
@@ -394,6 +397,44 @@ def test_fallback_recognizes_natural_reviewable_research_package() -> None:
     assert result["required_specialist"] == "none"
 
 
+def test_main_cycle_26_launch_gate_routes_to_readiness_not_precursor() -> None:
+    prompt = (
+        "请把资料截止在 2026 年 6 月 30 日，系统研究第 26 太阳活动周强度预测"
+        "现在是否可以启动。重点核查 SILSO、F10.7 和 WSO 极区磁场，最终明确"
+        "回答可以启动或暂不启动。"
+    )
+
+    route = _with_analysis_protocol(_fallback_route(prompt), text=prompt)
+
+    assert route["mode"] == "full_research"
+    assert route["required_analysis_protocol"] == SOLAR_CYCLE_26_READINESS_PROTOCOL
+    assert route["required_analysis_protocol"] != SOLAR_POLAR_PRECURSOR_PROTOCOL
+
+
+def test_cycle_26_probability_forecast_routes_to_full_research_readiness() -> None:
+    prompt = (
+        "请系统研究并正式发布第 26 太阳活动周的初步概率预测，"
+        "给出点预测、80% 和 95% 预测区间、峰值时间和更新规则，"
+        "并形成可供同行初审的研究包。"
+    )
+
+    route = _with_analysis_protocol(_fallback_route(prompt), text=prompt)
+
+    assert route["mode"] == "full_research"
+    assert route["required_analysis_protocol"] == SOLAR_CYCLE_26_READINESS_PROTOCOL
+    assert route["required_analysis_protocol"] != SOLAR_POLAR_PRECURSOR_PROTOCOL
+
+
+def test_cycle_26_historical_backtest_forecast_routes_to_full_research() -> None:
+    prompt = (
+        "先对第1—24周完成历史回测并比较基线，随后正式给出第26周峰值预测、"
+        "95%区间和可复核图表。"
+    )
+    route = _with_analysis_protocol(_fallback_route(prompt), text=prompt)
+    assert route["mode"] == "full_research"
+    assert route["required_analysis_protocol"] == "solar_cycle_26_forecast_backtest_v1"
+
+
 def test_specialist_success_requires_workspace_verified_artifact() -> None:
     calls = [
         {
@@ -489,6 +530,25 @@ def test_router_preserves_bounded_graph_on_explicit_continuation(monkeypatch) ->
     assert update["research_route"]["task_intent"] == "hypothesis_generation"
     assert update["research_route"]["required_specialist"] == "solar-hypothesis"
     assert update["research_route_turn"] == "turn-continue"
+    middleware._model.with_structured_output.assert_not_called()
+
+
+def test_router_preserves_full_graph_on_terse_continuation(monkeypatch) -> None:
+    middleware = _middleware(monkeypatch)
+    prior = _route("full_research", source_mode="mixed", needs_computation=True)
+    state = {
+        "messages": [HumanMessage("继续。", id="turn-terse-continue")],
+        "research_route": prior,
+        "research_route_turn": "older-turn",
+    }
+
+    update = middleware.before_agent(state, runtime=SimpleNamespace(config={}))
+
+    assert update["research_route"]["mode"] == "full_research"
+    assert update["research_route"]["reason"] == (
+        "explicit continuation of persisted research graph"
+    )
+    assert update["research_route_turn"] == "turn-terse-continue"
     middleware._model.with_structured_output.assert_not_called()
 
 
@@ -930,6 +990,7 @@ def test_hypothesis_task_execution_rewrites_generic_delegation_to_specialist(
     assert "tail_review_scoring_guide" in args["description"]
     assert "violated_guidelines" in args["description"]
     assert "pass if and only if that list is empty" in args["description"]
+    assert "A `_gauss` suffix is a measurement unit" in args["description"]
     assert result.content == "# 科学假设组合\n\n研究者摘要"
     assert result.additional_kwargs["research_router_specialist"] == "solar-hypothesis"
     assert (
@@ -1751,6 +1812,180 @@ def test_full_research_prepare_release_routes_draft_through_gate(monkeypatch) ->
     ]
 
 
+def test_full_research_prepare_release_retries_stale_tool_calls_as_prose(
+    monkeypatch,
+) -> None:
+    middleware = _middleware(monkeypatch)
+    route = _route("full_research", source_mode="mixed", needs_computation=True)
+    fake_store = MagicMock()
+    fake_store.next_action.return_value = {
+        "kind": "prepare_release",
+        "stage": "final_release",
+        "release_context": {
+            "claims": [
+                {
+                    "claim_id": "accepted-claim",
+                    "kind": "observation",
+                    "text": "统一科研报告",
+                    "scope": "test",
+                    "confidence": "low",
+                }
+            ],
+            "required_limits": [],
+        },
+    }
+    monkeypatch.setattr(
+        "jw.middleware.research_router.store_from_config", lambda _config: fake_store
+    )
+    calls: list[ModelRequest] = []
+
+    def handler(inner: ModelRequest) -> ModelResponse:
+        calls.append(inner)
+        if len(calls) == 1:
+            return ModelResponse(
+                result=[
+                    AIMessage(
+                        content="I will inspect the prior files before drafting.",
+                        tool_calls=[
+                            {
+                                "name": "read_file",
+                                "args": {"path": "report.md"},
+                                "id": "stale-read",
+                            },
+                            {"name": "ls", "args": {}, "id": "stale-ls"},
+                        ],
+                    )
+                ]
+            )
+        return ModelResponse(
+            result=[
+                AIMessage(
+                    content="",
+                    tool_calls=[
+                        {
+                            "name": "research_release_prepare",
+                            "args": {
+                                "draft_markdown": "# 统一科研报告",
+                                "claim_citations": [
+                                    {
+                                        "claim_id": "accepted-claim",
+                                        "draft_excerpt": "统一科研报告",
+                                    }
+                                ],
+                            },
+                            "id": "release-retry",
+                        }
+                    ],
+                )
+            ]
+        )
+
+    response = middleware.wrap_model_call(
+        _request(route=route, tools=[_tool("research_release_prepare")]),
+        handler,
+    )
+
+    assert len(calls) == 2
+    assert [_tool.name for _tool in calls[1].tools] == ["research_release_prepare"]
+    assert "Do not call read_file" in str(calls[1].system_message.content)
+    call = response.result[0].tool_calls[0]
+    assert call["name"] == "research_release_prepare"
+    assert call["args"]["draft_markdown"] == "# 统一科研报告"
+
+
+def test_full_research_prepare_release_recovers_two_empty_silso_drafts(
+    monkeypatch,
+) -> None:
+    """A completed SILSO run must not die only because Qwen returns two blanks."""
+
+    middleware = _middleware(monkeypatch)
+    route = _route("full_research", source_mode="local", needs_computation=True)
+    fake_store = MagicMock()
+    fake_store.next_action.return_value = {
+        "kind": "prepare_release",
+        "stage": "final_release",
+        "release_context": {
+            "claims": [
+                {
+                    "claim_id": "planning-plan-v1",
+                    "kind": "unknown",
+                    "text": "Only completed SILSO v2.0 cycles 1-24 are in scope.",
+                    "scope": "cycles 1-24",
+                    "confidence": "high",
+                },
+                {
+                    "claim_id": "hypothesis-output-v2",
+                    "kind": "observation",
+                    "text": "The rise-time relation supports the Waldmeier effect as a within-sample association only.",
+                    "scope": "cycles 1-24",
+                    "confidence": "high",
+                },
+                {
+                    "claim_id": "experiment-result-v1",
+                    "kind": "observation",
+                    "text": (
+                        "Verified results: cycle_length_pearson_r=-0.3242027946; "
+                        "cycle_length_pearson_p=0.1222099081; "
+                        "cycle_length_spearman_rho=-0.3138879473; "
+                        "cycle_length_spearman_p=0.1352567203; "
+                        "cycle_length_pearson_ci_low=-0.7057718028; "
+                        "cycle_length_pearson_ci_high=0.0930280459; "
+                        "cycle_length_spearman_ci_low=-0.6814427937; "
+                        "cycle_length_spearman_ci_high=0.1337403080; "
+                        "rise_time_pearson_r=-0.7494581458; "
+                        "rise_time_pearson_p=2.497304927e-05; "
+                        "rise_time_spearman_rho=-0.7618639497; "
+                        "rise_time_spearman_p=1.521977248e-05; "
+                        "rise_time_pearson_ci_low=-0.8834727462; "
+                        "rise_time_pearson_ci_high=-0.5672438335; "
+                        "rise_time_spearman_ci_low=-0.8866433451; "
+                        "rise_time_spearman_ci_high=-0.5296511278; "
+                        "decline_time_pearson_r=0.3826970436; "
+                        "decline_time_pearson_p=0.0649325812; "
+                        "decline_time_spearman_rho=0.3211489467; "
+                        "decline_time_spearman_p=0.1259732115; "
+                        "decline_time_pearson_ci_low=0.0551409292; "
+                        "decline_time_pearson_ci_high=0.6414993707; "
+                        "decline_time_spearman_ci_low=-0.1171426723; "
+                        "decline_time_spearman_ci_high=0.6710780565; "
+                        "complete_cycle_count=24; bootstrap_requested_repetitions=10000; "
+                        "rise_leave_one_direction_stable=True"
+                    ),
+                    "scope": "cycles 1-24",
+                    "confidence": "high",
+                },
+            ],
+            "required_limits": [
+                "All results describe statistical associations only; no cycle 26 prediction.",
+                "Subgroups contain 12 cycles each and serial dependence is not modeled.",
+            ],
+        },
+    }
+    monkeypatch.setattr(
+        "jw.middleware.research_router.store_from_config", lambda _config: fake_store
+    )
+    calls: list[ModelRequest] = []
+
+    def handler(inner: ModelRequest) -> ModelResponse:
+        calls.append(inner)
+        return ModelResponse(result=[AIMessage(content="")])
+
+    response = middleware.wrap_model_call(
+        _request(route=route, tools=[_tool("research_release_prepare")]),
+        handler,
+    )
+
+    assert len(calls) == 2
+    call = response.result[0].tool_calls[0]
+    assert call["name"] == "research_release_prepare"
+    draft = call["args"]["draft_markdown"]
+    assert "第 1—24 周" in draft
+    assert "-0.7495" in draft
+    assert "样本内描述性结论：高" in draft
+    assert "第 26 周" in draft
+    assert call["args"]["claim_citations"]
+
+
 def test_bounded_data_model_prose_cannot_bypass_evidence_review(monkeypatch) -> None:
     middleware = _middleware(monkeypatch)
     route = _route(
@@ -1810,6 +2045,26 @@ def test_released_silso_data_uses_deterministic_final_markdown(monkeypatch) -> N
     fake_store.accepted_bounded_markdown.assert_called_with(
         "data", analysis_protocol="silso_cycle_reproduction_v1"
     )
+
+
+def test_morphology_protocol_requires_full_research_route() -> None:
+    prompt = (
+        "请完成独立 SILSO 太阳活动周形态统计实验，生成 CSV、Markdown 和 PNG，"
+        "完成 Pearson、Spearman、Bootstrap 与留一分析。"
+    )
+    route = _with_analysis_protocol(_fallback_route(prompt), text=prompt)
+    assert route["required_analysis_protocol"] == "silso_cycle_morphology_v1"
+    assert route["mode"] == "full_research"
+
+
+def test_uploaded_polar_precursor_statistics_require_full_research_route() -> None:
+    prompt = (
+        "使用已经验证的上传 solar_precursor_cycle_features.csv，直接完成下游统计分析；"
+        "报告 Pearson、Spearman、Bootstrap、留一和 MWO/WSO 分时期结果。"
+    )
+    route = _with_analysis_protocol(_fallback_route(prompt), text=prompt)
+    assert route["required_analysis_protocol"] == "solar_polar_precursor_v1"
+    assert route["mode"] == "full_research"
 
 
 def test_bounded_stage_state_failure_does_not_release_model_prose(monkeypatch) -> None:

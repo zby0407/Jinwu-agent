@@ -39,6 +39,78 @@ def test_quality_submission_downgrades_release_cap_when_gap_is_declared() -> Non
     assert notes
 
 
+def test_quality_submission_downgrades_release_only_evidence_rows() -> None:
+    rows = [
+        {
+            "claim_id": "claim-1",
+            "claim_component": "statement",
+            "quality_status": "evidence_constrained",
+            "conclusion_cap": "evidence_constrained",
+            "evidence_matrix": [
+                {
+                    "source_ref": "design.json",
+                    "evidence_role": "supports",
+                    "source_class": "simulation",
+                    "evidence_scope": "experiment_record",
+                    "directness": "indirect",
+                    "scope_match": "matched",
+                    "entailment": "entailed",
+                    "quality_cap": "release_candidate",
+                },
+                {
+                    "source_ref": "wiki.json",
+                    "evidence_role": "limits",
+                    "source_class": "wiki_context",
+                    "evidence_scope": "wiki_entry",
+                    "directness": "context_only",
+                    "scope_match": "partial",
+                    "entailment": "partial",
+                    "quality_cap": "release_candidate",
+                },
+            ],
+        }
+    ]
+
+    normalized, notes = _normalize_quality_submission(rows)
+
+    assert normalized[0]["evidence_matrix"][0]["quality_cap"] == "evidence_constrained"
+    assert normalized[0]["evidence_matrix"][1]["quality_cap"] == "exploratory"
+    assert len(notes) == 2
+
+
+def test_quality_submission_downgrades_ineligible_release_claim() -> None:
+    rows = [
+        {
+            "claim_id": "claim-1",
+            "claim_component": "statement",
+            "load_bearing": True,
+            "quality_status": "release_candidate",
+            "conclusion_cap": "release_candidate",
+            "key_gaps": ["The experiment has not been executed."],
+            "novelty_assessment": {"status": "novelty_not_assessed"},
+            "evidence_matrix": [
+                {
+                    "source_ref": "design.json",
+                    "evidence_role": "supports",
+                    "source_class": "data_documentation",
+                    "evidence_scope": "experiment_record",
+                    "directness": "indirect",
+                    "scope_match": "matched",
+                    "entailment": "entailed",
+                    "quality_cap": "evidence_constrained",
+                    "independence_group": "validated-design",
+                }
+            ],
+        }
+    ]
+
+    normalized, notes = _normalize_quality_submission(rows)
+
+    assert normalized[0]["quality_status"] == "evidence_constrained"
+    assert normalized[0]["conclusion_cap"] == "evidence_constrained"
+    assert notes
+
+
 def _quality_claim(claim_id: str) -> dict[str, object]:
     return {
         "claim_id": claim_id,

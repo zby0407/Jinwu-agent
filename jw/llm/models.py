@@ -14,6 +14,7 @@ import warnings
 from math import isfinite
 from typing import Any
 
+import httpx
 from langchain.chat_models import init_chat_model
 
 from .context_window import apply_known_context_window
@@ -82,6 +83,15 @@ _DASHSCOPE_REQUEST_TIMEOUT_MAX_S = 900.0
 # operators may still opt into a bounded SDK-only policy for non-agent callers.
 _DASHSCOPE_MAX_RETRIES_DEFAULT = 0
 _DASHSCOPE_MAX_RETRIES_MAX = 2
+
+
+def _dashscope_proxy_mode() -> str:
+    """Return the explicit network route for Qwen research requests."""
+
+    value = os.environ.get("JW_DASHSCOPE_PROXY_MODE", "").strip().casefold() or "env"
+    if value not in {"env", "direct"}:
+        raise ValueError("JW_DASHSCOPE_PROXY_MODE must be 'env' or 'direct'")
+    return value
 
 
 def _dashscope_stream_chunk_timeout() -> float:
@@ -565,6 +575,11 @@ def get_chat_model(
             kwargs.setdefault("stream_chunk_timeout", _dashscope_stream_chunk_timeout())
             kwargs.setdefault("timeout", _dashscope_request_timeout())
             kwargs.setdefault("max_retries", _dashscope_max_retries())
+            if _dashscope_proxy_mode() == "direct":
+                kwargs.setdefault("http_client", httpx.Client(trust_env=False))
+                kwargs.setdefault(
+                    "http_async_client", httpx.AsyncClient(trust_env=False)
+                )
         if provider == "custom-openai":
             base_url = os.environ.get("CUSTOM_OPENAI_BASE_URL", "")
             if not base_url:

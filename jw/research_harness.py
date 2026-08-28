@@ -335,6 +335,35 @@ def _run_local_python(
         runtime_python = Path(sys.executable).relative_to(Path(sys.prefix))
     except ValueError as exc:
         raise RuntimeError("local Python runtime is outside its environment") from exc
+    external_runtime_args: list[str] = []
+    executable = Path(sys.executable)
+    if executable.is_symlink():
+        target = executable
+        seen_links: set[Path] = set()
+        while target.is_symlink():
+            if target in seen_links:
+                raise RuntimeError("linked local Python runtime contains a cycle")
+            seen_links.add(target)
+            next_target = target.readlink()
+            target = (
+                next_target
+                if next_target.is_absolute()
+                else target.parent / next_target
+            )
+        resolved_target = target.resolve()
+        if not (
+            resolved_target.is_relative_to(runtime_root)
+            or resolved_target.is_relative_to(Path("/usr"))
+        ):
+            target_runtime_root = target.parent.parent
+            if not target_runtime_root.is_dir():
+                raise RuntimeError("linked local Python runtime is unavailable")
+            for parent in reversed(target_runtime_root.parents):
+                if parent != Path("/"):
+                    external_runtime_args.extend(("--dir", str(parent)))
+            external_runtime_args.extend(
+                ("--ro-bind", str(target_runtime_root), str(target_runtime_root))
+            )
     sandbox_runtime = Path("/opt/harness-venv")
     sandbox_workspace = Path("/workspace")
     command = [
@@ -354,6 +383,7 @@ def _run_local_python(
         "--symlink",
         "usr/sbin",
         "/sbin",
+        *external_runtime_args,
         "--ro-bind",
         str(runtime_root),
         str(sandbox_runtime),

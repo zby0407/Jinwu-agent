@@ -86,3 +86,18 @@ def test_missing_feature_month_stops_the_build() -> None:
 
     with pytest.raises(ValueError, match="missing feature months"):
         MODULE.build_asof_features(monthly, smoothed, cycles, [1])
+
+
+def test_monthly_loader_accepts_current_silso_six_column_text_with_marker(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "SN_m_tot_V2.0.txt"
+    path.write_text(
+        "1749 01 1749.042   96.7  -1.0    -1\n2026 07 2026.538   78.1  11.2  1371 *\n",
+        encoding="utf-8",
+    )
+
+    result = MODULE.load_monthly_total(path)
+
+    assert result["date"].dt.strftime("%Y-%m").tolist() == ["1749-01", "2026-07"]
+    assert result["sn"].tolist() == pytest.approx([96.7, 78.1])

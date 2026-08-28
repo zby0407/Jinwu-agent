@@ -131,6 +131,18 @@ class ContractTests(unittest.TestCase):
         self.assertEqual(len(result["input_refs"]), 1)
         self.assertEqual(result["input_refs"][0]["path"], "inputs/example_mean.csv")
 
+    def test_natural_request_excludes_ascii_punctuation_after_input_paths(self) -> None:
+        result = validate_request(
+            default_request(
+                "Task-local copies inputs/readiness_inventory.json, "
+                "inputs/data-context.json; inspect both before design."
+            )
+        )
+        self.assertEqual(
+            [row["path"] for row in result["input_refs"]],
+            ["inputs/readiness_inventory.json", "inputs/data-context.json"],
+        )
+
     def test_upstream_handoff_prompt_binds_plan_feedback_and_data(self) -> None:
         result = validate_request(
             default_request(
@@ -1001,6 +1013,34 @@ class ContractTests(unittest.TestCase):
         allowed["experiment_stages"][0]["measurement_refs"].append("p_value")
         validate_design(allowed, requested, response(requested))
 
+        requested_with_threshold = request(
+            task=(
+                "Compute Pearson and Spearman correlations; require both "
+                "two-sided p < 0.05."
+            )
+        )
+        allowed_with_threshold = design(requested_with_threshold)
+        allowed_with_threshold["measurement_plan"].append(
+            {
+                "name": "p_value",
+                "display_name": "p 值",
+                "role": "secondary",
+                "unit": "",
+                "scientific_meaning": "零相关假设下的尾部概率。",
+            }
+        )
+        allowed_with_threshold["criteria"][0]["measurement_refs"].append(
+            "p_value"
+        )
+        allowed_with_threshold["experiment_stages"][0][
+            "measurement_refs"
+        ].append("p_value")
+        validate_design(
+            allowed_with_threshold,
+            requested_with_threshold,
+            response(requested_with_threshold),
+        )
+
     def test_design_rejects_unrequested_r_squared_diagnostic(self) -> None:
         req = request(task="Compare the requested calibration errors.")
         candidate = design(req)
@@ -1247,8 +1287,35 @@ class ContractTests(unittest.TestCase):
         candidate["criteria"][0]["basis_text"] = (
             "The paired_comparison_audits contract will determine the result."
         )
-        with self.assertRaisesRegex(ContractError, "must not expose internal"):
+        with self.assertRaises(ContractError) as raised:
             validate_design(candidate, req, response(req))
+        self.assertEqual(raised.exception.error_code, "reader_internal_term")
+        self.assertEqual(
+            raised.exception.field_path,
+            "design.criteria[0].basis_text",
+        )
+        self.assertIn("paired_comparison_audits", raised.exception.suggestion)
+
+    def test_request_reader_text_reports_exact_internal_term_location(self) -> None:
+        req = request()
+        req["success_criteria"] = [
+            {
+                "id": "mean_result",
+                "statement": "The artifact id must identify the scientific evidence.",
+                "basis_kind": "method_standard",
+                "basis_text": "The calculation should preserve its evidence.",
+                "source_refs": [],
+                "artifact_refs": [],
+            }
+        ]
+        with self.assertRaises(ContractError) as raised:
+            validate_request(req)
+        self.assertEqual(raised.exception.error_code, "reader_internal_term")
+        self.assertEqual(
+            raised.exception.field_path,
+            "request.success_criteria[0].statement",
+        )
+        self.assertIn("artifact id", raised.exception.suggestion)
 
     def test_calibrated_measurements_require_paired_comparison_audit(self) -> None:
         req = request(

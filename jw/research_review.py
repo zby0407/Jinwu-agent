@@ -28,6 +28,7 @@ if str(_SRC) not in sys.path:
 from jw.research_protocols import (  # noqa: E402
     SILSO_CYCLE_EXTREMA_DATA_PRODUCT,
     SOLAR_POLAR_PRECURSOR_DATA_PRODUCT,
+    SOLAR_CYCLE_26_FORECAST_BACKTEST_DATA_PRODUCT,
     detect_analysis_protocol,
     plan_dataset_selection_conflicts_protocol,
     required_data_product_for_protocol,
@@ -181,9 +182,18 @@ _STRUCTURED_SOURCE_SUFFIXES = {
 }
 _SOLAR_DATA_OUTPUT_RECEIPT_CONTRACTS = {
     ("research-dataset-receipt-v1", "silso_cycle_extrema_reproduction"),
+    ("solar-cycle-morphology-receipt-v1", "silso_cycle_morphology"),
     ("solar-precursor-cycle-table-v1", "solar_precursor_cycle_table"),
     ("solar-precursor-cycle-table-v2", "solar_precursor_cycle_table"),
     ("solar-cycle-pair-analysis-table-v2", "solar_cycle_pair_analysis_table"),
+    (
+        "solar-cycle-26-readiness-receipt-v1",
+        "solar_cycle_26_readiness_inventory",
+    ),
+    (
+        "solar-cycle-26-forecast-backtest-receipt-v1",
+        "solar_cycle_26_forecast_backtest",
+    ),
 }
 _DATA_CONTEXT_TRANSIENT_FIELDS = {
     "context_sha256",
@@ -928,7 +938,14 @@ class ResearchReviewStore:
     def _receipted_solar_data_outputs(self, receipt_paths: list[Path]) -> list[Path]:
         """Return only current-task Data outputs bound by recognized receipts."""
 
-        output_root = (self.workspace_root / "work" / "solar_data").resolve()
+        # Most legacy Data adapters publish under work/solar_data.  The
+        # standalone SILSO morphology adapter publishes its reader-facing
+        # triplet under outputs/; both locations remain receipt-bound and
+        # task-local, so accepting the latter here does not widen provenance.
+        output_roots = [
+            (self.workspace_root / "work" / "solar_data").resolve(),
+            (self.workspace_root / "outputs").resolve(),
+        ]
         outputs: list[Path] = []
         for receipt_path in receipt_paths:
             receipt = _read_json(receipt_path)
@@ -976,7 +993,7 @@ class ResearchReviewStore:
                 candidate = unresolved.resolve()
                 if (
                     has_symlink
-                    or not candidate.is_relative_to(output_root)
+                    or not any(candidate.is_relative_to(root) for root in output_roots)
                     or not candidate.is_file()
                     or _file_sha256(candidate) != sha256
                 ):
@@ -1154,6 +1171,21 @@ class ResearchReviewStore:
             "test_fixture",
         }
         records: list[dict[str, Any]] = []
+        # Production WebUI runs keep uploaded copies in ``inputs`` while the
+        # authoritative full-research context enumerates the same files from
+        # ``project_inputs``. Index registered hash/size pairs so an upload
+        # copy can be treated as an alias rather than a second source.
+        registered_aliases: set[tuple[str, int]] = set()
+        raw_project_inputs = manifest.get("project_inputs", [])
+        if not isinstance(raw_project_inputs, list):
+            return None
+        for raw in raw_project_inputs:
+            if not isinstance(raw, Mapping):
+                return None
+            sha256 = raw.get("sha256")
+            declared_bytes = raw.get("bytes")
+            if isinstance(sha256, str) and isinstance(declared_bytes, int):
+                registered_aliases.add((sha256, declared_bytes))
         seen: set[str] = set()
         for source_group in ("inputs", "project_inputs"):
             raw_records = manifest.get(source_group, [])
@@ -1168,6 +1200,20 @@ class ResearchReviewStore:
                 source_ref = raw.get("path")
                 expected_sha256 = raw.get("sha256")
                 declared_bytes = raw.get("bytes")
+                if source_group == "inputs" and declared_bytes is None:
+                    # WebUI upload manifests call this field ``size``.
+                    declared_bytes = raw.get("size")
+                if (
+                    source_group == "inputs"
+                    and isinstance(expected_sha256, str)
+                    and isinstance(declared_bytes, int)
+                    and (expected_sha256, declared_bytes) in registered_aliases
+                    and not raw.get("dataset_id")
+                ):
+                    # The uploaded workspace copy is already represented by
+                    # its registered /project/data counterpart in the full
+                    # context receipt.
+                    continue
                 if (
                     not isinstance(source_ref, str)
                     or not source_ref
@@ -1271,19 +1317,35 @@ class ResearchReviewStore:
             candidates.extend(self._receipted_solar_data_outputs(receipt_paths))
             candidates.extend(self._task_manifest_inputs())
         elif stage == "hypothesis":
-            candidates.append(
-                self.workspace_root / "work" / "scientific_hypothesis_state.json"
-            )
             run = self._latest_run_root("hypothesis/runs")
             if run is not None:
-                candidates.extend(
+                portfolio_sources = [
                     run / name
                     for name in (
                         "hypothesis_request.json",
                         "hypothesis_portfolio.json",
                         "hypotheses.md",
                     )
+                    if (run / name).is_file()
+                ]
+                if portfolio_sources:
+                    candidates.extend(portfolio_sources)
+            if not candidates:
+                checkpoint_snapshot = (
+                    self.workspace_root
+                    / "work"
+                    / "scientific_hypothesis_checkpoint.json"
                 )
+                if checkpoint_snapshot.is_file():
+                    # This host-owned snapshot is independent of any later
+                    # mutable update_draft calls in the same specialist turn.
+                    candidates.append(checkpoint_snapshot)
+                else:
+                    candidates.append(
+                        self.workspace_root
+                        / "work"
+                        / "scientific_hypothesis_state.json"
+                    )
         elif stage in {"experiment_design", "experiment_result"}:
             run = None
             if stage == "experiment_result":
@@ -1304,10 +1366,19 @@ class ResearchReviewStore:
             if run is None:
                 run = self._latest_run_root("experiment/runs")
             if run is not None:
-                names = ["state.json", "request.json", "response.json", "design.json"]
+                # state.json is a mutable lifecycle ledger.  Freezing it into the
+                # design artifact would make every legitimate execution update
+                # invalidate the already-reviewed design at integration time.
+                names = ["request.json", "response.json", "design.json"]
                 if stage == "experiment_result":
                     names.extend(
-                        ["record.json", "entry_result.json", "report.md", "audit.md"]
+                        [
+                            "state.json",
+                            "record.json",
+                            "entry_result.json",
+                            "report.md",
+                            "audit.md",
+                        ]
                     )
                 candidates.extend(run / name for name in names)
         quality_contract = (
@@ -1422,6 +1493,56 @@ class ResearchReviewStore:
             produced_refs = {path.resolve() for path in produced_sources}
             return bool(recognized_outputs & produced_refs)
         if stage == "hypothesis" and not phase.startswith("bounded_hypothesis"):
+            snapshot_path = next(
+                (
+                    path
+                    for path in sources
+                    if path.name == "scientific_hypothesis_checkpoint.json"
+                ),
+                None,
+            )
+            if snapshot_path is not None:
+                snapshot = _read_json(snapshot_path)
+                if not isinstance(snapshot, dict):
+                    return False
+                checkpoint = snapshot.get("checkpoint")
+                evidence_register = snapshot.get("evidence_register")
+                if (
+                    snapshot.get("schema_version")
+                    != "scientific-hypothesis-checkpoint-v1"
+                    or not isinstance(checkpoint, dict)
+                    or checkpoint.get("response_kind") != "hypotheses_ready"
+                    or not isinstance(checkpoint.get("candidates"), list)
+                    or not checkpoint["candidates"]
+                    or not isinstance(evidence_register, list)
+                ):
+                    return False
+                checkpoint_sha256 = canonical_json_sha256(checkpoint)
+                if snapshot.get("checkpoint_sha256") != checkpoint_sha256:
+                    return False
+                evidence_sha256 = canonical_json_sha256(
+                    {"evidence_register": evidence_register}
+                )
+                if snapshot.get("checkpoint_evidence_sha256") != evidence_sha256:
+                    return False
+                return tail_review_is_current(
+                    snapshot.get("tail_review"),
+                    checkpoint,
+                    evidence_sha256=evidence_sha256,
+                )
+            portfolio_path = next(
+                (path for path in sources if path.name == "hypothesis_portfolio.json"),
+                None,
+            )
+            if portfolio_path is not None:
+                portfolio = _read_json(portfolio_path)
+                return (
+                    isinstance(portfolio, dict)
+                    and portfolio.get("status") == "frozen"
+                    and portfolio.get("schema_version")
+                    and isinstance(portfolio.get("candidates"), list)
+                    and bool(portfolio["candidates"])
+                )
             state_path = next(
                 (
                     path
@@ -1694,10 +1815,22 @@ class ResearchReviewStore:
                 raise RuntimeError(
                     f"{stage} returned without its complete task-local canonical v1 artifact"
                 )
+            workspace_root = self.workspace_root.resolve()
+            producer_refs = _producer_path_refs(text)
+            if stage == "planning":
+                # Morphology outputs are experiment_result deliverables.  A
+                # planner may repeat them in prose, but they are not evidence
+                # until the deterministic Data tool has created and verified
+                # them.  Keep legacy path-reference behavior for other stages.
+                producer_refs = {
+                    ref
+                    for ref in producer_refs
+                    if not ref.startswith("outputs/cycle_morphology_")
+                }
             evidence_refs = sorted(
-                _producer_path_refs(text)
+                producer_refs
                 | {
-                    path.relative_to(self.workspace_root).as_posix()
+                    path.relative_to(workspace_root).as_posix()
                     for path in canonical_sources
                 }
             )[:200]
@@ -2837,9 +2970,13 @@ class ResearchReviewStore:
                             "fingerprint": issue_fingerprint(rule_id, claim_ref, owner),
                         }
                     ]
-                if context.get("required_data_product") in {
+                if (
+                    context_is_authoritative
+                    or context.get("context_mode") != "full_research"
+                ) and context.get("required_data_product") in {
                     SILSO_CYCLE_EXTREMA_DATA_PRODUCT,
                     SOLAR_POLAR_PRECURSOR_DATA_PRODUCT,
+                    SOLAR_CYCLE_26_FORECAST_BACKTEST_DATA_PRODUCT,
                 }:
                     specialized_context = (source_ref, context)
 
@@ -2878,6 +3015,65 @@ class ResearchReviewStore:
                             "input hashes and a live four-cycle comparison containing "
                             "official and recomputed extrema, rise times, consistency "
                             "flags, and difference explanations."
+                        ),
+                        "fingerprint": issue_fingerprint(rule_id, claim_ref, owner),
+                    }
+                ]
+
+            if required_product == SOLAR_CYCLE_26_FORECAST_BACKTEST_DATA_PRODUCT:
+                receipt_ref = "receipts/datasets/solar_cycle_26_forecast_backtest.json"
+                receipt_source = manifest_by_ref.get(receipt_ref)
+                receipt = None
+                if isinstance(receipt_source, Mapping) and isinstance(
+                    receipt_source.get("sha256"), str
+                ):
+                    receipt_path = (self.workspace_root / receipt_ref).resolve()
+                    if (
+                        receipt_path.is_relative_to(self.workspace_root)
+                        and receipt_path.is_file()
+                        and _file_sha256(receipt_path) == receipt_source["sha256"]
+                    ):
+                        candidate = _read_json(receipt_path)
+                        if isinstance(candidate, dict):
+                            receipt = candidate
+                valid = bool(
+                    receipt
+                    and receipt.get("schema_version")
+                    == "solar-cycle-26-forecast-backtest-receipt-v1"
+                    and receipt.get("receipt_type")
+                    == "solar_cycle_26_forecast_backtest"
+                    and receipt.get("analysis_protocol")
+                    == "solar_cycle_26_forecast_backtest_v1"
+                    and receipt.get("status") == "verified"
+                    and receipt.get("cycle_numbers") == list(range(1, 25))
+                    and receipt.get("row_count") == 24
+                    and isinstance(receipt.get("forecast"), Mapping)
+                )
+                if valid:
+                    continue
+                rule_id = "DATA_SEMANTICS_BOUND"
+                claim_ref = f"{receipt_ref}#verified-cycle-forecast"
+                owner = "solar-data"
+                return [
+                    {
+                        "issue_id": "deterministic-sc26-forecast-contract",
+                        "rule_id": rule_id,
+                        "severity": "critical",
+                        "claim_ref": claim_ref,
+                        "evidence_refs": [context_ref],
+                        "owner": owner,
+                        "message": (
+                            "The Cycle 26 forecast Data product is absent or its "
+                            "verified receipt does not prove a 24-cycle backtest."
+                        ),
+                        "required_action": (
+                            "Run the registered solar_cycle_26_forecast_backtest_v1 "
+                            "adapter on the three SILSO inputs and persist its "
+                            "receipt-bound outputs."
+                        ),
+                        "acceptance_test": (
+                            "The receipt is verified, covers cycles 1-24 exactly, "
+                            "and contains a structured Cycle 26 forecast."
                         ),
                         "fingerprint": issue_fingerprint(rule_id, claim_ref, owner),
                     }
@@ -3322,6 +3518,40 @@ class ResearchReviewStore:
             recovered = True
         return normalized, recovered
 
+    @staticmethod
+    def _carry_planning_data_binding_gaps(
+        mode: str, issues: list[dict[str, Any]]
+    ) -> tuple[list[dict[str, Any]], list[str]]:
+        """Keep the planning-stage sample-count placeholder as a downstream limit.
+
+        The planning contract intentionally leaves ``independent_sample_count``
+        unbound until Data has inspected the task's immutable input receipts. A
+        reviewer may correctly flag that placeholder under ``NUMERIC_SOURCE_BOUND``;
+        at this stage it is a carry-forward condition, not a producer defect. The
+        match is deliberately narrow so all other numeric-source issues remain
+        actionable and retain the policy severity floor.
+        """
+
+        if mode != "planning":
+            return issues, []
+        normalized: list[dict[str, Any]] = []
+        limits: list[str] = []
+        for raw in issues:
+            is_planning_sample_gap = (
+                raw.get("rule_id") == "NUMERIC_SOURCE_BOUND"
+                and raw.get("owner") == "solar-data"
+                and raw.get("claim_ref")
+                == "work/research_quality/planning.analysis_claim.json#independent_sample_count"
+            )
+            if not is_planning_sample_gap:
+                normalized.append(raw)
+                continue
+            limits.append(
+                "Planning does not bind independent_sample_count; Data must derive "
+                "it from accepted task inputs or record an explicit gap row."
+            )
+        return normalized, limits
+
     def persist_deterministic_preflight_verdict(
         self, mode: str
     ) -> dict[str, Any] | None:
@@ -3352,18 +3582,21 @@ class ResearchReviewStore:
                         if isinstance(item, Mapping)
                         and isinstance(item.get("source_ref"), str)
                     }
-                    silso_context = any(
+                    deterministic_data_context = any(
                         (
                             context := self._manifest_json_source(
                                 manifest_by_ref, source_ref
                             )
                         )
                         and context.get("required_data_product")
-                        == SILSO_CYCLE_EXTREMA_DATA_PRODUCT
+                        in {
+                            SILSO_CYCLE_EXTREMA_DATA_PRODUCT,
+                            SOLAR_CYCLE_26_FORECAST_BACKTEST_DATA_PRODUCT,
+                        }
                         for source_ref in manifest_by_ref
                         if source_ref.startswith("receipts/datasets/data-context-")
                     )
-                    if silso_context:
+                    if deterministic_data_context:
                         accepted_claims = sorted(
                             claim["claim_id"]
                             for item in targets
@@ -3717,6 +3950,13 @@ class ResearchReviewStore:
             issues, recovered_data_input_issue = (
                 self._recover_misapplied_data_input_issues(mode, targets, issues)
             )
+            issues, planning_data_binding_limits = (
+                self._carry_planning_data_binding_gaps(mode, issues)
+            )
+            carry_forward_limits = [
+                *(carry_forward_limits or []),
+                *planning_data_binding_limits,
+            ]
             if recovered_data_input_issue and all_issues_are_misapplied_data_input:
                 decision = "revise"
                 next_owner = "solar-data"

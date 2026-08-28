@@ -20,8 +20,8 @@ WebUI / langgraph-dev checkpointer:
     dev`` subprocess (deploy / WebUI / CLI-spawned) with this same SQLite
     file instead of the default pickle-based ``InMemorySaver``, whose flush
     window and pickle-compatibility failures lose session history on
-    restart (issue #277). On startup it purges leftover jwmemory-worker
-    rows and rebuilds the in-memory thread registry from SQLite. See
+    restart (issue #277). On startup it rebuilds the in-memory thread registry
+    from the task binding registry plus indexed SQLite lookups. See
     ``_restore_webui_threads_to_global_store`` for the restore scope and
     ``_ApiPruningCheckpointer`` for the metadata stamping that makes WebUI
     threads first-class CLI sessions.
@@ -1721,13 +1721,15 @@ class _ApiPruningCheckpointer(PruningCheckpointer):
 
 
 async def _purge_internal_worker_threads() -> None:
-    """Best-effort removal of jwmemory-worker checkpoint residue.
+    """Best-effort explicit removal of jwmemory-worker checkpoint residue.
 
     Finished workers delete their own thread (see
     ``middleware/memory_lifecycle.py``), but a crash between run completion
-    and deletion leaves rows behind — and rows written before that cleanup
-    existed are still in the DB. Idempotent, runs on every server start,
-    and never blocks startup on failure.
+    and deletion leaves rows behind. This helper remains available to explicit
+    maintenance paths and tests, but is deliberately not part of server
+    startup: finding historical workers requires a machine-global metadata
+    scan, while worker rows are already excluded from normal thread restore.
+    Idempotent and never raises on failure.
     """
     try:
         db_path = str(get_db_path())
@@ -1854,6 +1856,35 @@ async def _restore_webui_threads_to_global_store() -> None:
         # main graph only when they carry agent_name == AGENT_NAME. Rows
         # predating workspace stamping remain deliberately excluded.
         current_workspace = await _api_workspace_dir_async()
+        # The production resolver already returns a canonical path, but test
+        # harnesses and alternate launchers may provide an absolute-but-
+        # unresolved Windows path.  Canonicalize before using it as the
+        # in-process binding-cache key; otherwise persisted bindings are
+        # missed and startup silently falls back to a machine-global scan.
+        resolved_workspace = await asyncio.to_thread(
+            lambda: str(Path(current_workspace).expanduser().resolve())
+        )
+        # The task binding registry is the authoritative workspace-to-thread
+        # index. Restricting the SQLite query to these ids avoids evaluating
+        # json_extract(metadata, ...) for every checkpoint in a machine-global
+        # sessions DB (multi-gigabyte DBs otherwise make backend startup appear
+        # hung). Include preloaded runtime ids so an interrupted operation can
+        # still be normalized before the scoped metadata check below.
+        from .workspaces import (
+            cached_bindings_for_resolved_base,
+            preload_bindings,
+        )
+
+        await asyncio.to_thread(preload_bindings, resolved_workspace)
+        bound_thread_ids = {
+            binding.thread_id
+            for binding in cached_bindings_for_resolved_base(resolved_workspace)
+        }
+        candidate_thread_ids = set(bound_thread_ids)
+        for entry in GLOBAL_STORE.get("threads", []):
+            thread_uuid = _to_uuid_safe(entry.get("thread_id"))
+            if thread_uuid is not None:
+                candidate_thread_ids.add(str(thread_uuid))
         sqlite_data: dict[uuid.UUID, _RestoredThreadInfo] = {}
         titles: dict[uuid.UUID, str] = {}
         db_path = str(get_db_path())
@@ -1868,7 +1899,17 @@ async def _restore_webui_threads_to_global_store() -> None:
                 # mixes CLI rows (no assistant_id/graph_id) with WebUI rows,
                 # and a bare column under GROUP BY would let SQLite pick an
                 # arbitrary row's NULL.
-                query = """
+                candidate_clause = ""
+                candidate_params: tuple[str, ...] = ()
+                # No persisted bindings means a legacy deployment; retain the
+                # broad compatibility scan there. Once bindings exist, they are
+                # the authoritative indexed candidate set and runtime ids are
+                # included only so stale entries can be normalized or dropped.
+                if bound_thread_ids:
+                    placeholders = ",".join("?" for _ in candidate_thread_ids)
+                    candidate_clause = f" AND thread_id IN ({placeholders})"
+                    candidate_params = tuple(sorted(candidate_thread_ids))
+                query = f"""
                     SELECT thread_id,
                            MAX(json_extract(metadata, '$.updated_at')) as updated_at,
                            MAX(json_extract(metadata, '$.assistant_id')) as assistant_id,
@@ -1883,10 +1924,11 @@ async def _restore_webui_threads_to_global_store() -> None:
                           json_extract(metadata, '$.graph_id') IS NULL
                           OR json_extract(metadata, '$.graph_id') NOT LIKE 'jwmemory-%'
                       )
+                      {candidate_clause}
                     GROUP BY thread_id
                     ORDER BY updated_at DESC
                 """
-                async with conn.execute(query) as cur:
+                async with conn.execute(query, candidate_params) as cur:
                     rows = list(await cur.fetchall())
 
             for row in rows:
@@ -2084,6 +2126,5 @@ async def create_checkpointer_for_langgraph_api() -> AsyncIterator[PruningCheckp
         str(get_db_path()), keep_per_ns=keep
     ) as saver:
         await saver.setup()
-        await _purge_internal_worker_threads()
         await _restore_webui_threads_to_global_store()
         yield saver

@@ -1,0 +1,64 @@
+{
+  "figure_id": "figure-name",
+  "figure_class": "data_chart",
+  "purpose": "One judge-visible claim supported by this figure",
+  "data_source": "verified data or result artifact",
+  "editable_source": "editable native or scripted source",
+  "route": "Origin -> SVG -> Visio",
+  "final_app": "Visio",
+  "alignment_tolerance": 0.02,
+  "typography": {
+    "chinese_font": "SimSun",
+    "latin_font": "Times New Roman",
+    "mixed_runs_verified": false,
+    "sizes_pt": {
+      "tick": 9.5,
+      "axis_title": 10.5,
+      "panel_label": 10.0
+    }
+  },
+  "line_style": {
+    "normalized_in_final_app": false,
+    "visual_hierarchy_checked": false,
+    "primary_data_line_pt": 0.9,
+    "axis_line_pt": 0.6,
+    "grid_line_pt": 0.35
+  },
+  "axis_spacing": {
+    "tick_labels_outside_plot": false,
+    "axis_titles_clear_of_tick_labels": false,
+    "checked_at_insertion_width": false
+  },
+  "geometry_evidence": {
+    "text_box_fit_measured": false,
+    "plot_bbox_centering_measured": false,
+    "axis_title_clearance_measured": false,
+    "page_content_bbox_inspected": false,
+    "vsdx_audit_receipt": "",
+    "standalone_preview": "",
+    "paper_page_preview": ""
+  },
+  "content_bbox": {
+    "page_area_ratio": 0.0,
+    "minimum_page_area_ratio": 0.55
+  },
+  "layout": {
+    "arrangement": "2x2",
+    "minimum_panel_aspect": 0.55
+  },
+  "gates": {
+    "meaning": false,
+    "coordinates": false,
+    "layout": false,
+    "insertion": false
+  },
+  "panels": [],
+  "export": {
+    "completed": false,
+    "dpi": 600
+  },
+  "paper_insertion": {
+    "completed": false,
+    "actual_page_inspected": false
+  }
+}

@@ -1089,6 +1089,25 @@ class TestLiteratureDeltaAndTaskBundle(StoreTestCase):
         frozen = literature.read_literature_task_bundle(self.store, first["bundle_id"])
         self.assertEqual(frozen["sources"][0]["abstract"], original_abstract)
 
+    def test_task_bundle_preserves_a_long_bound_research_question(self):
+        cache_openalex_source(self.store)
+        question = (
+            "Does the polar field precursor predict solar cycle amplitude? "
+            + "Additional registered input, method, and reporting constraints. " * 24
+        )
+        self.assertGreater(len(question), 1000)
+
+        bundle = literature.build_literature_task_bundle(
+            self.store,
+            question,
+            "polar field precursor and solar cycle amplitude",
+            limit=3,
+            run_id="run-long-bound-question",
+        )
+
+        self.assertEqual(bundle["research_question"], " ".join(question.split()))
+        self.assertEqual(bundle["source_count"], 1)
+
     def test_task_bundle_can_require_a_compound_focus_anchor(self):
         cache_openalex_source(self.store)
         self.store.upsert_lit_source(

@@ -295,6 +295,16 @@ class SandboxPolicyTests(unittest.TestCase):
         with self.assertRaisesRegex(CodePolicyError, "reserved result.json"):
             validate_code_files([{"path": "experiment.py", "content": source}])
 
+    def test_invalid_artifact_kind_lists_allowed_values(self) -> None:
+        source = SUCCESS_CODE.replace('"kind": "json"', '"kind": "dataset"')
+
+        with self.assertRaisesRegex(
+            CodePolicyError,
+            "allowed values: json, csv, text, markdown, image, fits, netcdf, "
+            "hdf5, parquet, other",
+        ):
+            validate_code_files([{"path": "experiment.py", "content": source}])
+
     def test_path_object_string_addition_is_rejected_before_execution(self) -> None:
         source = SUCCESS_CODE.replace(
             'context["output_dir"] / "summary.json"',

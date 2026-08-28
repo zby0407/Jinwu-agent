@@ -2324,6 +2324,7 @@ def test_structured_memory_worker_disables_thinking(monkeypatch, tmp_path):
     import importlib
 
     import deepagents
+    from langchain.agents.factory import ProviderStrategy
 
     from jw.memory.agents import _factory
 
@@ -2374,7 +2375,8 @@ def test_structured_memory_worker_disables_thinking(monkeypatch, tmp_path):
     )
 
     assert captured["model"].thinking is None
-    assert captured["response_format"] is memory_worker.SubagentMemoryDecision
+    assert isinstance(captured["response_format"], ProviderStrategy)
+    assert captured["response_format"].schema is memory_worker.SubagentMemoryDecision
     assert any(
         type(item).__name__ == "QwenToolCompatibilityMiddleware"
         for item in captured["middleware"]
