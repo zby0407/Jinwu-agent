@@ -54,7 +54,15 @@ interface CatalogSkill {
 
 interface AgentGroup {
   name: string;
+  title: string;
+  description: string;
   skills: SkillCard[];
+}
+
+interface AgentProfile {
+  name: string;
+  title: string;
+  description: string;
 }
 
 interface LocalCandidate {
@@ -70,7 +78,7 @@ interface LocalCandidate {
 export function SkillsMarketplace() {
   const [other, setOther] = useState<SkillCard[]>([]);
   const [agentGroups, setAgentGroups] = useState<AgentGroup[]>([]);
-  const [supportAgents, setSupportAgents] = useState<string[]>([]);
+  const [supportAgents, setSupportAgents] = useState<AgentProfile[]>([]);
   const [sharedSkills, setSharedSkills] = useState<SkillCard[]>([]);
   const [localCandidates, setLocalCandidates] = useState<LocalCandidate[]>([]);
   const [importing, setImporting] = useState(false);
@@ -102,7 +110,7 @@ export function SkillsMarketplace() {
       if (!res.ok) throw new Error(d.error || "加载 Skills 失败");
       setOther((d.skills ?? []) as SkillCard[]);
       setAgentGroups((d.agents ?? []) as AgentGroup[]);
-      setSupportAgents((d.supportAgents ?? []) as string[]);
+      setSupportAgents((d.supportAgentProfiles ?? []) as AgentProfile[]);
       setSharedSkills((d.sharedSkills ?? []) as SkillCard[]);
       setLocalCandidates((d.localCandidates ?? []) as LocalCandidate[]);
     } catch (e) {
@@ -433,16 +441,22 @@ export function SkillsMarketplace() {
                       key={group.name}
                       className="rounded-lg border border-border bg-card p-3"
                     >
-                      <div className="mb-2 flex items-center gap-2">
+                      <div className="mb-1.5 flex items-center gap-2">
                         <Users
                           className="size-4 text-[var(--brand)]"
                           aria-hidden="true"
                         />
-                        <h4 className="font-medium">{group.name}</h4>
+                        <h4 className="font-medium">{group.title}</h4>
+                        <span className="font-mono text-[11px] text-muted-foreground">
+                          {group.name}
+                        </span>
                         <span className="text-xs text-muted-foreground">
                           {group.skills.length} 项专属技能
                         </span>
                       </div>
+                      <p className="mb-2 text-xs leading-5 text-muted-foreground">
+                        {group.description}
+                      </p>
                       <div className="flex flex-wrap gap-2">
                         {group.skills.map((skill) => (
                           <SkillBadge
@@ -535,10 +549,16 @@ export function SkillsMarketplace() {
               </section>
             )}
             {supportAgents.length > 0 && (
-              <p className="text-xs text-muted-foreground">
-                主 Agent 的底层支持 Agent：{supportAgents.join("、")}
-                （提供通用规划、代码、调试、分析和写作能力，不作为独立太阳科研角色展示）
-              </p>
+              <div className="rounded-lg border border-border/70 bg-muted/20 p-3 text-xs text-muted-foreground">
+                <div className="mb-1 font-medium text-foreground">
+                  JW 主 Agent 的底层支持能力
+                </div>
+                <p className="leading-5">
+                  {supportAgents.map((agent) => agent.title).join("、")}
+                  。这些能力由 JW 主 Agent
+                  按需调用，不作为独立太阳科研角色展示。
+                </p>
+              </div>
             )}
             {other.length === 0 &&
               agentGroups.length === 0 &&

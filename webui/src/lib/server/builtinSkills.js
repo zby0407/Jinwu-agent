@@ -46,6 +46,10 @@ async function readRegistry(projectRoot) {
       supportAgents: Array.isArray(value.support_agents)
         ? value.support_agents
         : [],
+      agentProfiles:
+        value.agent_profiles && typeof value.agent_profiles === "object"
+          ? value.agent_profiles
+          : {},
       shared: Array.isArray(value.shared)
         ? value.shared.filter((x) => typeof x === "string")
         : [],
@@ -61,6 +65,7 @@ async function readRegistry(projectRoot) {
       version: 1,
       primaryAgents: [],
       supportAgents: [],
+      agentProfiles: {},
       shared: [],
       agents: {},
       adaptations: {},
@@ -70,9 +75,25 @@ async function readRegistry(projectRoot) {
 
 export async function readSkillTopology(projectRoot) {
   const registry = await readRegistry(projectRoot);
+  const profile = (name) => {
+    const value = registry.agentProfiles[name];
+    return {
+      name,
+      title:
+        value && typeof value.title === "string" && value.title.trim()
+          ? value.title.trim()
+          : name,
+      description:
+        value &&
+        typeof value.description === "string" &&
+        value.description.trim()
+          ? value.description.trim()
+          : "",
+    };
+  };
   return {
-    primaryAgents: registry.primaryAgents,
-    supportAgents: registry.supportAgents,
+    primaryAgents: registry.primaryAgents.map(profile),
+    supportAgents: registry.supportAgents.map(profile),
   };
 }
 

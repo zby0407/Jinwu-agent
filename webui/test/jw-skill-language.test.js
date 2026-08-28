@@ -3,7 +3,10 @@ import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
 
-import { readBundledSkills } from "../src/lib/server/builtinSkills.js";
+import {
+  readBundledSkills,
+  readSkillTopology,
+} from "../src/lib/server/builtinSkills.js";
 
 const solarPromptFiles = [
   "planner",
@@ -39,5 +42,17 @@ test("skills assigned to JW agents have Chinese discovery descriptions", async (
   for (const skill of assigned) {
     assert.doesNotMatch(skill.name, /^math-modeling-/);
     assert.match(skill.description, /[\u3400-\u9fff]/, skill.name);
+  }
+});
+
+test("JW topology provides Chinese profiles for six primary and support agents", async () => {
+  const projectRoot = fileURLToPath(new URL("../..", import.meta.url));
+  const topology = await readSkillTopology(projectRoot);
+
+  assert.equal(topology.primaryAgents.length, 6);
+  for (const agent of [...topology.primaryAgents, ...topology.supportAgents]) {
+    assert.match(agent.name, /^[a-z][a-z0-9-]+$/);
+    assert.match(agent.title, /[\u3400-\u9fff]/);
+    assert.match(agent.description, /[\u3400-\u9fff]/);
   }
 });
