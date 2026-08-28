@@ -70,6 +70,7 @@ interface LocalCandidate {
 export function SkillsMarketplace() {
   const [other, setOther] = useState<SkillCard[]>([]);
   const [agentGroups, setAgentGroups] = useState<AgentGroup[]>([]);
+  const [supportAgents, setSupportAgents] = useState<string[]>([]);
   const [sharedSkills, setSharedSkills] = useState<SkillCard[]>([]);
   const [localCandidates, setLocalCandidates] = useState<LocalCandidate[]>([]);
   const [importing, setImporting] = useState(false);
@@ -101,6 +102,7 @@ export function SkillsMarketplace() {
       if (!res.ok) throw new Error(d.error || "加载 Skills 失败");
       setOther((d.skills ?? []) as SkillCard[]);
       setAgentGroups((d.agents ?? []) as AgentGroup[]);
+      setSupportAgents((d.supportAgents ?? []) as string[]);
       setSharedSkills((d.sharedSkills ?? []) as SkillCard[]);
       setLocalCandidates((d.localCandidates ?? []) as LocalCandidate[]);
     } catch (e) {
@@ -396,8 +398,8 @@ export function SkillsMarketplace() {
                   <div>
                     <h3 className="text-sm font-semibold">子 Agent 实际技能</h3>
                     <p className="mt-1 text-xs text-muted-foreground">
-                      共享基础技能会显示在每个 Agent
-                      的能力卡中；专属技能只分配给对应角色。
+                      这里展示 JW 实际科研闭环的六个太阳子
+                      Agent；共享基础技能会显示在每个角色的能力卡中。
                     </p>
                   </div>
                   <Users
@@ -527,6 +529,12 @@ export function SkillsMarketplace() {
                     ))}
                 </div>
               </section>
+            )}
+            {supportAgents.length > 0 && (
+              <p className="text-xs text-muted-foreground">
+                底层支持 Agent：{supportAgents.join("、")}
+                （提供通用规划、代码、调试、分析和写作能力，不作为太阳科研角色单独展示）
+              </p>
             )}
             {other.length === 0 &&
               agentGroups.length === 0 &&

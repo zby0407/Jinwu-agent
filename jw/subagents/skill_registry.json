@@ -1,5 +1,7 @@
 {
   "version": 1,
+  "primary_agents": ["solar-planner", "solar-data", "solar-hypothesis", "solar-experiment", "solar-evidence", "solar-knowledge"],
+  "support_agents": ["planner-agent", "research-agent", "code-agent", "debug-agent", "data-analysis-agent", "writing-agent", "scheduler"],
   "shared": [
     "verification-before-completion",
     "scientific-writing",
