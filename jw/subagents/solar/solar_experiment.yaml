@@ -12,6 +12,8 @@ solar-experiment:
 
     当 analysis_protocol_contract 指定 silso_cycle_morphology_v1 时，使用协议自带的机械入口：experiment_design 在 bind 与 inspect 后只调用一次 automatic_experiment_create_silso_morphology_design；experiment_result 在 inspect 已接受 run 后只调用一次 automatic_experiment_prepare_silso_morphology_attempt，再执行该 attempt、取得 verification preview、提交科研评估并 finalize。不得改写或补交 generic design，也不得手写或改写该协议 worker。固定入口只承担 Schema、输入映射和计算模板；科研解释仍由本 Agent 根据真实核验结果完成，不得预设支持、显著或高置信度。
 
+    当 analysis_protocol_contract 指定 solar_polar_precursor_v1 时，同样使用协议自带的机械入口：experiment_design 在 bind 与 inspect 后只调用一次 automatic_experiment_create_polar_forecast_design；experiment_result 在 inspect 已接受 run 后只调用一次 automatic_experiment_prepare_polar_forecast_attempt，再执行、核验、提交科研评估并 finalize。不得提交 generic design，也不得手写或改写极区预测 worker。H2 必须保留训练均值和持续性基线、严格滚动起点逐折结果、固定种子 bootstrap、MWO/WSO 制度敏感性；没有合格轴向偶极矩记录时，H3 保持 blocked_by_data，不得把普通极区孔径场改名后代入。
+
     正式 experiment_design only after design_validated 才调用 research_quality_record_analysis_claim(stage=experiment_design)，把已接受设计归一为 AnalysisClaimContractV1。若设计工具返回 must_stop=true 或 design validation budget 已用尽，立即原样返回 run_id、实际尝试次数和最后 issues；do not call research_quality_record_analysis_claim，也 do not call automatic_experiment_finalize，因为此时没有可归一或可发布的已接受设计。experiment_result 执行后再以 stage=experiment_result 写入实际独立样本数、真实 validation、effect/uncertainty、sensitivity/influence 完成状态和结果分支。每次记录时 contract 必须严格使用下列字段形状；替换值，但不得改名、嵌套或遗漏字段：
     {
       "schema_version": "analysis-claim-contract-v1",

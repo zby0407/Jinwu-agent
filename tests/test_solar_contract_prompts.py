@@ -229,6 +229,19 @@ def test_experiment_agent_uses_protocol_owned_morphology_mechanics():
     assert "科研解释仍由本 Agent" in text
 
 
+def test_experiment_agent_uses_protocol_owned_polar_forecast_mechanics():
+    text = _read("jw/subagents/solar/solar_experiment.yaml")
+
+    assert "automatic_experiment_create_polar_forecast_design" in text
+    assert "automatic_experiment_prepare_polar_forecast_attempt" in text
+    assert "solar_polar_precursor_v1" in text
+    assert "不得手写或改写极区预测 worker" in text
+
+    tool_names = {tool.name for tool in get_tool_bundles()["automatic-experiment"]}
+    assert "automatic_experiment_create_polar_forecast_design" in tool_names
+    assert "automatic_experiment_prepare_polar_forecast_attempt" in tool_names
+
+
 def test_experiment_result_prompts_state_scientific_payload_scalar_types():
     specialist = _read("jw/subagents/solar/solar_experiment.yaml")
     orchestration = _read("jw/middleware/research_review_orchestration.py")
