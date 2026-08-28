@@ -557,6 +557,8 @@ def test_precursor_cycle_builder_uses_complete_cycles_and_uncertainty_fields(
         assert row["north_window_observation_count"] >= 1
         assert row["south_window_observation_count"] >= 1
         assert row["polar_field_proxy_gauss"] == pytest.approx(1.1)
+        assert row["north_polar_field_abs_gauss"] == pytest.approx(1.0)
+        assert row["south_polar_field_abs_gauss"] == pytest.approx(1.2)
         assert row["peak_smoothed_sunspot_number_sigma"] == pytest.approx(1.0)
         assert row["minimum_date_sensitivity_start"] <= row["minimum_date"]
         assert row["minimum_date_sensitivity_end"] >= row["minimum_date"]
@@ -714,8 +716,12 @@ def test_precursor_receipt_is_self_describing_and_hash_binds_boundary_table(
         "row_role",
         "minimum_date",
         "polar_field_proxy_gauss",
+        "north_polar_field_abs_gauss",
+        "south_polar_field_abs_gauss",
     }
     assert receipt["units"]["polar_field_proxy_gauss"] == "gauss"
+    assert receipt["units"]["north_polar_field_abs_gauss"] == "gauss"
+    assert receipt["units"]["south_polar_field_abs_gauss"] == "gauss"
     assert "absolute" in receipt["sign_convention"]["polar_field_proxy_gauss"]
     assert receipt["temporal_ordering_rule"]
     assert receipt["sample_size"]["independent_sample_count"] == 10

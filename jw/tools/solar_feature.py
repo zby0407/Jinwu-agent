@@ -1299,6 +1299,8 @@ def _build_solar_precursor_cycle_rows(
             "minimum_date_sensitivity_span_months": None,
             "polar_field_proxy_gauss": None,
             "polar_field_proxy_sem_gauss": None,
+            "north_polar_field_abs_gauss": None,
+            "south_polar_field_abs_gauss": None,
             "predictor_window_complete": None,
             "predictor_fallback": None,
             "predictor_window_start_decimal_year": None,
@@ -1373,6 +1375,12 @@ def _build_solar_precursor_cycle_rows(
                 "polar_field_proxy_sem_gauss": (
                     round(proxy_sem, 6) if proxy_sem is not None else None
                 ),
+                "north_polar_field_abs_gauss": round(
+                    float(north["field_mean"]), 6
+                ),
+                "south_polar_field_abs_gauss": round(
+                    float(south["field_mean"]), 6
+                ),
                 "predictor_window_complete": bool(
                     north["window_complete"] and south["window_complete"]
                 ),
@@ -1446,6 +1454,16 @@ _SOLAR_PRECURSOR_COLUMN_SCHEMA = [
     {"name": "polar_field_proxy_gauss", "type": "number", "nullable": True},
     {
         "name": "polar_field_proxy_sem_gauss",
+        "type": "number",
+        "nullable": True,
+    },
+    {
+        "name": "north_polar_field_abs_gauss",
+        "type": "number",
+        "nullable": True,
+    },
+    {
+        "name": "south_polar_field_abs_gauss",
         "type": "number",
         "nullable": True,
     },
@@ -2173,6 +2191,8 @@ def prepare_solar_precursor_cycle_table(
                 "minimum_date_sensitivity_span_months": "month",
                 "polar_field_proxy_gauss": "gauss",
                 "polar_field_proxy_sem_gauss": "gauss",
+                "north_polar_field_abs_gauss": "gauss",
+                "south_polar_field_abs_gauss": "gauss",
                 "predictor_window_start_decimal_year": "decimal_year",
                 "predictor_window_end_decimal_year": "decimal_year",
                 "north_measurement_date": "decimal_year",
@@ -2183,6 +2203,8 @@ def prepare_solar_precursor_cycle_table(
                 "polar_field_proxy_gauss": (
                     "unsigned non-negative magnitude: mean absolute north/south field"
                 ),
+                "north_polar_field_abs_gauss": "unsigned north polar-field magnitude",
+                "south_polar_field_abs_gauss": "unsigned south polar-field magnitude",
                 "basis": (
                     "The source north/south signs encode polarity; this product uses "
                     "their absolute magnitudes for the precursor proxy."

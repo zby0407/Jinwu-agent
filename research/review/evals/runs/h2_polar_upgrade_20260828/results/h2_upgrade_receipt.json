@@ -1,0 +1,579 @@
+{
+  "schema_version": "solar-h2-upgrade-receipt-v1",
+  "status": "mixed_evidence",
+  "skill_gate_model": "mean_polar_linear",
+  "models": {
+    "mean_polar_linear": {
+      "folds": [
+        {
+          "training_cycles": [
+            15,
+            16,
+            17,
+            18,
+            19
+          ],
+          "test_cycle": 20,
+          "observed": 156.629167,
+          "candidate_prediction": 181.41870194464704,
+          "training_mean_prediction": 201.6550002,
+          "persistence_prediction": 285.004167,
+          "measurement_regime": "MWO"
+        },
+        {
+          "training_cycles": [
+            15,
+            16,
+            17,
+            18,
+            19,
+            20
+          ],
+          "test_cycle": 21,
+          "observed": 232.916667,
+          "candidate_prediction": 171.80701106850503,
+          "training_mean_prediction": 194.15069466666668,
+          "persistence_prediction": 156.629167,
+          "measurement_regime": "WSO"
+        },
+        {
+          "training_cycles": [
+            15,
+            16,
+            17,
+            18,
+            19,
+            20,
+            21
+          ],
+          "test_cycle": 22,
+          "observed": 212.483333,
+          "candidate_prediction": 206.48236912694927,
+          "training_mean_prediction": 199.6886907142857,
+          "persistence_prediction": 232.916667,
+          "measurement_regime": "WSO"
+        },
+        {
+          "training_cycles": [
+            15,
+            16,
+            17,
+            18,
+            19,
+            20,
+            21,
+            22
+          ],
+          "test_cycle": 23,
+          "observed": 180.275,
+          "candidate_prediction": 185.2699727378739,
+          "training_mean_prediction": 201.288021,
+          "persistence_prediction": 212.483333,
+          "measurement_regime": "WSO"
+        },
+        {
+          "training_cycles": [
+            15,
+            16,
+            17,
+            18,
+            19,
+            20,
+            21,
+            22,
+            23
+          ],
+          "test_cycle": 24,
+          "observed": 116.425,
+          "candidate_prediction": 154.39233305885767,
+          "training_mean_prediction": 198.9532408888889,
+          "persistence_prediction": 180.275,
+          "measurement_regime": "WSO"
+        }
+      ],
+      "test_cycles": [
+        20,
+        21,
+        22,
+        23,
+        24
+      ],
+      "metrics": {
+        "candidate_mae": 26.972492109184863,
+        "candidate_rmse": 34.20932852453425,
+        "training_mean_mae": 40.02554194158729,
+        "training_mean_rmse": 46.7895003890473,
+        "persistence_mae": 64.23083340000001,
+        "persistence_rmse": 74.60783287865216,
+        "mae_improvement": 13.053049832402433,
+        "mae_improvement_interval": [
+          -6.9989908540465535,
+          31.298890032976665
+        ],
+        "improvement_by_fold": [
+          20.23629825535295,
+          -22.343683598161647,
+          6.793678412663553,
+          16.018048262126086,
+          44.560907830031226
+        ],
+        "regimes": {
+          "MWO": {
+            "fold_count": 1,
+            "mae_improvement": 20.23629825535295,
+            "eligible_for_consistency": false
+          },
+          "WSO": {
+            "fold_count": 4,
+            "mae_improvement": 11.257237726664805,
+            "eligible_for_consistency": true
+          }
+        },
+        "regime_consistent": true,
+        "bootstrap": {
+          "seed": 20260828,
+          "resamples": 10000
+        }
+      }
+    },
+    "sqrt_mean_polar_linear": {
+      "folds": [
+        {
+          "training_cycles": [
+            15,
+            16,
+            17,
+            18,
+            19
+          ],
+          "test_cycle": 20,
+          "observed": 156.629167,
+          "candidate_prediction": 184.9317245591191,
+          "training_mean_prediction": 201.6550002,
+          "persistence_prediction": 285.004167,
+          "measurement_regime": "MWO"
+        },
+        {
+          "training_cycles": [
+            15,
+            16,
+            17,
+            18,
+            19,
+            20
+          ],
+          "test_cycle": 21,
+          "observed": 232.916667,
+          "candidate_prediction": 174.8093813715042,
+          "training_mean_prediction": 194.15069466666668,
+          "persistence_prediction": 156.629167,
+          "measurement_regime": "WSO"
+        },
+        {
+          "training_cycles": [
+            15,
+            16,
+            17,
+            18,
+            19,
+            20,
+            21
+          ],
+          "test_cycle": 22,
+          "observed": 212.483333,
+          "candidate_prediction": 207.1397314198448,
+          "training_mean_prediction": 199.6886907142857,
+          "persistence_prediction": 232.916667,
+          "measurement_regime": "WSO"
+        },
+        {
+          "training_cycles": [
+            15,
+            16,
+            17,
+            18,
+            19,
+            20,
+            21,
+            22
+          ],
+          "test_cycle": 23,
+          "observed": 180.275,
+          "candidate_prediction": 187.24684910919285,
+          "training_mean_prediction": 201.288021,
+          "persistence_prediction": 212.483333,
+          "measurement_regime": "WSO"
+        },
+        {
+          "training_cycles": [
+            15,
+            16,
+            17,
+            18,
+            19,
+            20,
+            21,
+            22,
+            23
+          ],
+          "test_cycle": 24,
+          "observed": 116.425,
+          "candidate_prediction": 151.8644218520305,
+          "training_mean_prediction": 198.9532408888889,
+          "persistence_prediction": 180.275,
+          "measurement_regime": "WSO"
+        }
+      ],
+      "test_cycles": [
+        20,
+        21,
+        22,
+        23,
+        24
+      ],
+      "metrics": {
+        "candidate_mae": 26.832943145798687,
+        "candidate_rmse": 33.19820714000625,
+        "training_mean_mae": 40.02554194158729,
+        "training_mean_rmse": 46.7895003890473,
+        "persistence_mae": 64.23083340000001,
+        "persistence_rmse": 74.60783287865216,
+        "mae_improvement": 13.192598795788609,
+        "mae_improvement_interval": [
+          -5.988319220774633,
+          32.55173394138829
+        ],
+        "improvement_by_fold": [
+          16.7232756408809,
+          -19.34131329516248,
+          7.45104070555908,
+          14.041171890807135,
+          47.08881903685841
+        ],
+        "regimes": {
+          "MWO": {
+            "fold_count": 1,
+            "mae_improvement": 16.7232756408809,
+            "eligible_for_consistency": false
+          },
+          "WSO": {
+            "fold_count": 4,
+            "mae_improvement": 12.309929584515537,
+            "eligible_for_consistency": true
+          }
+        },
+        "regime_consistent": true,
+        "bootstrap": {
+          "seed": 20260828,
+          "resamples": 10000
+        }
+      }
+    },
+    "target_dispersion_weighted_linear": {
+      "folds": [
+        {
+          "training_cycles": [
+            15,
+            16,
+            17,
+            18,
+            19
+          ],
+          "test_cycle": 20,
+          "observed": 156.629167,
+          "candidate_prediction": 174.45431430858054,
+          "training_mean_prediction": 201.6550002,
+          "persistence_prediction": 285.004167,
+          "measurement_regime": "MWO"
+        },
+        {
+          "training_cycles": [
+            15,
+            16,
+            17,
+            18,
+            19,
+            20
+          ],
+          "test_cycle": 21,
+          "observed": 232.916667,
+          "candidate_prediction": 163.32102965820857,
+          "training_mean_prediction": 194.15069466666668,
+          "persistence_prediction": 156.629167,
+          "measurement_regime": "WSO"
+        },
+        {
+          "training_cycles": [
+            15,
+            16,
+            17,
+            18,
+            19,
+            20,
+            21
+          ],
+          "test_cycle": 22,
+          "observed": 212.483333,
+          "candidate_prediction": 202.5137900105449,
+          "training_mean_prediction": 199.6886907142857,
+          "persistence_prediction": 232.916667,
+          "measurement_regime": "WSO"
+        },
+        {
+          "training_cycles": [
+            15,
+            16,
+            17,
+            18,
+            19,
+            20,
+            21,
+            22
+          ],
+          "test_cycle": 23,
+          "observed": 180.275,
+          "candidate_prediction": 179.85093303924464,
+          "training_mean_prediction": 201.288021,
+          "persistence_prediction": 212.483333,
+          "measurement_regime": "WSO"
+        },
+        {
+          "training_cycles": [
+            15,
+            16,
+            17,
+            18,
+            19,
+            20,
+            21,
+            22,
+            23
+          ],
+          "test_cycle": 24,
+          "observed": 116.425,
+          "candidate_prediction": 148.24426183231412,
+          "training_mean_prediction": 198.9532408888889,
+          "persistence_prediction": 180.275,
+          "measurement_regime": "WSO"
+        }
+      ],
+      "test_cycles": [
+        20,
+        21,
+        22,
+        23,
+        24
+      ],
+      "metrics": {
+        "candidate_mae": 25.926731286579308,
+        "candidate_rmse": 35.421252539519,
+        "training_mean_mae": 40.02554194158729,
+        "training_mean_rmse": 46.7895003890473,
+        "persistence_mae": 64.23083340000001,
+        "persistence_rmse": 74.60783287865216,
+        "mae_improvement": 14.098810655007986,
+        "mae_improvement_interval": [
+          -10.636806425627725,
+          36.430544471480594
+        ],
+        "improvement_by_fold": [
+          27.200685891419454,
+          -30.829665008458107,
+          2.8250992962591965,
+          20.588954039244612,
+          50.708979056574776
+        ],
+        "regimes": {
+          "MWO": {
+            "fold_count": 1,
+            "mae_improvement": 27.200685891419454,
+            "eligible_for_consistency": false
+          },
+          "WSO": {
+            "fold_count": 4,
+            "mae_improvement": 10.82334184590512,
+            "eligible_for_consistency": true
+          }
+        },
+        "regime_consistent": true,
+        "bootstrap": {
+          "seed": 20260828,
+          "resamples": 10000
+        }
+      }
+    },
+    "weakest_hemisphere_linear": {
+      "folds": [
+        {
+          "training_cycles": [
+            15,
+            16,
+            17,
+            18,
+            19
+          ],
+          "test_cycle": 20,
+          "observed": 156.629167,
+          "candidate_prediction": 175.01718891538206,
+          "training_mean_prediction": 201.6550002,
+          "persistence_prediction": 285.004167,
+          "measurement_regime": "MWO"
+        },
+        {
+          "training_cycles": [
+            15,
+            16,
+            17,
+            18,
+            19,
+            20
+          ],
+          "test_cycle": 21,
+          "observed": 232.916667,
+          "candidate_prediction": 183.4541394401614,
+          "training_mean_prediction": 194.15069466666668,
+          "persistence_prediction": 156.629167,
+          "measurement_regime": "WSO"
+        },
+        {
+          "training_cycles": [
+            15,
+            16,
+            17,
+            18,
+            19,
+            20,
+            21
+          ],
+          "test_cycle": 22,
+          "observed": 212.483333,
+          "candidate_prediction": 201.78615891053943,
+          "training_mean_prediction": 199.6886907142857,
+          "persistence_prediction": 232.916667,
+          "measurement_regime": "WSO"
+        },
+        {
+          "training_cycles": [
+            15,
+            16,
+            17,
+            18,
+            19,
+            20,
+            21,
+            22
+          ],
+          "test_cycle": 23,
+          "observed": 180.275,
+          "candidate_prediction": 194.55091779307713,
+          "training_mean_prediction": 201.288021,
+          "persistence_prediction": 212.483333,
+          "measurement_regime": "WSO"
+        },
+        {
+          "training_cycles": [
+            15,
+            16,
+            17,
+            18,
+            19,
+            20,
+            21,
+            22,
+            23
+          ],
+          "test_cycle": 24,
+          "observed": 116.425,
+          "candidate_prediction": 157.24816413515194,
+          "training_mean_prediction": 198.9532408888889,
+          "persistence_prediction": 180.275,
+          "measurement_regime": "WSO"
+        }
+      ],
+      "test_cycles": [
+        20,
+        21,
+        22,
+        23,
+        24
+      ],
+      "metrics": {
+        "candidate_mae": 26.729361098582057,
+        "candidate_rmse": 30.885022502529733,
+        "training_mean_mae": 40.02554194158729,
+        "training_mean_rmse": 46.7895003890473,
+        "persistence_mae": 64.23083340000001,
+        "persistence_rmse": 74.60783287865216,
+        "mae_improvement": 13.296180843005237,
+        "mae_improvement_interval": [
+          -2.0922141707160504,
+          29.65126437844173
+        ],
+        "improvement_by_fold": [
+          26.637811284617925,
+          -10.696555226505268,
+          2.0974681962537147,
+          6.737103206922853,
+          41.70507675373696
+        ],
+        "regimes": {
+          "MWO": {
+            "fold_count": 1,
+            "mae_improvement": 26.637811284617925,
+            "eligible_for_consistency": false
+          },
+          "WSO": {
+            "fold_count": 4,
+            "mae_improvement": 9.960773232602065,
+            "eligible_for_consistency": true
+          }
+        },
+        "regime_consistent": true,
+        "bootstrap": {
+          "seed": 20260828,
+          "resamples": 10000
+        }
+      }
+    }
+  },
+  "challenger_policy": "exploratory_not_promoted",
+  "selected_challenger": null,
+  "finalized_cycles": [
+    15,
+    16,
+    17,
+    18,
+    19,
+    20,
+    21,
+    22,
+    23,
+    24
+  ],
+  "bootstrap": {
+    "seed": 20260828,
+    "resamples": 10000
+  },
+  "provisional_check": {
+    "target_cycle_id": 25,
+    "target_status": "provisional_as_of_2026-08-27",
+    "training_cycles": [
+      15,
+      16,
+      17,
+      18,
+      19,
+      20,
+      21,
+      22,
+      23,
+      24
+    ],
+    "candidate_prediction": 150.82090075452538,
+    "observed_provisional_target": 160.9,
+    "absolute_error": 10.079099245474623,
+    "training_mean_prediction": 190.7004168,
+    "baseline_absolute_error": 29.800416799999994,
+    "excluded_from_skill_gate": true
+  }
+}

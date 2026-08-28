@@ -1,0 +1,11 @@
+{
+  "schema_version": "h2-upgrade-run-manifest-v1",
+  "feature_table": "/home/zzz/2026tzb/8.20.4/research/review/evals/runs/jw_solar_upgrade_20260828/project_root/projects/default/runs/run_jw-solar-upgrade-2_24729abb/experiment/runs/question_f30956e10616-20260828T121022Z-42d44151/inputs/table/solar_precursor_cycle_features.csv",
+  "feature_receipt": "/home/zzz/2026tzb/8.20.4/research/review/evals/runs/jw_solar_upgrade_20260828/project_root/projects/default/runs/run_jw-solar-upgrade-2_24729abb/experiment/runs/question_f30956e10616-20260828T121022Z-42d44151/inputs/receipt/solar_precursor_cycle_table.json",
+  "polar_field": "/home/zzz/2026tzb/8.20.4/research/review/evals/runs/jw_solar_upgrade_20260828/project_root/projects/default/shared/data/solar_cycle/polar_field/mwo_wso_v2/e_PField_MWO_WSO.csv",
+  "provisional_table": "/home/zzz/2026tzb/8.20.4/research/review/evals/runs/sc26_forecast_backtest_20260827/results/sc26_cycle_features.csv",
+  "bootstrap_seed": 20260828,
+  "bootstrap_resamples": 10000,
+  "skill_gate_model": "mean_polar_linear",
+  "provisional_excluded_from_skill_gate": true
+}

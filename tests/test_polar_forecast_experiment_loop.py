@@ -19,10 +19,15 @@ def _bind_polar_run(workspace: Path) -> str:
     values = [0.8, 1.4, 1.0, 1.8, 1.2, 2.0, 0.9, 1.6, 1.1, 1.9]
     targets = [92.0, 151.0, 111.0, 190.0, 132.0, 207.0, 101.0, 171.0, 121.0, 198.0]
     table.write_text(
-        "row_role,cycle_number,peak_smoothed_sunspot_number\n"
+        "row_role,cycle_number,peak_smoothed_sunspot_number,"
+        "peak_smoothed_sunspot_number_sigma,north_polar_field_abs_gauss,"
+        "south_polar_field_abs_gauss\n"
         + "\n".join(
-            f"analysis,{cycle},{target}"
-            for cycle, target in zip(range(15, 25), targets, strict=True)
+            f"analysis,{cycle},{target},{8 + (cycle % 3)},"
+            f"{value * 0.85},{value * 1.15}"
+            for cycle, target, value in zip(
+                range(15, 25), targets, values, strict=True
+            )
         )
         + "\n",
         encoding="utf-8",
@@ -181,6 +186,13 @@ def test_specialized_polar_worker_executes_and_emits_valid_receipt(
     )
     assert receipt["effective_backtest_folds"] == len(receipt["test_cycles"])
     assert receipt["forecast_skill_status"] == receipt["status"]
+    assert receipt["challenger_policy"] == "exploratory_not_promoted"
+    assert receipt["selected_challenger"] is None
+    assert set(receipt["sensitivity_models"]) == {
+        "sqrt_mean_polar_linear",
+        "target_dispersion_weighted_linear",
+        "weakest_hemisphere_linear",
+    }
     assert validated["test_cycles"] == [20, 21, 22, 23, 24]
     assert validated["observable_kinds"] == ["polar_aperture_field"]
     assert validated["h3_data_status"]["status"] == "blocked_by_data"

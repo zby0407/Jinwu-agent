@@ -11,6 +11,15 @@ description: 当 JW 研究太阳活动周预测、solar dynamo 机制、F10.7 �
 
 活动周编号、forecast origin、information set、proxy/measurement 语义与独立样本单位必须随工件传递。历史相关、样本外 prediction skill 和机制证据分别陈述；任何一层不足都应保留为科学结果。
 
+### H2 极区前兆升级协议
+
+当任务调用 H2 极区前兆时，使用 `jw.solar_forecast.h2_upgrade.run_h2_upgrade`
+或等价的确定性入口。两半球绝对场强均值是可比性主模型；平方根变换、按目标峰值
+离散度加权、较弱半球模型是预先固定的敏感性模型。不得依据同一滚动测试集事后挑选
+主模型。周期 25 等尚未定稿的峰值只能写入 `provisional_check`，必须标记
+`excluded_from_skill_gate=true`，不能进入历史 MAE、bootstrap 或模型选择。若改善区间
+跨零，保持 `mixed_evidence`；没有登记的轴向偶极矩时，H3 仍为 `blocked_by_data`。
+
 For an explicit GOES-threshold flare target with an issue time and prediction
 window, also load the `solar-flare-forecasting` skill. Keep long-term
 solar-cycle prediction and short-horizon flare probability contracts separate.

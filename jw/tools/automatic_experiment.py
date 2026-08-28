@@ -504,7 +504,8 @@ def _create_polar_forecast_design(run_id: str) -> dict[str, Any]:
         "normalized_task": "复核极小期极区场对下一太阳活动周峰值的历史预测技能。",
         "design_summary": (
             "单阶段完成五周起始训练的扩展窗口回测、双基线比较、固定种子"
-            "活动周级重采样、逐周留一和测量制度敏感性。"
+            "活动周级重采样、逐周留一、测量制度敏感性，以及平方根均值、"
+            "目标离散度加权和较弱半球三个固定敏感性模型。"
         ),
         "clarifications": [],
         "blockers": [],
@@ -520,7 +521,8 @@ def _create_polar_forecast_design(run_id: str) -> dict[str, Any]:
         "method_outline": (
             "按目标活动周排序，前五周训练后逐周留出；每折重新拟合一元线性前兆"
             "模型并重算训练均值与持续性基线，以种子 20260828 对逐折绝对误差差"
-            "重采样 10000 次，另报逐周留一和 MWO、WSO 制度结果。"
+            "重采样 10000 次，另报逐周留一和 MWO、WSO 制度结果。三个敏感性"
+            "模型只作稳健性诊断，不依据同一测试集事后晋升为主模型。"
         ),
         "measurements": _polar_forecast_measurements(),
         "results": _polar_forecast_results(),
@@ -1381,30 +1383,85 @@ PREDICTIONS_ARTIFACT = "rolling_predictions.csv"
 BOOTSTRAP_ARTIFACT = "bootstrap_mae_improvement.csv"
 
 
-def _fit_line(train_x, train_y, test_x):
+def _fit_line(train_x, train_y, test_x, transform=None, weights=None):
+    if transform == "sqrt":
+        train_x = np.sqrt(train_x)
+        test_x = math.sqrt(test_x)
     design = np.column_stack([np.ones(len(train_x)), train_x])
-    intercept, slope = np.linalg.lstsq(design, train_y, rcond=None)[0]
+    if weights is None:
+        fitted_design = design
+        fitted_target = train_y
+    else:
+        scale = np.sqrt(np.asarray(weights, dtype=float))
+        fitted_design = design * scale[:, None]
+        fitted_target = train_y * scale
+    intercept, slope = np.linalg.lstsq(
+        fitted_design, fitted_target, rcond=None
+    )[0]
     return float(intercept + slope * test_x)
 
 
-def _rolling_folds(rows):
+def _rolling_folds(rows, model="mean_polar_linear"):
     folds = []
     for test_index in range(INITIAL_TRAINING_CYCLES, len(rows)):
         train = rows[:test_index]
         test = rows[test_index]
-        train_x = np.asarray([row["value"] for row in train], dtype=float)
+        feature_key = (
+            "weakest_value"
+            if model == "weakest_hemisphere_linear"
+            else "value"
+        )
+        train_x = np.asarray([row[feature_key] for row in train], dtype=float)
         train_y = np.asarray([row["target"] for row in train], dtype=float)
+        transform = "sqrt" if model == "sqrt_mean_polar_linear" else None
+        weights = None
+        if model == "target_dispersion_weighted_linear":
+            weights = np.asarray(
+                [1.0 / row["target_dispersion"] ** 2 for row in train],
+                dtype=float,
+            )
         folds.append({
             "training_cycles": [row["target_cycle_id"] for row in train],
             "test_cycle": test["target_cycle_id"],
             "feature_id": test["feature_id"],
             "observed": test["target"],
-            "candidate_prediction": _fit_line(train_x, train_y, test["value"]),
+            "candidate_prediction": _fit_line(
+                train_x,
+                train_y,
+                test[feature_key],
+                transform=transform,
+                weights=weights,
+            ),
             "training_mean_prediction": float(np.mean(train_y)),
             "persistence_prediction": float(train_y[-1]),
             "measurement_regime": test["measurement_regime"],
         })
     return folds
+
+
+def _sensitivity_model(rows, model):
+    if model == "target_dispersion_weighted_linear" and any(
+        row["target_dispersion"] is None for row in rows
+    ):
+        return {
+            "status": "blocked_by_data",
+            "data_gap": "TARGET_PEAK_DISPERSION_NOT_AVAILABLE",
+        }
+    if model == "weakest_hemisphere_linear" and any(
+        row["weakest_value"] is None for row in rows
+    ):
+        return {
+            "status": "blocked_by_data",
+            "data_gap": "HEMISPHERIC_POLAR_FIELD_MAGNITUDES_NOT_AVAILABLE",
+        }
+    folds = _rolling_folds(rows, model=model)
+    metrics, sensitivity, _bootstrap_values = _summarize(folds)
+    return {
+        "status": "completed",
+        "folds": folds,
+        "metrics": metrics,
+        "sensitivity": sensitivity,
+    }
 
 
 def _summarize(folds):
@@ -1481,21 +1538,43 @@ def run_experiment(context):
 
     with context["input_path_by_id"][TABLE_INPUT_ID].open(encoding="utf-8", newline="") as handle:
         table_rows = list(csv.DictReader(handle))
-    targets = {
-        int(row["cycle_number"]): float(row["peak_smoothed_sunspot_number"])
+    table_by_cycle = {
+        int(row["cycle_number"]): row
         for row in table_rows
         if row.get("row_role") == "analysis"
     }
     rows = []
     for record in sorted(h2_records, key=lambda item: int(item["target_cycle_id"])):
         cycle = int(record["target_cycle_id"])
-        if cycle not in targets:
+        if cycle not in table_by_cycle:
             raise ValueError("feature record target is absent from the accepted table")
+        table_row = table_by_cycle[cycle]
+        target_dispersion_text = str(
+            table_row.get("peak_smoothed_sunspot_number_sigma") or ""
+        ).strip()
+        north_text = str(
+            table_row.get("north_polar_field_abs_gauss") or ""
+        ).strip()
+        south_text = str(
+            table_row.get("south_polar_field_abs_gauss") or ""
+        ).strip()
+        target_dispersion = (
+            float(target_dispersion_text) if target_dispersion_text else None
+        )
+        if target_dispersion is not None and target_dispersion <= 0:
+            raise ValueError("target peak dispersion must be positive")
+        weakest_value = (
+            min(abs(float(north_text)), abs(float(south_text)))
+            if north_text and south_text
+            else None
+        )
         rows.append({
             "feature_id": str(record["feature_id"]),
             "target_cycle_id": cycle,
             "value": float(record["value"]),
-            "target": targets[cycle],
+            "target": float(table_row["peak_smoothed_sunspot_number"]),
+            "target_dispersion": target_dispersion,
+            "weakest_value": weakest_value,
             "measurement_regime": str(record["measurement_regime"]),
         })
     cycles = [row["target_cycle_id"] for row in rows]
@@ -1504,6 +1583,14 @@ def run_experiment(context):
     folds = _rolling_folds(rows)
     metrics, sensitivity, bootstrap_values = _summarize(folds)
     status = _skill_status(metrics, sensitivity)
+    sensitivity_models = {
+        model: _sensitivity_model(rows, model)
+        for model in (
+            "sqrt_mean_polar_linear",
+            "target_dispersion_weighted_linear",
+            "weakest_hemisphere_linear",
+        )
+    }
 
     unavailable = data_receipt.get("unavailable_feature_records")
     if not isinstance(unavailable, list):
@@ -1529,6 +1616,9 @@ def run_experiment(context):
         "observable_kinds": ["polar_aperture_field"],
         "baseline_names": ["training_mean", "persistence"],
         "candidate_name": "linear_polar_precursor",
+        "challenger_policy": "exploratory_not_promoted",
+        "selected_challenger": None,
+        "sensitivity_models": sensitivity_models,
         "training_cycles": cycles[:INITIAL_TRAINING_CYCLES],
         "test_cycles": [fold["test_cycle"] for fold in folds],
         "folds": folds,
