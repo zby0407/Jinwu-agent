@@ -112,8 +112,16 @@ export async function GET() {
     let localCandidates: Awaited<ReturnType<typeof readLocalSkillCandidates>> =
       [];
     let topology = {
-      primaryAgents: [] as string[],
-      supportAgents: [] as string[],
+      primaryAgents: [] as Array<{
+        name: string;
+        title: string;
+        description: string;
+      }>,
+      supportAgents: [] as Array<{
+        name: string;
+        title: string;
+        description: string;
+      }>,
     };
     for (const projectRoot of projectRoots) {
       bundled = await readBundledSkills(projectRoot);
@@ -138,11 +146,21 @@ export async function GET() {
       agents: [...byAgent.entries()]
         .map(([name, assignedSkills]) => ({
           name,
+          title:
+            topology.primaryAgents.find((agent) => agent.name === name)
+              ?.title ?? name,
+          description:
+            topology.primaryAgents.find((agent) => agent.name === name)
+              ?.description ?? "",
           skills: assignedSkills,
         }))
-        .filter(({ name }) => topology.primaryAgents.includes(name)),
-      primaryAgents: topology.primaryAgents,
-      supportAgents: topology.supportAgents,
+        .filter(({ name }) =>
+          topology.primaryAgents.some((agent) => agent.name === name)
+        ),
+      primaryAgents: topology.primaryAgents.map((agent) => agent.name),
+      primaryAgentProfiles: topology.primaryAgents,
+      supportAgents: topology.supportAgents.map((agent) => agent.name),
+      supportAgentProfiles: topology.supportAgents,
       localCandidates: localCandidates.map(
         ({ sourceRoot, ...candidate }) => candidate
       ),

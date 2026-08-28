@@ -2,6 +2,60 @@
   "version": 1,
   "primary_agents": ["solar-planner", "solar-data", "solar-hypothesis", "solar-experiment", "solar-evidence", "solar-knowledge"],
   "support_agents": ["planner-agent", "research-agent", "code-agent", "debug-agent", "data-analysis-agent", "writing-agent", "scheduler"],
+  "agent_profiles": {
+    "solar-planner": {
+      "title": "研究规划",
+      "description": "把原始科研问题转化为研究路线、证据需求、条件转移与停止规则。"
+    },
+    "solar-data": {
+      "title": "数据与特征",
+      "description": "核验数据来源与语义，构造活动周样本和物理可解释特征。"
+    },
+    "solar-hypothesis": {
+      "title": "科学假设",
+      "description": "形成可区分、可证伪的候选机制、竞争解释与零假设。"
+    },
+    "solar-experiment": {
+      "title": "实验设计与执行",
+      "description": "设计、真实执行并核验一个边界明确的计算实验。"
+    },
+    "solar-evidence": {
+      "title": "独立证据审查",
+      "description": "逐声明检查来源、数据、方法、结果与结论强度是否匹配。"
+    },
+    "solar-knowledge": {
+      "title": "只读知识检索",
+      "description": "检索 canonical knowledge 与冻结文献，报告适用范围、冲突和缺口。"
+    },
+    "planner-agent": {
+      "title": "通用规划支持",
+      "description": "为 JW 主 Agent 提供通用任务拆解与执行顺序支持。"
+    },
+    "research-agent": {
+      "title": "资料检索支持",
+      "description": "为主流程提供非角色专属的资料发现与整理能力。"
+    },
+    "code-agent": {
+      "title": "代码执行支持",
+      "description": "承担通用代码编写、执行和工程实现。"
+    },
+    "debug-agent": {
+      "title": "调试支持",
+      "description": "定位运行故障并提供可复核的修复证据。"
+    },
+    "data-analysis-agent": {
+      "title": "通用分析支持",
+      "description": "承担不属于专业太阳角色的通用数据分析与制图。"
+    },
+    "writing-agent": {
+      "title": "写作与发布支持",
+      "description": "整理读者可见文本、排版、导出与发布前质检。"
+    },
+    "scheduler": {
+      "title": "调度支持",
+      "description": "管理主流程中的定时、延迟与恢复任务。"
+    }
+  },
   "shared": [
     "verification-before-completion",
     "scientific-writing",
