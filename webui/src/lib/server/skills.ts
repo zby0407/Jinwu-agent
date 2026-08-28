@@ -12,6 +12,7 @@ import { homedir } from "os";
 import { dirname, join, resolve, sep } from "path";
 import { promises as fs } from "fs";
 import { randomUUID } from "crypto";
+import { readBundledSkills } from "./builtinSkills.js";
 
 const REPO = "zby0407/JW-Skills";
 const BRANCH = "main";
@@ -430,6 +431,21 @@ export async function getSkillDetail(name: string): Promise<SkillDetail> {
       break;
     } catch {
       // not in this tier, or a broken/escaping symlink
+    }
+  }
+  if (md === undefined) {
+    const projectRoots = [resolve(process.cwd(), ".."), resolve(process.cwd())];
+    for (const projectRoot of projectRoots) {
+      const bundled = await readBundledSkills(projectRoot);
+      const match = bundled.find((skill) => skill.name === name);
+      if (!match) continue;
+      try {
+        md = await fs.readFile(join(match.dir, "SKILL.md"), "utf-8");
+        installed = true;
+        break;
+      } catch {
+        // Continue to the next candidate project root.
+      }
     }
   }
   if (md === undefined) {
