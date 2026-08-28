@@ -174,7 +174,16 @@ def test_specialized_polar_worker_executes_and_emits_valid_receipt(
         (output_dir / "forecast_experiment_receipt.json").read_text(encoding="utf-8")
     )
     validated = validate_forecast_experiment_receipt(receipt)
+    assert receipt["mae_improvement"] == receipt["metrics"]["mae_improvement"]
+    assert (
+        receipt["mae_improvement_ci_low"]
+        == receipt["metrics"]["mae_improvement_interval"][0]
+    )
+    assert receipt["effective_backtest_folds"] == len(receipt["test_cycles"])
+    assert receipt["forecast_skill_status"] == receipt["status"]
     assert validated["test_cycles"] == [20, 21, 22, 23, 24]
     assert validated["observable_kinds"] == ["polar_aperture_field"]
     assert validated["h3_data_status"]["status"] == "blocked_by_data"
-    assert sum(1 for _ in (output_dir / "bootstrap_mae_improvement.csv").open()) == 10001
+    assert (
+        sum(1 for _ in (output_dir / "bootstrap_mae_improvement.csv").open()) == 10001
+    )
