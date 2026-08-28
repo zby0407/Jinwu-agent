@@ -97,6 +97,15 @@ export async function readSkillTopology(projectRoot) {
   };
 }
 
+export function buildPrimaryAgentGroups(primaryAgents, skillsByAgent) {
+  return primaryAgents.map(({ name, title, description }) => ({
+    name,
+    title,
+    description,
+    skills: skillsByAgent.get(name) || [],
+  }));
+}
+
 function assignmentFor(registry, name) {
   const agents = Object.entries(registry.agents)
     .filter(([, names]) => Array.isArray(names) && names.includes(name))
