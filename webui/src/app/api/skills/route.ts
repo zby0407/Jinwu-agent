@@ -7,6 +7,7 @@ import {
   isValidSkillName,
 } from "@/lib/server/skills";
 import {
+  buildPrimaryAgentGroups,
   importLocalSkills,
   readBundledSkills,
   readLocalSkillCandidates,
@@ -143,20 +144,7 @@ export async function GET() {
     return NextResponse.json({
       skills,
       sharedSkills: bundled.filter((skill) => skill.assignment?.shared),
-      agents: [...byAgent.entries()]
-        .map(([name, assignedSkills]) => ({
-          name,
-          title:
-            topology.primaryAgents.find((agent) => agent.name === name)
-              ?.title ?? name,
-          description:
-            topology.primaryAgents.find((agent) => agent.name === name)
-              ?.description ?? "",
-          skills: assignedSkills,
-        }))
-        .filter(({ name }) =>
-          topology.primaryAgents.some((agent) => agent.name === name)
-        ),
+      agents: buildPrimaryAgentGroups(topology.primaryAgents, byAgent),
       primaryAgents: topology.primaryAgents.map((agent) => agent.name),
       primaryAgentProfiles: topology.primaryAgents,
       supportAgents: topology.supportAgents.map((agent) => agent.name),
