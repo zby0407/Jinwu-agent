@@ -10,6 +10,7 @@ import {
   importLocalSkills,
   readBundledSkills,
   readLocalSkillCandidates,
+  readSkillTopology,
 } from "@/lib/server/builtinSkills.js";
 
 // SKILL_DIRS (the global ~/.jw/skills tier + legacy ~/.config
@@ -110,10 +111,15 @@ export async function GET() {
     let bundled: Awaited<ReturnType<typeof readBundledSkills>> = [];
     let localCandidates: Awaited<ReturnType<typeof readLocalSkillCandidates>> =
       [];
+    let topology = {
+      primaryAgents: [] as string[],
+      supportAgents: [] as string[],
+    };
     for (const projectRoot of projectRoots) {
       bundled = await readBundledSkills(projectRoot);
       if (bundled.length > 0) {
         localCandidates = await readLocalSkillCandidates(projectRoot);
+        topology = await readSkillTopology(projectRoot);
         break;
       }
     }
@@ -129,10 +135,14 @@ export async function GET() {
     return NextResponse.json({
       skills,
       sharedSkills: bundled.filter((skill) => skill.assignment?.shared),
-      agents: [...byAgent.entries()].map(([name, assignedSkills]) => ({
-        name,
-        skills: assignedSkills,
-      })),
+      agents: [...byAgent.entries()]
+        .map(([name, assignedSkills]) => ({
+          name,
+          skills: assignedSkills,
+        }))
+        .filter(({ name }) => topology.primaryAgents.includes(name)),
+      primaryAgents: topology.primaryAgents,
+      supportAgents: topology.supportAgents,
       localCandidates: localCandidates.map(
         ({ sourceRoot, ...candidate }) => candidate
       ),

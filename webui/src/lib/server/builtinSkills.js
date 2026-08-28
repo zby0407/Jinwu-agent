@@ -40,6 +40,12 @@ async function readRegistry(projectRoot) {
       throw new Error("invalid registry");
     return {
       version: Number(value.version) || 1,
+      primaryAgents: Array.isArray(value.primary_agents)
+        ? value.primary_agents
+        : [],
+      supportAgents: Array.isArray(value.support_agents)
+        ? value.support_agents
+        : [],
       shared: Array.isArray(value.shared)
         ? value.shared.filter((x) => typeof x === "string")
         : [],
@@ -51,8 +57,23 @@ async function readRegistry(projectRoot) {
           : {},
     };
   } catch {
-    return { version: 1, shared: [], agents: {}, adaptations: {} };
+    return {
+      version: 1,
+      primaryAgents: [],
+      supportAgents: [],
+      shared: [],
+      agents: {},
+      adaptations: {},
+    };
   }
+}
+
+export async function readSkillTopology(projectRoot) {
+  const registry = await readRegistry(projectRoot);
+  return {
+    primaryAgents: registry.primaryAgents,
+    supportAgents: registry.supportAgents,
+  };
 }
 
 function assignmentFor(registry, name) {
