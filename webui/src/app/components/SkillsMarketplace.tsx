@@ -400,7 +400,7 @@ export function SkillsMarketplace() {
                     <p className="mt-1 text-xs text-muted-foreground">
                       主 Agent
                       负责接收研究问题、选择路径并协调下面六个太阳科研子
-                      Agent；共享基础技能会显示在每个角色的能力卡中。
+                      Agent；共享基础技能单独列出，并对所有角色生效。
                     </p>
                   </div>
                   <Users
