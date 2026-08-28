@@ -681,6 +681,30 @@ def test_precursor_receipt_is_self_describing_and_hash_binds_boundary_table(
         "mwo-wso-polar-field-v2",
     ]
     assert receipt["row_count"] == 11
+    feature_records = receipt["feature_records"]
+    assert len(feature_records) == 10
+    assert {row["observable_kind"] for row in feature_records} == {
+        "polar_aperture_field"
+    }
+    assert all(
+        row["source_dataset_ids"] == ["mwo-wso-polar-field-v2"]
+        for row in feature_records
+    )
+    assert all(
+        float(row["available_at"]) <= float(row["forecast_origin"])
+        for row in feature_records
+    )
+    assert [row["target_cycle_id"] for row in feature_records] == list(range(15, 25))
+    blocked = receipt["unavailable_feature_records"]
+    assert len(blocked) == 1
+    assert blocked[0]["hypothesis_id"] == "h3_axial_dipole_discriminator"
+    assert blocked[0]["observable_kind"] == "axial_dipole_moment"
+    assert blocked[0]["status"] == "blocked_by_data"
+    assert blocked[0]["value"] is None
+    assert (
+        blocked[0]["data_gap"]
+        == "NO_REGISTERED_AXIAL_DIPOLE_OR_SYNOPTIC_MAP_INPUT"
+    )
     assert receipt["pair_coverage"] == {
         "requested_pairs": [f"{cycle}->{cycle + 1}" for cycle in range(14, 24)],
         "available_pairs": [f"{cycle}->{cycle + 1}" for cycle in range(14, 24)],
@@ -716,6 +740,12 @@ def test_precursor_receipt_is_self_describing_and_hash_binds_boundary_table(
     assert result["sample_size"] == receipt["sample_size"]
     assert result["uncertainty_fields"] == receipt["uncertainty_fields"]
     assert result["gaps"] == receipt["gaps"]
+    assert result["feature_record_count"] == 10
+    assert result["unavailable_feature_record_count"] == 1
+    assert result["hypothesis_data_status"] == {
+        "h2_polar_precursor": "available",
+        "h3_axial_dipole_discriminator": "blocked_by_data",
+    }
     output = receipt["outputs"][0]
     output_path = tmp_path / output["path"]
     assert output["bytes"] == output_path.stat().st_size
