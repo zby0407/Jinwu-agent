@@ -37,6 +37,7 @@ test("skills assigned to JW agents have Chinese discovery descriptions", async (
 
   assert.ok(assigned.length > 0);
   for (const skill of assigned) {
+    assert.doesNotMatch(skill.name, /^math-modeling-/);
     assert.match(skill.description, /[\u3400-\u9fff]/, skill.name);
   }
 });
