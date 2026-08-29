@@ -1,11 +1,15 @@
 ---
 name: latex-quality-control
-description: Use when a LaTeX or Beamer project must be compiled, debugged, rendered, or visually inspected, including bibliography, cross-reference, font, overflow, formula, figure, and page-layout problems; not for merely reading an existing PDF or designing slide content from scratch.
+description: 当 JW 的 LaTeX 或 Beamer 成品需要编译、排错、渲染和逐页视觉检查时使用，覆盖参考文献、交叉引用、字体、溢出、公式、图表与版面问题。
 ---
 
-# LaTeX Quality Control
+# LaTeX 成品质检
 
-Own the path from a TeX project to a checked PDF. A successful compiler exit is build evidence, not proof that references, formulas, figures, or pages are correct.
+负责从 TeX 源文件到已检查 PDF 的完整质检。编译成功只证明构建完成，不能替代对参考文献、公式、图表和页面视觉效果的核验。
+
+## JW 使用边界
+
+只检查读者可见成品与源文件的一致性；不得为消除编译错误而编造引文、数据、数值、图像或作者观点。科学主张是否成立仍由 Evidence 审查与真实实验结果决定。
 
 ## Route and preflight
 

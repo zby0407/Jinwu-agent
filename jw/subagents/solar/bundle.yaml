@@ -27,6 +27,11 @@ skills:
   - solar-cycle
   - solar-flare-forecasting
   - knowledge-base-agent
+  - solar-evidence-figure-production
+  - solar-cycle-forecast-validation
+  - solar-hypothesis-portfolio
+  - solar-mechanism-causal-order
+  - solar-interaction-regime-testing
 
 # Bundle dependency: solar agents assume core agents (planner, research,
 # code, debug, data-analysis, writing) are also loaded.

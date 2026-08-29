@@ -1,10 +1,6 @@
 ---
 name: knowledge-base-agent
-description: |
-  知识管理子 Agent（solar-knowledge）的编排技能。负责 LLM Wiki 的四条流程：
-  检索应答、摄取（文献蒸馏 + 运行产出写回）、健康巡检、知识使用报告。
-  当任务涉及查询/维护结构化知识条目、把文献蒸馏为可引用知识、处理条目冲突、
-  或汇总某轮研究的知识使用情况时使用。配合 kb_* 与 lit_* 工具工作。
+description: 当 solar-knowledge 需要检索结构化知识、读取冻结 literature bundle、报告知识冲突或记录维护缺口时使用；默认只读，配合 kb_* 与 lit_* 工具。
 ---
 
 # 知识管理 Agent 编排

@@ -6,6 +6,13 @@ import {
   recordUninstall,
   isValidSkillName,
 } from "@/lib/server/skills";
+import {
+  buildPrimaryAgentGroups,
+  importLocalSkills,
+  readBundledSkills,
+  readLocalSkillCandidates,
+  readSkillTopology,
+} from "@/lib/server/builtinSkills.js";
 
 // SKILL_DIRS (the global ~/.jw/skills tier + legacy ~/.config
 // fallback) is the single source of truth, shared with the install route.
@@ -17,6 +24,7 @@ interface SkillCard {
   title: string;
   description: string;
   dir: string;
+  source: "installed" | "builtin";
 }
 
 // Minimal frontmatter parse — we only need name + description. Avoids pulling
@@ -68,23 +76,126 @@ async function readSkills(): Promise<SkillCard[]> {
           title: name || entry,
           description: description || "",
           dir: skillDir,
+          source: "installed",
         });
       } catch {
         // no SKILL.md or unreadable — skip
       }
     }
   }
-  return skills.sort((a, b) => a.name.localeCompare(b.name));
+  const projectRoots = [resolve(process.cwd(), ".."), resolve(process.cwd())];
+  const bundled = [];
+  for (const projectRoot of projectRoots) {
+    const entries = await readBundledSkills(projectRoot);
+    if (entries.length > 0) {
+      bundled.push(...entries);
+      break;
+    }
+  }
+  const bundledSeen = new Set(skills.map((skill) => skill.name));
+  for (const skill of bundled) {
+    if (!bundledSeen.has(skill.name)) {
+      skills.push({ ...skill, source: "builtin" });
+      bundledSeen.add(skill.name);
+    }
+  }
+  return skills.sort((a, b) => {
+    if (a.source !== b.source) return a.source === "builtin" ? -1 : 1;
+    return a.name.localeCompare(b.name);
+  });
 }
 
 export async function GET() {
   try {
     const skills = await readSkills();
-    return NextResponse.json({ skills });
+    const projectRoots = [resolve(process.cwd(), ".."), resolve(process.cwd())];
+    let bundled: Awaited<ReturnType<typeof readBundledSkills>> = [];
+    let localCandidates: Awaited<ReturnType<typeof readLocalSkillCandidates>> =
+      [];
+    let topology = {
+      mainAgent: {
+        name: "JW",
+        title: "JW 主 Agent",
+        description: "",
+      },
+      primaryAgents: [] as Array<{
+        name: string;
+        title: string;
+        description: string;
+      }>,
+      supportAgents: [] as Array<{
+        name: string;
+        title: string;
+        description: string;
+      }>,
+    };
+    for (const projectRoot of projectRoots) {
+      bundled = await readBundledSkills(projectRoot);
+      if (bundled.length > 0) {
+        localCandidates = await readLocalSkillCandidates(projectRoot);
+        topology = await readSkillTopology(projectRoot);
+        break;
+      }
+    }
+    const byAgent = new Map<string, SkillCard[]>();
+    for (const skill of bundled) {
+      for (const agent of skill.assignment?.agents || []) {
+        if (agent === "all") continue;
+        const list = byAgent.get(agent) || [];
+        list.push({ ...skill, source: "builtin" as const });
+        byAgent.set(agent, list);
+      }
+    }
+    return NextResponse.json({
+      skills,
+      sharedSkills: bundled.filter((skill) => skill.assignment?.shared),
+      mainAgent: topology.mainAgent,
+      mainAgentSkills: byAgent.get(topology.mainAgent.name) || [],
+      conditionalSkills: bundled.filter(
+        (skill) => skill.assignment?.conditional
+      ),
+      agents: buildPrimaryAgentGroups(topology.primaryAgents, byAgent),
+      primaryAgents: topology.primaryAgents.map((agent) => agent.name),
+      primaryAgentProfiles: topology.primaryAgents,
+      supportAgents: topology.supportAgents.map((agent) => agent.name),
+      supportAgentProfiles: topology.supportAgents,
+      supportAgentGroups: buildPrimaryAgentGroups(
+        topology.supportAgents,
+        byAgent
+      ),
+      localCandidates: localCandidates.map(
+        ({ sourceRoot, ...candidate }) => candidate
+      ),
+    });
   } catch (e) {
     return NextResponse.json(
       { error: e instanceof Error ? e.message : "读取 Skills 失败" },
       { status: 500 }
+    );
+  }
+}
+
+/** Import selected local skills after deterministic JW adaptation/assignment. */
+export async function POST(req: NextRequest) {
+  try {
+    const body = await req.json().catch(() => ({}));
+    const names = Array.isArray(body?.names)
+      ? body.names.filter((name: unknown) => typeof name === "string")
+      : [];
+    const projectRoots = [resolve(process.cwd(), ".."), resolve(process.cwd())];
+    for (const projectRoot of projectRoots) {
+      if ((await readBundledSkills(projectRoot)).length === 0) continue;
+      const imported = await importLocalSkills(projectRoot, names);
+      return NextResponse.json({ ok: true, imported });
+    }
+    return NextResponse.json(
+      { error: "未找到 JW 项目技能目录" },
+      { status: 404 }
+    );
+  } catch (e) {
+    return NextResponse.json(
+      { error: e instanceof Error ? e.message : "导入技能失败" },
+      { status: 400 }
     );
   }
 }

@@ -1,18 +1,11 @@
 ---
 name: solar-flare-forecasting
-description: |
-  Design, prepare, execute, and verify leakage-safe solar-flare forecasts with the existing
-  Solar-Cycle Co-Scientist agents. Use for GOES C/M/X event labels, full-disk or active-region
-  probability forecasts, HMI/SHARP predictors, historical or simulated-real-time backtests,
-  rare-event baselines and metrics, calibration, forecast drift, or researcher-facing flare
-  forecast reports. Do not use for solar-cycle amplitude prediction unless the task also has an
-  explicit flare target and forecast window.
+description: 当 JW 需要研究带明确 issue time 与 forecast window 的 GOES C/M/X 太阳耀斑概率预测、HMI/SHARP 特征、历史回测、稀有事件基线、calibration 或 forecast drift 时使用。
 ---
 
-# Solar Flare Forecasting
+# 太阳耀斑预测
 
-Use the existing role-specialized agents. Do not create a separate forecasting
-agent or let one role silently perform the whole workflow.
+使用现有六个专业子 Agent 分工，不创建第七个预测 Agent，也不让单一角色静默完成整个研究闭环。太阳耀斑短期概率预测与太阳活动周振幅预测必须保持不同的目标、时间窗口和验证合同。
 
 ## Route work by role
 
