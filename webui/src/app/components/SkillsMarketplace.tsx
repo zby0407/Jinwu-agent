@@ -78,6 +78,7 @@ interface LocalCandidate {
 export function SkillsMarketplace() {
   const [other, setOther] = useState<SkillCard[]>([]);
   const [agentGroups, setAgentGroups] = useState<AgentGroup[]>([]);
+  const [mainSkills, setMainSkills] = useState<SkillCard[]>([]);
   const [supportAgents, setSupportAgents] = useState<AgentProfile[]>([]);
   const [sharedSkills, setSharedSkills] = useState<SkillCard[]>([]);
   const [localCandidates, setLocalCandidates] = useState<LocalCandidate[]>([]);
@@ -110,6 +111,7 @@ export function SkillsMarketplace() {
       if (!res.ok) throw new Error(d.error || "加载 Skills 失败");
       setOther((d.skills ?? []) as SkillCard[]);
       setAgentGroups((d.agents ?? []) as AgentGroup[]);
+      setMainSkills((d.mainSkills ?? []) as SkillCard[]);
       setSupportAgents((d.supportAgentProfiles ?? []) as AgentProfile[]);
       setSharedSkills((d.sharedSkills ?? []) as SkillCard[]);
       setLocalCandidates((d.localCandidates ?? []) as LocalCandidate[]);
@@ -400,7 +402,7 @@ export function SkillsMarketplace() {
           </div>
         ) : (
           <div className="space-y-6">
-            {(sharedSkills.length > 0 || agentGroups.length > 0) && (
+            {(sharedSkills.length > 0 || mainSkills.length > 0 || agentGroups.length > 0) && (
               <section aria-label="子 Agent 技能分配">
                 <div className="mb-3 flex items-center justify-between gap-3">
                   <div>
@@ -428,6 +430,18 @@ export function SkillsMarketplace() {
                           skill={skill}
                           shared
                         />
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {mainSkills.length > 0 && (
+                  <div className="mb-3 rounded-lg border border-[var(--brand)]/20 bg-[var(--brand)]/5 p-3">
+                    <div className="mb-2 text-xs font-medium text-muted-foreground">
+                      主 Agent 编排级技能
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      {mainSkills.map((skill) => (
+                        <SkillBadge key={`main-${skill.name}`} skill={skill} />
                       ))}
                     </div>
                   </div>
@@ -561,6 +575,7 @@ export function SkillsMarketplace() {
               </div>
             )}
             {other.length === 0 &&
+              mainSkills.length === 0 &&
               agentGroups.length === 0 &&
               localCandidates.length === 0 && (
                 <p className="text-sm text-muted-foreground">

@@ -5655,7 +5655,9 @@ def test_polar_experiment_dispatch_injects_cycle_analysis_contract(
     assert "cycle N" in description
     assert "cycle N+1" in description
     assert "rolling-origin" in description
-    assert "Do not preselect the interaction sign" in description
+    assert "polar aperture field" in description
+    assert "axial-dipole" in description
+    assert "blocked_by_data" in description
 
 
 def test_morphology_experiment_dispatch_overrides_parent_stage_and_injects_contract(

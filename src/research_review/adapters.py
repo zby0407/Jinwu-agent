@@ -62,9 +62,7 @@ def project_forecast_claim_from_receipt(
     if not isinstance(prose_claim, str):
         raise ValueError("prose_claim must be text")
     validated = validate_forecast_experiment_receipt(receipt)
-    observable_kinds = sorted(
-        set(str(value) for value in validated["observable_kinds"])
-    )
+    observable_kinds = sorted({str(value) for value in validated["observable_kinds"]})
     normalized_claim = prose_claim.casefold()
     claims_axial = "轴向偶极矩" in prose_claim or "axial dipole" in normalized_claim
     if claims_axial and "axial_dipole_moment" not in observable_kinds:
@@ -606,9 +604,7 @@ def _data_result_projection(
     recognized_contracts = {
         "solar-precursor-cycle-table-v2": "solar_precursor_cycle_table",
         "solar-cycle-pair-analysis-table-v2": "solar_cycle_pair_analysis_table",
-        "solar-cycle-26-readiness-receipt-v1": (
-            "solar_cycle_26_readiness_inventory"
-        ),
+        "solar-cycle-26-readiness-receipt-v1": ("solar_cycle_26_readiness_inventory"),
     }
     recognized: list[tuple[str, dict[str, Any]]] = []
     for row in documents:
@@ -668,8 +664,7 @@ def _data_result_projection(
         (
             (source_ref, payload)
             for source_ref, payload in recognized
-            if payload.get("schema_version")
-            == "solar-cycle-26-readiness-receipt-v1"
+            if payload.get("schema_version") == "solar-cycle-26-readiness-receipt-v1"
         ),
         None,
     )
@@ -715,9 +710,7 @@ def _data_result_projection(
             "testable_peak_interval_ready": readiness_receipt.get(
                 "testable_peak_interval_ready"
             ),
-            "cycle_25_state_assessment": inventory.get(
-                "cycle_25_state_assessment", {}
-            ),
+            "cycle_25_state_assessment": inventory.get("cycle_25_state_assessment", {}),
             "cycle_26_precursor_assessment": inventory.get(
                 "cycle_26_precursor_assessment", {}
             ),
@@ -1195,8 +1188,7 @@ def _forecast_receipt_projection(
             isinstance(source_ref, str)
             and source_ref.endswith("/forecast_experiment_receipt.json")
             and isinstance(payload, Mapping)
-            and payload.get("schema_version")
-            == "solar-forecast-experiment-receipt-v1"
+            and payload.get("schema_version") == "solar-forecast-experiment-receipt-v1"
         ):
             continue
         projection = project_forecast_claim_from_receipt("", payload)

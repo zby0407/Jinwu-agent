@@ -89,3 +89,26 @@ test("primary agent groups follow registry order and keep roles without exclusiv
     ]
   );
 });
+
+test("JW bundles the five document-quality research skills", async () => {
+  const projectRoot = fileURLToPath(new URL("../..", import.meta.url));
+  const skills = await readBundledSkills(projectRoot);
+  const byName = new Map(skills.map((skill) => [skill.name, skill]));
+
+  const expected = [
+    "solar-cycle-forecast-validation",
+    "solar-hypothesis-portfolio",
+    "solar-mechanism-causal-order",
+    "solar-interaction-regime-testing",
+    "jw-scientific-claim-consistency",
+  ];
+  for (const name of expected) {
+    assert.ok(byName.has(name), name);
+    assert.match(byName.get(name).description, /[\u3400-\u9fff]/);
+  }
+  assert.deepEqual(byName.get("jw-scientific-claim-consistency").assignment.agents, [
+    "JW",
+    "writing-agent",
+    "solar-evidence",
+  ]);
+});

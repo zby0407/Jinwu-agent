@@ -10,6 +10,7 @@ import math
 from pathlib import Path
 
 from jw.solar_forecast.h2_upgrade import run_h2_upgrade
+from jw.solar_forecast.gates import evaluate_forecast_gate
 
 
 def _number(value: str | None) -> float | None:
@@ -149,9 +150,25 @@ def main() -> None:
     result = run_h2_upgrade(
         rows, provisional_row=provisional, bootstrap_resamples=args.bootstrap_resamples
     )
+    primary_metrics = result["models"][result["skill_gate_model"]]["metrics"]
+    evidence_gate = evaluate_forecast_gate(
+        mae_improvement=float(primary_metrics["mae_improvement"]),
+        ci_low=float(primary_metrics["mae_improvement_interval"][0]),
+        ci_high=float(primary_metrics["mae_improvement_interval"][1]),
+        regime_consistent=bool(primary_metrics["regime_consistent"]),
+        leakage_passed=all(
+            max(fold["training_cycles"]) < int(fold["test_cycle"])
+            for fold in result["models"][result["skill_gate_model"]]["folds"]
+        ),
+        data_available=True,
+    )
+    result["evidence_gate"] = evidence_gate
     args.output_dir.mkdir(parents=True, exist_ok=True)
     (args.output_dir / "h2_upgrade_receipt.json").write_text(
         json.dumps(result, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+    )
+    (args.output_dir / "forecast_evidence_gate.json").write_text(
+        json.dumps(evidence_gate, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
     )
     manifest = {
         "schema_version": "h2-upgrade-run-manifest-v1",

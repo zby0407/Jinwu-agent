@@ -39,6 +39,22 @@ Translate rather than repeat:
 - “The user dislikes AI phrasing” → write direct, natural prose.
 - “The third draft fixed an omission” → present the corrected content; retain the history only in a changelog or timeline.
 
+### Judge-facing deliverables: show evidence, never address the judge
+
+“评委展示稿”“面向评委”描述的是使用场景，不是成品中的句式。最终论文、
+海报、演示文稿和展板应直接围绕研究对象陈述：
+
+| 内部意图 | 成品表达 |
+|---|---|
+| 让评委快速判断可信度 | 将结论、定量结果、来源和适用范围放在相邻位置。 |
+| 说明评委可以检查什么 | 直接写变量定义、比较协议、不确定性和可证伪条件。 |
+| 强调系统做过哪些步骤 | 写采用的方法及其结果，省略操作者和工作流叙述。 |
+
+正式成品不得出现直接呼叫受众或交付过程的措辞，包括“评委可核对”、
+“评委关注”“交付标准”“本页展示系统”“证据链构建”“证据闭环”、
+“正式运行结果”“已修复”等同类表达。若系统本身是研究对象，可以在方法
+章节作技术性描述，但仍不得对评委讲话，也不得把构建历史写成研究结果。
+
 ## Accepted-state finalization
 
 After a correction, discarded proposal, or long revision session, regenerate the
@@ -77,6 +93,10 @@ Review the rendered or extracted visible text, not only source files:
 
 6. Titles, openings, filenames, labels, and handoffs describe the accepted final
    state rather than the history of rejected alternatives.
+
+7. 对评委展示类成品，运行扫描器并对 `audience_meta` 与
+   `workflow_narration` 做语义复核；除非是明确要求保留的引文或过程记录，
+   正式成品必须为零发现。
 
 Run the advisory scanner on user-specified text:
 

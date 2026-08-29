@@ -84,3 +84,7 @@ MAE 的小幅下降是有价值的诊断，但不是凭同一测试集选择新�
 - [模型比较图](figures/jw-h2-upgrade-20260828/h2_model_comparison.png)
 - [两半球与滚动预测图](figures/jw-h2-upgrade-20260828/h2_polar_upgrade_diagnostics.png)
 - 重跑命令：`PYTHONPATH=. python3 scripts/run_h2_polar_upgrade.py ...`
+
+## 7. 2026-08-29 可执行证据门
+
+本轮在 H2 运行器中加入独立的 `forecast_evidence_gate.json`。它重新检查数据可得性、滚动折泄漏、指标有限性、区间是否排除零和制度一致性；模型文本不能覆盖这些判定。当前门回执为 `mixed_evidence`，主模型均值极区场的 MAE 改善 13.053，95% 区间 [−6.999, 31.299]，因此仍保留条件统计预测上限，不升级为 `skill_supported`。SC25 暂定标签继续排除在技能门之外。

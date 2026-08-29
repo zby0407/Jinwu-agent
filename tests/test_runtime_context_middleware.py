@@ -136,6 +136,32 @@ def test_async_subagent_middleware_includes_runtime_context(
     assert any(isinstance(m, RuntimeContextMiddleware) for m in middleware)
 
 
+@patch(
+    "jw.middleware.create_tool_selector_middleware",
+    return_value=[MagicMock(), MagicMock()],
+)
+@patch("jw.agent._ensure_chat_model")
+@patch("jw.agent._ensure_config")
+def test_subagent_middleware_includes_skill_runtime_receipt(
+    mock_config, mock_model, mock_tool_selector
+):
+    mock_config.return_value = _mock_config()
+    mock_model.return_value = MagicMock(profile={"max_input_tokens": 200_000})
+
+    from jw.agent import _get_default_middleware
+
+    middleware = _get_default_middleware(
+        for_async_subagent=True,
+        memory_source_agent="solar-data",
+        skills_backend=MagicMock(),
+        skill_sources=["/skills/solar-cycle"],
+    )
+
+    receipt = next(m for m in middleware if type(m).__name__ == "SkillReceiptMiddleware")
+    assert receipt.receipt["agent"] == "solar-data"
+    assert receipt.receipt["skills"] == ["/skills/solar-cycle"]
+
+
 @patch("jw.agent._ensure_chat_model")
 def test_configured_subagent_middleware_includes_runtime_context(mock_model):
     mock_model.return_value = MagicMock(profile={"max_input_tokens": 200_000})

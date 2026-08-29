@@ -319,16 +319,13 @@ def run_precursor_backtest(
         "experiment_id": "polar-precursor-rolling-origin-v1",
         "status": status,
         "forecast_origin": "cycle_minimum",
-        "hypothesis_ids": sorted(
-            {str(row["hypothesis_id"]) for row in ordered}
-        ),
+        "hypothesis_ids": sorted({str(row["hypothesis_id"]) for row in ordered}),
         "feature_ids": [str(row["feature_id"]) for row in ordered],
         "observable_kinds": ["polar_aperture_field"],
         "baseline_names": ["training_mean", "persistence"],
         "candidate_name": "linear_polar_precursor",
         "training_cycles": [
-            int(row["target_cycle_id"])
-            for row in ordered[:INITIAL_TRAINING_CYCLES]
+            int(row["target_cycle_id"]) for row in ordered[:INITIAL_TRAINING_CYCLES]
         ],
         "test_cycles": [int(fold["test_cycle"]) for fold in folds],
         "folds": folds,
@@ -337,8 +334,7 @@ def run_precursor_backtest(
         "sensitivity": sensitivity,
         "leakage_audit": {
             "passed": all(
-                max(fold["training_cycles"]) < int(fold["test_cycle"])
-                for fold in folds
+                max(fold["training_cycles"]) < int(fold["test_cycle"]) for fold in folds
             ),
             "rule": "every training cycle precedes its held-out test cycle",
         },

@@ -20,9 +20,7 @@ def _ten_cycle_fixture() -> list[dict[str, object]]:
             "observable_kind": "polar_aperture_field",
             "source_kind": "polar_aperture_observation",
         }
-        for cycle, value, target in zip(
-            range(15, 25), values, targets, strict=True
-        )
+        for cycle, value, target in zip(range(15, 25), values, targets, strict=True)
     ]
 
 
@@ -108,9 +106,7 @@ def test_fixed_seed_reproduces_bootstrap_interval() -> None:
 def test_mae_rmse_and_leave_one_fold_are_recomputed() -> None:
     result = run_precursor_backtest(_ten_cycle_fixture(), bootstrap_resamples=200)
     observed = np.asarray([fold["observed"] for fold in result["folds"]])
-    predicted = np.asarray(
-        [fold["candidate_prediction"] for fold in result["folds"]]
-    )
+    predicted = np.asarray([fold["candidate_prediction"] for fold in result["folds"]])
 
     assert result["metrics"]["candidate_mae"] == pytest.approx(
         np.mean(np.abs(observed - predicted))

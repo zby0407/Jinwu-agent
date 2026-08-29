@@ -130,7 +130,9 @@ def test_blocked_axial_feature_requires_explicit_gap_and_no_value() -> None:
     assert validate_precursor_feature_record(blocked)["status"] == "blocked_by_data"
 
     with pytest.raises(ValueError, match="data_gap"):
-        validate_precursor_feature_record({key: value for key, value in blocked.items() if key != "data_gap"})
+        validate_precursor_feature_record(
+            {key: value for key, value in blocked.items() if key != "data_gap"}
+        )
     with pytest.raises(ValueError, match="value"):
         validate_precursor_feature_record({**blocked, "value": 0.4})
 
@@ -141,7 +143,9 @@ def test_available_feature_forbids_data_gap() -> None:
 
 
 def test_completed_receipt_requires_strictly_chronological_folds() -> None:
-    assert validate_forecast_experiment_receipt(_receipt())["status"] == "mixed_evidence"
+    assert (
+        validate_forecast_experiment_receipt(_receipt())["status"] == "mixed_evidence"
+    )
 
     invalid = _receipt()
     invalid["folds"] = [
@@ -195,7 +199,9 @@ def test_completed_receipt_requires_strictly_chronological_folds() -> None:
         ),
     ],
 )
-def test_skill_status_is_deterministic(kwargs: dict[str, object], expected: str) -> None:
+def test_skill_status_is_deterministic(
+    kwargs: dict[str, object], expected: str
+) -> None:
     assert classify_forecast_skill(**kwargs) == expected  # type: ignore[arg-type]
 
 

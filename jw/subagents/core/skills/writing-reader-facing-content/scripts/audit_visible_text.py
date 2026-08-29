@@ -18,6 +18,8 @@ CATEGORIES = {
     "production_motive",
     "revision_trace",
     "vague_attribution",
+    "audience_meta",
+    "workflow_narration",
 }
 
 
@@ -95,6 +97,31 @@ RULES = (
             re.IGNORECASE,
         ),
         "疑似修订或差异叙事；仅在变更日志、时间线或迁移说明中保留。",
+        final_only=True,
+    ),
+    Rule(
+        "audience_meta",
+        "review",
+        re.compile(
+            r"评委(?:可|需要|应当|可以|关注|核对|检查|判断|打分)|"
+            r"(?:供|面向)评委|"
+            r"评委可核对|"
+            r"(?:交付|展示|验收)标准|"
+            r"本(?:页|稿|展示稿|材料)(?:展示|说明|呈现)"
+        ),
+        "疑似直接对评委或交付过程说话；将评审需求转化为结果、依据和适用范围，不在成品中呼叫受众。",
+        final_only=True,
+    ),
+    Rule(
+        "workflow_narration",
+        "review",
+        re.compile(
+            r"(?:证据链|证据闭环)(?:构建|形成|完整)|"
+            r"正式运行(?:结果)?|结果页|"
+            r"(?:已修复|早期整理|上一版|本次修订)|"
+            r"(?:系统|平台)(?:从|先|随后|最终|没有把|会制造|展示了)"
+        ),
+        "疑似把系统流程、修订史或内部验收叙事写入成品；正文应直接陈述研究方法、结果和边界。",
         final_only=True,
     ),
     Rule(

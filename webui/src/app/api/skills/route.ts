@@ -41,6 +41,14 @@ function parseFrontmatter(md: string): { name?: string; description?: string } {
   return { name: get("name"), description: get("description") };
 }
 
+function jwProjectRoots(): string[] {
+  const configured = process.env.JW_WORKSPACE_DIR?.trim();
+  const roots = configured
+    ? [resolve(configured)]
+    : [resolve(process.cwd(), ".."), resolve(process.cwd())];
+  return [...new Set(roots)];
+}
+
 async function readSkills(): Promise<SkillCard[]> {
   const skills: SkillCard[] = [];
   const seen = new Set<string>();
@@ -83,7 +91,7 @@ async function readSkills(): Promise<SkillCard[]> {
       }
     }
   }
-  const projectRoots = [resolve(process.cwd(), ".."), resolve(process.cwd())];
+  const projectRoots = jwProjectRoots();
   const bundled = [];
   for (const projectRoot of projectRoots) {
     const entries = await readBundledSkills(projectRoot);
@@ -108,7 +116,7 @@ async function readSkills(): Promise<SkillCard[]> {
 export async function GET() {
   try {
     const skills = await readSkills();
-    const projectRoots = [resolve(process.cwd(), ".."), resolve(process.cwd())];
+    const projectRoots = jwProjectRoots();
     let bundled: Awaited<ReturnType<typeof readBundledSkills>> = [];
     let localCandidates: Awaited<ReturnType<typeof readLocalSkillCandidates>> =
       [];
@@ -123,6 +131,7 @@ export async function GET() {
         title: string;
         description: string;
       }>,
+      mainAgent: { name: "JW", title: "JW 主 Agent", description: "" },
     };
     for (const projectRoot of projectRoots) {
       bundled = await readBundledSkills(projectRoot);
@@ -145,6 +154,8 @@ export async function GET() {
       skills,
       sharedSkills: bundled.filter((skill) => skill.assignment?.shared),
       agents: buildPrimaryAgentGroups(topology.primaryAgents, byAgent),
+      mainAgent: topology.mainAgent,
+      mainSkills: byAgent.get("JW") || [],
       primaryAgents: topology.primaryAgents.map((agent) => agent.name),
       primaryAgentProfiles: topology.primaryAgents,
       supportAgents: topology.supportAgents.map((agent) => agent.name),
@@ -168,7 +179,7 @@ export async function POST(req: NextRequest) {
     const names = Array.isArray(body?.names)
       ? body.names.filter((name: unknown) => typeof name === "string")
       : [];
-    const projectRoots = [resolve(process.cwd(), ".."), resolve(process.cwd())];
+    const projectRoots = jwProjectRoots();
     for (const projectRoot of projectRoots) {
       if ((await readBundledSkills(projectRoot)).length === 0) continue;
       const imported = await importLocalSkills(projectRoot, names);

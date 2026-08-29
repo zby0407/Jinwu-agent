@@ -300,6 +300,14 @@ _MODEL_ENTRIES: list[tuple[str, str, str]] = [
     ("doubao-seed-1.6", "doubao-seed-1.6", "volcengine"),
     ("doubao-1.5-pro", "doubao-1.5-pro-256k", "volcengine"),
     ("doubao-1.5-thinking-pro", "doubao-1.5-thinking-pro", "volcengine"),
+    # Bailian Qwen deployments exposed through an OpenAI-compatible custom
+    # endpoint. Keep these before the native DashScope entries so the default
+    # short-name provider remains DashScope while explicit custom-openai
+    # overrides validate and appear in the provider picker.
+    ("qwen3.8-max", "qwen3.8-max", "custom-openai"),
+    ("qwen3.8-plus", "qwen3.8-plus", "custom-openai"),
+    ("qwen3.7-max", "qwen3.7-max", "custom-openai"),
+    ("qwen3.7-plus", "qwen3.7-plus", "custom-openai"),
     # DashScope Coding Plan (阿里云代码计划 — subscription sk-sp-* endpoint)
     ("qwen3.8-max", "qwen3.8-max", "dashscope-code"),
     ("qwen3.8-plus", "qwen3.8-plus", "dashscope-code"),

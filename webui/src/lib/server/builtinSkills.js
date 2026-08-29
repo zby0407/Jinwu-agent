@@ -46,6 +46,9 @@ async function readRegistry(projectRoot) {
       supportAgents: Array.isArray(value.support_agents)
         ? value.support_agents
         : [],
+      main: Array.isArray(value.main)
+        ? value.main.filter((x) => typeof x === "string")
+        : [],
       agentProfiles:
         value.agent_profiles && typeof value.agent_profiles === "object"
           ? value.agent_profiles
@@ -65,6 +68,7 @@ async function readRegistry(projectRoot) {
       version: 1,
       primaryAgents: [],
       supportAgents: [],
+      main: [],
       agentProfiles: {},
       shared: [],
       agents: {},
@@ -92,6 +96,7 @@ export async function readSkillTopology(projectRoot) {
     };
   };
   return {
+    mainAgent: profile("JW"),
     primaryAgents: registry.primaryAgents.map(profile),
     supportAgents: registry.supportAgents.map(profile),
   };
@@ -111,7 +116,9 @@ function assignmentFor(registry, name) {
     .filter(([, names]) => Array.isArray(names) && names.includes(name))
     .map(([agent]) => agent);
   const shared = registry.shared.includes(name);
-  return { shared, agents: shared ? ["all", ...agents] : agents };
+  const main = registry.main.includes(name);
+  const scoped = main ? ["JW", ...agents] : agents;
+  return { shared, agents: shared ? ["all", ...scoped] : scoped };
 }
 
 function localSkillRoots() {

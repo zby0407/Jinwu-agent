@@ -418,8 +418,7 @@ def solar_polar_precursor_directive() -> str:
         "pre-registered regime check does not reverse direction. Compare an "
         "axial-dipole predictor only when a registered axial-dipole product or a "
         "fixed harmonic from registered synoptic maps is present; otherwise return "
-        "blocked_by_data for H3 without relabeling the polar aperture field. "
-        "Do not preselect the interaction sign or a preferred scientific outcome."
+        "blocked_by_data for H3 without relabeling the polar aperture field."
     )
 
 

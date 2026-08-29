@@ -43,6 +43,7 @@ from .config import (
 from .memory import MemorySourceType
 from .paths import set_active_workspace, set_workspace_root
 from .prompts import get_system_prompt
+from .subagents.skill_registry import skills_for_agent as _skills_for_agent
 
 # Suppress noisy warnings from deepagents skill loader
 # (non-string frontmatter fields, etc.).
@@ -57,7 +58,11 @@ if TYPE_CHECKING:
 
 SUBAGENTS_CONFIG = Path(__file__).parent / "subagents"
 SKILLS_DIR = str(Path(__file__).parent / "subagents")
-DEFAULT_SKILL_SOURCES = ("/skills/",)
+
+# Keep the root Agent's on-demand catalog bounded to orchestration/release
+# capabilities. Role-specific skills are injected only into the six Solar
+# specialist graphs via ``_inject_subagent_middleware``.
+DEFAULT_SKILL_SOURCES = tuple(_skills_for_agent("JW"))
 HYPOTHESIS_SUBAGENT_MODEL_CALL_LIMIT_FLOOR = 32
 
 
@@ -1114,6 +1119,7 @@ def _get_default_middleware(
         create_tool_selector_middleware,
         default_memory_scheduler,
         load_fallback_chain,
+        SkillReceiptMiddleware,
     )
 
     cfg = cfg if cfg is not None else _ensure_config()
@@ -1179,7 +1185,16 @@ def _get_default_middleware(
         # ASGI event loop.  Suppress the built-in instance at graph creation
         # and place the equivalent middleware immediately after preparation.
         from deepagents.middleware.skills import SkillsMiddleware
+        from .subagents.skill_registry import skill_receipt_for_sources
 
+        # Keep a model-visible and machine-readable receipt next to the
+        # on-demand Skills middleware. This proves which role-scoped sources
+        # were resolved, instead of relying on the model to self-report them.
+        mw.append(
+            SkillReceiptMiddleware(
+                skill_receipt_for_sources(memory_source_agent, skill_sources)
+            )
+        )
         mw.append(SkillsMiddleware(backend=skills_backend, sources=skill_sources))
     mw.extend(
         [

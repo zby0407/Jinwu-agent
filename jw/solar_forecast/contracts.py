@@ -149,8 +149,12 @@ def validate_precursor_feature_record(value: object) -> dict[str, object]:
     ):
         _require_nonempty_text(record[field], field)
     for field in ("observation_start", "observation_end", "available_at"):
-        if not isinstance(record[field], (str, int, float)) or isinstance(record[field], bool):
-            raise ValueError(f"{field} must identify an observation or availability time")
+        if not isinstance(record[field], (str, int, float)) or isinstance(
+            record[field], bool
+        ):
+            raise ValueError(
+                f"{field} must identify an observation or availability time"
+            )
 
     observable_kind = record["observable_kind"]
     if observable_kind not in OBSERVABLE_KINDS:
@@ -231,7 +235,9 @@ def classify_forecast_skill(
     return "mixed_evidence"
 
 
-def _require_cycle_list(value: object, field: str, *, allow_empty: bool = False) -> list[int]:
+def _require_cycle_list(
+    value: object, field: str, *, allow_empty: bool = False
+) -> list[int]:
     if not isinstance(value, Sequence) or isinstance(value, (str, bytes)):
         raise ValueError(f"{field} must be a list of cycle numbers")
     cycles = [_require_cycle(item, field) for item in value]
@@ -272,7 +278,9 @@ def validate_forecast_experiment_receipt(value: object) -> dict[str, object]:
     baselines = _require_string_list(receipt["baseline_names"], "baseline_names")
     if "training_mean" not in baselines or "persistence" not in baselines:
         raise ValueError("baseline_names must include training_mean and persistence")
-    _require_cycle_list(receipt["training_cycles"], "training_cycles", allow_empty=allow_empty)
+    _require_cycle_list(
+        receipt["training_cycles"], "training_cycles", allow_empty=allow_empty
+    )
     _require_cycle_list(receipt["test_cycles"], "test_cycles", allow_empty=allow_empty)
 
     folds = receipt["folds"]
@@ -292,7 +300,9 @@ def validate_forecast_experiment_receipt(value: object) -> dict[str, object]:
             "measurement_regime",
         }
         _require_fields(fold, required, f"folds[{index}]")
-        train = _require_cycle_list(fold["training_cycles"], f"folds[{index}].training_cycles")
+        train = _require_cycle_list(
+            fold["training_cycles"], f"folds[{index}].training_cycles"
+        )
         test_cycle = _require_cycle(fold["test_cycle"], f"folds[{index}].test_cycle")
         if train and max(train) >= test_cycle:
             raise ValueError("every training cycle must precede its test cycle")
@@ -303,7 +313,9 @@ def validate_forecast_experiment_receipt(value: object) -> dict[str, object]:
             "persistence_prediction",
         ):
             _require_finite(fold[field], f"folds[{index}].{field}")
-        _require_nonempty_text(fold["measurement_regime"], f"folds[{index}].measurement_regime")
+        _require_nonempty_text(
+            fold["measurement_regime"], f"folds[{index}].measurement_regime"
+        )
 
     metrics = _require_mapping(receipt["metrics"], "metrics")
     metric_fields = {
@@ -320,7 +332,11 @@ def validate_forecast_experiment_receipt(value: object) -> dict[str, object]:
     for field in metric_fields.difference({"mae_improvement_interval"}):
         _require_finite(metrics[field], f"metrics.{field}")
     interval = metrics["mae_improvement_interval"]
-    if not isinstance(interval, Sequence) or isinstance(interval, (str, bytes)) or len(interval) != 2:
+    if (
+        not isinstance(interval, Sequence)
+        or isinstance(interval, (str, bytes))
+        or len(interval) != 2
+    ):
         raise ValueError("metrics.mae_improvement_interval must contain two bounds")
     low = _require_finite(interval[0], "metrics.mae_improvement_interval[0]")
     high = _require_finite(interval[1], "metrics.mae_improvement_interval[1]")

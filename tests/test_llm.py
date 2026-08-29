@@ -18,7 +18,7 @@ from jw.llm import (
     get_models_for_provider,
     list_models,
 )
-from jw.llm.models import _MODEL_ENTRIES
+from jw.llm.models import _MODEL_ENTRIES, validate_model_override
 
 # =============================================================================
 # Test MODELS registry
@@ -109,6 +109,12 @@ class TestDefaultModel:
         _, provider = MODELS[DEFAULT_MODEL]
         assert DEFAULT_MODEL.startswith("qwen")
         assert provider == "dashscope"
+
+
+def test_bailian_qwen_models_are_supported_on_custom_openai_route():
+    model, provider = validate_model_override("qwen3.8-max", "custom-openai")
+    assert (model, provider) == ("qwen3.8-max", "custom-openai")
+    assert ("qwen3.8-max", "qwen3.8-max") in get_models_for_provider("custom-openai")
 
 
 # =============================================================================

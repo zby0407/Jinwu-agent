@@ -3,6 +3,10 @@
   "primary_agents": ["solar-planner", "solar-data", "solar-hypothesis", "solar-experiment", "solar-evidence", "solar-knowledge"],
   "support_agents": ["planner-agent", "research-agent", "code-agent", "debug-agent", "data-analysis-agent", "writing-agent", "scheduler"],
   "agent_profiles": {
+    "JW": {
+      "title": "JW 主 Agent",
+      "description": "接收原始科研问题，协调六个太阳科研子 Agent，并把证据汇总为可审查的研究结果。"
+    },
     "solar-planner": {
       "title": "研究规划",
       "description": "把原始科研问题转化为研究路线、证据需求、条件转移与停止规则。"
@@ -61,6 +65,13 @@
     "scientific-writing",
     "scientific-visualization"
   ],
+  "main": [
+    "solar-cycle",
+    "solar-cycle-forecast-validation",
+    "solar-hypothesis-portfolio",
+    "jw-scientific-claim-consistency",
+    "jw-release-export-qa"
+  ],
   "agents": {
     "planner-agent": [
       "find-skills"
@@ -78,29 +89,44 @@
     "debug-agent": [],
     "writing-agent": [
       "writing-reader-facing-content",
+      "scientific-slides",
       "latex-quality-control",
-      "jw-release-export-qa"
+      "jw-release-export-qa",
+      "jw-scientific-claim-consistency"
     ],
     "scheduler": [],
     "solar-planner": [
       "solar-cycle",
+      "solar-hypothesis-portfolio",
       "find-skills"
     ],
     "solar-data": [
       "solar-cycle",
+      "solar-cycle-forecast-validation",
       "solar-evidence-figure-production"
     ],
     "solar-hypothesis": [
       "solar-cycle",
+      "solar-hypothesis-portfolio",
+      "solar-mechanism-causal-order",
+      "solar-interaction-regime-testing",
       "find-skills"
     ],
     "solar-experiment": [
       "solar-cycle",
+      "solar-cycle-forecast-validation",
+      "solar-mechanism-causal-order",
+      "solar-interaction-regime-testing",
       "solar-flare-forecasting",
       "solar-evidence-figure-production"
     ],
     "solar-evidence": [
       "solar-cycle",
+      "solar-cycle-forecast-validation",
+      "solar-hypothesis-portfolio",
+      "solar-mechanism-causal-order",
+      "solar-interaction-regime-testing",
+      "jw-scientific-claim-consistency",
       "solar-evidence-figure-production"
     ],
     "solar-knowledge": [
