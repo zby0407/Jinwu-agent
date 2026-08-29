@@ -247,7 +247,8 @@ def test_polar_precursor_directive_requires_cycle_level_out_of_sample_analysis()
     assert "WSO" in directive
     assert "blocked_by_data" in directive
     assert "axial-dipole" in directive
-    assert "interaction" not in directive.casefold()
+    assert "interaction" in directive.casefold()
+    assert "sign-neutral" in directive.casefold()
 
 
 def test_silso_final_markdown_is_deterministic_and_scoped() -> None:

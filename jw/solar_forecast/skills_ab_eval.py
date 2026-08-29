@@ -22,11 +22,13 @@ def build_ab_report(
     registry = json.loads(Path(registry_path).read_text(encoding="utf-8"))
     shared = [str(item) for item in registry.get("shared", [])]
     agents = registry.get("agents", {})
+    main_skills = [str(item) for item in registry.get("main", [])]
     role_specific = {
         str(agent): [str(skill) for skill in skills if str(skill) not in shared]
         for agent, skills in agents.items()
         if isinstance(skills, list)
     }
+    role_specific["JW"] = [skill for skill in main_skills if skill not in shared]
     gate_statuses: dict[str, str] = {}
     for agent, path in gate_paths.items():
         payload = json.loads(Path(path).read_text(encoding="utf-8"))
@@ -42,13 +44,15 @@ def build_ab_report(
         "treatment": {
             "skill_mode": "treatment",
             "shared_skill_count": len(shared),
-            "role_specific_skill_count": sum(len(items) for items in role_specific.values()),
+            "role_specific_skill_count": sum(
+                len(items) for items in role_specific.values()
+            ),
             "role_specific_skills": role_specific,
             "executable_gate": True,
             "gate_statuses": gate_statuses,
             "runtime_receipts": {
                 agent: skill_assignment_receipt(agent, path=registry_path)
-                for agent in sorted(agents)
+                for agent in sorted({*agents, "JW"})
             },
         },
         "interpretation": {
