@@ -23,11 +23,8 @@ def _bind_polar_run(workspace: Path) -> str:
         "peak_smoothed_sunspot_number_sigma,north_polar_field_abs_gauss,"
         "south_polar_field_abs_gauss\n"
         + "\n".join(
-            f"analysis,{cycle},{target},{8 + (cycle % 3)},"
-            f"{value * 0.85},{value * 1.15}"
-            for cycle, target, value in zip(
-                range(15, 25), targets, values, strict=True
-            )
+            f"analysis,{cycle},{target},{8 + (cycle % 3)},{value * 0.85},{value * 1.15}"
+            for cycle, target, value in zip(range(15, 25), targets, values, strict=True)
         )
         + "\n",
         encoding="utf-8",

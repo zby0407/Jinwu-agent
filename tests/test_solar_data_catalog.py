@@ -703,10 +703,7 @@ def test_precursor_receipt_is_self_describing_and_hash_binds_boundary_table(
     assert blocked[0]["observable_kind"] == "axial_dipole_moment"
     assert blocked[0]["status"] == "blocked_by_data"
     assert blocked[0]["value"] is None
-    assert (
-        blocked[0]["data_gap"]
-        == "NO_REGISTERED_AXIAL_DIPOLE_OR_SYNOPTIC_MAP_INPUT"
-    )
+    assert blocked[0]["data_gap"] == "NO_REGISTERED_AXIAL_DIPOLE_OR_SYNOPTIC_MAP_INPUT"
     assert receipt["pair_coverage"] == {
         "requested_pairs": [f"{cycle}->{cycle + 1}" for cycle in range(14, 24)],
         "available_pairs": [f"{cycle}->{cycle + 1}" for cycle in range(14, 24)],

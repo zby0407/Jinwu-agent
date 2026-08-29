@@ -3851,9 +3851,7 @@ def test_forecast_projection_rejects_receipt_status_not_supported_by_metrics() -
 
 
 def test_experiment_adapter_exposes_receipt_backed_forecast_summary() -> None:
-    source_ref = (
-        "experiment/runs/polar-run/forecast_experiment_receipt.json"
-    )
+    source_ref = "experiment/runs/polar-run/forecast_experiment_receipt.json"
     adapted = adapt_v1_producer_output(
         stage="experiment_result",
         version=1,
@@ -3868,9 +3866,7 @@ def test_experiment_adapter_exposes_receipt_backed_forecast_summary() -> None:
         ],
     )
 
-    summary = adapted["payload"]["experiment_result_summary"][
-        "forecast_summary"
-    ]
+    summary = adapted["payload"]["experiment_result_summary"]["forecast_summary"]
     assert summary["source_ref"] == source_ref
     assert summary["forecast_origin"] == "cycle_minimum"
     assert summary["observable_kinds"] == ["polar_aperture_field"]
@@ -5359,10 +5355,7 @@ def test_experiment_dispatch_persists_host_owned_research_scope(
         ],
     }
     ranking_sidecar = (
-        workspace
-        / "work"
-        / "research_quality"
-        / "hypothesis_portfolio_ranking.json"
+        workspace / "work" / "research_quality" / "hypothesis_portfolio_ranking.json"
     )
     ranking_sidecar.parent.mkdir(parents=True)
     ranking_sidecar.write_text(json.dumps(portfolio_capsule), encoding="utf-8")

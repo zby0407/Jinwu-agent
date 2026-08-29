@@ -70,7 +70,11 @@ def skill_assignment_receipt(
         return any((root / name / "SKILL.md").is_file() for root in roots)
 
     missing = [source for source in sources if not exists(source)]
-    status = "ok" if not missing else ("partial" if len(missing) < len(sources) else "missing")
+    status = (
+        "ok"
+        if not missing
+        else ("partial" if len(missing) < len(sources) else "missing")
+    )
     return {
         "schema_version": "jw-skill-receipt-v1",
         "agent": agent_name,
@@ -101,7 +105,9 @@ def skill_receipt_for_sources(
         skill_roots=skill_roots,
     )
     missing = [source for source in source_list if source not in base_receipt["skills"]]
-    missing.extend(source for source in base_receipt["missing"] if source in source_list)
+    missing.extend(
+        source for source in base_receipt["missing"] if source in source_list
+    )
     # Registry paths are authoritative when present; a source may also be a
     # deliberate ``/skills/`` aggregate route used by the main agent.
     missing = list(dict.fromkeys(source for source in missing if source != "/skills/"))

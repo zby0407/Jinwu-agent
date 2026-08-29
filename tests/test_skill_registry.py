@@ -36,7 +36,9 @@ def test_main_agent_gets_only_orchestration_skills():
 
 def test_registry_file_is_project_local():
     registry = load_skill_registry()
-    assert Path(__file__).parents[1].joinpath("jw/subagents/skill_registry.json").is_file()
+    assert (
+        Path(__file__).parents[1].joinpath("jw/subagents/skill_registry.json").is_file()
+    )
     assert registry["version"] == 1
 
 
@@ -70,14 +72,15 @@ def test_solar_research_quality_skills_are_role_scoped():
     }
     for skill, expected_agents in expected.items():
         assigned = {
-            agent
-            for agent, skills in registry["agents"].items()
-            if skill in skills
+            agent for agent, skills in registry["agents"].items() if skill in skills
         }
         assert assigned == expected_agents, skill
-        assert Path(__file__).parents[1].joinpath(
-            "jw/subagents/solar/skills", skill, "SKILL.md"
-        ).is_file()
+        assert (
+            Path(__file__)
+            .parents[1]
+            .joinpath("jw/subagents/solar/skills", skill, "SKILL.md")
+            .is_file()
+        )
 
 
 def test_scientific_slides_is_available_to_the_writing_agent():
@@ -94,7 +97,10 @@ def test_skill_assignment_receipt_is_machine_readable_and_reports_missing_files(
     }
     registry_path = tmp_path / "skill_registry.json"
     registry_path.write_text(json.dumps(registry), encoding="utf-8")
-    for skill_name in ("verification-before-completion", "solar-cycle-forecast-validation"):
+    for skill_name in (
+        "verification-before-completion",
+        "solar-cycle-forecast-validation",
+    ):
         skill_dir = tmp_path / "skills" / skill_name
         skill_dir.mkdir(parents=True)
         (skill_dir / "SKILL.md").write_text(f"# {skill_name}\n", encoding="utf-8")

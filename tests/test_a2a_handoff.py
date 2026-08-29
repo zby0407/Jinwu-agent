@@ -154,7 +154,9 @@ def test_a2a_handoff_envelope_carries_stage_contract_and_boundaries() -> None:
     assert "portfolio_ranking" not in envelope
 
 
-def test_a2a_handoff_envelope_optionally_carries_only_minimal_portfolio_capsule() -> None:
+def test_a2a_handoff_envelope_optionally_carries_only_minimal_portfolio_capsule() -> (
+    None
+):
     capsule = {
         "scientific_support": [{"hypothesis_id": "hypothesis-a", "rank": 1}],
         "research_priority": [{"hypothesis_id": "hypothesis-b", "rank": 1}],
@@ -225,18 +227,22 @@ def test_downstream_stage_loads_portfolio_capsule_from_working_state(
     assert capsule["scientific_support"][0]["claim"] == (
         "The bounded descriptive direction is stable."
     )
-    assert capsule["scientific_support"][0]["supporting_evidence"][0][
-        "dependency_group_id"
-    ] == "historical-series-one"
+    assert (
+        capsule["scientific_support"][0]["supporting_evidence"][0][
+            "dependency_group_id"
+        ]
+        == "historical-series-one"
+    )
     assert capsule["scientific_support"][0]["portfolio_role"] == "empirical_anchor"
     assert capsule["scientific_support"][0]["portfolio_status"] == "active_top3"
     assert capsule["scientific_support"][0]["forecast_origin"] == "early_cycle"
     assert capsule["scientific_support"][0]["forecast_receipt_ref"] == (
         "experiment/runs/run-1/forecast_experiment_receipt.json"
     )
-    assert capsule["scientific_support"][1]["opposing_evidence"][0][
-        "evidence_id"
-    ] == "negative-result"
+    assert (
+        capsule["scientific_support"][1]["opposing_evidence"][0]["evidence_id"]
+        == "negative-result"
+    )
     assert capsule["scientific_support"][1]["uncertainty"]["effect"] == {
         "interval_crosses_null": True
     }

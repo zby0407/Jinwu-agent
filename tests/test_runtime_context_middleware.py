@@ -157,7 +157,9 @@ def test_subagent_middleware_includes_skill_runtime_receipt(
         skill_sources=["/skills/solar-cycle"],
     )
 
-    receipt = next(m for m in middleware if type(m).__name__ == "SkillReceiptMiddleware")
+    receipt = next(
+        m for m in middleware if type(m).__name__ == "SkillReceiptMiddleware"
+    )
     assert receipt.receipt["agent"] == "solar-data"
     assert receipt.receipt["skills"] == ["/skills/solar-cycle"]
 

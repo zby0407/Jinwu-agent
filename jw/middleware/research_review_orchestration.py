@@ -2094,9 +2094,7 @@ def _minimal_portfolio_ranking_capsule(
             "portfolio ranking capsule is missing required fields: "
             + ", ".join(missing)
         )
-    return {
-        field: payload[field] for field in _PORTFOLIO_RANKING_CAPSULE_FIELDS
-    }
+    return {field: payload[field] for field in _PORTFOLIO_RANKING_CAPSULE_FIELDS}
 
 
 def _portfolio_ranking_capsule_projection(
@@ -2107,11 +2105,10 @@ def _portfolio_ranking_capsule_projection(
     if all(field in ranking for field in _PORTFOLIO_RANKING_CAPSULE_FIELDS):
         return _minimal_portfolio_ranking_capsule(ranking)
 
-    if (
-        ranking.get("schema_version")
-        != "scientific-hypothesis-portfolio-ranking-v2"
-    ):
-        raise ValueError("persisted portfolio ranking has an unsupported schema_version")
+    if ranking.get("schema_version") != "scientific-hypothesis-portfolio-ranking-v2":
+        raise ValueError(
+            "persisted portfolio ranking has an unsupported schema_version"
+        )
     ranked_hypotheses = ranking.get("ranked_hypotheses")
     selected_next_experiment = ranking.get("selected_next_experiment")
     if not isinstance(ranked_hypotheses, list) or not isinstance(
@@ -2128,13 +2125,17 @@ def _portfolio_ranking_capsule_projection(
 
     rows = [dict(row) for row in ranked_hypotheses]
     hypothesis_groups = ranking.get("hypothesis_groups")
-    normalized_statements = {
-        str(group.get("hypothesis_id") or ""): str(
-            group.get("normalized_statement") or ""
-        )
-        for group in hypothesis_groups
-        if isinstance(group, Mapping)
-    } if isinstance(hypothesis_groups, list) else {}
+    normalized_statements = (
+        {
+            str(group.get("hypothesis_id") or ""): str(
+                group.get("normalized_statement") or ""
+            )
+            for group in hypothesis_groups
+            if isinstance(group, Mapping)
+        }
+        if isinstance(hypothesis_groups, list)
+        else {}
+    )
 
     def ordered(rank_key: str) -> list[dict[str, Any]]:
         try:
@@ -2194,9 +2195,7 @@ def _portfolio_ranking_capsule_projection(
                     },
                     "falsifiability": row.get("falsifiability"),
                     "portfolio_role": row.get("portfolio_role", "challenger"),
-                    "portfolio_status": row.get(
-                        "portfolio_status", "challenger_pool"
-                    ),
+                    "portfolio_status": row.get("portfolio_status", "challenger_pool"),
                     "forecast_origin": row.get("forecast_origin", "not_applicable"),
                     "forecast_receipt_ref": bounded_forecast_receipt_ref(
                         row.get("forecast_receipt_ref")
@@ -2254,12 +2253,11 @@ def _load_portfolio_ranking_capsule(
             tail_review = payload.get("tail_review")
             if not isinstance(tail_review, Mapping):
                 continue
-            if (
-                payload.get("portfolio_ranking_candidate_pool_sha256")
-                != tail_review.get("selected_candidate_pool_sha256")
-                or payload.get("portfolio_ranking_evidence_sha256")
-                != tail_review.get("evidence_sha256")
-            ):
+            if payload.get(
+                "portfolio_ranking_candidate_pool_sha256"
+            ) != tail_review.get("selected_candidate_pool_sha256") or payload.get(
+                "portfolio_ranking_evidence_sha256"
+            ) != tail_review.get("evidence_sha256"):
                 continue
         ranking = payload.get("portfolio_ranking")
         if ranking is None and relative_path.endswith(

@@ -40,7 +40,11 @@ def evaluate_forecast_gate(
             "checks": checks,
             "reasons": reasons + ["required_data_unavailable"],
         }
-    if not leakage_passed or not finite_metrics or not isinstance(regime_consistent, bool):
+    if (
+        not leakage_passed
+        or not finite_metrics
+        or not isinstance(regime_consistent, bool)
+    ):
         if not finite_metrics:
             reasons.append("metrics_missing_or_nonfinite")
         if not isinstance(regime_consistent, bool):

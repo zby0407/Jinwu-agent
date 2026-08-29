@@ -477,9 +477,7 @@ def test_axial_role_rejects_polar_aperture_receipt() -> None:
         portfolio_role="physical_discriminator",
         portfolio_status="candidate_pending_test",
         forecast_origin="cycle_minimum",
-        forecast_receipt_ref=(
-            "experiment/runs/h2/forecast_experiment_receipt.json"
-        ),
+        forecast_receipt_ref=("experiment/runs/h2/forecast_experiment_receipt.json"),
     )
 
     with pytest.raises(ContractError, match="axial_dipole_moment"):

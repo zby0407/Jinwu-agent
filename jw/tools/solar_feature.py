@@ -1375,12 +1375,8 @@ def _build_solar_precursor_cycle_rows(
                 "polar_field_proxy_sem_gauss": (
                     round(proxy_sem, 6) if proxy_sem is not None else None
                 ),
-                "north_polar_field_abs_gauss": round(
-                    float(north["field_mean"]), 6
-                ),
-                "south_polar_field_abs_gauss": round(
-                    float(south["field_mean"]), 6
-                ),
+                "north_polar_field_abs_gauss": round(float(north["field_mean"]), 6),
+                "south_polar_field_abs_gauss": round(float(south["field_mean"]), 6),
                 "predictor_window_complete": bool(
                     north["window_complete"] and south["window_complete"]
                 ),
@@ -2086,9 +2082,7 @@ def prepare_solar_precursor_cycle_table(
                     "schema_version": "solar-precursor-feature-record-v1",
                     "feature_id": f"polar-minimum-cycle-{row['cycle_number']}",
                     "hypothesis_id": "h2_polar_precursor",
-                    "forecast_origin": str(
-                        row["predictor_window_end_decimal_year"]
-                    ),
+                    "forecast_origin": str(row["predictor_window_end_decimal_year"]),
                     "observable_kind": "polar_aperture_field",
                     "physical_quantity": (
                         "mean absolute north/south calibrated polar field"
@@ -2099,9 +2093,7 @@ def prepare_solar_precursor_cycle_table(
                     "observation_start": str(
                         row["predictor_window_start_decimal_year"]
                     ),
-                    "observation_end": str(
-                        row["predictor_window_end_decimal_year"]
-                    ),
+                    "observation_end": str(row["predictor_window_end_decimal_year"]),
                     "available_at": str(row["predictor_cutoff_decimal_year"]),
                     "cycle_id": int(row["cycle_number"]) - 1,
                     "target_cycle_id": int(row["cycle_number"]),
@@ -2153,9 +2145,7 @@ def prepare_solar_precursor_cycle_table(
                     ),
                     "source_kind": "missing",
                     "status": "blocked_by_data",
-                    "data_gap": (
-                        "NO_REGISTERED_AXIAL_DIPOLE_OR_SYNOPTIC_MAP_INPUT"
-                    ),
+                    "data_gap": ("NO_REGISTERED_AXIAL_DIPOLE_OR_SYNOPTIC_MAP_INPUT"),
                 }
             )
         ]
@@ -2321,9 +2311,7 @@ def prepare_solar_precursor_cycle_table(
                 "gaps": receipt["gaps"],
                 "limitations": receipt["limitations"],
                 "feature_record_count": len(feature_records),
-                "unavailable_feature_record_count": len(
-                    unavailable_feature_records
-                ),
+                "unavailable_feature_record_count": len(unavailable_feature_records),
                 "hypothesis_data_status": {
                     "h2_polar_precursor": "available",
                     "h3_axial_dipole_discriminator": "blocked_by_data",

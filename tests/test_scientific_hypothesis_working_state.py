@@ -221,7 +221,9 @@ def _portfolio_ranking_payload(draft: dict[str, object]) -> dict[str, object]:
                 "strongest_null_hypothesis": "The observed difference is measurement variation.",
                 "next_experiment": {
                     "objective": candidate["next_test"]["objective"],
-                    "discriminating_power": candidate["next_test"]["discriminating_power"],
+                    "discriminating_power": candidate["next_test"][
+                        "discriminating_power"
+                    ],
                     "feasibility": "executable_now",
                 },
                 "ranking_rationale": "Support and research priority use separate ranks.",
@@ -2059,7 +2061,9 @@ def test_portfolio_ranking_is_persisted_and_bound_into_checkpoint(
         )
     )
     checked = json.loads(
-        hypothesis_tools.scientific_hypothesis_checkpoint_draft.invoke({}, config=config)
+        hypothesis_tools.scientific_hypothesis_checkpoint_draft.invoke(
+            {}, config=config
+        )
     )
 
     assert ranked["status"] == "portfolio_ranked"
