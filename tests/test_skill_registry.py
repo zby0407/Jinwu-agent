@@ -40,5 +40,7 @@ def test_main_agent_runtime_sources_match_the_registry():
 
 def test_registry_file_is_project_local():
     registry = load_skill_registry()
-    assert Path(__file__).parents[1].joinpath("jw/subagents/skill_registry.json").is_file()
+    assert (
+        Path(__file__).parents[1].joinpath("jw/subagents/skill_registry.json").is_file()
+    )
     assert registry["version"] == 1
