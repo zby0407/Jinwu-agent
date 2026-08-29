@@ -29,6 +29,7 @@ from pathlib import Path
 from langchain_core.runnables import RunnableConfig
 from langchain_core.tools import tool
 
+from jw.solar_forecast import validate_precursor_feature_record
 from jw.workspaces import resolve_scoped_path, workspace_root_from_config
 
 from .registry import register_tool_bundle
@@ -1298,6 +1299,8 @@ def _build_solar_precursor_cycle_rows(
             "minimum_date_sensitivity_span_months": None,
             "polar_field_proxy_gauss": None,
             "polar_field_proxy_sem_gauss": None,
+            "north_polar_field_abs_gauss": None,
+            "south_polar_field_abs_gauss": None,
             "predictor_window_complete": None,
             "predictor_fallback": None,
             "predictor_window_start_decimal_year": None,
@@ -1372,6 +1375,8 @@ def _build_solar_precursor_cycle_rows(
                 "polar_field_proxy_sem_gauss": (
                     round(proxy_sem, 6) if proxy_sem is not None else None
                 ),
+                "north_polar_field_abs_gauss": round(float(north["field_mean"]), 6),
+                "south_polar_field_abs_gauss": round(float(south["field_mean"]), 6),
                 "predictor_window_complete": bool(
                     north["window_complete"] and south["window_complete"]
                 ),
@@ -1445,6 +1450,16 @@ _SOLAR_PRECURSOR_COLUMN_SCHEMA = [
     {"name": "polar_field_proxy_gauss", "type": "number", "nullable": True},
     {
         "name": "polar_field_proxy_sem_gauss",
+        "type": "number",
+        "nullable": True,
+    },
+    {
+        "name": "north_polar_field_abs_gauss",
+        "type": "number",
+        "nullable": True,
+    },
+    {
+        "name": "south_polar_field_abs_gauss",
         "type": "number",
         "nullable": True,
     },
@@ -2060,6 +2075,80 @@ def prepare_solar_precursor_cycle_table(
                     ),
                 }
             )
+        analysis_rows = [row for row in rows if row.get("row_role") == "analysis"]
+        feature_records = [
+            validate_precursor_feature_record(
+                {
+                    "schema_version": "solar-precursor-feature-record-v1",
+                    "feature_id": f"polar-minimum-cycle-{row['cycle_number']}",
+                    "hypothesis_id": "h2_polar_precursor",
+                    "forecast_origin": str(row["predictor_window_end_decimal_year"]),
+                    "observable_kind": "polar_aperture_field",
+                    "physical_quantity": (
+                        "mean absolute north/south calibrated polar field"
+                    ),
+                    "unit": "gauss",
+                    "source_dataset_ids": ["mwo-wso-polar-field-v2"],
+                    "source_artifact_ids": [table_ref, metadata_ref],
+                    "observation_start": str(
+                        row["predictor_window_start_decimal_year"]
+                    ),
+                    "observation_end": str(row["predictor_window_end_decimal_year"]),
+                    "available_at": str(row["predictor_cutoff_decimal_year"]),
+                    "cycle_id": int(row["cycle_number"]) - 1,
+                    "target_cycle_id": int(row["cycle_number"]),
+                    "value": float(row["polar_field_proxy_gauss"]),
+                    "uncertainty": row["polar_field_proxy_sem_gauss"],
+                    "measurement_regime": "+".join(
+                        sorted(
+                            {
+                                str(row["north_source"]),
+                                str(row["south_source"]),
+                            }
+                        )
+                    ),
+                    "derivation_method": (
+                        "mean absolute calibrated north/south polar aperture field"
+                    ),
+                    "source_kind": "polar_aperture_observation",
+                    "status": "available",
+                }
+            )
+            for row in analysis_rows
+        ]
+        if not feature_records:
+            raise RuntimeError("precursor table has no analysis feature records")
+        first_feature = feature_records[0]
+        unavailable_feature_records = [
+            validate_precursor_feature_record(
+                {
+                    "schema_version": "solar-precursor-feature-record-v1",
+                    "feature_id": "axial-dipole-cycle-minimum-unavailable",
+                    "hypothesis_id": "h3_axial_dipole_discriminator",
+                    "forecast_origin": first_feature["forecast_origin"],
+                    "observable_kind": "axial_dipole_moment",
+                    "physical_quantity": "axial dipole moment near cycle minimum",
+                    "unit": "gauss",
+                    "source_dataset_ids": [],
+                    "source_artifact_ids": [],
+                    "observation_start": first_feature["observation_start"],
+                    "observation_end": feature_records[-1]["observation_end"],
+                    "available_at": first_feature["available_at"],
+                    "cycle_id": int(first_feature["cycle_id"]),
+                    "target_cycle_id": int(first_feature["target_cycle_id"]),
+                    "value": None,
+                    "uncertainty": None,
+                    "measurement_regime": "not_available",
+                    "derivation_method": (
+                        "not computed; registered axial-dipole product or "
+                        "registered synoptic-map harmonic required"
+                    ),
+                    "source_kind": "missing",
+                    "status": "blocked_by_data",
+                    "data_gap": ("NO_REGISTERED_AXIAL_DIPOLE_OR_SYNOPTIC_MAP_INPUT"),
+                }
+            )
+        ]
         receipt = {
             "schema_version": "solar-precursor-cycle-table-v2",
             "receipt_type": "solar_precursor_cycle_table",
@@ -2092,6 +2181,8 @@ def prepare_solar_precursor_cycle_table(
                 "minimum_date_sensitivity_span_months": "month",
                 "polar_field_proxy_gauss": "gauss",
                 "polar_field_proxy_sem_gauss": "gauss",
+                "north_polar_field_abs_gauss": "gauss",
+                "south_polar_field_abs_gauss": "gauss",
                 "predictor_window_start_decimal_year": "decimal_year",
                 "predictor_window_end_decimal_year": "decimal_year",
                 "north_measurement_date": "decimal_year",
@@ -2102,6 +2193,8 @@ def prepare_solar_precursor_cycle_table(
                 "polar_field_proxy_gauss": (
                     "unsigned non-negative magnitude: mean absolute north/south field"
                 ),
+                "north_polar_field_abs_gauss": "unsigned north polar-field magnitude",
+                "south_polar_field_abs_gauss": "unsigned south polar-field magnitude",
                 "basis": (
                     "The source north/south signs encode polarity; this product uses "
                     "their absolute magnitudes for the precursor proxy."
@@ -2148,6 +2241,8 @@ def prepare_solar_precursor_cycle_table(
                 "uncertainty_source": "https://www.sidc.be/SILSO/infosnmstot",
             },
             "row_count": len(rows),
+            "feature_records": feature_records,
+            "unavailable_feature_records": unavailable_feature_records,
             "cycle_numbers": cycle_numbers,
             "analysis_cycle_numbers": list(range(15, 25)),
             "boundary_cycle_numbers": [14],
@@ -2215,6 +2310,12 @@ def prepare_solar_precursor_cycle_table(
                 "uncertainty_fields": receipt["uncertainty_fields"],
                 "gaps": receipt["gaps"],
                 "limitations": receipt["limitations"],
+                "feature_record_count": len(feature_records),
+                "unavailable_feature_record_count": len(unavailable_feature_records),
+                "hypothesis_data_status": {
+                    "h2_polar_precursor": "available",
+                    "h3_axial_dipole_discriminator": "blocked_by_data",
+                },
             }
         )
     except Exception as exc:

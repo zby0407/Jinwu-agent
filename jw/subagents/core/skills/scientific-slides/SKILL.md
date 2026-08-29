@@ -1,54 +1,57 @@
 ---
 name: scientific-slides
-description: Use when planning, creating, revising, or reviewing the content or narrative of a scientific, mathematical, or technical talk, including source-grounded slides, formulas, figures, speaker notes, or rendered-deck critique; not for layout-only PPTX edits or LaTeX/Beamer build repair.
+description: 当 JW 需要规划、撰写或审查太阳周期科研展示、P5–P6 评委讲稿、演讲叙事、证据图和讲者备注时使用；仅修改 PPTX 文件或修复 Beamer 编译时不单独使用。
 allowed-tools: Read Write Edit Bash
 license: MIT license
 metadata:
     skill-author: K-Dense Inc.
 ---
 
-# Scientific Slides
+# JW 科学展示
 
-Build a talk from verified research content. Make the question, method, evidence, uncertainty, and conclusion understandable at presentation pace while preserving editable source material.
+把已核验的研究内容转成适合现场理解的科学叙事。展示必须让听众在有限时间内分清研究问题、数据、方法、证据、不确定性和下一决策，同时保留可编辑来源。
 
-## Select the mode
+## 工作模式
 
-- **Plan:** define audience, purpose, duration, format, narrative, and evidence needs.
-- **Create:** turn approved sources into slide content, visuals, and notes.
-- **Revise:** preserve requested content or structure, then change only the named scope.
-- **Review:** inspect rendered slides and give specific, slide-numbered corrections without editing unless asked.
+- **规划：** 明确听众、用途、时长、格式、叙事和证据需求。
+- **创建：** 将 accepted 工件转成页级主张、图表和讲者备注。
+- **修订：** 保留用户指定结构，只修改授权范围。
+- **审查：** 检查实际渲染页，按页给出证据、叙事和视觉问题。
 
-## Route the artifact
+## 文件路由
 
-| Need | Supporting Skill |
+| 需求 | 配套 Skill |
 |---|---|
-| Read, create, edit, or export an actual `.pptx` | `pptx` |
-| User explicitly requests the high-customization SVG-to-native-PPTX production workflow | `ppt-master` |
-| Compile, debug, render, or inspect Beamer/LaTeX | `latex-quality-control` |
-| Create data plots or publication-grade scientific figures | `scientific-visualization` or project analysis code |
-| Review final audience-visible wording | `writing-reader-facing-content` |
+| 实际读取、编辑或导出 `.pptx` | `pptx` |
+| 用户明确要求高定制原生 PPTX | `ppt-master` |
+| 编译、渲染或检查 Beamer/LaTeX | `latex-quality-control` |
+| 制作数据图和不确定性图 | `scientific-visualization` 或项目分析脚本 |
+| 审校最终读者可见文字 | `writing-reader-facing-content` |
 
-Default to editable PPTX or Beamer source plus rendered output. Use generated full-slide images only when explicitly requested.
+默认交付可编辑源文件和实际渲染结果。除非用户明确要求，不把整页生成为不可编辑图片。
 
-## Build from evidence
+## 从证据构建
 
-1. Establish audience, purpose, duration, language, format, and required template. Infer minor preferences when safe.
-2. Read the sources needed for the talk. Map claims, theorem conditions, values, uncertainty, figures, and citations before drafting.
-3. Design an appropriate narrative around the question, necessary background, method, evidence, interpretation, limitations, and conclusion; adapt this order to the talk.
-4. Give each content slide one main message and prefer a title that states the result or question.
-5. Use a figure, equation, table, diagram, or text composition when it carries evidence or explanation. Decoration is not a requirement.
-6. Preserve values, units, sample sizes, uncertainty, assumptions, and qualifiers. Never redraw observed data with a generative model. Generated imagery is optional conceptual illustration and must be labelled.
-7. Maintain slide IDs, sources, speaking time, transitions, and notes. Notes must not hide facts needed to understand the slide.
+1. 先从回执和声明账本取得数字、样本量、区间、状态和数据截止，不从旧展示稿复制。
+2. 每一内容页只承担一个核心问题或结论，标题优先直接说出该页主张。
+3. 图、公式、表格或示意图只在承载证据或解释时使用；观测数据不得由生成式图像重绘。
+4. 正文保留单位、样本量、基线、区间和必要限定；讲者备注不能隐藏理解结论所必需的事实。
+5. 记录页码、证据来源、预计讲述时间、转场和可能的评委追问。
 
-## Rendered review
+## P5–P6 专项规则
 
-Do not make visual claims from an outline, extracted text, or unrendered source. Inspect every slide and reveal state for source fidelity, story, formulas, figures, axes and units, hierarchy, contrast, overflow, alignment, citations, timing, and notes.
+- **P5 科学输出：** 同页呈现正式点预测、预测区间、相对基线表现和当前置信度。若模型未胜过基线，点预测不能占据压倒性视觉优势。
+- **P6 失败修正与下一步：** 说明失败暴露的科学问题、已采用的规则和下一项可证伪验证；不展示内部调试流水账。
+- 历史先验、当前 accepted 预测和暂定前瞻检查必须使用不同标签。H2 历史技能不能冒充 SC26 的独立正式预测。
+- 评委可能追问“为什么相信这个数字”“为什么区间这么宽”“H2/H3 是否真正使用相应数据”；备注中准备回执支持的简洁回答。
 
-For a formal talk, report the verdict, blocking issues, slide-specific corrections, audience questions, and priorities. For a discussion deck, emphasize known versus unknown, evidence versus interpretation, and the next decision. Open high-stakes decks in PowerPoint/WPS or an equivalent native renderer when available.
+## 渲染审查
 
-## Common mistakes
+不能根据提纲或未渲染源码声称展示合格。逐页检查来源忠实度、叙事、公式、图表、轴与单位、层级、对比度、溢出、对齐、引用、时长和备注。正式答辩应在 PowerPoint、WPS 或等价原生渲染器中抽查关键页。
 
-- Shrinking a report onto slides instead of designing a talk.
-- Treating every slide as an image, bullet list, or identical card grid.
-- Replacing editable charts or formulas with generated pixels.
-- Calling the deck finished after source checks without rendered inspection.
+## 常见错误
+
+- 把长报告缩小后塞进幻灯片，而没有设计演讲节奏。
+- 只突出点预测，弱化更关键的区间与阴性技能证据。
+- 把所有页做成相同卡片，或用装饰图替代证据图。
+- 只检查源码便宣布完成，没有看实际渲染页面。

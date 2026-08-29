@@ -66,6 +66,176 @@ type Verdict = {
   created_at?: unknown;
 };
 
+type PortfolioRankingRow = {
+  hypothesis_id?: unknown;
+  support_rank?: unknown;
+  research_priority_rank?: unknown;
+  claim_type?: unknown;
+  scientific_support?: unknown;
+  research_priority?: unknown;
+  strongest_null_hypothesis?: unknown;
+  next_experiment?: unknown;
+  release_boundary?: unknown;
+  portfolio_role?: unknown;
+  portfolio_status?: unknown;
+  forecast_origin?: unknown;
+  forecast_receipt_ref?: unknown;
+};
+
+const EXECUTION_STATUSES = new Set([
+  "running",
+  "waiting_for_tool",
+  "interrupted",
+  "failed",
+  "stopped",
+]);
+
+function executionReasonLabel(reason: string, status: string): string {
+  const labels: Record<string, string> = {
+    heartbeat_stale: "执行心跳超时",
+    delegated_tool_call: "正在等待工具返回",
+    action_completed: "本次动作已完成",
+    tool_or_postprocessing_failed: "工具或结果处理失败",
+    required_specialist_failed_twice: "必需科研角色连续失败",
+    tool_call_interrupted: "执行已中断",
+  };
+  if (labels[reason]) return labels[reason];
+  if (reason.startsWith("tool_handler_exception:")) return "工具调用异常";
+  return status === "running" ? "科研动作正在执行" : "执行状态已更新";
+}
+
+async function readExecutionState(workspace: string) {
+  const record = await readJson(
+    resolveInside(workspace, "research_review/execution_state.json")
+  );
+  if (
+    record?.schema_version !== "research-execution-state-v1" ||
+    !EXECUTION_STATUSES.has(safeString(record.status)) ||
+    !safeString(record.stage) ||
+    !safeString(record.updated_at)
+  ) {
+    return undefined;
+  }
+  let status = safeString(record.status);
+  let reason = safeString(record.reason);
+  if (status === "running" || status === "waiting_for_tool") {
+    const updated = Date.parse(safeString(record.updated_at));
+    if (!Number.isFinite(updated)) return undefined;
+    if (Date.now() - updated > 300_000) {
+      status = "stopped";
+      reason = "heartbeat_stale";
+    }
+  }
+  return {
+    status,
+    stage: safeString(record.stage),
+    updatedAt: safeString(record.updated_at),
+    reason: executionReasonLabel(reason, status),
+  };
+}
+
+function boundedForecastReceiptRef(value: unknown): string | null {
+  const receipt = safeString(value);
+  return /^experiment\/runs\/[^/]+\/forecast_experiment_receipt\.json$/.test(
+    receipt
+  )
+    ? receipt
+    : null;
+}
+
+function boundedAssessment(value: unknown) {
+  const row = value && typeof value === "object"
+    ? (value as Record<string, unknown>)
+    : {};
+  return {
+    level: safeString(row.level, "low"),
+    rationale: safeString(row.rationale).slice(0, 1_000),
+  };
+}
+
+function boundedNextExperiment(value: unknown) {
+  const row = value && typeof value === "object"
+    ? (value as Record<string, unknown>)
+    : {};
+  return {
+    objective: safeString(row.objective).slice(0, 1_000),
+    discriminatingPower: safeString(row.discriminating_power).slice(0, 1_000),
+    feasibility: safeString(row.feasibility),
+  };
+}
+
+async function readPortfolioRanking(workspace: string) {
+  const state = await readJson(
+    resolveInside(workspace, "work/scientific_hypothesis_state.json")
+  );
+  const ranking =
+    state?.portfolio_ranking && typeof state.portfolio_ranking === "object"
+      ? (state.portfolio_ranking as Record<string, unknown>)
+      : null;
+  const tailReview =
+    state?.tail_review && typeof state.tail_review === "object"
+      ? (state.tail_review as Record<string, unknown>)
+      : null;
+  const rankingPool = safeString(
+    state?.portfolio_ranking_candidate_pool_sha256
+  );
+  const rankingEvidence = safeString(state?.portfolio_ranking_evidence_sha256);
+  if (
+    !ranking ||
+    ranking.schema_version !== "scientific-hypothesis-portfolio-ranking-v2" ||
+    !Array.isArray(ranking.ranked_hypotheses) ||
+    !tailReview ||
+    !rankingPool ||
+    rankingPool !== safeString(tailReview.selected_candidate_pool_sha256) ||
+    !rankingEvidence ||
+    rankingEvidence !== safeString(tailReview.evidence_sha256)
+  ) {
+    return undefined;
+  }
+  const groups = new Map<string, string>();
+  if (Array.isArray(ranking.hypothesis_groups)) {
+    for (const value of ranking.hypothesis_groups) {
+      if (!value || typeof value !== "object") continue;
+      const group = value as Record<string, unknown>;
+      const id = safeString(group.hypothesis_id);
+      const statement = safeString(group.normalized_statement);
+      if (id && statement) groups.set(id, statement.slice(0, 1_000));
+    }
+  }
+  const rankedHypotheses = ranking.ranked_hypotheses
+    .filter(
+      (value): value is PortfolioRankingRow =>
+        Boolean(value && typeof value === "object")
+    )
+    .map((row) => {
+      const hypothesisId = safeString(row.hypothesis_id);
+      return {
+        statement: groups.get(hypothesisId) ?? "未命名假设",
+        supportRank: safeNumber(row.support_rank),
+        researchPriorityRank: safeNumber(row.research_priority_rank),
+        claimType: safeString(row.claim_type),
+        scientificSupport: boundedAssessment(row.scientific_support),
+        researchPriority: boundedAssessment(row.research_priority),
+        strongestNull: safeString(row.strongest_null_hypothesis).slice(0, 1_000),
+        nextExperiment: boundedNextExperiment(row.next_experiment),
+        releaseBoundary: safeString(row.release_boundary).slice(0, 1_000),
+        portfolioRole: safeString(row.portfolio_role, "challenger"),
+        portfolioStatus: safeString(row.portfolio_status, "challenger_pool"),
+        forecastOrigin: safeString(row.forecast_origin, "not_applicable"),
+        forecastReceiptRef: boundedForecastReceiptRef(row.forecast_receipt_ref),
+      };
+    })
+    .sort((left, right) => left.supportRank - right.supportRank)
+    .slice(0, 8);
+  if (rankedHypotheses.length === 0) return undefined;
+  return {
+    rankedHypotheses,
+    selectedNextExperiment: boundedNextExperiment(
+      ranking.selected_next_experiment
+    ),
+  };
+}
+
 async function readJson(path: string): Promise<Record<string, unknown> | null> {
   try {
     const value = JSON.parse(await fs.readFile(path, "utf-8")) as unknown;
@@ -298,6 +468,8 @@ export async function GET(request: NextRequest) {
         recovery: "new_task_after_fix",
       };
     }
+    const portfolioRanking = await readPortfolioRanking(workspace);
+    const execution = await readExecutionState(workspace);
 
     return NextResponse.json(
       {
@@ -312,6 +484,8 @@ export async function GET(request: NextRequest) {
         maxReviewInvocations: safeNumber(state.max_review_invocations),
         updatedAt: safeString(state.updated_at),
         stages,
+        portfolioRanking,
+        execution,
         terminal,
       },
       { headers: { "Cache-Control": "no-store" } }

@@ -49,6 +49,7 @@ from .scheduler import (
     SchedulerMiddleware,
     create_scheduler_middleware,
 )
+from .skill_receipt import SkillReceiptMiddleware
 from .task_cancellation import TaskCancellationMiddleware
 from .task_workspace import TaskWorkspaceMiddleware
 from .tool_error_handler import ToolErrorHandlerMiddleware
@@ -77,6 +78,7 @@ __all__ = [
     "ResearchRoutingState",
     "RuntimeContextMiddleware",
     "SchedulerMiddleware",
+    "SkillReceiptMiddleware",
     "TaskCancellationMiddleware",
     "TaskWorkspaceMiddleware",
     "ToolErrorHandlerMiddleware",

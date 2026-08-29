@@ -557,6 +557,8 @@ def test_precursor_cycle_builder_uses_complete_cycles_and_uncertainty_fields(
         assert row["north_window_observation_count"] >= 1
         assert row["south_window_observation_count"] >= 1
         assert row["polar_field_proxy_gauss"] == pytest.approx(1.1)
+        assert row["north_polar_field_abs_gauss"] == pytest.approx(1.0)
+        assert row["south_polar_field_abs_gauss"] == pytest.approx(1.2)
         assert row["peak_smoothed_sunspot_number_sigma"] == pytest.approx(1.0)
         assert row["minimum_date_sensitivity_start"] <= row["minimum_date"]
         assert row["minimum_date_sensitivity_end"] >= row["minimum_date"]
@@ -681,6 +683,27 @@ def test_precursor_receipt_is_self_describing_and_hash_binds_boundary_table(
         "mwo-wso-polar-field-v2",
     ]
     assert receipt["row_count"] == 11
+    feature_records = receipt["feature_records"]
+    assert len(feature_records) == 10
+    assert {row["observable_kind"] for row in feature_records} == {
+        "polar_aperture_field"
+    }
+    assert all(
+        row["source_dataset_ids"] == ["mwo-wso-polar-field-v2"]
+        for row in feature_records
+    )
+    assert all(
+        float(row["available_at"]) <= float(row["forecast_origin"])
+        for row in feature_records
+    )
+    assert [row["target_cycle_id"] for row in feature_records] == list(range(15, 25))
+    blocked = receipt["unavailable_feature_records"]
+    assert len(blocked) == 1
+    assert blocked[0]["hypothesis_id"] == "h3_axial_dipole_discriminator"
+    assert blocked[0]["observable_kind"] == "axial_dipole_moment"
+    assert blocked[0]["status"] == "blocked_by_data"
+    assert blocked[0]["value"] is None
+    assert blocked[0]["data_gap"] == "NO_REGISTERED_AXIAL_DIPOLE_OR_SYNOPTIC_MAP_INPUT"
     assert receipt["pair_coverage"] == {
         "requested_pairs": [f"{cycle}->{cycle + 1}" for cycle in range(14, 24)],
         "available_pairs": [f"{cycle}->{cycle + 1}" for cycle in range(14, 24)],
@@ -690,8 +713,12 @@ def test_precursor_receipt_is_self_describing_and_hash_binds_boundary_table(
         "row_role",
         "minimum_date",
         "polar_field_proxy_gauss",
+        "north_polar_field_abs_gauss",
+        "south_polar_field_abs_gauss",
     }
     assert receipt["units"]["polar_field_proxy_gauss"] == "gauss"
+    assert receipt["units"]["north_polar_field_abs_gauss"] == "gauss"
+    assert receipt["units"]["south_polar_field_abs_gauss"] == "gauss"
     assert "absolute" in receipt["sign_convention"]["polar_field_proxy_gauss"]
     assert receipt["temporal_ordering_rule"]
     assert receipt["sample_size"]["independent_sample_count"] == 10
@@ -716,6 +743,12 @@ def test_precursor_receipt_is_self_describing_and_hash_binds_boundary_table(
     assert result["sample_size"] == receipt["sample_size"]
     assert result["uncertainty_fields"] == receipt["uncertainty_fields"]
     assert result["gaps"] == receipt["gaps"]
+    assert result["feature_record_count"] == 10
+    assert result["unavailable_feature_record_count"] == 1
+    assert result["hypothesis_data_status"] == {
+        "h2_polar_precursor": "available",
+        "h3_axial_dipole_discriminator": "blocked_by_data",
+    }
     output = receipt["outputs"][0]
     output_path = tmp_path / output["path"]
     assert output["bytes"] == output_path.stat().st_size

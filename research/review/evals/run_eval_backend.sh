@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-reviewer="${1:-kimi}"
+reviewer="${1:-qwen}"
 review_mode="${2:-two_pass}"
 
 case "$reviewer" in
@@ -49,8 +49,9 @@ for light_agent in solar-data solar-knowledge; do
 done
 export JW_AGENT_MODEL_OVERRIDES="$agent_overrides"
 # Routing and helper work is lighter than stage production/review, so use the
-# Qwen Plus tier by default. qwen3.7-plus is the lighter model verified on the
-# current custom endpoint; callers may explicitly raise it to qwen3.8-max.
+# Qwen Plus tier by default. In this deployment Qwen is served by the
+# Bailian OpenAI-compatible endpoint; callers may explicitly select another
+# supported provider when credentials are configured.
 export JW_AUXILIARY_MODEL="$light_model"
 export JW_AUXILIARY_PROVIDER="$light_provider"
 # Independent review is a distinct role, never the auxiliary selector. It is

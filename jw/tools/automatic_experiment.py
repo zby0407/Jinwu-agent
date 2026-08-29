@@ -225,6 +225,17 @@ def _apply_host_analysis_protocol(
         task = str(enriched.get("task") or "").strip()
         if requirement not in task:
             enriched["task"] = f"{task}\n\n{requirement}" if task else requirement
+    elif research_scope.get("analysis_protocol") == "solar_polar_precursor_v1":
+        requirement = (
+            "Host protocol requirement: use exactly five initial training cycles, "
+            "strict rolling-origin folds, training-mean and persistence baselines, "
+            "seed 20260828 with 10000 cycle-level bootstrap repetitions, and "
+            "separate MWO/WSO sensitivity. Preserve H3 as blocked_by_data unless "
+            "the receipt contains a registered axial-dipole observable."
+        )
+        task = str(enriched.get("task") or "").strip()
+        if requirement not in task:
+            enriched["task"] = f"{task}\n\n{requirement}" if task else requirement
     return enriched
 
 
@@ -402,6 +413,156 @@ _SC26_FORECAST_ARTIFACT = "sc26_forecast_independent_check.json"
 _SC26_FORECAST_ESTIMAND = (
     "严格时间顺序回测中前一活动周峰值模型相对训练均值基线的平均绝对误差改进"
 )
+POLAR_FORECAST_OUTPUTS = [
+    "forecast_experiment_receipt.json",
+    "rolling_predictions.csv",
+    "bootstrap_mae_improvement.csv",
+]
+_POLAR_FORECAST_ESTIMAND = (
+    "严格滚动起点回测中极小期极区场模型相对训练均值基线的平均绝对误差改进"
+)
+
+
+def _polar_forecast_input_ids(request: dict[str, Any]) -> dict[str, str]:
+    """Resolve the verified polar feature table and typed Data receipt."""
+
+    matched: dict[str, str] = {}
+    for row in request.get("input_refs", []):
+        if not isinstance(row, dict):
+            continue
+        input_id = str(row.get("id") or "")
+        name = Path(str(row.get("path") or "")).name.casefold()
+        if name == "solar_precursor_cycle_features.csv":
+            matched["table"] = input_id
+        elif name == "solar_precursor_cycle_table.json":
+            matched["receipt"] = input_id
+    missing = [label for label in ("table", "receipt") if not matched.get(label)]
+    if missing:
+        raise ValueError(
+            "solar_polar_precursor_v1 requires the verified precursor table and "
+            "its typed receipt; missing: " + ", ".join(missing)
+        )
+    return matched
+
+
+def _polar_forecast_measurements() -> list[dict[str, str]]:
+    rows = [
+        ("candidate_mae", "极区前兆模型平均绝对误差", "primary"),
+        ("training_mean_mae", "训练均值基线平均绝对误差", "secondary"),
+        ("persistence_mae", "持续性基线平均绝对误差", "secondary"),
+        ("candidate_rmse", "极区前兆模型均方根误差", "secondary"),
+        ("training_mean_rmse", "训练均值基线均方根误差", "secondary"),
+        ("persistence_rmse", "持续性基线均方根误差", "secondary"),
+        ("mae_improvement", "相对训练均值基线的绝对误差改进", "primary"),
+        ("mae_improvement_ci_low", "绝对误差改进区间下限", "secondary"),
+        ("mae_improvement_ci_high", "绝对误差改进区间上限", "secondary"),
+    ]
+    return [
+        {
+            "name": name,
+            "display_name": display,
+            "role": role,
+            "unit": "平滑太阳黑子数",
+            "scientific_meaning": "以完整活动周为单位的严格时间顺序预测误差量。",
+        }
+        for name, display, role in rows
+    ]
+
+
+def _polar_forecast_results() -> list[dict[str, str]]:
+    rows = [
+        ("effective_backtest_folds", "有效历史回测周数", "count", "diagnostic"),
+        ("bootstrap_repetitions", "bootstrap 重复次数", "count", "diagnostic"),
+        ("bootstrap_seed", "bootstrap 随机种子", "count", "diagnostic"),
+        ("leakage_audit_passed", "时间泄漏检查通过", "boolean", "primary"),
+        ("regime_consistent", "测量制度方向一致", "boolean", "primary"),
+        ("feature_lineage_verified", "前兆特征谱系已核对", "boolean", "primary"),
+        ("forecast_skill_status", "历史预测技能类别", "category", "primary"),
+        ("axial_data_status", "轴向偶极矩数据状态", "category", "secondary"),
+    ]
+    return [
+        {
+            "id": identifier,
+            "display_name": display,
+            "value_kind": kind,
+            "role": role,
+            "unit": "次" if identifier == "bootstrap_repetitions" else "",
+            "scientific_meaning": "预注册极区前兆预测实验的确定性核对结果。",
+        }
+        for identifier, display, kind, role in rows
+    ]
+
+
+def _create_polar_forecast_design(run_id: str) -> dict[str, Any]:
+    """Build the protocol-owned polar precursor forecast design."""
+
+    run_root, _state = service.load_state(run_id)
+    request = json.loads((run_root / "request.json").read_text(encoding="utf-8"))
+    _polar_forecast_input_ids(request)
+    response = {
+        "response_kind": "experiment_ready",
+        "normalized_task": "复核极小期极区场对下一太阳活动周峰值的历史预测技能。",
+        "design_summary": (
+            "单阶段完成五周起始训练的扩展窗口回测、双基线比较、固定种子"
+            "活动周级重采样、逐周留一、测量制度敏感性，以及平方根均值、"
+            "目标离散度加权和较弱半球三个固定敏感性模型。"
+        ),
+        "clarifications": [],
+        "blockers": [],
+        "method_fit": "suitable",
+    }
+    analysis = {
+        "design_summary": response["design_summary"],
+        "primary_question": "极小期极区场模型能否在历史盲测中稳定超过训练均值基线？",
+        "analysis_mode": "完整活动周级扩展窗口滚动起点预测。",
+        "claim_scope": (
+            "H2 使用已登记的 MWO—WSO 极区孔径观测；没有合格数据时 H3 仅报告阻断。"
+        ),
+        "method_outline": (
+            "按目标活动周排序，前五周训练后逐周留出；每折重新拟合一元线性前兆"
+            "模型并重算训练均值与持续性基线，以种子 20260828 对逐折绝对误差差"
+            "重采样 10000 次，另报逐周留一和 MWO、WSO 制度结果。三个敏感性"
+            "模型只作稳健性诊断，不依据同一测试集事后晋升为主模型。"
+        ),
+        "measurements": _polar_forecast_measurements(),
+        "results": _polar_forecast_results(),
+        "artifacts": [
+            {
+                "path": POLAR_FORECAST_OUTPUTS[0],
+                "kind": "json",
+                "description": "类型化实验回执、逐折指标、泄漏检查和科学判定。",
+            },
+            {
+                "path": POLAR_FORECAST_OUTPUTS[1],
+                "kind": "csv",
+                "description": "每个严格时间顺序留出周的预测、基线与观测。",
+            },
+            {
+                "path": POLAR_FORECAST_OUTPUTS[2],
+                "kind": "csv",
+                "description": "固定种子活动周级配对重采样的误差改进分布。",
+            },
+        ],
+        "dependencies": ["numpy"],
+        "primary_estimand": _POLAR_FORECAST_ESTIMAND,
+        "criterion_statement": (
+            "只有相对训练均值基线的平均绝对误差改进为正、其95%区间下限高于零，"
+            "且至少两折的各测量制度均不反转方向，才记为预测技能得到支持。"
+        ),
+        "criterion_basis_kind": "method_standard",
+        "criterion_basis_text": "判定在查看本次历史留出结果前固定，并保留空结果和制度差异。",
+        "threats_to_validity": [
+            "完整活动周样本有限。",
+            "MWO 是校准代理，WSO 是磁强计观测，测量制度并不相同。",
+            "回顾性极小期标签存在中心平滑确认滞后。",
+        ],
+        "literature_basis": "本实验只复核已登记数据，不以文献相关性替代本地历史盲测。",
+        "seed": 20260828,
+        "null_rule": "未超过基线或区间覆盖无优势时保留空结果或混合证据。",
+        "uncertainty_rule": "逐周留一或测量制度方向不一致时降低结论强度。",
+        "partial_rule": "缺少真实轴向偶极矩时 H3 为数据阻断，但不使 H2 失效。",
+    }
+    return service.build_and_store_single_stage_design(run_id, response, analysis)
 
 
 def _sc26_forecast_input_ids(request: dict[str, Any]) -> dict[str, str]:
@@ -967,6 +1128,75 @@ def ensure_host_solar_cycle_26_forecast_design(
         return {**checked, "run_id": run_id}
 
 
+def ensure_host_polar_forecast_design(
+    config: RunnableConfig = None,
+) -> dict[str, Any]:
+    """Materialize the protocol-owned polar forecast design at the host boundary."""
+
+    workspace = workspace_root_from_config(config)
+    research_scope = _host_research_scope(config)
+    if (
+        not isinstance(research_scope, dict)
+        or research_scope.get("analysis_protocol") != "solar_polar_precursor_v1"
+    ):
+        raise service.ServiceError(
+            "host polar forecast design requires solar_polar_precursor_v1",
+            error_code="RESEARCH_EXPERIMENT_SCOPE_INVALID",
+        )
+    if research_scope.get("stage") != "experiment_design":
+        raise service.ServiceError(
+            "host polar forecast design is only valid in experiment_design",
+            error_code="RESEARCH_EXPERIMENT_SCOPE_INVALID",
+        )
+    staged_refs = _host_staged_input_refs(config)
+    if not staged_refs:
+        raise service.ServiceError(
+            "host polar forecast design has no staged inputs",
+            error_code="RESEARCH_EXPERIMENT_INPUTS_MISSING",
+        )
+    task = json.loads((workspace / "task.json").read_text(encoding="utf-8"))
+    question = str(task.get("research_question") or "").strip()
+    if not question:
+        raise service.ServiceError(
+            "host polar forecast design has no bound research question",
+            error_code="RESEARCH_EXPERIMENT_SCOPE_INVALID",
+        )
+    request = default_request(question)
+    request["input_refs"] = staged_refs
+    request = _apply_host_analysis_protocol(request, research_scope)
+    with task_workspace(workspace):
+        try:
+            bound = service.bind_request(
+                {"request": request},
+                research_scope=_service_research_scope(research_scope),
+            )
+            run_id = str(bound["run_id"])
+        except service.ServiceError as exc:
+            if getattr(
+                exc, "error_code", None
+            ) != "RESEARCH_EXPERIMENT_SCOPE_ALREADY_BOUND" or not isinstance(
+                getattr(exc, "run_id", None), str
+            ):
+                raise
+            run_id = str(exc.run_id)
+        run_root, state = service.load_state(run_id)
+        if (
+            state.get("phase") == "design_validated"
+            and (run_root / "design.json").is_file()
+        ):
+            return {"status": "design_validated", "run_id": run_id}
+        service.inspect_inputs(run_id)
+        checked = _create_polar_forecast_design(run_id)
+        if checked.get("status") != "design_validated":
+            raise service.ServiceError(
+                "host polar forecast design did not validate: "
+                + json.dumps(checked, ensure_ascii=False)[:2000],
+                error_code="RESEARCH_EXPERIMENT_DESIGN_INVALID",
+                run_id=run_id,
+            )
+        return {**checked, "run_id": run_id}
+
+
 def _solar_cycle_26_forecast_worker_source(input_ids: dict[str, str]) -> str:
     source = r"""import csv
 import json
@@ -1133,6 +1363,408 @@ def _prepare_solar_cycle_26_forecast_attempt(run_id: str) -> dict[str, Any]:
         [{"path": "experiment.py", "content": source}],
         None,
         "使用协议专用 worker 从已接受的逐周产物独立复算回测指标并核对正式预测。",
+    )
+
+
+def _polar_forecast_worker_source(input_ids: dict[str, str]) -> str:
+    source = r"""import csv
+import json
+import math
+
+import numpy as np
+
+TABLE_INPUT_ID = "__TABLE_ID__"
+RECEIPT_INPUT_ID = "__RECEIPT_ID__"
+SEED = 20260828
+REPETITIONS = 10000
+INITIAL_TRAINING_CYCLES = 5
+RECEIPT_ARTIFACT = "forecast_experiment_receipt.json"
+PREDICTIONS_ARTIFACT = "rolling_predictions.csv"
+BOOTSTRAP_ARTIFACT = "bootstrap_mae_improvement.csv"
+
+
+def _fit_line(train_x, train_y, test_x, transform=None, weights=None):
+    if transform == "sqrt":
+        train_x = np.sqrt(train_x)
+        test_x = math.sqrt(test_x)
+    design = np.column_stack([np.ones(len(train_x)), train_x])
+    if weights is None:
+        fitted_design = design
+        fitted_target = train_y
+    else:
+        scale = np.sqrt(np.asarray(weights, dtype=float))
+        fitted_design = design * scale[:, None]
+        fitted_target = train_y * scale
+    intercept, slope = np.linalg.lstsq(
+        fitted_design, fitted_target, rcond=None
+    )[0]
+    return float(intercept + slope * test_x)
+
+
+def _rolling_folds(rows, model="mean_polar_linear"):
+    folds = []
+    for test_index in range(INITIAL_TRAINING_CYCLES, len(rows)):
+        train = rows[:test_index]
+        test = rows[test_index]
+        feature_key = (
+            "weakest_value"
+            if model == "weakest_hemisphere_linear"
+            else "value"
+        )
+        train_x = np.asarray([row[feature_key] for row in train], dtype=float)
+        train_y = np.asarray([row["target"] for row in train], dtype=float)
+        transform = "sqrt" if model == "sqrt_mean_polar_linear" else None
+        weights = None
+        if model == "target_dispersion_weighted_linear":
+            weights = np.asarray(
+                [1.0 / row["target_dispersion"] ** 2 for row in train],
+                dtype=float,
+            )
+        folds.append({
+            "training_cycles": [row["target_cycle_id"] for row in train],
+            "test_cycle": test["target_cycle_id"],
+            "feature_id": test["feature_id"],
+            "observed": test["target"],
+            "candidate_prediction": _fit_line(
+                train_x,
+                train_y,
+                test[feature_key],
+                transform=transform,
+                weights=weights,
+            ),
+            "training_mean_prediction": float(np.mean(train_y)),
+            "persistence_prediction": float(train_y[-1]),
+            "measurement_regime": test["measurement_regime"],
+        })
+    return folds
+
+
+def _sensitivity_model(rows, model):
+    if model == "target_dispersion_weighted_linear" and any(
+        row["target_dispersion"] is None for row in rows
+    ):
+        return {
+            "status": "blocked_by_data",
+            "data_gap": "TARGET_PEAK_DISPERSION_NOT_AVAILABLE",
+        }
+    if model == "weakest_hemisphere_linear" and any(
+        row["weakest_value"] is None for row in rows
+    ):
+        return {
+            "status": "blocked_by_data",
+            "data_gap": "HEMISPHERIC_POLAR_FIELD_MAGNITUDES_NOT_AVAILABLE",
+        }
+    folds = _rolling_folds(rows, model=model)
+    metrics, sensitivity, _bootstrap_values = _summarize(folds)
+    return {
+        "status": "completed",
+        "folds": folds,
+        "metrics": metrics,
+        "sensitivity": sensitivity,
+    }
+
+
+def _summarize(folds):
+    observed = np.asarray([fold["observed"] for fold in folds], dtype=float)
+    candidate = np.asarray([fold["candidate_prediction"] for fold in folds], dtype=float)
+    mean_prediction = np.asarray([fold["training_mean_prediction"] for fold in folds], dtype=float)
+    persistence = np.asarray([fold["persistence_prediction"] for fold in folds], dtype=float)
+    candidate_errors = np.abs(observed - candidate)
+    mean_errors = np.abs(observed - mean_prediction)
+    persistence_errors = np.abs(observed - persistence)
+    improvements = mean_errors - candidate_errors
+    rng = np.random.default_rng(SEED)
+    selected = rng.integers(0, len(folds), size=(REPETITIONS, len(folds)))
+    bootstrap_values = improvements[selected].mean(axis=1)
+    interval = [float(value) for value in np.quantile(bootstrap_values, [0.025, 0.975])]
+    metrics = {
+        "candidate_mae": float(np.mean(candidate_errors)),
+        "candidate_rmse": float(np.sqrt(np.mean((observed - candidate) ** 2))),
+        "training_mean_mae": float(np.mean(mean_errors)),
+        "training_mean_rmse": float(np.sqrt(np.mean((observed - mean_prediction) ** 2))),
+        "persistence_mae": float(np.mean(persistence_errors)),
+        "persistence_rmse": float(np.sqrt(np.mean((observed - persistence) ** 2))),
+        "mae_improvement": float(np.mean(improvements)),
+        "mae_improvement_interval": interval,
+    }
+    regimes = {}
+    for regime in sorted({fold["measurement_regime"] for fold in folds}):
+        indices = [index for index, fold in enumerate(folds) if fold["measurement_regime"] == regime]
+        regimes[regime] = {
+            "fold_count": len(indices),
+            "mae_improvement": float(np.mean(improvements[indices])),
+            "eligible_for_consistency": len(indices) >= 2,
+        }
+    eligible = [item for item in regimes.values() if item["eligible_for_consistency"]]
+    overall_sign = np.sign(metrics["mae_improvement"])
+    regime_consistent = bool(eligible) and all(
+        np.sign(item["mae_improvement"]) == overall_sign for item in eligible
+    )
+    leave_one = []
+    for omitted, fold in enumerate(folds):
+        leave_one.append({
+            "omitted_test_cycle": fold["test_cycle"],
+            "mae_improvement": float(np.mean(np.delete(improvements, omitted))),
+        })
+    return metrics, {
+        "measurement_regimes": regimes,
+        "regime_consistent": regime_consistent,
+        "leave_one_fold": leave_one,
+    }, bootstrap_values
+
+
+def _skill_status(metrics, sensitivity):
+    improvement = metrics["mae_improvement"]
+    low = metrics["mae_improvement_interval"][0]
+    if improvement <= 0:
+        return "tested_no_skill"
+    if low > 0 and sensitivity["regime_consistent"]:
+        return "skill_supported"
+    return "mixed_evidence"
+
+
+def run_experiment(context):
+    data_receipt = json.loads(context["input_path_by_id"][RECEIPT_INPUT_ID].read_text(encoding="utf-8"))
+    if data_receipt.get("schema_version") != "solar-precursor-cycle-table-v2" or data_receipt.get("status") != "verified":
+        raise ValueError("polar precursor input receipt is not the verified v2 contract")
+    feature_records = data_receipt.get("feature_records")
+    if not isinstance(feature_records, list):
+        raise ValueError("typed polar feature records are missing")
+    h2_records = [row for row in feature_records if row.get("hypothesis_id") == "h2_polar_precursor"]
+    if len(h2_records) != 10:
+        raise ValueError("expected exactly ten available H2 feature records")
+    if any(row.get("observable_kind") != "polar_aperture_field" or row.get("status") != "available" for row in h2_records):
+        raise ValueError("H2 records do not preserve the polar aperture observable")
+
+    with context["input_path_by_id"][TABLE_INPUT_ID].open(encoding="utf-8", newline="") as handle:
+        table_rows = list(csv.DictReader(handle))
+    table_by_cycle = {
+        int(row["cycle_number"]): row
+        for row in table_rows
+        if row.get("row_role") == "analysis"
+    }
+    rows = []
+    for record in sorted(h2_records, key=lambda item: int(item["target_cycle_id"])):
+        cycle = int(record["target_cycle_id"])
+        if cycle not in table_by_cycle:
+            raise ValueError("feature record target is absent from the accepted table")
+        table_row = table_by_cycle[cycle]
+        target_dispersion_text = str(
+            table_row.get("peak_smoothed_sunspot_number_sigma") or ""
+        ).strip()
+        north_text = str(
+            table_row.get("north_polar_field_abs_gauss") or ""
+        ).strip()
+        south_text = str(
+            table_row.get("south_polar_field_abs_gauss") or ""
+        ).strip()
+        target_dispersion = (
+            float(target_dispersion_text) if target_dispersion_text else None
+        )
+        if target_dispersion is not None and target_dispersion <= 0:
+            raise ValueError("target peak dispersion must be positive")
+        weakest_value = (
+            min(abs(float(north_text)), abs(float(south_text)))
+            if north_text and south_text
+            else None
+        )
+        rows.append({
+            "feature_id": str(record["feature_id"]),
+            "target_cycle_id": cycle,
+            "value": float(record["value"]),
+            "target": float(table_row["peak_smoothed_sunspot_number"]),
+            "target_dispersion": target_dispersion,
+            "weakest_value": weakest_value,
+            "measurement_regime": str(record["measurement_regime"]),
+        })
+    cycles = [row["target_cycle_id"] for row in rows]
+    if cycles != list(range(15, 25)):
+        raise ValueError("H2 feature records must target consecutive cycles 15 through 24")
+    folds = _rolling_folds(rows)
+    metrics, sensitivity, bootstrap_values = _summarize(folds)
+    status = _skill_status(metrics, sensitivity)
+    sensitivity_models = {
+        model: _sensitivity_model(rows, model)
+        for model in (
+            "sqrt_mean_polar_linear",
+            "target_dispersion_weighted_linear",
+            "weakest_hemisphere_linear",
+        )
+    }
+
+    unavailable = data_receipt.get("unavailable_feature_records")
+    if not isinstance(unavailable, list):
+        raise ValueError("H3 data-readiness record is missing")
+    h3_blocked = [
+        row for row in unavailable
+        if row.get("hypothesis_id") == "h3_axial_dipole_discriminator"
+        and row.get("observable_kind") == "axial_dipole_moment"
+        and row.get("status") == "blocked_by_data"
+        and row.get("value") is None
+        and row.get("data_gap") == "NO_REGISTERED_AXIAL_DIPOLE_OR_SYNOPTIC_MAP_INPUT"
+    ]
+    if len(h3_blocked) != 1:
+        raise ValueError("H3 must have one honest axial-dipole data status")
+
+    experiment_receipt = {
+        "schema_version": "solar-forecast-experiment-receipt-v1",
+        "experiment_id": "polar-precursor-rolling-origin-v1",
+        "status": status,
+        "forecast_origin": "cycle_minimum",
+        "hypothesis_ids": ["h2_polar_precursor"],
+        "feature_ids": [row["feature_id"] for row in rows],
+        "observable_kinds": ["polar_aperture_field"],
+        "baseline_names": ["training_mean", "persistence"],
+        "candidate_name": "linear_polar_precursor",
+        "challenger_policy": "exploratory_not_promoted",
+        "selected_challenger": None,
+        "sensitivity_models": sensitivity_models,
+        "training_cycles": cycles[:INITIAL_TRAINING_CYCLES],
+        "test_cycles": [fold["test_cycle"] for fold in folds],
+        "folds": folds,
+        "metrics": metrics,
+        "bootstrap": {"seed": SEED, "resamples": REPETITIONS},
+        "sensitivity": sensitivity,
+        "leakage_audit": {
+            "passed": all(max(fold["training_cycles"]) < fold["test_cycle"] for fold in folds),
+            "rule": "every training cycle precedes its held-out test cycle",
+        },
+        "h3_data_status": {
+            "status": "blocked_by_data",
+            "data_gap": "NO_REGISTERED_AXIAL_DIPOLE_OR_SYNOPTIC_MAP_INPUT",
+        },
+        # Mirror the typed worker result at the receipt boundary.  The
+        # automatic-experiment verifier binds every declared measurement and
+        # result item to an exact JSON key so downstream adapters cannot infer
+        # values from prose or nested implementation details.
+        "candidate_mae": metrics["candidate_mae"],
+        "training_mean_mae": metrics["training_mean_mae"],
+        "persistence_mae": metrics["persistence_mae"],
+        "candidate_rmse": metrics["candidate_rmse"],
+        "training_mean_rmse": metrics["training_mean_rmse"],
+        "persistence_rmse": metrics["persistence_rmse"],
+        "mae_improvement": metrics["mae_improvement"],
+        "mae_improvement_ci_low": metrics["mae_improvement_interval"][0],
+        "mae_improvement_ci_high": metrics["mae_improvement_interval"][1],
+        "effective_backtest_folds": len(folds),
+        "bootstrap_repetitions": REPETITIONS,
+        "bootstrap_seed": SEED,
+        "leakage_audit_passed": all(
+            max(fold["training_cycles"]) < fold["test_cycle"] for fold in folds
+        ),
+        "regime_consistent": sensitivity["regime_consistent"],
+        "feature_lineage_verified": True,
+        "forecast_skill_status": status,
+        "axial_data_status": "blocked_by_data",
+    }
+    (context["output_dir"] / "forecast_experiment_receipt.json").write_text(
+        json.dumps(experiment_receipt, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
+    prediction_rows = []
+    for fold in folds:
+        prediction_rows.append({
+            "test_cycle": fold["test_cycle"],
+            "training_cycles": ";".join(str(value) for value in fold["training_cycles"]),
+            "feature_id": fold["feature_id"],
+            "measurement_regime": fold["measurement_regime"],
+            "observed": fold["observed"],
+            "candidate_prediction": fold["candidate_prediction"],
+            "training_mean_prediction": fold["training_mean_prediction"],
+            "persistence_prediction": fold["persistence_prediction"],
+        })
+    with (context["output_dir"] / "rolling_predictions.csv").open(
+        "w", encoding="utf-8", newline=""
+    ) as handle:
+        writer = csv.DictWriter(
+            handle,
+            fieldnames=["test_cycle", "training_cycles", "feature_id", "measurement_regime", "observed", "candidate_prediction", "training_mean_prediction", "persistence_prediction"],
+        )
+        writer.writeheader()
+        writer.writerows(prediction_rows)
+    with (context["output_dir"] / "bootstrap_mae_improvement.csv").open(
+        "w", encoding="utf-8", newline=""
+    ) as handle:
+        writer = csv.DictWriter(handle, fieldnames=["draw", "mae_improvement"])
+        writer.writeheader()
+        writer.writerows(
+            [{"draw": index, "mae_improvement": float(value)} for index, value in enumerate(bootstrap_values)]
+        )
+
+    result_values = {
+        "effective_backtest_folds": len(folds),
+        "bootstrap_repetitions": REPETITIONS,
+        "bootstrap_seed": SEED,
+        "leakage_audit_passed": experiment_receipt["leakage_audit"]["passed"],
+        "regime_consistent": sensitivity["regime_consistent"],
+        "feature_lineage_verified": True,
+        "forecast_skill_status": status,
+        "axial_data_status": "blocked_by_data",
+    }
+    return {
+        "schema_version": "automatic-experiment-worker-result-v1",
+        "execution_completed": True,
+        "measurements": [
+            {"name": "candidate_mae", "value": metrics["candidate_mae"], "unit": "平滑太阳黑子数", "role": "primary", "source_artifact": "forecast_experiment_receipt.json"},
+            {"name": "training_mean_mae", "value": metrics["training_mean_mae"], "unit": "平滑太阳黑子数", "role": "secondary", "source_artifact": "forecast_experiment_receipt.json"},
+            {"name": "persistence_mae", "value": metrics["persistence_mae"], "unit": "平滑太阳黑子数", "role": "secondary", "source_artifact": "forecast_experiment_receipt.json"},
+            {"name": "candidate_rmse", "value": metrics["candidate_rmse"], "unit": "平滑太阳黑子数", "role": "secondary", "source_artifact": "forecast_experiment_receipt.json"},
+            {"name": "training_mean_rmse", "value": metrics["training_mean_rmse"], "unit": "平滑太阳黑子数", "role": "secondary", "source_artifact": "forecast_experiment_receipt.json"},
+            {"name": "persistence_rmse", "value": metrics["persistence_rmse"], "unit": "平滑太阳黑子数", "role": "secondary", "source_artifact": "forecast_experiment_receipt.json"},
+            {"name": "mae_improvement", "value": metrics["mae_improvement"], "unit": "平滑太阳黑子数", "role": "primary", "source_artifact": "forecast_experiment_receipt.json"},
+            {"name": "mae_improvement_ci_low", "value": metrics["mae_improvement_interval"][0], "unit": "平滑太阳黑子数", "role": "secondary", "source_artifact": "forecast_experiment_receipt.json"},
+            {"name": "mae_improvement_ci_high", "value": metrics["mae_improvement_interval"][1], "unit": "平滑太阳黑子数", "role": "secondary", "source_artifact": "forecast_experiment_receipt.json"},
+        ],
+        "result_items": [
+            {"id": "effective_backtest_folds", "display_name": "有效历史回测周数", "value_kind": "count", "value": result_values["effective_backtest_folds"], "unit": "", "role": "diagnostic", "source_artifact": "forecast_experiment_receipt.json"},
+            {"id": "bootstrap_repetitions", "display_name": "bootstrap 重复次数", "value_kind": "count", "value": result_values["bootstrap_repetitions"], "unit": "次", "role": "diagnostic", "source_artifact": "forecast_experiment_receipt.json"},
+            {"id": "bootstrap_seed", "display_name": "bootstrap 随机种子", "value_kind": "count", "value": result_values["bootstrap_seed"], "unit": "", "role": "diagnostic", "source_artifact": "forecast_experiment_receipt.json"},
+            {"id": "leakage_audit_passed", "display_name": "时间泄漏检查通过", "value_kind": "boolean", "value": result_values["leakage_audit_passed"], "unit": "", "role": "primary", "source_artifact": "forecast_experiment_receipt.json"},
+            {"id": "regime_consistent", "display_name": "测量制度方向一致", "value_kind": "boolean", "value": result_values["regime_consistent"], "unit": "", "role": "primary", "source_artifact": "forecast_experiment_receipt.json"},
+            {"id": "feature_lineage_verified", "display_name": "前兆特征谱系已核对", "value_kind": "boolean", "value": result_values["feature_lineage_verified"], "unit": "", "role": "primary", "source_artifact": "forecast_experiment_receipt.json"},
+            {"id": "forecast_skill_status", "display_name": "历史预测技能类别", "value_kind": "category", "value": result_values["forecast_skill_status"], "unit": "", "role": "primary", "source_artifact": "forecast_experiment_receipt.json"},
+            {"id": "axial_data_status", "display_name": "轴向偶极矩数据状态", "value_kind": "category", "value": result_values["axial_data_status"], "unit": "", "role": "secondary", "source_artifact": "forecast_experiment_receipt.json"},
+        ],
+        "artifacts": [
+            {"path": "forecast_experiment_receipt.json", "kind": "json", "description": "类型化极区前兆预测实验回执。"},
+            {"path": "rolling_predictions.csv", "kind": "csv", "description": "严格时间顺序逐折预测。"},
+            {"path": "bootstrap_mae_improvement.csv", "kind": "csv", "description": "活动周级配对重采样分布。"},
+        ],
+        "warnings": ["轴向偶极矩比较因缺少登记数据而阻断。", "历史完整活动周样本有限。"],
+        "endpoint_results": [{"id": "analysis_endpoint", "status": "completed", "summary": "H2 历史盲测已完成，H3 数据状态已核对。"}],
+        "scientific_payload": {
+            "primary_estimand": "严格滚动起点回测中极小期极区场模型相对训练均值基线的平均绝对误差改进",
+            "estimate": metrics["mae_improvement"],
+            "interval": metrics["mae_improvement_interval"],
+            "equivalence_bounds": None,
+            "sensitivity": "逐周留一并分别报告 MWO 与 WSO 测量制度结果。",
+            "uncertainty_reasons": ["完整活动周样本有限。", "MWO 与 WSO 测量制度不同。", "H3 缺少合格轴向偶极矩输入。"],
+        },
+    }
+"""
+    return source.replace("__TABLE_ID__", input_ids["table"]).replace(
+        "__RECEIPT_ID__", input_ids["receipt"]
+    )
+
+
+def _prepare_polar_forecast_attempt(run_id: str) -> dict[str, Any]:
+    """Prepare the immutable pre-registered polar forecast worker."""
+
+    run_root, _state = service.load_state(run_id)
+    request = json.loads((run_root / "request.json").read_text(encoding="utf-8"))
+    design = json.loads((run_root / "design.json").read_text(encoding="utf-8"))
+    stage = service.experiment_stage(design)
+    if stage.get("execution", {}).get("seed") != 20260828:
+        raise ValueError(
+            "the validated polar forecast design does not use seed 20260828"
+        )
+    if stage.get("execution", {}).get("expected_artifacts") != POLAR_FORECAST_OUTPUTS:
+        raise ValueError("the validated polar forecast design has unexpected artifacts")
+    source = _polar_forecast_worker_source(_polar_forecast_input_ids(request))
+    return service.prepare(
+        run_id,
+        [{"path": "experiment.py", "content": source}],
+        None,
+        "使用协议专用 worker 复算严格滚动起点极区前兆预测及其不确定性。",
     )
 
 
@@ -1647,6 +2279,25 @@ def automatic_experiment_create_sc26_forecast_design(
 
 
 @tool(parse_docstring=True)
+def automatic_experiment_create_polar_forecast_design(
+    run_id: str, config: RunnableConfig = None
+) -> str:
+    """Create the pre-registered polar-precursor forecast design.
+
+    Args:
+        run_id: The inspected solar_polar_precursor_v1 run identifier.
+
+    Returns:
+        JSON string with the validated design status and worker contract.
+    """
+    try:
+        with task_workspace(workspace_root_from_config(config)):
+            return _ok(_create_polar_forecast_design(run_id))
+    except Exception as exc:
+        return _err(exc)
+
+
+@tool(parse_docstring=True)
 def automatic_experiment_validate_design(
     run_id: str,
     response: dict[str, Any] | str,
@@ -1726,6 +2377,25 @@ def automatic_experiment_prepare_sc26_forecast_attempt(
     try:
         with task_workspace(workspace_root_from_config(config)):
             return _ok(_prepare_solar_cycle_26_forecast_attempt(run_id))
+    except Exception as exc:
+        return _err(exc)
+
+
+@tool(parse_docstring=True)
+def automatic_experiment_prepare_polar_forecast_attempt(
+    run_id: str, config: RunnableConfig = None
+) -> str:
+    """Prepare the accepted polar-precursor forecast worker exactly once.
+
+    Args:
+        run_id: The accepted solar_polar_precursor_v1 experiment run identifier.
+
+    Returns:
+        JSON string with the immutable prepared attempt identifier.
+    """
+    try:
+        with task_workspace(workspace_root_from_config(config)):
+            return _ok(_prepare_polar_forecast_attempt(run_id))
     except Exception as exc:
         return _err(exc)
 
@@ -1862,9 +2532,11 @@ AUTOMATIC_EXPERIMENT_TOOLS = [
     automatic_experiment_create_single_stage_design,
     automatic_experiment_create_silso_morphology_design,
     automatic_experiment_create_sc26_forecast_design,
+    automatic_experiment_create_polar_forecast_design,
     automatic_experiment_validate_design,
     automatic_experiment_prepare_silso_morphology_attempt,
     automatic_experiment_prepare_sc26_forecast_attempt,
+    automatic_experiment_prepare_polar_forecast_attempt,
     automatic_experiment_prepare_attempt,
     automatic_experiment_execute_attempt,
     automatic_experiment_verify_result,

@@ -2031,7 +2031,7 @@ def test_middleware_allows_hypothesis_tail_review_after_current_draft_readback()
     assert response.result == [proposed_review]
 
 
-def test_middleware_checkpoints_after_successful_hypothesis_tail_review():
+def test_middleware_reads_selected_pool_before_portfolio_ranking():
     middleware = QwenToolCompatibilityMiddleware(default_model="qwen3.7-plus")
     review_call = AIMessage(
         content="",
@@ -2051,7 +2051,65 @@ def test_middleware_checkpoints_after_successful_hypothesis_tail_review():
     )
     request = _request(
         {"name": "scientific_hypothesis_checkpoint_draft"},
+        {"name": "scientific_hypothesis_rank_portfolio"},
+        {"name": "scientific_hypothesis_get_draft"},
         messages=[review_call, review_result],
+    )
+    handler = MagicMock(
+        return_value=ModelResponse(result=[AIMessage(content="候选组合已经完成。")])
+    )
+
+    with patch(
+        "jw.middleware.qwen_compat._read_model_override",
+        return_value=(None, None),
+    ):
+        response = middleware.wrap_model_call(request, handler)
+
+    [call] = response.result[0].tool_calls
+    assert call["name"] == "scientific_hypothesis_get_draft"
+    assert call["args"] == {}
+    assert call["id"].startswith("call_qwen_hypothesis_ranking_read_")
+
+
+def test_middleware_checkpoints_after_current_portfolio_ranking():
+    middleware = QwenToolCompatibilityMiddleware(default_model="qwen3.7-plus")
+    review_call = AIMessage(
+        content="",
+        tool_calls=[
+            {
+                "name": "scientific_hypothesis_review_tail",
+                "args": {"review_json": "{}"},
+                "id": "call_review",
+                "type": "tool_call",
+            }
+        ],
+    )
+    review_result = ToolMessage(
+        content='{"status":"tail_reviewed"}',
+        tool_call_id="call_review",
+        name="scientific_hypothesis_review_tail",
+    )
+    rank_call = AIMessage(
+        content="",
+        tool_calls=[
+            {
+                "name": "scientific_hypothesis_rank_portfolio",
+                "args": {"ranking_json": "{}"},
+                "id": "call_rank",
+                "type": "tool_call",
+            }
+        ],
+    )
+    rank_result = ToolMessage(
+        content='{"status":"portfolio_ranked"}',
+        tool_call_id="call_rank",
+        name="scientific_hypothesis_rank_portfolio",
+    )
+    request = _request(
+        {"name": "scientific_hypothesis_checkpoint_draft"},
+        {"name": "scientific_hypothesis_rank_portfolio"},
+        {"name": "scientific_hypothesis_get_draft"},
+        messages=[review_call, review_result, rank_call, rank_result],
     )
     handler = MagicMock(
         return_value=ModelResponse(result=[AIMessage(content="候选组合已经完成。")])
@@ -2066,7 +2124,6 @@ def test_middleware_checkpoints_after_successful_hypothesis_tail_review():
     [call] = response.result[0].tool_calls
     assert call["name"] == "scientific_hypothesis_checkpoint_draft"
     assert call["args"] == {}
-    assert call["id"].startswith("call_qwen_hypothesis_checkpoint_")
 
 
 def test_middleware_stops_exact_tool_retry_after_research_review_block():

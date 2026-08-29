@@ -11,6 +11,7 @@ from jw.tools import knowledge_base as knowledge_tools
 from jw.tools import scientific_hypothesis as hypothesis_tools
 from jw.workspaces import ensure_thread_workspace
 from scientific_hypothesis.contracts import canonical_json_sha256
+from scientific_hypothesis.ranking import PORTFOLIO_RANKING_VERSION
 from scientific_hypothesis.tail_search import (
     BENEFIT_METRICS,
     RUBRIC_ITEMS,
@@ -156,6 +157,94 @@ def _review_tail(
     )
 
 
+def _portfolio_ranking_payload(draft: dict[str, object]) -> dict[str, object]:
+    candidates = draft["candidates"]
+    assert isinstance(candidates, list)
+    groups = []
+    ranked = []
+    for index, candidate in enumerate(candidates, start=1):
+        assert isinstance(candidate, dict)
+        candidate_id = candidate["id"]
+        assert isinstance(candidate_id, str)
+        groups.append(
+            {
+                "hypothesis_id": candidate_id,
+                "normalized_statement": candidate["statement"],
+                "member_candidates": [
+                    {"run_id": "current-task", "candidate_id": candidate_id}
+                ],
+                "deduplication_rationale": "This current candidate is scientifically distinct.",
+            }
+        )
+        ranked.append(
+            {
+                "hypothesis_id": candidate_id,
+                "support_rank": index,
+                "research_priority_rank": len(candidates) - index + 1,
+                "claim_type": (
+                    "measurement_explanation"
+                    if "measure" in candidate_id
+                    else "mechanism_candidate"
+                ),
+                "current_evidence_status": "insufficient",
+                "scientific_support": {
+                    "level": "low",
+                    "rationale": "No direct verified support is attached.",
+                },
+                "research_priority": {
+                    "level": "high" if index == len(candidates) else "medium",
+                    "rationale": "The next test can discriminate competing explanations.",
+                },
+                "data_sources_verified": False,
+                "support_evidence": [],
+                "opposing_evidence": [],
+                "out_of_sample_validation": {
+                    "status": "not_applicable",
+                    "baseline_comparison": "This is not a predictive claim.",
+                },
+                "effect_uncertainty": {
+                    "effect_summary": "No effect estimate is currently accepted.",
+                    "interval_summary": "No interval is currently accepted.",
+                    "interval_crosses_null": None,
+                },
+                "sensitivity": {
+                    "leave_one_out": "not_tested",
+                    "temporal_split": "not_tested",
+                    "measurement_regime": "not_tested",
+                    "definition": "not_tested",
+                },
+                "falsifiability": {
+                    "status": "clear",
+                    "conditions": list(candidate["falsification_conditions"]),
+                },
+                "key_limitations": list(candidate["evidence_gaps"]),
+                "strongest_null_hypothesis": "The observed difference is measurement variation.",
+                "next_experiment": {
+                    "objective": candidate["next_test"]["objective"],
+                    "discriminating_power": candidate["next_test"][
+                        "discriminating_power"
+                    ],
+                    "feasibility": "executable_now",
+                },
+                "ranking_rationale": "Support and research priority use separate ranks.",
+                "release_boundary": "Do not present this mechanism as established.",
+            }
+        )
+    return {
+        "schema_version": PORTFOLIO_RANKING_VERSION,
+        "source_runs": ["current-task"],
+        "hypothesis_groups": groups,
+        "ranked_hypotheses": ranked,
+        "selected_next_experiment": {
+            "hypothesis_ids": [group["hypothesis_id"] for group in groups],
+            "objective": "Run the shared discriminating test.",
+            "discriminating_power": "Its result updates the competing explanations differently.",
+            "feasibility": "executable_now",
+            "rationale": "Information value is high despite low current support.",
+        },
+    }
+
+
 def _wiki_store_with_read_receipt(thread_id: str, entry_id: str) -> SimpleNamespace:
     return SimpleNamespace(
         provenance_for_run=lambda run_id: (
@@ -186,6 +275,13 @@ def test_rebinding_same_question_preserves_working_state() -> None:
         )
     )
     scoring_guide = first["tail_search_contract"]["scoring_guide"]
+    ranking_contract = first["portfolio_ranking_contract"]
+    assert ranking_contract["schema_version"] == PORTFOLIO_RANKING_VERSION
+    assert ranking_contract["separate_orders"] == [
+        "scientific_support",
+        "research_priority",
+    ]
+    assert "shared data" in ranking_contract["evidence_dependency_rule"]
     assert "boundary_completeness" in scoring_guide["scientific_rubrics"]
     assert "handles_all_criteria" in scoring_guide["general_guidelines"]
     assert scoring_guide["tail_metric_anchors"]["evidence_risk"]["direction"] == "risk"
@@ -1936,6 +2032,108 @@ def test_checkpoint_current_draft_without_resending_full_response(monkeypatch) -
     assert checked["checkpoint_available"] is True
     assert publish["status"] == "needs_revision"
     assert "current draft differs" in publish["validation_error"]
+
+
+def test_portfolio_ranking_is_persisted_and_bound_into_checkpoint(
+    tmp_path: Path, monkeypatch
+) -> None:
+    workspace, config = _bound_config(
+        tmp_path, monkeypatch, "hypothesis-portfolio-ranking"
+    )
+    hypothesis_tools._STATES.pop("hypothesis-portfolio-ranking", None)
+    hypothesis_tools.scientific_hypothesis_bind_request.invoke(
+        {"request_input": "Compare two possible explanations for this observation."},
+        config=config,
+    )
+    state = hypothesis_tools._STATES["hypothesis-portfolio-ranking"]
+    response = make_response(state.request)
+    _update(config, "replace", response)
+    _review_tail(config, response)
+
+    ranked = json.loads(
+        hypothesis_tools.scientific_hypothesis_rank_portfolio.invoke(
+            {
+                "ranking_json": json.dumps(
+                    _portfolio_ranking_payload(state.latest_draft), ensure_ascii=False
+                )
+            },
+            config=config,
+        )
+    )
+    checked = json.loads(
+        hypothesis_tools.scientific_hypothesis_checkpoint_draft.invoke(
+            {}, config=config
+        )
+    )
+
+    assert ranked["status"] == "portfolio_ranked"
+    assert ranked["scientific_support_order"] == ["cand_dynamo", "cand_measure"]
+    assert ranked["research_priority_order"] == ["cand_measure", "cand_dynamo"]
+    assert checked["working_status"] == "checkpointed"
+    state_payload = json.loads(
+        (workspace / "work" / "scientific_hypothesis_state.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    checkpoint_payload = json.loads(
+        (workspace / "work" / "scientific_hypothesis_checkpoint.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert state_payload["portfolio_ranking"]["schema_version"] == (
+        PORTFOLIO_RANKING_VERSION
+    )
+    assert checkpoint_payload["portfolio_ranking"] == state_payload["portfolio_ranking"]
+
+
+def test_rejected_portfolio_ranking_persists_failure_without_replacing_last_valid(
+    tmp_path: Path, monkeypatch
+) -> None:
+    workspace, config = _bound_config(
+        tmp_path, monkeypatch, "hypothesis-portfolio-ranking-rejection"
+    )
+    hypothesis_tools._STATES.pop("hypothesis-portfolio-ranking-rejection", None)
+    hypothesis_tools.scientific_hypothesis_bind_request.invoke(
+        {"request_input": "Compare two possible explanations for this observation."},
+        config=config,
+    )
+    state = hypothesis_tools._STATES["hypothesis-portfolio-ranking-rejection"]
+    response = make_response(state.request)
+    _update(config, "replace", response)
+    _review_tail(config, response)
+    valid_payload = _portfolio_ranking_payload(state.latest_draft)
+    valid = json.loads(
+        hypothesis_tools.scientific_hypothesis_rank_portfolio.invoke(
+            {"ranking_json": json.dumps(valid_payload, ensure_ascii=False)},
+            config=config,
+        )
+    )
+    previous_ranking = json.loads(json.dumps(state.portfolio_ranking))
+    invalid_payload = json.loads(json.dumps(valid_payload))
+    invalid_payload["ranked_hypotheses"][0]["portfolio_role"] = "physical_precursor"
+
+    rejected = json.loads(
+        hypothesis_tools.scientific_hypothesis_rank_portfolio.invoke(
+            {"ranking_json": json.dumps(invalid_payload, ensure_ascii=False)},
+            config=config,
+        )
+    )
+    persisted = json.loads(
+        (workspace / "work" / "scientific_hypothesis_state.json").read_text(
+            encoding="utf-8"
+        )
+    )
+
+    assert valid["status"] == "portfolio_ranked"
+    assert rejected["status"] == "needs_revision"
+    assert rejected["same_validation_error_count"] == 1
+    assert "缺少字段" in rejected["validation_error"]
+    assert state.last_validation_error == rejected["validation_error"]
+    assert state.same_validation_error_count == 1
+    assert state.portfolio_ranking == previous_ranking
+    assert persisted["last_validation_error"] == rejected["validation_error"]
+    assert persisted["same_validation_error_count"] == 1
+    assert persisted["portfolio_ranking"] == previous_ranking
 
 
 def test_workspace_checkpoint_writes_host_owned_snapshot(tmp_path, monkeypatch) -> None:

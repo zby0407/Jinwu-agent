@@ -19,7 +19,10 @@ if (!/^[A-Za-z0-9-]+$/.test(threadId || "")) {
     "Usage: node run_webui_resume.mjs <thread-id> [continuation] [provider] [model]",
   );
 }
-if (Boolean(requestedProvider) !== Boolean(requestedModel)) {
+if (requestedModel === "__reset__" && requestedProvider) {
+  throw new Error("reset model override does not take a provider");
+}
+if (requestedModel !== "__reset__" && Boolean(requestedProvider) !== Boolean(requestedModel)) {
   throw new Error("provider and model must be supplied together");
 }
 const frontend = process.env.JW_EVAL_FRONTEND || "http://127.0.0.1:4717/";
@@ -136,7 +139,11 @@ try {
     return result.result?.value;
   };
   await cdp.send("Page.navigate", { url: frontend });
-  await waitFor(() => evalJs("document.readyState === 'complete'"), 30_000, "page load");
+  await waitFor(
+    () => evalJs(`location.origin === ${JSON.stringify(new URL(frontend).origin)} && document.readyState === 'complete'`),
+    30_000,
+    "page load",
+  );
   await evalJs(`
     localStorage.setItem("jw-config", JSON.stringify({deploymentUrl:${JSON.stringify(backend)},assistantId:"JW"}));
     localStorage.setItem("jw-auto-approve", JSON.stringify({${JSON.stringify(threadId)}:true}));
@@ -159,7 +166,7 @@ try {
   if (requestedModel) {
     await evalJs("document.querySelector('textarea').focus(); true;");
     await cdp.send("Input.insertText", {
-      text: `/model ${requestedModel} ${requestedProvider}`,
+      text: requestedModel === "__reset__" ? "/model reset" : `/model ${requestedModel} ${requestedProvider}`,
     });
     await waitFor(
       () => evalJs(`Boolean(document.querySelector('${SEND_BTN}:not([disabled])'))`),
@@ -173,7 +180,7 @@ try {
       "model command composer reset",
     );
     await waitFor(
-      () => evalJs(`document.body.innerText.includes(${JSON.stringify(requestedModel)})`),
+      () => requestedModel === "__reset__" || evalJs(`document.body.innerText.includes(${JSON.stringify(requestedModel)})`),
       15_000,
       "thread model override",
     );

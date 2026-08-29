@@ -62,6 +62,7 @@ from research_review.contracts import (  # noqa: E402
     validate_review_verdict,
     validate_run_state,
 )
+from research_review.execution_state import ExecutionStateStore  # noqa: E402
 from research_review.policies import policy_registry  # noqa: E402
 from scientific_hypothesis.tail_search import tail_review_is_current  # noqa: E402
 
@@ -446,6 +447,7 @@ class ResearchReviewStore:
         self.task_id = task_id
         self.root = self.workspace_root / "research_review"
         self.state_path = self.root / "run_state.json"
+        self.execution_state = ExecutionStateStore(self.root / "execution_state.json")
         self._file_lock = FileLock(str(self.root / ".research-review.lock"), timeout=30)
         self._defaults = {
             "revision_policy": revision_policy,
@@ -502,7 +504,15 @@ class ResearchReviewStore:
                 self._save_state(state)
                 raise RuntimeError("RESEARCH_ACTION_BUDGET_EXHAUSTED")
             state["action_invocations"] += 1
-            return self._save_state(state)
+            saved = self._save_state(state)
+        stage = str(action.get("stage") or saved["current_stage"])
+        owner = (
+            "solar-evidence"
+            if action.get("kind") == "review"
+            else str(action.get("producer") or "main")
+        )
+        self.execution_state.start(stage=stage, owner=owner)
+        return saved
 
     def latest_tool_failure_receipt(self) -> dict[str, Any] | None:
         receipts: list[tuple[str, str, dict[str, Any]]] = []
@@ -564,7 +574,12 @@ class ResearchReviewStore:
             state["current_stage"] = stage
             state["stage_status"][stage] = "blocked"
             self._save_state(state)
-            return receipt
+        self.execution_state.fail(
+            stage=stage,
+            owner=producer,
+            reason="required_specialist_failed_twice",
+        )
+        return receipt
 
     def block_for_review_failures(
         self,
@@ -613,7 +628,12 @@ class ResearchReviewStore:
             state["current_stage"] = stage
             state["stage_status"][stage] = "blocked"
             self._save_state(state)
-            return receipt
+        self.execution_state.fail(
+            stage=stage,
+            owner=reviewer,
+            reason="required_specialist_failed_twice",
+        )
+        return receipt
 
     def recover_canonical_producer_after_tool_failure(
         self,

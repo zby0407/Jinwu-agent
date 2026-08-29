@@ -1,0 +1,22 @@
+{
+  "target_cycle_id": 25,
+  "target_status": "provisional_as_of_2026-08-27",
+  "training_cycles": [
+    15,
+    16,
+    17,
+    18,
+    19,
+    20,
+    21,
+    22,
+    23,
+    24
+  ],
+  "candidate_prediction": 150.82090075452538,
+  "observed_provisional_target": 160.9,
+  "absolute_error": 10.079099245474623,
+  "training_mean_prediction": 190.7004168,
+  "baseline_absolute_error": 29.800416799999994,
+  "excluded_from_skill_gate": true
+}

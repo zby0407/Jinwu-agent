@@ -289,9 +289,9 @@ class TestCache:
 
 
 class TestResolveFailure:
-    """If get_chat_model raises, middleware must fall back to original model."""
+    """An explicit override must resolve or raise without changing models."""
 
-    def test_sync_falls_back_when_resolve_raises(self):
+    def test_sync_explicit_override_raises_when_resolution_fails(self):
         mw = ConfigurableModelMiddleware()
         req = _make_request()
         handler = MagicMock(return_value="ok")
@@ -302,14 +302,14 @@ class TestResolveFailure:
                 "jw.llm.get_chat_model",
                 side_effect=ValueError("unknown model"),
             ),
+            pytest.raises(ValueError, match="unknown model"),
         ):
             mw.wrap_model_call(req, handler)
 
-        # Override never happened — handler called with original request.
-        handler.assert_called_once_with(req)
+        handler.assert_not_called()
         req.override.assert_not_called()
 
-    async def test_async_falls_back_when_resolve_raises(self):
+    async def test_async_explicit_override_raises_when_resolution_fails(self):
         mw = ConfigurableModelMiddleware()
         req = _make_request()
 
@@ -325,11 +325,11 @@ class TestResolveFailure:
                 "jw.llm.get_chat_model",
                 side_effect=ValueError("unknown model"),
             ),
+            pytest.raises(ValueError, match="unknown model"),
         ):
-            result = await mw.awrap_model_call(req, handler)
+            await mw.awrap_model_call(req, handler)
 
-        assert result == "ok"
-        assert called == [req]
+        assert called == []
 
     def test_sync_qwen_override_failure_never_silently_changes_model(self):
         mw = ConfigurableModelMiddleware()

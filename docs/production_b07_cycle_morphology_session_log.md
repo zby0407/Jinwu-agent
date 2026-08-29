@@ -468,3 +468,9 @@
 - v24 已发布的 SILSO 形态实验三件套已整理到 `outputs/cycle_morphology/`，CSV 核验为 24 行、周期 1–24；PNG 与 SC26 可视化 PNG 均通过实际打开校验。
 - `docs/第26太阳活动周-P5-P6评委展示稿.md` 与 `research/review/SC26_FORMAL_FORECAST_20260825.md` 通过读者可见文本审校；DOCX 通过 `unzip -t`，并由 LibreOffice 成功转换 PDF。生产前端 `npm run build` 通过；受影响 Python 回归 `362 passed`。
 - 以上变更已提交并推送到现有 PR 分支，提交 `1ba4b15`。工作区中未提交的运行目录、绑定目录和模板输入文件均保留，未被清理或纳入提交。
+
+## P5/P6 评委展示稿读者边界复核（2026-08-29）
+
+- 根据读者成品边界复核，移除 Markdown 稿中的受众元话语和内部流程叙述：将“评委可核对的内容”改为“主要结果”，将“证据链构建”改为“理论推导与观测依据”，并把 P6 改写为 H1 的科学结果与 H3 的观测条件；保留原有数值、公式、证据强度和可证伪边界。
+- 发现旧版 `audit_visible_text.py` 对“评委可核对”“交付标准”“本页展示系统”等实际残留返回零发现。已在全局 cross-runtime Skill 与 JW 项目镜像中新增 `audience_meta`、`workflow_narration` 规则，并补充成品不得直接呼叫评委或叙述构建历史的写作条款。
+- 红灯用例包含上述三类句式，修复后扫描器返回 4 条发现并以非零码退出；修订后的 Markdown 返回 `finding_count=0`，`audit_paper_source.py` 无发现，图片链接存在，`git diff --check` 通过。DOCX 未在本轮修改，继续遵循此前“只整理 Markdown 稿”的范围。

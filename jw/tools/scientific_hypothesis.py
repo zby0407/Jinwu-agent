@@ -58,6 +58,10 @@ from scientific_hypothesis.harness import (  # noqa: E402
     preflight_hypothesis_response,
     validate_evidence_provenance,
 )
+from scientific_hypothesis.ranking import (  # noqa: E402
+    PORTFOLIO_RANKING_VERSION,
+    validate_portfolio_ranking,
+)
 from scientific_hypothesis.reader_view import (  # noqa: E402
     render_hypothesis_reader_markdown,
 )
@@ -237,6 +241,9 @@ class _HypothesisState:
     latest_draft: dict[str, Any] | None = None
     latest_draft_sha256: str | None = None
     tail_review: dict[str, Any] | None = None
+    portfolio_ranking: dict[str, Any] | None = None
+    portfolio_ranking_candidate_pool_sha256: str | None = None
+    portfolio_ranking_evidence_sha256: str | None = None
     last_validation_error: str | None = None
     same_validation_error_count: int = 0
     persistence_warning: str | None = None
@@ -292,6 +299,11 @@ def _working_state_payload(state: _HypothesisState) -> dict[str, Any]:
         "latest_draft": state.latest_draft,
         "latest_draft_sha256": state.latest_draft_sha256,
         "tail_review": state.tail_review,
+        "portfolio_ranking": state.portfolio_ranking,
+        "portfolio_ranking_candidate_pool_sha256": (
+            state.portfolio_ranking_candidate_pool_sha256
+        ),
+        "portfolio_ranking_evidence_sha256": state.portfolio_ranking_evidence_sha256,
         "last_validation_error": state.last_validation_error,
         "same_validation_error_count": state.same_validation_error_count,
         "literature_bundle_attempted": state.literature_bundle_attempted,
@@ -362,6 +374,11 @@ def _persist_checkpoint_snapshot(
         "checkpoint_evidence_sha256": state.checkpoint_evidence_sha256,
         "evidence_register": state.evidence_register.all(),
         "tail_review": deepcopy(state.tail_review),
+        "portfolio_ranking": deepcopy(state.portfolio_ranking),
+        "portfolio_ranking_candidate_pool_sha256": (
+            state.portfolio_ranking_candidate_pool_sha256
+        ),
+        "portfolio_ranking_evidence_sha256": state.portfolio_ranking_evidence_sha256,
     }
     path.parent.mkdir(parents=True, exist_ok=True)
     descriptor, temp_name = tempfile.mkstemp(
@@ -1324,6 +1341,12 @@ def _draft_summary(
         if review_current
         else ("stale" if state.tail_review is not None else "missing")
     )
+    ranking_current = bool(
+        state.portfolio_ranking is not None
+        and state.portfolio_ranking_candidate_pool_sha256 == pool_sha256
+        and state.portfolio_ranking_evidence_sha256
+        == _evidence_sha256(state.evidence_register)
+    )
     result = {
         "schema_version": "scientific-hypothesis-draft-status-v1",
         "status": "draft",
@@ -1345,6 +1368,12 @@ def _draft_summary(
             if isinstance(state.tail_review, dict)
             else []
         ),
+        "portfolio_ranking_status": (
+            "current"
+            if ranking_current
+            else ("stale" if state.portfolio_ranking is not None else "missing")
+        ),
+        "portfolio_ranking": deepcopy(state.portfolio_ranking),
         "checkpoint_available": state.validated_response is not None,
         "draft_differs_from_checkpoint": bool(
             state.latest_draft_sha256
@@ -1472,6 +1501,21 @@ def _load_persisted_state(path: Path) -> _HypothesisState:
     if isinstance(tail_review, dict):
         state.tail_review = tail_review
 
+    portfolio_ranking = raw.get("portfolio_ranking")
+    if isinstance(portfolio_ranking, dict):
+        try:
+            state.portfolio_ranking = validate_portfolio_ranking(
+                portfolio_ranking, state.evidence_register
+            )
+            pool_sha = raw.get("portfolio_ranking_candidate_pool_sha256")
+            evidence_sha = raw.get("portfolio_ranking_evidence_sha256")
+            if isinstance(pool_sha, str):
+                state.portfolio_ranking_candidate_pool_sha256 = pool_sha
+            if isinstance(evidence_sha, str):
+                state.portfolio_ranking_evidence_sha256 = evidence_sha
+        except Exception as exc:
+            warnings.append(f"invalid portfolio ranking was ignored: {exc}")
+
     error = raw.get("last_validation_error")
     if isinstance(error, str) and error:
         state.last_validation_error = error
@@ -1546,6 +1590,7 @@ def read_persisted_hypothesis_draft(path: str | Path) -> dict[str, Any]:
     ]
     result["draft"] = deepcopy(state.latest_draft)
     result["tail_review"] = deepcopy(state.tail_review)
+    result["portfolio_ranking"] = deepcopy(state.portfolio_ranking)
     return result
 
 
@@ -1815,6 +1860,88 @@ def scientific_hypothesis_bind_request(
                 "Every rubric item is a hard violation gate. Among candidates "
                 "without violations, code recomputes the non-dominated Pareto "
                 "frontier; eligible null_control sentinels are retained."
+            ),
+        }
+        brief["portfolio_ranking_contract"] = {
+            "schema_version": PORTFOLIO_RANKING_VERSION,
+            "separate_orders": ["scientific_support", "research_priority"],
+            "claim_types": [
+                "descriptive_relationship",
+                "predictive",
+                "mechanism_candidate",
+                "null_hypothesis",
+                "measurement_explanation",
+            ],
+            "required_top_level_fields": [
+                "schema_version",
+                "source_runs",
+                "hypothesis_groups",
+                "ranked_hypotheses",
+                "selected_next_experiment",
+            ],
+            "required_ranked_fields": [
+                "hypothesis_id",
+                "support_rank",
+                "research_priority_rank",
+                "claim_type",
+                "current_evidence_status",
+                "scientific_support",
+                "research_priority",
+                "data_sources_verified",
+                "support_evidence",
+                "opposing_evidence",
+                "out_of_sample_validation",
+                "effect_uncertainty",
+                "sensitivity",
+                "falsifiability",
+                "key_limitations",
+                "strongest_null_hypothesis",
+                "next_experiment",
+                "ranking_rationale",
+                "release_boundary",
+                "portfolio_role",
+                "portfolio_status",
+                "forecast_origin",
+                "forecast_receipt_ref",
+            ],
+            "portfolio_roles": [
+                "empirical_anchor",
+                "physical_precursor",
+                "physical_discriminator",
+                "challenger",
+            ],
+            "portfolio_statuses": [
+                "candidate_pending_test",
+                "active_top3",
+                "challenger_pool",
+                "rejected",
+                "blocked_by_data",
+            ],
+            "forecast_origins": [
+                "early_cycle",
+                "cycle_minimum",
+                "not_applicable",
+            ],
+            "evidence_dependency_rule": (
+                "Evidence from models or papers sharing the same underlying data "
+                "must use one dependency_group_id; shared data never creates "
+                "multiple independent support groups."
+            ),
+            "release_gates": [
+                "high support requires verified supporting evidence and sources",
+                "a predictive high requires out-of-sample performance that beats baseline",
+                "an interval crossing the null cannot receive high support",
+                "active_top3 contains at most three unique roles and excludes tested_no_skill",
+                "physical_discriminator receipts must contain axial_dipole_moment",
+            ],
+            "lifecycle_rule": (
+                "The archived negative interaction is rejected. A high-priority "
+                "null may remain in challenger_pool, but tested_no_skill, "
+                "blocked_by_data, and execution_failed cannot be active_top3."
+            ),
+            "priority_rule": (
+                "Negative, null, low-power, and insufficient results may receive "
+                "high research priority without increasing scientific support."
             ),
         }
         context = workspace_context_key(config)
@@ -2783,6 +2910,103 @@ def scientific_hypothesis_review_tail(
         return _needs_revision(exc, state=state)
 
 
+@tool(parse_docstring=True)
+def scientific_hypothesis_rank_portfolio(
+    ranking_json: str, config: RunnableConfig = None
+) -> str:
+    """Persist claim-specific scientific support and research-priority rankings.
+
+    Call this after the independent tail review has selected the live candidate
+    pool and before checkpointing.  The payload uses
+    ``scientific-hypothesis-portfolio-ranking-v2``. It may semantically merge
+    synonymous candidates from one or more named source runs, but every current
+    candidate must remain represented. Scientific support and research priority
+    have separate ranks and rationales. Evidence links must name one dependency
+    group so repeated models using the same data count as one evidence group.
+    Negative, null, and evidence-insufficient hypotheses remain eligible for high
+    research priority while their scientific support stays calibrated. New rows
+    must declare portfolio_role, portfolio_status, forecast_origin, and a verified
+    relative forecast_receipt_ref or null. Archived negative interactions are
+    rejected; tested_no_skill candidates may remain challengers but not active_top3.
+
+    Args:
+        ranking_json: Complete portfolio-ranking JSON for the current reviewed pool.
+
+    Returns:
+        JSON receipt with the two separate orders and selected next experiment.
+    """
+
+    state = _state(config)
+    try:
+        request = _require_active_request(state)
+        draft = state.latest_draft
+        if not isinstance(draft, dict):
+            raise ValueError("No working hypothesis draft exists to rank.")
+        if not tail_review_is_current(
+            state.tail_review,
+            draft,
+            evidence_sha256=_evidence_sha256(state.evidence_register),
+        ):
+            raise ValueError(
+                "A current independent tail review is required before portfolio ranking."
+            )
+        payload = json.loads(ranking_json)
+        ranking = validate_portfolio_ranking(payload, state.evidence_register)
+        live_ids = {
+            candidate.get("id")
+            for candidate in draft.get("candidates", [])
+            if isinstance(candidate, dict) and isinstance(candidate.get("id"), str)
+        }
+        represented_ids = {
+            member["candidate_id"]
+            for group in ranking["hypothesis_groups"]
+            for member in group["member_candidates"]
+        }
+        missing = sorted(live_ids - represented_ids)
+        if missing:
+            raise ValueError(
+                "Portfolio ranking omits current candidates: " + ", ".join(missing)
+            )
+        state.portfolio_ranking = ranking
+        state.portfolio_ranking_candidate_pool_sha256 = candidate_pool_sha256(
+            draft.get("candidates", [])
+        )
+        state.portfolio_ranking_evidence_sha256 = _evidence_sha256(
+            state.evidence_register
+        )
+        state.last_validation_error = None
+        state.same_validation_error_count = 0
+        _persist_state(config, state)
+        return _ok(
+            {
+                "schema_version": PORTFOLIO_RANKING_VERSION,
+                "status": "portfolio_ranked",
+                "task_name": request["task_name"],
+                "scientific_support_order": [
+                    row["hypothesis_id"]
+                    for row in sorted(
+                        ranking["ranked_hypotheses"],
+                        key=lambda item: item["support_rank"],
+                    )
+                ],
+                "research_priority_order": [
+                    row["hypothesis_id"]
+                    for row in sorted(
+                        ranking["ranked_hypotheses"],
+                        key=lambda item: item["research_priority_rank"],
+                    )
+                ],
+                "selected_next_experiment": ranking["selected_next_experiment"],
+                "lifecycle_partitions": ranking["lifecycle_partitions"],
+                "persistence_warning": state.persistence_warning,
+            }
+        )
+    except Exception as exc:
+        outcome = _needs_revision(exc, state=state, count_failure=True)
+        _persist_state(config, state)
+        return outcome
+
+
 def _checkpoint_response(
     state: _HypothesisState,
     response: dict[str, Any],
@@ -2818,6 +3042,16 @@ def _checkpoint_response(
                 "scientific_hypothesis_review_tail "
                 "with the current candidate_pool_sha256; candidate or evidence "
                 "changes make an earlier review stale."
+            )
+        if state.portfolio_ranking is not None and not (
+            state.portfolio_ranking_candidate_pool_sha256
+            == candidate_pool_sha256(candidates or [])
+            and state.portfolio_ranking_evidence_sha256
+            == _evidence_sha256(state.evidence_register)
+        ):
+            raise ValueError(
+                "The portfolio ranking is stale after candidate or evidence changes; "
+                "rerun scientific_hypothesis_rank_portfolio before checkpointing."
             )
         state.preflight_attempts += 1
         result = preflight_hypothesis_response(
@@ -3079,6 +3313,7 @@ SCIENTIFIC_HYPOTHESIS_TOOLS = [
     scientific_hypothesis_update_draft,
     scientific_hypothesis_get_draft,
     scientific_hypothesis_review_tail,
+    scientific_hypothesis_rank_portfolio,
     scientific_hypothesis_validate_response,
     scientific_hypothesis_checkpoint_draft,
     scientific_hypothesis_get_status,

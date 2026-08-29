@@ -36,7 +36,7 @@ const allCases = await loadCases();
 const core = allCases.filter((entry) => entry.id.startsWith("SC26-"));
 const nonCore = allCases.filter((entry) => !entry.id.startsWith("SC26-"));
 const reviewMode = phase === "closed-core" ? "closed" : "two_pass";
-const reviewer = process.env.JW_EVAL_REVIEWER || "kimi";
+const reviewer = process.env.JW_EVAL_REVIEWER || "qwen";
 if (!["kimi", "deepseek", "qwen"].includes(reviewer)) {
   throw new Error("JW_EVAL_REVIEWER must be kimi, deepseek, or qwen");
 }

@@ -1862,7 +1862,7 @@ class QwenToolCompatibilityMiddleware(AgentMiddleware):
         messages: Sequence[BaseMessage],
         tools: list[BaseTool | dict[str, Any]],
     ) -> ModelResponse:
-        """Convert a premature Qwen final into the required checkpoint call."""
+        """Read the selected pool, rank it, then checkpoint a current ranking."""
         if not isinstance(response, ModelResponse):
             return response
         if len(response.result) != 1 or not isinstance(response.result[0], AIMessage):
@@ -1877,13 +1877,19 @@ class QwenToolCompatibilityMiddleware(AgentMiddleware):
 
         events = cls._completed_tool_events(messages)
         latest_review: tuple[int, ToolMessage] | None = None
+        latest_ranking: tuple[int, ToolMessage] | None = None
         last_draft_change = -1
+        last_draft_read = -1
         last_checkpoint = -1
         for name, _, result_index, tool_message in events:
             if name == "scientific_hypothesis_update_draft":
                 last_draft_change = result_index
+            elif name == "scientific_hypothesis_get_draft":
+                last_draft_read = result_index
             elif name == "scientific_hypothesis_review_tail":
                 latest_review = (result_index, tool_message)
+            elif name == "scientific_hypothesis_rank_portfolio":
+                latest_ranking = (result_index, tool_message)
             elif name == "scientific_hypothesis_checkpoint_draft":
                 last_checkpoint = result_index
         if latest_review is None:
@@ -1900,6 +1906,54 @@ class QwenToolCompatibilityMiddleware(AgentMiddleware):
             or review_result.get("status") != "tail_reviewed"
         ):
             return response
+
+        tool_names = validate_qwen_tool_schema(tools)
+        ranking_required = "scientific_hypothesis_rank_portfolio" in tool_names
+        if ranking_required and (
+            latest_ranking is None or latest_ranking[0] <= review_index
+        ):
+            if (
+                "scientific_hypothesis_get_draft" not in tool_names
+                or last_draft_read > review_index
+            ):
+                return response
+            digest = hashlib.sha256(
+                f"hypothesis-ranking-read:{len(messages)}:{review_index}".encode()
+            ).hexdigest()[:24]
+            metadata = dict(message.response_metadata)
+            metadata["finish_reason"] = "tool_calls"
+            ranking_read = message.model_copy(
+                update={
+                    "content": "",
+                    "tool_calls": [
+                        {
+                            "name": "scientific_hypothesis_get_draft",
+                            "args": {},
+                            "id": f"call_qwen_hypothesis_ranking_read_{digest}",
+                            "type": "tool_call",
+                        }
+                    ],
+                    "invalid_tool_calls": [],
+                    "response_metadata": metadata,
+                }
+            )
+            return ModelResponse(
+                result=[ranking_read],
+                structured_response=response.structured_response,
+            )
+        if ranking_required and latest_ranking is not None:
+            ranking_index, ranking_message = latest_ranking
+            if ranking_index <= max(review_index, last_draft_change, last_checkpoint):
+                return response
+            try:
+                ranking_result = json.loads(cls._message_text(ranking_message))
+            except (TypeError, ValueError):
+                return response
+            if (
+                not isinstance(ranking_result, Mapping)
+                or ranking_result.get("status") != "portfolio_ranked"
+            ):
+                return response
 
         digest = hashlib.sha256(
             f"hypothesis-checkpoint:{len(messages)}:{review_index}".encode()

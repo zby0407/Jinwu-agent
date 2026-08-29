@@ -1260,7 +1260,20 @@ def test_precursor_table_receipt_is_bound_to_current_data_task(
     monkeypatch.setattr(
         solar_feature,
         "_build_solar_precursor_cycle_rows",
-        lambda sunspot_path, polar_path: [{"cycle_number": 24, "value": 115}],
+        lambda sunspot_path, polar_path: [
+            {
+                "row_role": "analysis",
+                "cycle_number": 24,
+                "polar_field_proxy_gauss": 1.15,
+                "polar_field_proxy_sem_gauss": 0.08,
+                "predictor_window_complete": True,
+                "predictor_window_start_decimal_year": 2019.5,
+                "predictor_window_end_decimal_year": 2020.5,
+                "predictor_cutoff_decimal_year": 2020.5,
+                "north_source": "WSO",
+                "south_source": "WSO",
+            }
+        ],
     )
 
     result = json.loads(
@@ -1280,6 +1293,14 @@ def test_precursor_table_receipt_is_bound_to_current_data_task(
     assert receipt["receipt_type"] == "solar_precursor_cycle_table"
     assert receipt["producer"] == "solar-data"
     assert receipt["task_id"] == "task-1"
+    assert receipt["feature_records"][0]["status"] == "available"
+    assert receipt["feature_records"][0]["hypothesis_id"] == "h2_polar_precursor"
+    assert receipt["unavailable_feature_records"][0]["status"] == "blocked_by_data"
+    assert result["status"] == "verified"
+    assert result["hypothesis_data_status"] == {
+        "h2_polar_precursor": "available",
+        "h3_axial_dipole_discriminator": "blocked_by_data",
+    }
 
 
 def test_solar_feature_bundle_exposes_harness_without_reserved_names():

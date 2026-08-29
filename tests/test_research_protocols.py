@@ -232,16 +232,23 @@ def test_polar_precursor_directive_requires_cycle_level_out_of_sample_analysis()
 ):
     directive = solar_polar_precursor_directive()
 
-    assert "cycle N" in directive
-    assert "cycle N+1" in directive
-    assert "adjacent minima" in directive
+    assert "verified solar_precursor_cycle_features.csv" in directive
+    assert "SolarPrecursorFeatureRecordV1" in directive
     assert "independent sample unit" in directive
     assert "rolling-origin" in directive
+    assert "five initial training cycles" in directive
+    assert "training-mean" in directive
+    assert "persistence" in directive
+    assert "10000" in directive
+    assert "20260828" in directive
     assert "MAE and RMSE" in directive
     assert "leave-one-cycle" in directive
     assert "MWO" in directive
     assert "WSO" in directive
-    assert "Do not preselect the interaction sign" in directive
+    assert "blocked_by_data" in directive
+    assert "axial-dipole" in directive
+    assert "interaction" in directive.casefold()
+    assert "sign-neutral" in directive.casefold()
 
 
 def test_silso_final_markdown_is_deterministic_and_scoped() -> None:

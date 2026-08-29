@@ -10,7 +10,7 @@
 //   JW_EVAL_SUITE      path to the case JSON (default sc26_core_e2e_v1.json)
 //   JW_EVAL_FRONTEND   default http://127.0.0.1:4717/
 //   JW_EVAL_BACKEND    default http://127.0.0.1:6174
-//   JW_EVAL_MODEL / JW_EVAL_PROVIDER   default qwen3.8-max / custom-openai
+//   JW_EVAL_MODEL / JW_EVAL_PROVIDER   default qwen3.8-max / custom-openai (Bailian)
 //   JW_EVAL_PROFILE    Chrome user-data-dir; default a fresh mktemp profile
 //   JW_EVAL_SUBMIT_ONLY=1   stop after the run is accepted by the backend
 //   JW_EVAL_HEADLESS=0      optionally show the automation browser itself

@@ -300,6 +300,14 @@ _MODEL_ENTRIES: list[tuple[str, str, str]] = [
     ("doubao-seed-1.6", "doubao-seed-1.6", "volcengine"),
     ("doubao-1.5-pro", "doubao-1.5-pro-256k", "volcengine"),
     ("doubao-1.5-thinking-pro", "doubao-1.5-thinking-pro", "volcengine"),
+    # Bailian Qwen deployments exposed through an OpenAI-compatible custom
+    # endpoint. Keep these before the native DashScope entries so the default
+    # short-name provider remains DashScope while explicit custom-openai
+    # overrides validate and appear in the provider picker.
+    ("qwen3.8-max", "qwen3.8-max", "custom-openai"),
+    ("qwen3.8-plus", "qwen3.8-plus", "custom-openai"),
+    ("qwen3.7-max", "qwen3.7-max", "custom-openai"),
+    ("qwen3.7-plus", "qwen3.7-plus", "custom-openai"),
     # DashScope Coding Plan (阿里云代码计划 — subscription sk-sp-* endpoint)
     ("qwen3.8-max", "qwen3.8-max", "dashscope-code"),
     ("qwen3.8-plus", "qwen3.8-plus", "dashscope-code"),
@@ -353,6 +361,40 @@ MODELS: dict[str, tuple[str, str]] = {
 }
 
 DEFAULT_MODEL = "qwen3.7-plus"
+SUPPORTED_MODEL_PROVIDERS = frozenset(
+    {provider for _name, _model_id, provider in _MODEL_ENTRIES}
+    | {"openai", "anthropic", "google-genai", "ollama"}
+)
+
+
+def validate_model_override(
+    model: str,
+    provider: str | None,
+) -> tuple[str, str | None]:
+    """Validate an explicit per-run model override before model resolution."""
+
+    normalized_model = model.strip()
+    normalized_provider = (
+        provider.strip() if isinstance(provider, str) and provider.strip() else None
+    )
+    if not normalized_model:
+        raise ValueError("model override must be non-empty")
+    if (
+        normalized_provider is not None
+        and normalized_provider not in SUPPORTED_MODEL_PROVIDERS
+    ):
+        raise ValueError(f"unsupported model provider: {normalized_provider}")
+    if normalized_provider is not None and normalized_model in MODELS:
+        pair_exists = any(
+            name == normalized_model and candidate_provider == normalized_provider
+            for name, _model_id, candidate_provider in _MODEL_ENTRIES
+        )
+        if not pair_exists:
+            raise ValueError(
+                "unsupported model/provider pair: "
+                f"{normalized_model}/{normalized_provider}"
+            )
+    return normalized_model, normalized_provider
 
 
 def get_models_for_provider(provider: str) -> list[tuple[str, str]]:

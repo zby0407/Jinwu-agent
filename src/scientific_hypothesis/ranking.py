@@ -10,7 +10,9 @@
 
 from __future__ import annotations
 
+import json
 import re
+from pathlib import PurePosixPath
 from typing import TYPE_CHECKING, Any
 
 from .contracts import ContractError, _array, _enum, _exact_fields, _id, _object, _text
@@ -20,6 +22,51 @@ if TYPE_CHECKING:
     from .harness import EvidenceRegister
 
 RANKING_VERSION = "scientific-hypothesis-ranking-v1"
+PORTFOLIO_RANKING_VERSION = "scientific-hypothesis-portfolio-ranking-v2"
+
+CLAIM_TYPES = {
+    "descriptive_relationship",
+    "predictive",
+    "mechanism_candidate",
+    "null_hypothesis",
+    "measurement_explanation",
+}
+EVIDENCE_STATUSES = {"supported", "mixed", "unsupported", "insufficient"}
+SUPPORT_LEVELS = {"high", "medium", "low"}
+PRIORITY_LEVELS = {"high", "medium", "low"}
+OUT_OF_SAMPLE_STATUSES = {
+    "beats_baseline",
+    "skill_supported",
+    "mixed_evidence",
+    "tested_no_skill",
+    "blocked_by_data",
+    "execution_failed",
+    "not_tested",
+    "not_applicable",
+}
+SENSITIVITY_STATUSES = {"supports", "fragile", "not_tested", "not_applicable"}
+FALSIFIABILITY_STATUSES = {"clear", "partial", "unclear"}
+FEASIBILITY_STATUSES = {"executable_now", "requires_new_data", "not_currently_feasible"}
+PORTFOLIO_ROLES = {
+    "empirical_anchor",
+    "physical_precursor",
+    "physical_discriminator",
+    "challenger",
+}
+PORTFOLIO_STATUSES = {
+    "candidate_pending_test",
+    "active_top3",
+    "challenger_pool",
+    "rejected",
+    "blocked_by_data",
+}
+FORECAST_ORIGINS = {"early_cycle", "cycle_minimum", "not_applicable"}
+_LIFECYCLE_FIELDS = {
+    "portfolio_role",
+    "portfolio_status",
+    "forecast_origin",
+    "forecast_receipt_ref",
+}
 
 RUBRIC_DIMENSIONS: tuple[dict[str, str], ...] = (
     {"key": "data_support", "label": "数据支持度"},
@@ -75,7 +122,11 @@ def validate_ranking_request(
     weights: dict[str, float] = {}
     for key in RUBRIC_KEYS:
         value = weights_raw.get(key, 1)
-        if isinstance(value, bool) or not isinstance(value, (int, float)) or not 1 <= value <= 3:
+        if (
+            isinstance(value, bool)
+            or not isinstance(value, (int, float))
+            or not 1 <= value <= 3
+        ):
             raise ContractError(f"ranking request.weights.{key} 必须是 1 到 3 的数")
         weights[key] = float(value)
 
@@ -114,7 +165,9 @@ def validate_ranking_request(
         key_evidence_ids = [
             _id(value, f"{label}.key_evidence_ids[{i}]")
             for i, value in enumerate(
-                _array(row["key_evidence_ids"], f"{label}.key_evidence_ids", max_items=12)
+                _array(
+                    row["key_evidence_ids"], f"{label}.key_evidence_ids", max_items=12
+                )
             )
         ]
         for evidence_id in key_evidence_ids:
@@ -132,7 +185,9 @@ def validate_ranking_request(
         grades_raw = _object(row["dimension_grades"], f"{label}.dimension_grades")
         _exact_fields(grades_raw, set(RUBRIC_KEYS), f"{label}.dimension_grades")
         grades = {
-            key: _enum(grades_raw[key], set(GRADE_STRENGTH), f"{label}.dimension_grades.{key}")
+            key: _enum(
+                grades_raw[key], set(GRADE_STRENGTH), f"{label}.dimension_grades.{key}"
+            )
             for key in RUBRIC_KEYS
         }
         anchor_entries = [register.get(evidence_id) for evidence_id in key_evidence_ids]
@@ -168,7 +223,9 @@ def validate_ranking_request(
             {
                 "candidate_id": candidate_id,
                 "rank": rank,
-                "rationale": _text(row["rationale"], f"{label}.rationale", max_length=2_000),
+                "rationale": _text(
+                    row["rationale"], f"{label}.rationale", max_length=2_000
+                ),
                 "key_evidence_ids": key_evidence_ids,
                 "dimension_grades": grades,
                 "weakest_dimensions": weakest,
@@ -181,7 +238,9 @@ def validate_ranking_request(
     if seen != candidate_set:
         missing = sorted(candidate_set - seen)
         raise ContractError(
-            "ranking request.ranked 必须覆盖全部候选；缺失：{}".format("、".join(missing))
+            "ranking request.ranked 必须覆盖全部候选；缺失：{}".format(
+                "、".join(missing)
+            )
         )
     ranks = sorted(row["rank"] for row in ranked)
     if ranks != list(range(1, len(ranked) + 1)):
@@ -243,7 +302,9 @@ def check_ranking_consistency(
         cid = row["candidate_id"]
         label = f"候选 {cid}"
         candidate = candidate_by_id[cid]
-        supporting_ids = {link["evidence_id"] for link in candidate["supporting_evidence"]}
+        supporting_ids = {
+            link["evidence_id"] for link in candidate["supporting_evidence"]
+        }
         anchored_outside = [
             evidence_id
             for evidence_id in row["key_evidence_ids"]
@@ -264,7 +325,9 @@ def check_ranking_consistency(
         applicability = candidate.get("applicability", "")
         statement_scope = candidate.get("statement", "") + " " + applicability
         for spec in KNOWN_DATA_COVERAGES:
-            coverage_mentions = re.search(spec["pattern"].pattern, statement_scope, re.IGNORECASE)
+            coverage_mentions = re.search(
+                spec["pattern"].pattern, statement_scope, re.IGNORECASE
+            )
             if coverage_mentions and spec["scope_pattern"].search(statement_scope):
                 if row["dimension_grades"]["data_support"] == "strong":
                     errors.append(
@@ -306,13 +369,671 @@ def compute_dimension_scores(ranking: dict[str, Any]) -> dict[str, dict[str, flo
     return scores
 
 
+def _rank(value: object, label: str) -> int:
+    if isinstance(value, bool) or not isinstance(value, int) or value < 1:
+        raise ContractError(f"{label} 必须是不小于 1 的整数")
+    return value
+
+
+def _boolean(value: object, label: str) -> bool:
+    if not isinstance(value, bool):
+        raise ContractError(f"{label} 必须是布尔值")
+    return value
+
+
+def _text_list(
+    value: object, label: str, *, min_items: int = 0, max_items: int = 20
+) -> list[str]:
+    return [
+        _text(item, f"{label}[{index}]", max_length=2_000)
+        for index, item in enumerate(
+            _array(value, label, min_items=min_items, max_items=max_items)
+        )
+    ]
+
+
+def _evidence_links(
+    value: object,
+    label: str,
+    register: EvidenceRegister,
+    *,
+    expected_roles: set[str],
+) -> list[dict[str, str]]:
+    rows: list[dict[str, str]] = []
+    seen: set[str] = set()
+    for index, item in enumerate(_array(value, label, max_items=30)):
+        row_label = f"{label}[{index}]"
+        row = _object(item, row_label)
+        _exact_fields(
+            row,
+            {"evidence_id", "dependency_group_id", "relation"},
+            row_label,
+        )
+        evidence_id = _id(row["evidence_id"], f"{row_label}.evidence_id")
+        if evidence_id in seen:
+            raise ContractError(f"{label} 不得重复引用证据 {evidence_id}")
+        seen.add(evidence_id)
+        entry = register.get(evidence_id)
+        if entry is None:
+            raise ContractError(f"{row_label} 引用了未绑定证据：{evidence_id}")
+        if not entry["verified_support"]:
+            raise ContractError(f"{row_label} 引用了未核验证据：{evidence_id}")
+        if entry["role"] not in expected_roles:
+            raise ContractError(
+                f"{row_label} 的证据角色 {entry['role']} 与本字段不一致"
+            )
+        rows.append(
+            {
+                "evidence_id": evidence_id,
+                "dependency_group_id": _id(
+                    row["dependency_group_id"],
+                    f"{row_label}.dependency_group_id",
+                ),
+                "relation": _text(
+                    row["relation"], f"{row_label}.relation", max_length=1_000
+                ),
+            }
+        )
+    return rows
+
+
+def _forecast_receipt_ref(value: object, label: str) -> str | None:
+    if value is None:
+        return None
+    ref = _text(value, label, max_length=500).replace("\\", "/")
+    path = PurePosixPath(ref)
+    if path.is_absolute() or ".." in path.parts or not ref.startswith("experiment/runs/"):
+        raise ContractError(
+            f"{label} 必须是 experiment/runs/ 下的相对 forecast receipt 路径"
+        )
+    if path.name != "forecast_experiment_receipt.json":
+        raise ContractError(f"{label} 必须指向 forecast_experiment_receipt.json")
+    return ref
+
+
+def _receipt_observable_kind(
+    receipt_ref: str,
+    register: EvidenceRegister,
+    label: str,
+) -> str:
+    matches: list[str] = []
+    for entry in register.all():
+        if not entry.get("verified_support"):
+            continue
+        excerpt = entry.get("excerpt")
+        if not isinstance(excerpt, str):
+            continue
+        try:
+            payload = json.loads(excerpt)
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(payload, dict) or payload.get("forecast_receipt_ref") != receipt_ref:
+            continue
+        observable_kind = payload.get("observable_kind")
+        if isinstance(observable_kind, str):
+            matches.append(observable_kind)
+    if not matches:
+        raise ContractError(f"{label} 没有对应的已核验 forecast receipt 证据")
+    if len(set(matches)) != 1:
+        raise ContractError(f"{label} 对应的 forecast receipt 观测量定义冲突")
+    return matches[0]
+
+
+def _normalize_lifecycle(
+    row: dict[str, Any],
+    label: str,
+    register: EvidenceRegister,
+) -> dict[str, str | None]:
+    supplied = _LIFECYCLE_FIELDS.intersection(row)
+    if supplied and supplied != _LIFECYCLE_FIELDS:
+        missing = sorted(_LIFECYCLE_FIELDS.difference(row))
+        raise ContractError(f"{label} 生命周期字段必须成组提供；缺失：{', '.join(missing)}")
+    if not supplied:
+        return {
+            "portfolio_role": "challenger",
+            "portfolio_status": "challenger_pool",
+            "forecast_origin": "not_applicable",
+            "forecast_receipt_ref": None,
+        }
+
+    role = _enum(row["portfolio_role"], PORTFOLIO_ROLES, f"{label}.portfolio_role")
+    status = _enum(
+        row["portfolio_status"], PORTFOLIO_STATUSES, f"{label}.portfolio_status"
+    )
+    origin = _enum(
+        row["forecast_origin"], FORECAST_ORIGINS, f"{label}.forecast_origin"
+    )
+    receipt_ref = _forecast_receipt_ref(
+        row["forecast_receipt_ref"], f"{label}.forecast_receipt_ref"
+    )
+    required_origin = {
+        "empirical_anchor": "early_cycle",
+        "physical_precursor": "cycle_minimum",
+        "physical_discriminator": "cycle_minimum",
+    }.get(role)
+    if required_origin is not None and origin != required_origin:
+        raise ContractError(
+            f"{label}.forecast_origin 与 portfolio_role={role} 不一致；"
+            f"必须为 {required_origin}"
+        )
+    if role == "challenger" and origin not in FORECAST_ORIGINS:
+        raise ContractError(f"{label}.forecast_origin 无效")
+    if status == "blocked_by_data" and receipt_ref is not None:
+        raise ContractError(f"{label}: blocked_by_data 不得声明可用 forecast receipt")
+    if receipt_ref is not None:
+        observable_kind = _receipt_observable_kind(receipt_ref, register, label)
+        allowed_observables = {
+            "empirical_anchor": {"sunspot_rise_metric"},
+            "physical_precursor": {
+                "polar_aperture_field",
+                "hemispheric_polar_flux",
+            },
+            "physical_discriminator": {"axial_dipole_moment"},
+            "challenger": {
+                "sunspot_rise_metric",
+                "polar_aperture_field",
+                "hemispheric_polar_flux",
+                "axial_dipole_moment",
+            },
+        }[role]
+        if observable_kind not in allowed_observables:
+            expected = ", ".join(sorted(allowed_observables))
+            raise ContractError(
+                f"{label}: portfolio_role={role} 的 receipt 必须使用 {expected}，"
+                f"不能使用 {observable_kind}"
+            )
+    return {
+        "portfolio_role": role,
+        "portfolio_status": status,
+        "forecast_origin": origin,
+        "forecast_receipt_ref": receipt_ref,
+    }
+
+
+def validate_portfolio_ranking(
+    payload: object,
+    register: EvidenceRegister,
+) -> dict[str, Any]:
+    """Validate claim-specific support and experiment priority without a total score.
+
+    Semantic normalization, claim classification, and experiment value are bounded
+    model judgments.  This validator closes their identifiers and evidence anchors,
+    recomputes independent dependency groups, and applies only objective release
+    caps.  Scientific support and research priority remain separate ordinal views.
+    """
+
+    request = _object(payload, "portfolio ranking")
+    _exact_fields(
+        request,
+        {
+            "schema_version",
+            "source_runs",
+            "hypothesis_groups",
+            "ranked_hypotheses",
+            "selected_next_experiment",
+        },
+        "portfolio ranking",
+    )
+    if request["schema_version"] != PORTFOLIO_RANKING_VERSION:
+        raise ContractError(f"schema_version 必须为 {PORTFOLIO_RANKING_VERSION}")
+
+    source_runs = _text_list(
+        request["source_runs"], "portfolio ranking.source_runs", min_items=1
+    )
+    if len(source_runs) != len(set(source_runs)):
+        raise ContractError("portfolio ranking.source_runs 必须互不相同")
+    source_run_set = set(source_runs)
+
+    groups: list[dict[str, Any]] = []
+    hypothesis_ids: list[str] = []
+    assigned_members: set[tuple[str, str]] = set()
+    for index, item in enumerate(
+        _array(
+            request["hypothesis_groups"],
+            "portfolio ranking.hypothesis_groups",
+            min_items=1,
+            max_items=30,
+        )
+    ):
+        label = f"portfolio ranking.hypothesis_groups[{index}]"
+        row = _object(item, label)
+        _exact_fields(
+            row,
+            {
+                "hypothesis_id",
+                "normalized_statement",
+                "member_candidates",
+                "deduplication_rationale",
+            },
+            label,
+        )
+        hypothesis_id = _id(row["hypothesis_id"], f"{label}.hypothesis_id")
+        members: list[dict[str, str]] = []
+        for member_index, member_value in enumerate(
+            _array(
+                row["member_candidates"],
+                f"{label}.member_candidates",
+                min_items=1,
+                max_items=30,
+            )
+        ):
+            member_label = f"{label}.member_candidates[{member_index}]"
+            member = _object(member_value, member_label)
+            _exact_fields(member, {"run_id", "candidate_id"}, member_label)
+            run_id = _text(member["run_id"], f"{member_label}.run_id", max_length=200)
+            if run_id not in source_run_set:
+                raise ContractError(f"{member_label}.run_id 未列入 source_runs")
+            candidate_id = _id(member["candidate_id"], f"{member_label}.candidate_id")
+            member_key = (run_id, candidate_id)
+            if member_key in assigned_members:
+                raise ContractError(
+                    f"候选 {run_id}/{candidate_id} 只能归入一个规范化假设"
+                )
+            assigned_members.add(member_key)
+            members.append({"run_id": run_id, "candidate_id": candidate_id})
+        hypothesis_ids.append(hypothesis_id)
+        groups.append(
+            {
+                "hypothesis_id": hypothesis_id,
+                "normalized_statement": _text(
+                    row["normalized_statement"],
+                    f"{label}.normalized_statement",
+                    max_length=2_000,
+                ),
+                "member_candidates": members,
+                "deduplication_rationale": _text(
+                    row["deduplication_rationale"],
+                    f"{label}.deduplication_rationale",
+                    max_length=2_000,
+                ),
+            }
+        )
+    if len(hypothesis_ids) != len(set(hypothesis_ids)):
+        raise ContractError(
+            "portfolio ranking.hypothesis_groups 的 hypothesis_id 必须唯一"
+        )
+    hypothesis_set = set(hypothesis_ids)
+
+    ranked: list[dict[str, Any]] = []
+    ranked_ids: list[str] = []
+    for index, item in enumerate(
+        _array(
+            request["ranked_hypotheses"],
+            "portfolio ranking.ranked_hypotheses",
+            min_items=1,
+            max_items=30,
+        )
+    ):
+        label = f"portfolio ranking.ranked_hypotheses[{index}]"
+        row = _object(item, label)
+        ranked_fields = {
+            "hypothesis_id",
+            "support_rank",
+            "research_priority_rank",
+            "claim_type",
+            "current_evidence_status",
+            "scientific_support",
+            "research_priority",
+            "data_sources_verified",
+            "support_evidence",
+            "opposing_evidence",
+            "out_of_sample_validation",
+            "effect_uncertainty",
+            "sensitivity",
+            "falsifiability",
+            "key_limitations",
+            "strongest_null_hypothesis",
+            "next_experiment",
+            "ranking_rationale",
+            "release_boundary",
+        }
+        if _LIFECYCLE_FIELDS.intersection(row):
+            ranked_fields |= _LIFECYCLE_FIELDS
+        _exact_fields(
+            row,
+            ranked_fields,
+            label,
+        )
+        hypothesis_id = _id(row["hypothesis_id"], f"{label}.hypothesis_id")
+        if hypothesis_id not in hypothesis_set:
+            raise ContractError(f"{label}.hypothesis_id 未指向规范化假设")
+        lifecycle = _normalize_lifecycle(row, label, register)
+
+        support = _object(row["scientific_support"], f"{label}.scientific_support")
+        _exact_fields(support, {"level", "rationale"}, f"{label}.scientific_support")
+        support_level = _enum(
+            support["level"], SUPPORT_LEVELS, f"{label}.scientific_support.level"
+        )
+        support_row = {
+            "level": support_level,
+            "rationale": _text(
+                support["rationale"],
+                f"{label}.scientific_support.rationale",
+                max_length=2_000,
+            ),
+        }
+
+        priority = _object(row["research_priority"], f"{label}.research_priority")
+        _exact_fields(priority, {"level", "rationale"}, f"{label}.research_priority")
+        priority_row = {
+            "level": _enum(
+                priority["level"],
+                PRIORITY_LEVELS,
+                f"{label}.research_priority.level",
+            ),
+            "rationale": _text(
+                priority["rationale"],
+                f"{label}.research_priority.rationale",
+                max_length=2_000,
+            ),
+        }
+
+        support_evidence = _evidence_links(
+            row["support_evidence"],
+            f"{label}.support_evidence",
+            register,
+            expected_roles={"supports"},
+        )
+        opposing_evidence = _evidence_links(
+            row["opposing_evidence"],
+            f"{label}.opposing_evidence",
+            register,
+            expected_roles={"opposes", "limits"},
+        )
+        all_evidence_ids = {
+            item["evidence_id"] for item in support_evidence + opposing_evidence
+        }
+        if len(all_evidence_ids) != len(support_evidence) + len(opposing_evidence):
+            raise ContractError(f"{label} 同一证据不能同时作为支持与反对证据")
+
+        out_of_sample = _object(
+            row["out_of_sample_validation"], f"{label}.out_of_sample_validation"
+        )
+        _exact_fields(
+            out_of_sample,
+            {"status", "baseline_comparison"},
+            f"{label}.out_of_sample_validation",
+        )
+        oos_status = _enum(
+            out_of_sample["status"],
+            OUT_OF_SAMPLE_STATUSES,
+            f"{label}.out_of_sample_validation.status",
+        )
+        out_of_sample_row = {
+            "status": oos_status,
+            "baseline_comparison": _text(
+                out_of_sample["baseline_comparison"],
+                f"{label}.out_of_sample_validation.baseline_comparison",
+                max_length=2_000,
+            ),
+        }
+
+        effect = _object(row["effect_uncertainty"], f"{label}.effect_uncertainty")
+        _exact_fields(
+            effect,
+            {"effect_summary", "interval_summary", "interval_crosses_null"},
+            f"{label}.effect_uncertainty",
+        )
+        crosses_null = effect["interval_crosses_null"]
+        if crosses_null is not None:
+            crosses_null = _boolean(
+                crosses_null, f"{label}.effect_uncertainty.interval_crosses_null"
+            )
+        effect_row = {
+            "effect_summary": _text(
+                effect["effect_summary"],
+                f"{label}.effect_uncertainty.effect_summary",
+                max_length=2_000,
+            ),
+            "interval_summary": _text(
+                effect["interval_summary"],
+                f"{label}.effect_uncertainty.interval_summary",
+                max_length=2_000,
+            ),
+            "interval_crosses_null": crosses_null,
+        }
+
+        sensitivity = _object(row["sensitivity"], f"{label}.sensitivity")
+        sensitivity_fields = {
+            "leave_one_out",
+            "temporal_split",
+            "measurement_regime",
+            "definition",
+        }
+        _exact_fields(sensitivity, sensitivity_fields, f"{label}.sensitivity")
+        sensitivity_row = {
+            key: _enum(
+                sensitivity[key], SENSITIVITY_STATUSES, f"{label}.sensitivity.{key}"
+            )
+            for key in sensitivity_fields
+        }
+
+        falsifiability = _object(row["falsifiability"], f"{label}.falsifiability")
+        _exact_fields(
+            falsifiability,
+            {"status", "conditions"},
+            f"{label}.falsifiability",
+        )
+        falsifiability_row = {
+            "status": _enum(
+                falsifiability["status"],
+                FALSIFIABILITY_STATUSES,
+                f"{label}.falsifiability.status",
+            ),
+            "conditions": _text_list(
+                falsifiability["conditions"],
+                f"{label}.falsifiability.conditions",
+                min_items=1,
+            ),
+        }
+
+        next_experiment = _object(row["next_experiment"], f"{label}.next_experiment")
+        _exact_fields(
+            next_experiment,
+            {"objective", "discriminating_power", "feasibility"},
+            f"{label}.next_experiment",
+        )
+        next_experiment_row = {
+            "objective": _text(
+                next_experiment["objective"],
+                f"{label}.next_experiment.objective",
+                max_length=2_000,
+            ),
+            "discriminating_power": _text(
+                next_experiment["discriminating_power"],
+                f"{label}.next_experiment.discriminating_power",
+                max_length=2_000,
+            ),
+            "feasibility": _enum(
+                next_experiment["feasibility"],
+                FEASIBILITY_STATUSES,
+                f"{label}.next_experiment.feasibility",
+            ),
+        }
+
+        claim_type = _enum(row["claim_type"], CLAIM_TYPES, f"{label}.claim_type")
+        evidence_status = _enum(
+            row["current_evidence_status"],
+            EVIDENCE_STATUSES,
+            f"{label}.current_evidence_status",
+        )
+        sources_verified = _boolean(
+            row["data_sources_verified"], f"{label}.data_sources_verified"
+        )
+
+        if lifecycle["portfolio_status"] == "active_top3":
+            if not sources_verified or evidence_status in {"unsupported", "insufficient"}:
+                raise ContractError(
+                    f"{label}: active_top3 必须有可用且已核验的数据与非否定证据状态"
+                )
+            if claim_type == "predictive" and oos_status not in {
+                "beats_baseline",
+                "skill_supported",
+            }:
+                raise ContractError(
+                    f"{label}: out-of-sample 状态 {oos_status} 不得进入 active_top3"
+                )
+            if claim_type == "predictive" and lifecycle["forecast_receipt_ref"] is None:
+                raise ContractError(
+                    f"{label}: active_top3 预测主张必须绑定 forecast receipt"
+                )
+
+        # Two objective release gates: traceable evidence and claim-specific
+        # validation.  The model still judges novelty, value, and discrimination.
+        if support_level == "high":
+            if not support_evidence or not sources_verified:
+                raise ContractError(
+                    f"{label}: 高科学支持度必须有已核验支持证据和已核验数据来源"
+                )
+            if evidence_status != "supported":
+                raise ContractError(
+                    f"{label}: 当前证据状态为 {evidence_status}，科学支持度不得为 high"
+                )
+            if claim_type == "predictive" and oos_status != "beats_baseline":
+                raise ContractError(
+                    f"{label}: 预测主张未胜过基线，科学支持度不得为 high"
+                )
+            if crosses_null is True:
+                raise ContractError(f"{label}: 区间跨越零效应，科学支持度不得为 high")
+
+        ranked_ids.append(hypothesis_id)
+        ranked.append(
+            {
+                "hypothesis_id": hypothesis_id,
+                "support_rank": _rank(row["support_rank"], f"{label}.support_rank"),
+                "research_priority_rank": _rank(
+                    row["research_priority_rank"],
+                    f"{label}.research_priority_rank",
+                ),
+                "claim_type": claim_type,
+                "current_evidence_status": evidence_status,
+                "scientific_support": support_row,
+                "research_priority": priority_row,
+                "data_sources_verified": sources_verified,
+                "support_evidence": support_evidence,
+                "opposing_evidence": opposing_evidence,
+                "independent_support_group_count": len(
+                    {item["dependency_group_id"] for item in support_evidence}
+                ),
+                "out_of_sample_validation": out_of_sample_row,
+                "effect_uncertainty": effect_row,
+                "sensitivity": sensitivity_row,
+                "falsifiability": falsifiability_row,
+                "key_limitations": _text_list(
+                    row["key_limitations"], f"{label}.key_limitations", min_items=1
+                ),
+                "strongest_null_hypothesis": _text(
+                    row["strongest_null_hypothesis"],
+                    f"{label}.strongest_null_hypothesis",
+                    max_length=2_000,
+                ),
+                "next_experiment": next_experiment_row,
+                "ranking_rationale": _text(
+                    row["ranking_rationale"],
+                    f"{label}.ranking_rationale",
+                    max_length=2_000,
+                ),
+                "release_boundary": _text(
+                    row["release_boundary"],
+                    f"{label}.release_boundary",
+                    max_length=2_000,
+                ),
+                **lifecycle,
+            }
+        )
+
+    if set(ranked_ids) != hypothesis_set or len(ranked_ids) != len(hypothesis_set):
+        raise ContractError("ranked_hypotheses 必须恰好覆盖全部规范化假设")
+    expected_ranks = list(range(1, len(ranked) + 1))
+    if sorted(row["support_rank"] for row in ranked) != expected_ranks:
+        raise ContractError("support_rank 必须是从 1 开始的连续名次")
+    if sorted(row["research_priority_rank"] for row in ranked) != expected_ranks:
+        raise ContractError("research_priority_rank 必须是从 1 开始的连续名次")
+    active = [row for row in ranked if row["portfolio_status"] == "active_top3"]
+    if len(active) > 3:
+        raise ContractError("active_top3 最多三个假设")
+    active_roles = [row["portfolio_role"] for row in active]
+    if len(active_roles) != len(set(active_roles)):
+        raise ContractError("active_top3 的 portfolio_role 必须互不重复")
+
+    selected = _object(
+        request["selected_next_experiment"],
+        "portfolio ranking.selected_next_experiment",
+    )
+    _exact_fields(
+        selected,
+        {
+            "hypothesis_ids",
+            "objective",
+            "discriminating_power",
+            "feasibility",
+            "rationale",
+        },
+        "portfolio ranking.selected_next_experiment",
+    )
+    selected_ids = [
+        _id(item, f"portfolio ranking.selected_next_experiment.hypothesis_ids[{index}]")
+        for index, item in enumerate(
+            _array(
+                selected["hypothesis_ids"],
+                "portfolio ranking.selected_next_experiment.hypothesis_ids",
+                min_items=1,
+                max_items=30,
+            )
+        )
+    ]
+    if not set(selected_ids) <= hypothesis_set:
+        raise ContractError("selected_next_experiment 引用了未定义假设")
+
+    lifecycle_partitions = {
+        status: [
+            row["hypothesis_id"]
+            for row in ranked
+            if row["portfolio_status"] == status
+        ]
+        for status in PORTFOLIO_STATUSES
+    }
+    return {
+        "schema_version": PORTFOLIO_RANKING_VERSION,
+        "source_runs": source_runs,
+        "hypothesis_groups": groups,
+        "ranked_hypotheses": ranked,
+        "lifecycle_partitions": lifecycle_partitions,
+        "selected_next_experiment": {
+            "hypothesis_ids": selected_ids,
+            "objective": _text(
+                selected["objective"],
+                "portfolio ranking.selected_next_experiment.objective",
+                max_length=2_000,
+            ),
+            "discriminating_power": _text(
+                selected["discriminating_power"],
+                "portfolio ranking.selected_next_experiment.discriminating_power",
+                max_length=2_000,
+            ),
+            "feasibility": _enum(
+                selected["feasibility"],
+                FEASIBILITY_STATUSES,
+                "portfolio ranking.selected_next_experiment.feasibility",
+            ),
+            "rationale": _text(
+                selected["rationale"],
+                "portfolio ranking.selected_next_experiment.rationale",
+                max_length=2_000,
+            ),
+        },
+    }
+
+
 __all__ = [
     "GRADE_LABELS",
     "GRADE_STRENGTH",
+    "PORTFOLIO_RANKING_VERSION",
     "RANKING_VERSION",
     "RUBRIC_DIMENSIONS",
     "RUBRIC_KEYS",
     "check_ranking_consistency",
     "compute_dimension_scores",
+    "validate_portfolio_ranking",
     "validate_ranking_request",
 ]

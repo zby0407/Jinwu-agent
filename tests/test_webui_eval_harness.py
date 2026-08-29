@@ -140,7 +140,7 @@ def test_eval_launchers_pin_the_shared_workspace_root() -> None:
     assert "solar-planner" in backend
     assert "solar-hypothesis" in backend
     assert "solar-experiment" in backend
-    assert 'reviewer="${1:-kimi}"' in backend
+    assert 'reviewer="${1:-qwen}"' in backend
     assert "JW_EVAL_AUXILIARY_MODEL:-qwen3.7-plus" in backend
     assert "solar-data" in backend
     assert "solar-knowledge" in backend
@@ -150,7 +150,7 @@ def test_eval_launchers_pin_the_shared_workspace_root() -> None:
     )
 
     campaign = (EVALS / "run_eval_campaign.mjs").read_text(encoding="utf-8")
-    assert 'process.env.JW_EVAL_REVIEWER || "kimi"' in campaign
+    assert 'process.env.JW_EVAL_REVIEWER || "qwen"' in campaign
     assert '"qwen3.8-max"' in campaign
     assert '"custom-openai"' in campaign
     assert '"kimi-k3"' in campaign

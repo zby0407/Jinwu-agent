@@ -39,7 +39,10 @@ from jw.tools.research_review import (
 )
 from jw.tools.solar_feature import _task_chat_session
 from jw.workspaces import ensure_thread_workspace, register_project_data_file
-from research_review.adapters import adapt_v1_producer_output
+from research_review.adapters import (
+    adapt_v1_producer_output,
+    project_forecast_claim_from_receipt,
+)
 from research_review.contracts import (
     POLICY_VERSION,
     ContractError,
@@ -3679,6 +3682,198 @@ def test_known_hypothesis_v1_state_adapts_candidates_as_separate_claims() -> Non
     assert adapted["claims"][0]["confidence"] == "low"
 
 
+def test_hypothesis_adapter_exposes_portfolio_ranking_for_evidence_review() -> None:
+    source_ref = "work/scientific_hypothesis_state.json"
+    ranking = {
+        "schema_version": "scientific-hypothesis-portfolio-ranking-v2",
+        "ranked_hypotheses": [
+            {
+                "hypothesis_id": "H1",
+                "scientific_support": {"level": "low", "rationale": "limited"},
+                "research_priority": {"level": "high", "rationale": "discriminating"},
+                "strongest_null_hypothesis": "sampling variation",
+                "next_experiment": {"objective": "run the discriminating test"},
+                "release_boundary": "do not claim mechanism support",
+            }
+        ],
+        "selected_next_experiment": {
+            "hypothesis_ids": ["H1"],
+            "objective": "run the discriminating test",
+        },
+    }
+    adapted = adapt_v1_producer_output(
+        stage="hypothesis",
+        version=1,
+        phase="hypothesis",
+        text="rendered hypothesis result",
+        evidence_refs=[source_ref],
+        canonical_documents=[
+            {
+                "source_ref": source_ref,
+                "payload": {
+                    "schema_version": 1,
+                    "evidence_register": [],
+                    "portfolio_ranking": ranking,
+                    "checkpoint": {
+                        "response_kind": "hypotheses_ready",
+                        "candidates": [
+                            {
+                                "id": "H1",
+                                "statement": "A bounded mechanism candidate.",
+                                "applicability": "The registered scope.",
+                                "supporting_evidence": [],
+                                "opposing_evidence": [],
+                                "evidence_gaps": ["Direct support is absent."],
+                                "confidence": {"level": "low"},
+                            }
+                        ],
+                    },
+                },
+            }
+        ],
+    )
+
+    assert adapted["payload"]["hypothesis_portfolio_ranking"] == ranking
+
+
+def _forecast_receipt_for_projection(
+    *, observable_kinds: list[str] | None = None
+) -> dict[str, object]:
+    return {
+        "schema_version": "solar-forecast-experiment-receipt-v1",
+        "experiment_id": "polar-precursor-rolling-origin-v1",
+        "status": "mixed_evidence",
+        "forecast_origin": "cycle_minimum",
+        "hypothesis_ids": ["h2_polar_precursor"],
+        "feature_ids": ["polar-cycle-15", "polar-cycle-16"],
+        "observable_kinds": observable_kinds or ["polar_aperture_field"],
+        "baseline_names": ["training_mean", "persistence"],
+        "candidate_name": "linear_polar_precursor",
+        "training_cycles": [15, 16, 17, 18, 19],
+        "test_cycles": [20, 21],
+        "folds": [
+            {
+                "training_cycles": [15, 16, 17, 18, 19],
+                "test_cycle": 20,
+                "observed": 180.0,
+                "candidate_prediction": 170.0,
+                "training_mean_prediction": 160.0,
+                "persistence_prediction": 155.0,
+                "measurement_regime": "MWO",
+            },
+            {
+                "training_cycles": [15, 16, 17, 18, 19, 20],
+                "test_cycle": 21,
+                "observed": 165.0,
+                "candidate_prediction": 160.0,
+                "training_mean_prediction": 150.0,
+                "persistence_prediction": 180.0,
+                "measurement_regime": "WSO",
+            },
+        ],
+        "metrics": {
+            "candidate_mae": 7.5,
+            "candidate_rmse": 7.91,
+            "training_mean_mae": 17.5,
+            "training_mean_rmse": 17.68,
+            "persistence_mae": 20.0,
+            "persistence_rmse": 20.62,
+            "mae_improvement": 10.0,
+            "mae_improvement_interval": [-1.0, 21.0],
+        },
+        "bootstrap": {"seed": 20260828, "resamples": 10_000},
+        "sensitivity": {
+            "measurement_regimes": {
+                "MWO": {
+                    "fold_count": 1,
+                    "mae_improvement": 10.0,
+                    "eligible_for_consistency": False,
+                },
+                "WSO": {
+                    "fold_count": 1,
+                    "mae_improvement": 10.0,
+                    "eligible_for_consistency": False,
+                },
+            },
+            "regime_consistent": False,
+            "leave_one_fold": [],
+        },
+        "leakage_audit": {
+            "passed": True,
+            "rule": "every training cycle precedes its held-out test cycle",
+        },
+        "h3_data_status": {
+            "status": "blocked_by_data",
+            "data_gap": "NO_REGISTERED_AXIAL_DIPOLE_OR_SYNOPTIC_MAP_INPUT",
+        },
+    }
+
+
+def test_axial_prose_is_rejected_when_receipt_contains_only_polar_aperture() -> None:
+    receipt = _forecast_receipt_for_projection()
+
+    with pytest.raises(ValueError, match="axial_dipole_moment"):
+        project_forecast_claim_from_receipt("轴向偶极矩预测更稳定", receipt)
+
+
+def test_forecast_projection_uses_receipt_numbers_and_origin() -> None:
+    receipt = _forecast_receipt_for_projection()
+
+    summary = project_forecast_claim_from_receipt(
+        "模型声称候选误差为 0，但这个数字不能进入投影。",
+        receipt,
+    )
+
+    assert summary == {
+        "hypothesis_ids": ["h2_polar_precursor"],
+        "forecast_origin": "cycle_minimum",
+        "feature_ids": ["polar-cycle-15", "polar-cycle-16"],
+        "observable_kinds": ["polar_aperture_field"],
+        "candidate_mae": 7.5,
+        "baseline_mae": 17.5,
+        "mae_improvement": 10.0,
+        "mae_improvement_interval": [-1.0, 21.0],
+        "skill_status": "mixed_evidence",
+        "regime_consistent": False,
+        "h3_data_status": {
+            "status": "blocked_by_data",
+            "data_gap": "NO_REGISTERED_AXIAL_DIPOLE_OR_SYNOPTIC_MAP_INPUT",
+        },
+    }
+
+
+def test_forecast_projection_rejects_receipt_status_not_supported_by_metrics() -> None:
+    receipt = _forecast_receipt_for_projection()
+    receipt["status"] = "skill_supported"
+
+    with pytest.raises(ValueError, match="status"):
+        project_forecast_claim_from_receipt("极区前兆具备预测技能", receipt)
+
+
+def test_experiment_adapter_exposes_receipt_backed_forecast_summary() -> None:
+    source_ref = "experiment/runs/polar-run/forecast_experiment_receipt.json"
+    adapted = adapt_v1_producer_output(
+        stage="experiment_result",
+        version=1,
+        phase="experiment_result",
+        text="模型正文不能替代预测回执。",
+        evidence_refs=[source_ref],
+        canonical_documents=[
+            {
+                "source_ref": source_ref,
+                "payload": _forecast_receipt_for_projection(),
+            }
+        ],
+    )
+
+    summary = adapted["payload"]["experiment_result_summary"]["forecast_summary"]
+    assert summary["source_ref"] == source_ref
+    assert summary["forecast_origin"] == "cycle_minimum"
+    assert summary["observable_kinds"] == ["polar_aperture_field"]
+    assert summary["skill_status"] == "mixed_evidence"
+    assert adapted["claims"][0]["supporting_evidence"] == [source_ref]
+
+
 def test_hypothesis_adapter_prefers_checkpoint_over_newer_working_draft() -> None:
     source_ref = "work/scientific_hypothesis_state.json"
     checkpoint = {
@@ -5148,6 +5343,22 @@ def test_experiment_dispatch_persists_host_owned_research_scope(
     thread_id = "experiment-host-scope"
     config = _config(tmp_path, monkeypatch, thread_id)
     workspace = Path(ensure_thread_workspace(thread_id, tmp_path).workspace)
+    portfolio_capsule = {
+        "scientific_support": [{"hypothesis_id": "hypothesis-a", "rank": 1}],
+        "research_priority": [{"hypothesis_id": "hypothesis-b", "rank": 1}],
+        "strongest_null": [
+            {"hypothesis_id": "hypothesis-b", "statement": "no interaction"}
+        ],
+        "next_experiment": {"objective": "distinguish a from b"},
+        "release_boundary": [
+            {"hypothesis_id": "hypothesis-a", "boundary": "association only"}
+        ],
+    }
+    ranking_sidecar = (
+        workspace / "work" / "research_quality" / "hypothesis_portfolio_ranking.json"
+    )
+    ranking_sidecar.parent.mkdir(parents=True)
+    ranking_sidecar.write_text(json.dumps(portfolio_capsule), encoding="utf-8")
     store = ResearchReviewStore(workspace, thread_id)
     state = store.load_state()
     state["current_stage"] = "experiment_design"
@@ -5228,6 +5439,12 @@ def test_experiment_dispatch_persists_host_owned_research_scope(
         in description
     )
     assert "revision_review_id=review-experiment-design-2" in description
+    handoff = json.loads(
+        description.split("[A2A_HANDOFF_V1]\n", 1)[1].split(
+            "\n\n[RESEARCH_PRODUCER_V2]", 1
+        )[0]
+    )
+    assert handoff["portfolio_ranking"] == portfolio_capsule
     scope = json.loads(
         (workspace / "research_review" / "experiment_scope.json").read_text(
             encoding="utf-8"
@@ -5253,6 +5470,7 @@ def test_experiment_dispatch_persists_host_owned_research_scope(
         ],
         "revision_review_id": "review-experiment-design-2",
         "design_validation_limit": 4,
+        "portfolio_ranking": portfolio_capsule,
     }
 
 
@@ -5430,7 +5648,9 @@ def test_polar_experiment_dispatch_injects_cycle_analysis_contract(
     assert "cycle N" in description
     assert "cycle N+1" in description
     assert "rolling-origin" in description
-    assert "Do not preselect the interaction sign" in description
+    assert "polar aperture field" in description
+    assert "axial-dipole" in description
+    assert "blocked_by_data" in description
 
 
 def test_morphology_experiment_dispatch_overrides_parent_stage_and_injects_contract(

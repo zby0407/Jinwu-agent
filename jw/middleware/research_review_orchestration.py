@@ -495,6 +495,7 @@ def _persist_experiment_scope(
     action: Mapping[str, Any],
     *,
     analysis_protocol: str = "none",
+    portfolio_ranking: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     stage = str(action["stage"])
     upstream_stages = {
@@ -537,6 +538,10 @@ def _persist_experiment_scope(
     }
     if analysis_protocol != "none":
         scope["analysis_protocol"] = analysis_protocol
+    if portfolio_ranking is not None:
+        scope["portfolio_ranking"] = _minimal_portfolio_ranking_capsule(
+            portfolio_ranking
+        )
     path = store.root / "experiment_scope.json"
     _atomic_write_json(path, scope)
     return scope
@@ -2057,6 +2062,216 @@ def _data_context_projection(payload: Mapping[str, Any]) -> dict[str, Any]:
     }
 
 
+_PORTFOLIO_RANKING_CAPSULE_FIELDS = (
+    "scientific_support",
+    "research_priority",
+    "strongest_null",
+    "next_experiment",
+    "release_boundary",
+)
+_PORTFOLIO_RANKING_CONSUMER_STAGES = {
+    "experiment_design",
+    "integration",
+    "final_release",
+}
+_PORTFOLIO_RANKING_PATHS = (
+    "work/research_quality/hypothesis_portfolio_ranking.json",
+    "work/scientific_hypothesis_state.json",
+    "work/scientific_hypothesis_checkpoint.json",
+)
+
+
+def _minimal_portfolio_ranking_capsule(
+    payload: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Keep only the five fields consumed after Hypothesis."""
+
+    missing = [
+        field for field in _PORTFOLIO_RANKING_CAPSULE_FIELDS if field not in payload
+    ]
+    if missing:
+        raise ValueError(
+            "portfolio ranking capsule is missing required fields: "
+            + ", ".join(missing)
+        )
+    return {field: payload[field] for field in _PORTFOLIO_RANKING_CAPSULE_FIELDS}
+
+
+def _portfolio_ranking_capsule_projection(
+    ranking: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Project a validated portfolio-ranking-v2 result into a small A2A capsule."""
+
+    if all(field in ranking for field in _PORTFOLIO_RANKING_CAPSULE_FIELDS):
+        return _minimal_portfolio_ranking_capsule(ranking)
+
+    if ranking.get("schema_version") != "scientific-hypothesis-portfolio-ranking-v2":
+        raise ValueError(
+            "persisted portfolio ranking has an unsupported schema_version"
+        )
+    ranked_hypotheses = ranking.get("ranked_hypotheses")
+    selected_next_experiment = ranking.get("selected_next_experiment")
+    if not isinstance(ranked_hypotheses, list) or not isinstance(
+        selected_next_experiment, Mapping
+    ):
+        raise ValueError(
+            "persisted portfolio ranking must contain ranked_hypotheses and "
+            "selected_next_experiment"
+        )
+    if not ranked_hypotheses or not all(
+        isinstance(row, Mapping) for row in ranked_hypotheses
+    ):
+        raise ValueError("persisted ranked_hypotheses must be a non-empty object list")
+
+    rows = [dict(row) for row in ranked_hypotheses]
+    hypothesis_groups = ranking.get("hypothesis_groups")
+    normalized_statements = (
+        {
+            str(group.get("hypothesis_id") or ""): str(
+                group.get("normalized_statement") or ""
+            )
+            for group in hypothesis_groups
+            if isinstance(group, Mapping)
+        }
+        if isinstance(hypothesis_groups, list)
+        else {}
+    )
+
+    def ordered(rank_key: str) -> list[dict[str, Any]]:
+        try:
+            return sorted(rows, key=lambda row: int(row[rank_key]))
+        except (KeyError, TypeError, ValueError) as exc:
+            raise ValueError(
+                f"persisted portfolio ranking has an invalid {rank_key}"
+            ) from exc
+
+    support_rows = ordered("support_rank")
+    priority_rows = ordered("research_priority_rank")
+
+    def bounded_forecast_receipt_ref(value: object) -> str | None:
+        if not isinstance(value, str):
+            return None
+        normalized = value.strip().replace("\\", "/")
+        path = Path(normalized)
+        if (
+            not normalized.startswith("experiment/runs/")
+            or path.is_absolute()
+            or ".." in path.parts
+            or path.name != "forecast_experiment_receipt.json"
+        ):
+            return None
+        return normalized
+
+    def ranked_axis(
+        ordered_rows: Sequence[Mapping[str, Any]],
+        *,
+        rank_key: str,
+        value_key: str,
+    ) -> list[dict[str, Any]]:
+        projected: list[dict[str, Any]] = []
+        for row in ordered_rows:
+            value = row.get(value_key)
+            if not isinstance(value, Mapping):
+                raise ValueError(
+                    f"persisted portfolio ranking has an invalid {value_key}"
+                )
+            projected.append(
+                {
+                    "hypothesis_id": row.get("hypothesis_id"),
+                    "claim": normalized_statements.get(
+                        str(row.get("hypothesis_id") or ""), ""
+                    ),
+                    "claim_type": row.get("claim_type"),
+                    "evidence_status": row.get("current_evidence_status"),
+                    "rank": row.get(rank_key),
+                    "level": value.get("level"),
+                    "rationale": value.get("rationale"),
+                    "supporting_evidence": row.get("support_evidence", []),
+                    "opposing_evidence": row.get("opposing_evidence", []),
+                    "uncertainty": {
+                        "effect": row.get("effect_uncertainty"),
+                        "sensitivity": row.get("sensitivity"),
+                        "limitations": row.get("key_limitations", []),
+                    },
+                    "falsifiability": row.get("falsifiability"),
+                    "portfolio_role": row.get("portfolio_role", "challenger"),
+                    "portfolio_status": row.get("portfolio_status", "challenger_pool"),
+                    "forecast_origin": row.get("forecast_origin", "not_applicable"),
+                    "forecast_receipt_ref": bounded_forecast_receipt_ref(
+                        row.get("forecast_receipt_ref")
+                    ),
+                }
+            )
+        return projected
+
+    return _minimal_portfolio_ranking_capsule(
+        {
+            "scientific_support": ranked_axis(
+                support_rows,
+                rank_key="support_rank",
+                value_key="scientific_support",
+            ),
+            "research_priority": ranked_axis(
+                priority_rows,
+                rank_key="research_priority_rank",
+                value_key="research_priority",
+            ),
+            "strongest_null": [
+                {
+                    "hypothesis_id": row.get("hypothesis_id"),
+                    "statement": row.get("strongest_null_hypothesis"),
+                }
+                for row in support_rows
+            ],
+            "next_experiment": dict(selected_next_experiment),
+            "release_boundary": [
+                {
+                    "hypothesis_id": row.get("hypothesis_id"),
+                    "boundary": row.get("release_boundary"),
+                }
+                for row in support_rows
+            ],
+        }
+    )
+
+
+def _load_portfolio_ranking_capsule(
+    workspace_root: Path, stage: str
+) -> dict[str, Any] | None:
+    """Load the persisted Hypothesis ranking for its downstream consumers."""
+
+    if stage not in _PORTFOLIO_RANKING_CONSUMER_STAGES:
+        return None
+    for relative_path in _PORTFOLIO_RANKING_PATHS:
+        path = workspace_root / relative_path
+        if not path.is_file():
+            continue
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        if not isinstance(payload, Mapping):
+            raise ValueError(f"{relative_path} must contain a JSON object")
+        if relative_path.endswith("scientific_hypothesis_state.json"):
+            tail_review = payload.get("tail_review")
+            if not isinstance(tail_review, Mapping):
+                continue
+            if payload.get(
+                "portfolio_ranking_candidate_pool_sha256"
+            ) != tail_review.get("selected_candidate_pool_sha256") or payload.get(
+                "portfolio_ranking_evidence_sha256"
+            ) != tail_review.get("evidence_sha256"):
+                continue
+        ranking = payload.get("portfolio_ranking")
+        if ranking is None and relative_path.endswith(
+            "hypothesis_portfolio_ranking.json"
+        ):
+            ranking = payload
+        if ranking is None:
+            continue
+        if not isinstance(ranking, Mapping):
+            raise ValueError(f"{relative_path}.portfolio_ranking must be an object")
+        return _portfolio_ranking_capsule_projection(ranking)
+    return None
+
+
 def build_a2a_handoff_envelope(
     *,
     task_id: str,
@@ -2065,16 +2280,16 @@ def build_a2a_handoff_envelope(
     analysis_protocol: str,
     accepted_upstream_refs: Sequence[str] = (),
     data_context: Mapping[str, Any] | None = None,
+    portfolio_ranking: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Build the small structured contract passed across an internal A2A hop.
 
-    The envelope is deliberately metadata-only: child agents still open the
-    hash-bound artifacts and receipts themselves.  It prevents stage, owner,
-    stop conditions, and expected return shape from being lost in free-form
-    delegation prose.
+    The envelope is deliberately bounded: child agents still open the hash-bound
+    artifacts and receipts themselves.  Besides routing metadata, downstream
+    stages may receive only the minimal persisted portfolio-ranking capsule.
     """
 
-    return {
+    envelope = {
         "schema_version": "a2a-handoff-v1",
         "task_id": task_id,
         "stage": str(action.get("stage") or ""),
@@ -2115,6 +2330,11 @@ def build_a2a_handoff_envelope(
             ),
         },
     }
+    if portfolio_ranking is not None:
+        envelope["portfolio_ranking"] = _minimal_portfolio_ranking_capsule(
+            portfolio_ranking
+        )
+    return envelope
 
 
 def _solar_cycle_pair_analysis_producer_text(
@@ -2310,6 +2530,56 @@ class ResearchReviewOrchestrationMiddleware(AgentMiddleware[Any, Any, Any]):
     """Enforce typed handoffs and persist every producer result immutably."""
 
     name = "research_review_orchestration"
+
+    @staticmethod
+    def _execution_transition(
+        request: ToolCallRequest,
+        action: Mapping[str, Any] | None,
+        transition: str,
+        *,
+        detail: str,
+    ) -> None:
+        if action is None:
+            return
+        config = getattr(request.runtime, "config", None)
+        store = store_from_config(config)
+        current = store.execution_state.snapshot(stale_after_seconds=float("inf"))
+        if current is None or current.get("status") not in {
+            "running",
+            "waiting_for_tool",
+        }:
+            return
+        stage = str(action.get("stage") or current["stage"])
+        owner = str(current["owner"])
+        if transition == "progress":
+            store.execution_state.progress(
+                stage=stage,
+                owner=owner,
+                action=detail,
+            )
+        else:
+            getattr(store.execution_state, transition)(
+                stage=stage,
+                owner=owner,
+                reason=detail,
+            )
+
+    def _finish_execution(
+        self,
+        request: ToolCallRequest,
+        action: Mapping[str, Any] | None,
+        result: ToolMessage | Command[Any],
+    ) -> None:
+        self._execution_transition(
+            request,
+            action,
+            "fail" if _result_failed(result) else "stop",
+            detail=(
+                "tool_or_postprocessing_failed"
+                if _result_failed(result)
+                else "action_completed"
+            ),
+        )
 
     @staticmethod
     def _blocked(request: ToolCallRequest, reason: str) -> ToolMessage:
@@ -2508,6 +2778,22 @@ class ResearchReviewOrchestrationMiddleware(AgentMiddleware[Any, Any, Any]):
             analysis_protocol = detect_analysis_protocol(
                 _bound_research_question(store) or ""
             )
+        portfolio_ranking = None
+        if action["stage"] in _PORTFOLIO_RANKING_CONSUMER_STAGES:
+            try:
+                portfolio_ranking = _load_portfolio_ranking_capsule(
+                    store.workspace_root, str(action["stage"])
+                )
+            except Exception as exc:
+                return (
+                    request,
+                    action,
+                    self._blocked(
+                        request,
+                        "the persisted Hypothesis portfolio ranking could not be "
+                        f"projected for {action['stage']}: {type(exc).__name__}: {exc}",
+                    ),
+                )
         action_reserved = False
         if action["kind"] == "review":
             try:
@@ -2573,6 +2859,7 @@ class ResearchReviewOrchestrationMiddleware(AgentMiddleware[Any, Any, Any]):
                         for item in store.accepted_artifacts()
                         if item["stage"] != action["stage"]
                     ],
+                    portfolio_ranking=portfolio_ranking,
                 ),
                 ensure_ascii=False,
             )
@@ -2930,6 +3217,7 @@ class ResearchReviewOrchestrationMiddleware(AgentMiddleware[Any, Any, Any]):
                             if item["stage"] != action["stage"]
                         ],
                         data_context=data_context,
+                        portfolio_ranking=portfolio_ranking,
                     ),
                     ensure_ascii=False,
                 )
@@ -2980,6 +3268,7 @@ class ResearchReviewOrchestrationMiddleware(AgentMiddleware[Any, Any, Any]):
                     store,
                     action,
                     analysis_protocol=experiment_analysis_protocol,
+                    portfolio_ranking=portfolio_ranking,
                 )
             except Exception as exc:
                 return (
@@ -3095,6 +3384,7 @@ class ResearchReviewOrchestrationMiddleware(AgentMiddleware[Any, Any, Any]):
                     if protocol in {
                         "silso_cycle_morphology_v1",
                         "solar_cycle_26_forecast_backtest_v1",
+                        "solar_polar_precursor_v1",
                     }:
                         try:
                             if protocol == "silso_cycle_morphology_v1":
@@ -3105,13 +3395,21 @@ class ResearchReviewOrchestrationMiddleware(AgentMiddleware[Any, Any, Any]):
                                 design_receipt = ensure_host_silso_morphology_design(
                                     config
                                 )
-                            else:
+                            elif protocol == "solar_cycle_26_forecast_backtest_v1":
                                 from ..tools.automatic_experiment import (
                                     ensure_host_solar_cycle_26_forecast_design,
                                 )
 
                                 design_receipt = (
                                     ensure_host_solar_cycle_26_forecast_design(config)
+                                )
+                            else:
+                                from ..tools.automatic_experiment import (
+                                    ensure_host_polar_forecast_design,
+                                )
+
+                                design_receipt = ensure_host_polar_forecast_design(
+                                    config
                                 )
                             producer_text += (
                                 "\n\n[HOST PROTOCOL DESIGN]\n"
@@ -3202,6 +3500,7 @@ class ResearchReviewOrchestrationMiddleware(AgentMiddleware[Any, Any, Any]):
     ) -> ToolMessage | Command[Any]:
         rewritten, action, blocked = self._prepare(request)
         if blocked is not None:
+            self._finish_execution(request, action, blocked)
             return blocked
         if action is not None and isinstance(
             action.get("precomputed_producer_text"), str
@@ -3211,8 +3510,42 @@ class ResearchReviewOrchestrationMiddleware(AgentMiddleware[Any, Any, Any]):
                 tool_call_id=str(request.tool_call.get("id") or "data-readiness"),
                 name=str(request.tool_call.get("name") or "task"),
             )
-            return self._after(request, action, result)
-        return self._after(request, action, handler(rewritten))
+            processed = self._after(request, action, result)
+            self._finish_execution(request, action, processed)
+            return processed
+        self._execution_transition(
+            request,
+            action,
+            "waiting_for_tool",
+            detail="delegated_tool_call",
+        )
+        try:
+            result = handler(rewritten)
+        except KeyboardInterrupt:
+            self._execution_transition(
+                request,
+                action,
+                "interrupt",
+                detail="tool_call_interrupted",
+            )
+            raise
+        except Exception as exc:
+            self._execution_transition(
+                request,
+                action,
+                "fail",
+                detail=f"tool_handler_exception:{type(exc).__name__}",
+            )
+            raise
+        self._execution_transition(
+            request,
+            action,
+            "progress",
+            detail="tool_returned",
+        )
+        processed = self._after(request, action, result)
+        self._finish_execution(request, action, processed)
+        return processed
 
     async def awrap_tool_call(
         self,
@@ -3221,6 +3554,7 @@ class ResearchReviewOrchestrationMiddleware(AgentMiddleware[Any, Any, Any]):
     ) -> ToolMessage | Command[Any]:
         rewritten, action, blocked = await asyncio.to_thread(self._prepare, request)
         if blocked is not None:
+            await asyncio.to_thread(self._finish_execution, request, action, blocked)
             return blocked
         if action is not None and isinstance(
             action.get("precomputed_producer_text"), str
@@ -3230,9 +3564,46 @@ class ResearchReviewOrchestrationMiddleware(AgentMiddleware[Any, Any, Any]):
                 tool_call_id=str(request.tool_call.get("id") or "data-readiness"),
                 name=str(request.tool_call.get("name") or "task"),
             )
-            return await asyncio.to_thread(self._after, request, action, result)
-        result = await handler(rewritten)
-        return await asyncio.to_thread(self._after, request, action, result)
+            processed = await asyncio.to_thread(self._after, request, action, result)
+            await asyncio.to_thread(self._finish_execution, request, action, processed)
+            return processed
+        await asyncio.to_thread(
+            self._execution_transition,
+            request,
+            action,
+            "waiting_for_tool",
+            detail="delegated_tool_call",
+        )
+        try:
+            result = await handler(rewritten)
+        except asyncio.CancelledError:
+            await asyncio.to_thread(
+                self._execution_transition,
+                request,
+                action,
+                "interrupt",
+                detail="tool_call_interrupted",
+            )
+            raise
+        except Exception as exc:
+            await asyncio.to_thread(
+                self._execution_transition,
+                request,
+                action,
+                "fail",
+                detail=f"tool_handler_exception:{type(exc).__name__}",
+            )
+            raise
+        await asyncio.to_thread(
+            self._execution_transition,
+            request,
+            action,
+            "progress",
+            detail="tool_returned",
+        )
+        processed = await asyncio.to_thread(self._after, request, action, result)
+        await asyncio.to_thread(self._finish_execution, request, action, processed)
+        return processed
 
 
 __all__ = ["ResearchReviewOrchestrationMiddleware"]

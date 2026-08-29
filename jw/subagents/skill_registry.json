@@ -1,12 +1,11 @@
 {
   "version": 1,
-  "main_agent": "JW",
   "primary_agents": ["solar-planner", "solar-data", "solar-hypothesis", "solar-experiment", "solar-evidence", "solar-knowledge"],
   "support_agents": ["planner-agent", "research-agent", "code-agent", "debug-agent", "data-analysis-agent", "writing-agent", "scheduler"],
   "agent_profiles": {
     "JW": {
       "title": "JW 主 Agent",
-      "description": "接收原始科研问题，协调六个太阳科研子 Agent，并按声明级证据形成最终回答与发布决策。"
+      "description": "接收原始科研问题，协调六个太阳科研子 Agent，并把证据汇总为可审查的研究结果。"
     },
     "solar-planner": {
       "title": "研究规划",
@@ -62,16 +61,18 @@
     }
   },
   "shared": [
-    "verification-before-completion"
+    "verification-before-completion",
+    "scientific-writing",
+    "scientific-visualization"
+  ],
+  "main": [
+    "solar-cycle",
+    "solar-cycle-forecast-validation",
+    "solar-hypothesis-portfolio",
+    "jw-scientific-claim-consistency",
+    "jw-release-export-qa"
   ],
   "agents": {
-    "JW": [
-      "jw-integration-and-final-answer",
-      "scientific-writing",
-      "writing-reader-facing-content",
-      "jw-release-export-qa",
-      "find-skills"
-    ],
     "planner-agent": [
       "find-skills"
     ],
@@ -79,43 +80,44 @@
       "find-skills"
     ],
     "code-agent": [
+      "find-skills"
     ],
     "data-analysis-agent": [
       "solar-cycle",
-      "scientific-visualization",
       "solar-evidence-figure-production"
     ],
     "debug-agent": [],
     "writing-agent": [
-      "scientific-writing",
       "writing-reader-facing-content",
-      "scientific-visualization",
+      "scientific-slides",
       "latex-quality-control",
-      "jw-release-export-qa"
+      "jw-release-export-qa",
+      "jw-scientific-claim-consistency"
     ],
     "scheduler": [],
     "solar-planner": [
       "solar-cycle",
-      "solar-hypothesis-portfolio"
+      "solar-hypothesis-portfolio",
+      "find-skills"
     ],
     "solar-data": [
       "solar-cycle",
       "solar-cycle-forecast-validation",
-      "scientific-visualization",
       "solar-evidence-figure-production"
     ],
     "solar-hypothesis": [
       "solar-cycle",
       "solar-hypothesis-portfolio",
       "solar-mechanism-causal-order",
-      "solar-interaction-regime-testing"
+      "solar-interaction-regime-testing",
+      "find-skills"
     ],
     "solar-experiment": [
       "solar-cycle",
       "solar-cycle-forecast-validation",
       "solar-mechanism-causal-order",
       "solar-interaction-regime-testing",
-      "scientific-visualization",
+      "solar-flare-forecasting",
       "solar-evidence-figure-production"
     ],
     "solar-evidence": [
@@ -124,19 +126,14 @@
       "solar-hypothesis-portfolio",
       "solar-mechanism-causal-order",
       "solar-interaction-regime-testing",
-      "scientific-visualization",
+      "jw-scientific-claim-consistency",
       "solar-evidence-figure-production"
     ],
     "solar-knowledge": [
-      "solar-cycle",
-      "knowledge-base-agent"
+      "knowledge-base-agent",
+      "find-skills",
+      "jw-release-export-qa"
     ]
-  },
-  "conditional_skills": {
-    "solar-flare-forecasting": {
-      "trigger": "研究目标明确为 GOES flare event forecasting，而不是太阳活动周振幅或周期形态时。",
-      "agents": ["solar-planner", "solar-data", "solar-hypothesis", "solar-experiment", "solar-evidence", "solar-knowledge"]
-    }
   },
   "adaptations": {
     "math-modeling-figure-production": {
@@ -158,8 +155,8 @@
       "source_kind": "codex-reference",
       "adapted_copy_only": true,
       "target_agents": [
-        "JW",
-        "writing-agent"
+        "writing-agent",
+        "solar-knowledge"
       ],
       "reason": "将竞赛导出质检改造成 JW 科研结果发布质检"
     }

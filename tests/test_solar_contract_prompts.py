@@ -118,6 +118,58 @@ def test_hypothesis_and_experiment_agents_state_the_exact_analysis_claim_shape()
         assert "Do not add any other fields" in text
 
 
+def test_hypothesis_agent_separates_support_from_research_priority() -> None:
+    text = _read("jw/subagents/solar/solar_hypothesis.yaml")
+
+    assert "scientific_hypothesis_rank_portfolio" in text
+    assert "科学支持度" in text
+    assert "研究优先级" in text
+    assert "共享同一数据" in text
+    assert "阴性、空结果、低功效或证据不足" in text
+
+
+def test_evidence_and_experiment_agents_consume_portfolio_ranking_contract() -> None:
+    evidence = _read("jw/subagents/solar/solar_evidence.yaml")
+    experiment = _read("jw/subagents/solar/solar_experiment.yaml")
+
+    assert "portfolio_ranking" in evidence
+    assert "scientific_support" in evidence
+    assert "research_priority" in evidence
+    assert "共享数据" in evidence
+    assert "portfolio_ranking" in experiment
+    assert "selected next experiment" in experiment
+    assert "Research priority is not scientific support" in experiment
+
+
+def test_solar_agents_preserve_precursor_physics_and_lifecycle() -> None:
+    data = _read("jw/subagents/solar/solar_data.yaml")
+    hypothesis = _read("jw/subagents/solar/solar_hypothesis.yaml")
+    experiment = _read("jw/subagents/solar/solar_experiment.yaml")
+    evidence = _read("jw/subagents/solar/solar_evidence.yaml")
+
+    assert "polar_aperture_field" in data
+    assert "axial_dipole_moment" in data
+    assert "polar_aperture_field" in hypothesis
+    assert "axial_dipole_moment" in hypothesis
+    assert "不得把 WSO 极区孔径场改名为轴向偶极矩" in hypothesis
+    assert "candidate_pending_test" in hypothesis
+    assert "tested_no_skill" in hypothesis
+    assert "automatic_experiment_create_polar_forecast_design" in experiment
+    assert "automatic_experiment_prepare_polar_forecast_attempt" in experiment
+    assert "candidate_mae" in evidence
+    assert "mae_improvement_interval" in evidence
+    assert "observable_kinds" in evidence
+
+
+def test_final_release_contract_starts_with_target_and_forecast_origin() -> None:
+    router = _read("jw/middleware/research_router.py")
+
+    assert "预测目标和预测时点" in router
+    assert "正式极小期前兆时点尚未到达" in router
+    assert "历史基线技能" in router
+    assert "失效活动周" in router
+
+
 def test_worker_output_guide_distinguishes_outputs_from_prior_artifacts():
     guide = _stage_worker_output_guide(
         {
@@ -227,6 +279,19 @@ def test_experiment_agent_uses_protocol_owned_morphology_mechanics():
     assert "automatic_experiment_prepare_silso_morphology_attempt" in text
     assert "不得改写或补交 generic design" in text
     assert "科研解释仍由本 Agent" in text
+
+
+def test_experiment_agent_uses_protocol_owned_polar_forecast_mechanics():
+    text = _read("jw/subagents/solar/solar_experiment.yaml")
+
+    assert "automatic_experiment_create_polar_forecast_design" in text
+    assert "automatic_experiment_prepare_polar_forecast_attempt" in text
+    assert "solar_polar_precursor_v1" in text
+    assert "不得手写或改写极区预测 worker" in text
+
+    tool_names = {tool.name for tool in get_tool_bundles()["automatic-experiment"]}
+    assert "automatic_experiment_create_polar_forecast_design" in tool_names
+    assert "automatic_experiment_prepare_polar_forecast_attempt" in tool_names
 
 
 def test_experiment_result_prompts_state_scientific_payload_scalar_types():
