@@ -12,6 +12,8 @@ import {
   Clipboard,
   ExternalLink,
   RefreshCw,
+  ZoomIn,
+  ZoomOut,
 } from "lucide-react";
 import {
   Dialog,
@@ -120,6 +122,7 @@ export const WorkspaceFileDialog = React.memo<{
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
+  const [imageZoomed, setImageZoomed] = useState(false);
 
   // Edit / save / delete state.
   const [editing, setEditing] = useState(false);
@@ -151,6 +154,10 @@ export const WorkspaceFileDialog = React.memo<{
   const tooBigForText =
     kind === "text" && size != null && size > MAX_INLINE_TEXT_BYTES;
   const editable = !readOnly && kind === "text" && !tooBigForText;
+
+  useEffect(() => {
+    setImageZoomed(false);
+  }, [path]);
 
   useEffect(() => {
     if (!path || kind !== "text" || tooBigForText) {
@@ -284,7 +291,7 @@ export const WorkspaceFileDialog = React.memo<{
       >
         <DialogContent
           aria-describedby={undefined}
-          className="flex h-[88vh] max-h-[88vh] w-[94vw] max-w-[1200px] flex-col p-4 sm:p-6"
+          className="flex h-[92vh] max-h-[92vh] w-[calc(100vw-1rem)] max-w-[calc(100vw-1rem)] flex-col p-4 sm:w-[98vw] sm:max-w-[98vw] sm:p-6"
         >
           <DialogTitle className="sr-only">{path}</DialogTitle>
           <div className="mb-4 flex items-center justify-between gap-3 border-b border-border pb-4">
@@ -355,6 +362,31 @@ export const WorkspaceFileDialog = React.memo<{
                         aria-hidden="true"
                       />
                       编辑
+                    </Button>
+                  )}
+                  {kind === "image" && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-8 px-2"
+                      onClick={() => setImageZoomed((value) => !value)}
+                      aria-pressed={imageZoomed}
+                      title={imageZoomed ? "缩小图片" : "放大图片"}
+                    >
+                      {imageZoomed ? (
+                        <ZoomOut
+                          size={16}
+                          className="mr-1"
+                          aria-hidden="true"
+                        />
+                      ) : (
+                        <ZoomIn
+                          size={16}
+                          className="mr-1"
+                          aria-hidden="true"
+                        />
+                      )}
+                      {imageZoomed ? "缩小" : "放大"}
                     </Button>
                   )}
                   <Button
@@ -463,12 +495,27 @@ export const WorkspaceFileDialog = React.memo<{
                 placeholder="文件为空…"
               />
             ) : kind === "image" ? (
-              <ScrollArea className="h-full rounded-md bg-[var(--color-surface)]">
-                <div className="flex items-center justify-center p-4">
+              <ScrollArea
+                horizontal
+                className="h-full rounded-md bg-[var(--color-surface)]"
+              >
+                <div
+                  className={`flex min-h-full min-w-full p-4 ${
+                    imageZoomed
+                      ? "items-start justify-start"
+                      : "items-center justify-center"
+                  }`}
+                >
                   <img
                     src={workspaceFileUrl(path, false, threadId)}
                     alt={name}
-                    className="max-h-full max-w-full object-contain"
+                    draggable={false}
+                    onClick={() => setImageZoomed((value) => !value)}
+                    className={
+                      imageZoomed
+                        ? "h-auto w-[200%] max-w-none cursor-zoom-out object-contain"
+                        : "max-h-[calc(92vh-9rem)] max-w-full cursor-zoom-in object-contain"
+                    }
                   />
                 </div>
               </ScrollArea>
@@ -527,12 +574,18 @@ export const WorkspaceFileDialog = React.memo<{
                 </Button>
               </div>
             ) : (
-              <ScrollArea className="h-full rounded-md bg-[var(--color-surface)]">
-                <div className="p-4">
+              <ScrollArea
+                horizontal
+                className="h-full rounded-md bg-[var(--color-surface)]"
+              >
+                <div className="min-w-full p-4">
                   {content && content.length > 0 ? (
                     isMarkdown ? (
                       <div className="rounded-md p-6">
-                        <MarkdownContent content={content} />
+                        <MarkdownContent
+                          content={content}
+                          allowHorizontalOverflow
+                        />
                       </div>
                     ) : (
                       <SyntaxHighlighter
@@ -542,10 +595,13 @@ export const WorkspaceFileDialog = React.memo<{
                           margin: 0,
                           borderRadius: "0.5rem",
                           fontSize: "0.875rem",
+                          minWidth: "100%",
+                          width: "max-content",
+                          overflow: "visible",
                         }}
                         showLineNumbers
-                        wrapLines={true}
-                        lineProps={{ style: { whiteSpace: "pre-wrap" } }}
+                        wrapLines={false}
+                        codeTagProps={{ style: { whiteSpace: "pre" } }}
                       >
                         {content}
                       </SyntaxHighlighter>
