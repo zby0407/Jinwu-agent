@@ -1359,6 +1359,61 @@ def _get_default_agent():
     return _jw_agent
 
 
+def create_reproduction_agent() -> "CompiledStateGraph":
+    """Build the fixed, restricted-auto graph used by reproduction launches.
+
+    This graph intentionally has no tool-approval or ``ask_user`` interrupts,
+    while retaining the normal sandbox, command guards, task workspace and
+    scientific-review middleware.  It never inherits dangerous mode.
+    """
+    from dataclasses import replace
+
+    from deepagents import create_deep_agent
+
+    from .llm import get_chat_model
+    from .reproduction.suite import MODEL_NAME, MODEL_PROVIDER
+
+    cfg = replace(
+        _ensure_config(),
+        model=MODEL_NAME,
+        provider=MODEL_PROVIDER,
+        auto_mode=True,
+        auto_approve=True,
+        enable_ask_user=False,
+        dangerous_mode=False,
+    )
+    chat_model = get_chat_model(model=MODEL_NAME, provider=MODEL_PROVIDER)
+    be = _get_scoped_backend_factory()
+    mw = _get_default_middleware(
+        cfg=cfg,
+        chat_model=chat_model,
+        backend_factory=be,
+        skills_backend=be,
+        skill_sources=_main_skill_sources(),
+    )
+    if os.environ.get("JW_DEPLOY_MODE", "").lower() == "stripped":
+        kwargs = _build_base_kwargs(
+            be,
+            mw,
+            cfg=cfg,
+            chat_model=chat_model,
+            workspace_dir=str(_paths_mod.WORKSPACE_ROOT),
+        )
+    else:
+        kwargs = load_mcp_and_build_kwargs(
+            be,
+            mw,
+            cfg=cfg,
+            chat_model=chat_model,
+            workspace_dir=str(_paths_mod.WORKSPACE_ROOT),
+        )
+    kwargs["name"] = "JW-reproduction"
+    kwargs["skills"] = None
+    return create_deep_agent(**kwargs).with_config(
+        {"recursion_limit": cfg.recursion_limit}
+    )
+
+
 def __getattr__(name: str):
     if name == "jw_agent":
         return _get_default_agent()

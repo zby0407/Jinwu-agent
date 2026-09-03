@@ -28,6 +28,12 @@ npm run start:dist
 uv run jw --ui webui
 ```
 
+## H1/H2 一次性复现
+
+左侧“最近记录”标题下方的“一键复现 H1/H2”按钮会先显示费用与安全边界确认，再并发提交两个固定提示词任务。提交成功仅表示两个独立 run 已创建，不代表实验或科研审查成功。
+
+环境准备、终端命令、工作区和回执检查详见 [H1/H2 一次性复现指南](../docs/guides/solar-h1-h2-reproduction.md)。
+
 ## 配置
 
 - `NEXT_PUBLIC_LANGSMITH_API_KEY`：连接需要认证的 LangGraph 部署时使用。

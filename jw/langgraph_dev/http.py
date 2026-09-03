@@ -31,6 +31,7 @@ from starlette.routing import Route
 
 from jw.config import get_effective_config
 from jw.langgraph_dev.knowledge_api import KB_ROUTES
+from jw.langgraph_dev.reproduction_api import REPRODUCTION_ROUTES
 from jw.llm.models import list_model_picker_entries
 
 
@@ -79,6 +80,7 @@ async def get_models(_request: Request) -> JSONResponse:
 app = Starlette(
     routes=[
         Route("/api/models", get_models, methods=["GET"]),
+        *REPRODUCTION_ROUTES,
         # Read-only knowledge-base surface (see knowledge_api.py).
         *KB_ROUTES,
     ]
