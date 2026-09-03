@@ -9,7 +9,8 @@
 - 仓库：<https://github.com/zby0407/Jinwu-agent>
 - 许可证：Apache License 2.0
 - 第三方依赖许可证：[THIRD_PARTY_LICENSES.md](../../THIRD_PARTY_LICENSES.md)
-- 复现功能 Commit：合并发布后填写
+- 复现功能 Commit：`c906c8362e926ae9c85eddb39a042069743a0fd1`
+- 固定版本：<https://github.com/zby0407/Jinwu-agent/tree/c906c8362e926ae9c85eddb39a042069743a0fd1>
 - Python：3.11–3.13
 - 包管理器：[uv](https://docs.astral.sh/uv/)
 - 硬件：CPU-only 可运行，无需 GPU
