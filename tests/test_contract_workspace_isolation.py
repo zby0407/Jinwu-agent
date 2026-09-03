@@ -1740,6 +1740,48 @@ def test_host_can_materialize_protocol_owned_morphology_design(
     assert (run_root / "design.json").is_file()
 
 
+def test_cancelled_task_blocks_late_host_morphology_recovery(
+    tmp_path: Path, monkeypatch
+) -> None:
+    binding, config = _task_config(tmp_path, monkeypatch, "cancelled-host-design")
+    workspace = Path(binding.workspace)
+    marker = workspace / "receipts" / "task_cancelled.json"
+    marker.parent.mkdir(parents=True, exist_ok=True)
+    marker.write_text("{}", encoding="utf-8")
+
+    with pytest.raises(
+        experiment_tools.service.ServiceError,
+        match="parent task was cancelled",
+    ) as raised:
+        experiment_tools.ensure_host_silso_morphology_design(config)
+
+    assert raised.value.error_code == "TASK_CANCELLED"
+    runs_root = workspace / "experiment" / "runs"
+    assert not runs_root.exists() or not any(runs_root.iterdir())
+
+
+def test_cancelled_task_blocks_direct_experiment_bind(
+    tmp_path: Path, monkeypatch
+) -> None:
+    binding, config = _task_config(tmp_path, monkeypatch, "cancelled-direct-bind")
+    workspace = Path(binding.workspace)
+    marker = workspace / "receipts" / "task_cancelled.json"
+    marker.parent.mkdir(parents=True, exist_ok=True)
+    marker.write_text("{}", encoding="utf-8")
+
+    receipt = json.loads(
+        experiment_tools.automatic_experiment_bind_request.invoke(
+            {"request_input": QUESTION_A},
+            config=config,
+        )
+    )
+
+    assert receipt["ok"] is False
+    assert receipt["error_code"] == "TASK_CANCELLED"
+    runs_root = workspace / "experiment" / "runs"
+    assert not runs_root.exists() or not any(runs_root.iterdir())
+
+
 def test_research_experiment_bind_uses_host_staged_input_sidecar(
     tmp_path: Path, monkeypatch
 ) -> None:

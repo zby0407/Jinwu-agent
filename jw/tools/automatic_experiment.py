@@ -94,6 +94,32 @@ def _err(exc: Exception) -> str:
     return json.dumps(output, ensure_ascii=False, default=str)
 
 
+def _raise_if_task_cancelled(
+    config: RunnableConfig,
+    *,
+    run_id: str | None = None,
+) -> None:
+    """Stop host-owned recovery before it can mutate a cancelled task."""
+
+    from jw.task_cancellation import task_is_cancelled
+
+    if not task_is_cancelled(config):
+        return
+    if run_id is not None:
+        # A cancellation can race with host binding.  Persist cancellation on
+        # that just-created run as well so it cannot be resumed accidentally.
+        try:
+            with task_workspace(workspace_root_from_config(config)):
+                service.stop(run_id)
+        except Exception:
+            pass
+    raise service.ServiceError(
+        "the parent task was cancelled; host experiment recovery is forbidden",
+        error_code="TASK_CANCELLED",
+        run_id=run_id,
+    )
+
+
 def _host_research_scope(config: RunnableConfig) -> dict[str, Any] | None:
     workspace = workspace_root_from_config(config)
     review_state_path = workspace / "research_review" / "run_state.json"
@@ -322,6 +348,7 @@ def automatic_experiment_bind_request(
         scientific assessment.
     """
     try:
+        _raise_if_task_cancelled(config)
         supplied = request_input.strip()
         if not supplied:
             raise ValueError("request_input must not be empty")
@@ -367,16 +394,16 @@ def automatic_experiment_bind_request(
                 "request": _apply_host_analysis_protocol(request, research_scope)
             }
         with task_workspace(workspace_root_from_config(config)):
-            return _ok(
-                service.bind_request(
-                    payload,
-                    research_scope=(
-                        _service_research_scope(research_scope)
-                        if research_scope is not None
-                        else None
-                    ),
-                )
+            result = service.bind_request(
+                payload,
+                research_scope=(
+                    _service_research_scope(research_scope)
+                    if research_scope is not None
+                    else None
+                ),
             )
+            _raise_if_task_cancelled(config, run_id=str(result["run_id"]))
+            return _ok(result)
     except Exception as exc:
         return _err(exc)
 
@@ -399,8 +426,11 @@ def automatic_experiment_inspect_inputs(
         required_worker_outputs contract for attempt authoring.
     """
     try:
+        _raise_if_task_cancelled(config, run_id=run_id)
         with task_workspace(workspace_root_from_config(config)):
-            return _ok(service.inspect_inputs(run_id))
+            result = service.inspect_inputs(run_id)
+            _raise_if_task_cancelled(config, run_id=run_id)
+            return _ok(result)
     except Exception as exc:
         return _err(exc)
 
@@ -993,6 +1023,7 @@ def ensure_host_silso_morphology_design(
     exact steps against the already-persisted research scope and staged inputs.
     """
 
+    _raise_if_task_cancelled(config)
     workspace = workspace_root_from_config(config)
     research_scope = _host_research_scope(config)
     if (
@@ -1040,6 +1071,7 @@ def ensure_host_silso_morphology_design(
             ):
                 raise
             run_id = str(exc.run_id)
+        _raise_if_task_cancelled(config, run_id=run_id)
         run_root, state = service.load_state(run_id)
         if (
             state.get("phase") == "design_validated"
@@ -1047,6 +1079,7 @@ def ensure_host_silso_morphology_design(
         ):
             return {"status": "design_validated", "run_id": run_id}
         service.inspect_inputs(run_id)
+        _raise_if_task_cancelled(config, run_id=run_id)
         checked = _create_silso_cycle_morphology_design(run_id)
         if checked.get("status") != "design_validated":
             raise service.ServiceError(
@@ -1063,6 +1096,7 @@ def ensure_host_solar_cycle_26_forecast_design(
 ) -> dict[str, Any]:
     """Materialize the protocol-owned SC26 design at the host boundary."""
 
+    _raise_if_task_cancelled(config)
     workspace = workspace_root_from_config(config)
     research_scope = _host_research_scope(config)
     if (
@@ -1110,6 +1144,7 @@ def ensure_host_solar_cycle_26_forecast_design(
             ):
                 raise
             run_id = str(exc.run_id)
+        _raise_if_task_cancelled(config, run_id=run_id)
         run_root, state = service.load_state(run_id)
         if (
             state.get("phase") == "design_validated"
@@ -1117,6 +1152,7 @@ def ensure_host_solar_cycle_26_forecast_design(
         ):
             return {"status": "design_validated", "run_id": run_id}
         service.inspect_inputs(run_id)
+        _raise_if_task_cancelled(config, run_id=run_id)
         checked = _create_solar_cycle_26_forecast_design(run_id)
         if checked.get("status") != "design_validated":
             raise service.ServiceError(
@@ -1133,6 +1169,7 @@ def ensure_host_polar_forecast_design(
 ) -> dict[str, Any]:
     """Materialize the protocol-owned polar forecast design at the host boundary."""
 
+    _raise_if_task_cancelled(config)
     workspace = workspace_root_from_config(config)
     research_scope = _host_research_scope(config)
     if (
@@ -1179,6 +1216,7 @@ def ensure_host_polar_forecast_design(
             ):
                 raise
             run_id = str(exc.run_id)
+        _raise_if_task_cancelled(config, run_id=run_id)
         run_root, state = service.load_state(run_id)
         if (
             state.get("phase") == "design_validated"
@@ -1186,6 +1224,7 @@ def ensure_host_polar_forecast_design(
         ):
             return {"status": "design_validated", "run_id": run_id}
         service.inspect_inputs(run_id)
+        _raise_if_task_cancelled(config, run_id=run_id)
         checked = _create_polar_forecast_design(run_id)
         if checked.get("status") != "design_validated":
             raise service.ServiceError(
@@ -2253,8 +2292,11 @@ def automatic_experiment_create_silso_morphology_design(
         JSON string with the validated design status and worker contract.
     """
     try:
+        _raise_if_task_cancelled(config, run_id=run_id)
         with task_workspace(workspace_root_from_config(config)):
-            return _ok(_create_silso_cycle_morphology_design(run_id))
+            result = _create_silso_cycle_morphology_design(run_id)
+            _raise_if_task_cancelled(config, run_id=run_id)
+            return _ok(result)
     except Exception as exc:
         return _err(exc)
 
@@ -2272,8 +2314,11 @@ def automatic_experiment_create_sc26_forecast_design(
         JSON string with the validated design status and worker contract.
     """
     try:
+        _raise_if_task_cancelled(config, run_id=run_id)
         with task_workspace(workspace_root_from_config(config)):
-            return _ok(_create_solar_cycle_26_forecast_design(run_id))
+            result = _create_solar_cycle_26_forecast_design(run_id)
+            _raise_if_task_cancelled(config, run_id=run_id)
+            return _ok(result)
     except Exception as exc:
         return _err(exc)
 

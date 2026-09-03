@@ -640,6 +640,25 @@ class QwenToolCompatibilityMiddleware(AgentMiddleware):
             model_settings = dict(getattr(request, "model_settings", None) or {})
             model_settings["parallel_tool_calls"] = False
             overrides["model_settings"] = model_settings
+        if experiment_design_context:
+            # Registered experiment protocols are a strict bind -> inspect ->
+            # design state machine.  A provider-side parallel response can
+            # otherwise fan one forced transition out into many duplicate,
+            # state-mutating tool calls.
+            model_settings = dict(getattr(request, "model_settings", None) or {})
+            model_settings["parallel_tool_calls"] = False
+            overrides["model_settings"] = model_settings
+            attempted = self._experiment_design_attempted_tools(
+                projected_messages,
+                protocol=experiment_design_protocol,
+            )
+            if attempted:
+                request_tools = [
+                    tool
+                    for tool in request_tools
+                    if _tool_name(tool) not in attempted
+                ]
+                overrides["tools"] = request_tools
         verified_data_terminal = (
             data_stage_context
             and self._latest_data_terminal_receipt_is_verified(projected_messages)
@@ -1179,32 +1198,98 @@ class QwenToolCompatibilityMiddleware(AgentMiddleware):
             "silso_cycle_morphology_v1": "automatic_experiment_create_silso_morphology_design",
             "solar_cycle_26_forecast_backtest_v1": "automatic_experiment_create_sc26_forecast_design",
         }[protocol]
+        bind_tool = "automatic_experiment_bind_request"
+        inspect_tool = "automatic_experiment_inspect_inputs"
         available = {name for tool in tools if (name := _tool_name(tool)) is not None}
-        if specialized not in available:
-            return None
 
         latest_human_index = -1
         for index, message in enumerate(messages):
             if getattr(message, "type", "") in {"human", "user"}:
                 latest_human_index = index
-        # Once the specialized builder has returned its typed success receipt,
-        # let the producer continue to checkpoint the result instead of
-        # invoking the same builder again.
-        for message in reversed(messages[latest_human_index + 1 :]):
-            if not isinstance(message, ToolMessage) or message.name != specialized:
+        bound_run_id: str | None = None
+        inspected_run_id: str | None = None
+        for message in messages[latest_human_index + 1 :]:
+            if not isinstance(message, ToolMessage):
                 continue
             try:
                 payload = json.loads(cls._message_text(message))
             except (TypeError, ValueError):
-                return specialized
-            result = payload.get("result") if isinstance(payload, Mapping) else None
-            if (
-                isinstance(result, Mapping)
-                and result.get("status") == "design_validated"
+                continue
+            if not isinstance(payload, Mapping):
+                continue
+            nested = payload.get("result")
+            receipt = nested if isinstance(nested, Mapping) else payload
+            run_id = receipt.get("run_id")
+            if message.name == bind_tool and isinstance(run_id, str) and run_id:
+                if receipt.get("status") == "request_bound" or receipt.get(
+                    "error_code"
+                ) == "RESEARCH_EXPERIMENT_SCOPE_ALREADY_BOUND":
+                    bound_run_id = run_id
+                    inspected_run_id = None
+            elif (
+                message.name == inspect_tool
+                and isinstance(run_id, str)
+                and run_id == bound_run_id
+                and receipt.get("status")
+                in {"inputs_snapshotted", "already_snapshotted"}
             ):
+                if receipt.get("phase") == "design_validated":
+                    # Resuming an already completed design requires no builder.
+                    return None
+                inspected_run_id = run_id
+            elif message.name == specialized:
+                # The protocol permits exactly one builder call.  Flat tool
+                # receipts are canonical, while nested receipts remain accepted
+                # for compatibility.  Success and failure both end forcing so
+                # a malformed call cannot become an unbounded retry loop.
                 return None
-            return specialized
-        return specialized
+
+        attempted = cls._experiment_design_attempted_tools(
+            messages,
+            protocol=protocol,
+        )
+        if bind_tool not in attempted:
+            return bind_tool if bind_tool in available else None
+        if bound_run_id is None:
+            return None
+        if inspect_tool not in attempted:
+            return inspect_tool if inspect_tool in available else None
+        if inspected_run_id != bound_run_id:
+            return None
+        return specialized if specialized in available else None
+
+    @classmethod
+    def _experiment_design_attempted_tools(
+        cls,
+        messages: Sequence[BaseMessage],
+        *,
+        protocol: str | None,
+    ) -> set[str]:
+        """Return protocol lifecycle tools already attempted in this turn."""
+
+        if protocol not in {
+            "silso_cycle_morphology_v1",
+            "solar_cycle_26_forecast_backtest_v1",
+        }:
+            return set()
+        specialized = {
+            "silso_cycle_morphology_v1": "automatic_experiment_create_silso_morphology_design",
+            "solar_cycle_26_forecast_backtest_v1": "automatic_experiment_create_sc26_forecast_design",
+        }[protocol]
+        lifecycle_tools = {
+            "automatic_experiment_bind_request",
+            "automatic_experiment_inspect_inputs",
+            specialized,
+        }
+        latest_human_index = -1
+        for index, message in enumerate(messages):
+            if getattr(message, "type", "") in {"human", "user"}:
+                latest_human_index = index
+        return {
+            str(message.name)
+            for message in messages[latest_human_index + 1 :]
+            if isinstance(message, ToolMessage) and message.name in lifecycle_tools
+        }
 
     @staticmethod
     def _preopened_data_context(content: str) -> Mapping[str, Any] | None:
@@ -1556,6 +1641,47 @@ class QwenToolCompatibilityMiddleware(AgentMiddleware):
         ):
             return response
         first = message.tool_calls[0]
+        metadata = dict(message.response_metadata)
+        metadata["finish_reason"] = "tool_calls"
+        metadata["jw_deferred_parallel_tool_calls"] = len(message.tool_calls) - 1
+        serialized = message.model_copy(
+            update={
+                "content": "",
+                "tool_calls": [first],
+                "response_metadata": metadata,
+            }
+        )
+        return ModelResponse(
+            result=[serialized],
+            structured_response=response.structured_response,
+        )
+
+    @staticmethod
+    def _serialize_experiment_design_calls(
+        response: ModelResponse,
+        *,
+        enabled: bool,
+    ) -> ModelResponse:
+        """Keep exactly one lifecycle transition in an experiment-design turn."""
+
+        if not enabled or not isinstance(response, ModelResponse):
+            return response
+        if len(response.result) != 1 or not isinstance(response.result[0], AIMessage):
+            return response
+        message = response.result[0]
+        lifecycle_names = {
+            "automatic_experiment_bind_request",
+            "automatic_experiment_inspect_inputs",
+            "automatic_experiment_create_silso_morphology_design",
+            "automatic_experiment_create_sc26_forecast_design",
+        }
+        if len(message.tool_calls) <= 1 or not any(
+            call.get("name") in lifecycle_names for call in message.tool_calls
+        ):
+            return response
+        first = next(
+            call for call in message.tool_calls if call.get("name") in lifecycle_names
+        )
         metadata = dict(message.response_metadata)
         metadata["finish_reason"] = "tool_calls"
         metadata["jw_deferred_parallel_tool_calls"] = len(message.tool_calls) - 1
@@ -2829,6 +2955,15 @@ class QwenToolCompatibilityMiddleware(AgentMiddleware):
                 in str(getattr(prepared.system_message, "content", ""))
             ),
         )
+        serialized = self._serialize_experiment_design_calls(
+            serialized,
+            enabled=(
+                "[RESEARCH_PRODUCER_V2]"
+                in str(getattr(prepared.system_message, "content", ""))
+                and "stage=experiment_design"
+                in str(getattr(prepared.system_message, "content", ""))
+            ),
+        )
         hypothesis_ready_readback = (
             self._enforce_hypothesis_readback_after_ready_update(
                 serialized,
@@ -2962,6 +3097,15 @@ class QwenToolCompatibilityMiddleware(AgentMiddleware):
                 "[RESEARCH_PRODUCER_V2]"
                 in str(getattr(prepared.system_message, "content", ""))
                 and "stage=planning"
+                in str(getattr(prepared.system_message, "content", ""))
+            ),
+        )
+        serialized = self._serialize_experiment_design_calls(
+            serialized,
+            enabled=(
+                "[RESEARCH_PRODUCER_V2]"
+                in str(getattr(prepared.system_message, "content", ""))
+                and "stage=experiment_design"
                 in str(getattr(prepared.system_message, "content", ""))
             ),
         )

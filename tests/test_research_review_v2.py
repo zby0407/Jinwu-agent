@@ -6225,6 +6225,39 @@ def test_orchestration_stops_third_required_specialist_failure(
     }
 
 
+def test_orchestration_cancelled_task_ends_before_recovery_or_checkpoint(
+    tmp_path: Path, monkeypatch
+) -> None:
+    config = _config(tmp_path, monkeypatch, "cancelled-research-review")
+    workspace = Path(
+        ensure_thread_workspace("cancelled-research-review", tmp_path).workspace
+    )
+    marker = workspace / "receipts" / "task_cancelled.json"
+    marker.parent.mkdir(parents=True, exist_ok=True)
+    marker.write_text("{}", encoding="utf-8")
+    request = _Request(
+        {
+            "name": "task",
+            "id": "cancelled-experiment-design",
+            "args": {
+                "subagent_type": "solar-experiment",
+                "description": "design",
+            },
+        },
+        {"research_route": {"mode": "full_research"}, "messages": []},
+        _Runtime(config),
+    )
+
+    result = ResearchReviewOrchestrationMiddleware().wrap_tool_call(
+        request,
+        lambda _request: pytest.fail("cancelled task must not call its producer"),
+    )
+
+    assert isinstance(result, Command)
+    assert result.goto == "__end__"
+    assert "TASK CANCELLED" in str(result.update["messages"][0].content)
+
+
 def test_orchestration_counts_local_preflight_failures_as_specialist_failures(
     tmp_path: Path, monkeypatch
 ) -> None:

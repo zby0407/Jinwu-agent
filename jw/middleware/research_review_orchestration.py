@@ -25,6 +25,7 @@ from ..research_review import (
     _atomic_write_json,
     store_from_config,
 )
+from ..task_cancellation import task_is_cancelled
 
 if TYPE_CHECKING:
     from langchain.agents.middleware.types import ToolCallRequest
@@ -2592,6 +2593,21 @@ class ResearchReviewOrchestrationMiddleware(AgentMiddleware[Any, Any, Any]):
             status="error",
         )
 
+    @staticmethod
+    def _cancelled(request: ToolCallRequest) -> Command[Any]:
+        message = ToolMessage(
+            content=(
+                "[TASK CANCELLED] The parent task was stopped. Research review "
+                "will not start, retry, recover, or checkpoint more work."
+            ),
+            tool_call_id=str(
+                request.tool_call.get("id") or "research-review-cancelled-tool-call"
+            ),
+            name=str(request.tool_call.get("name") or "unknown_tool"),
+            status="error",
+        )
+        return Command(update={"messages": [message]}, goto="__end__")
+
     def _prepare(
         self, request: ToolCallRequest
     ) -> tuple[
@@ -2603,6 +2619,8 @@ class ResearchReviewOrchestrationMiddleware(AgentMiddleware[Any, Any, Any]):
         if route_kind is None:
             return request, None, None
         config = getattr(request.runtime, "config", None)
+        if task_is_cancelled(config):
+            return request, None, self._cancelled(request)
         store = store_from_config(config)
         if route_kind == "full":
             store.recover_canonical_producer_after_tool_failure()
@@ -3291,6 +3309,8 @@ class ResearchReviewOrchestrationMiddleware(AgentMiddleware[Any, Any, Any]):
         if action is None or _result_failed(result):
             return result
         config = getattr(request.runtime, "config", None)
+        if task_is_cancelled(config):
+            return self._cancelled(request)
         store = store_from_config(config)
         if action["kind"] == "producer":
             producer_text = _tool_result_text(result)
