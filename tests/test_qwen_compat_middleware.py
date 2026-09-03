@@ -712,9 +712,7 @@ def test_morphology_design_forces_bound_inspect_create_once_in_order():
         ],
     )
     bind_result = ToolMessage(
-        content=json.dumps(
-            {"ok": True, "status": "request_bound", "run_id": run_id}
-        ),
+        content=json.dumps({"ok": True, "status": "request_bound", "run_id": run_id}),
         tool_call_id="bind-1",
         name="automatic_experiment_bind_request",
     )
@@ -823,8 +821,7 @@ def test_morphology_design_receipt_never_reforces_builder(design_receipt):
 
     prepared = handler.call_args.args[0]
     names = {
-        tool.name if hasattr(tool, "name") else tool["name"]
-        for tool in prepared.tools
+        tool.name if hasattr(tool, "name") else tool["name"] for tool in prepared.tools
     }
     assert tool_name not in names
     assert prepared.tool_choice is None
@@ -893,9 +890,7 @@ def test_morphology_design_serializes_provider_parallel_calls():
 
     assert len(response.result[0].tool_calls) == 1
     assert response.result[0].tool_calls[0]["id"] == "design-0"
-    assert response.result[0].response_metadata[
-        "jw_deferred_parallel_tool_calls"
-    ] == 4
+    assert response.result[0].response_metadata["jw_deferred_parallel_tool_calls"] == 4
 
 
 @pytest.mark.parametrize(

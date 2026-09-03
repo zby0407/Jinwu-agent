@@ -654,9 +654,7 @@ class QwenToolCompatibilityMiddleware(AgentMiddleware):
             )
             if attempted:
                 request_tools = [
-                    tool
-                    for tool in request_tools
-                    if _tool_name(tool) not in attempted
+                    tool for tool in request_tools if _tool_name(tool) not in attempted
                 ]
                 overrides["tools"] = request_tools
         verified_data_terminal = (
@@ -1221,9 +1219,11 @@ class QwenToolCompatibilityMiddleware(AgentMiddleware):
             receipt = nested if isinstance(nested, Mapping) else payload
             run_id = receipt.get("run_id")
             if message.name == bind_tool and isinstance(run_id, str) and run_id:
-                if receipt.get("status") == "request_bound" or receipt.get(
-                    "error_code"
-                ) == "RESEARCH_EXPERIMENT_SCOPE_ALREADY_BOUND":
+                if (
+                    receipt.get("status") == "request_bound"
+                    or receipt.get("error_code")
+                    == "RESEARCH_EXPERIMENT_SCOPE_ALREADY_BOUND"
+                ):
                     bound_run_id = run_id
                     inspected_run_id = None
             elif (
