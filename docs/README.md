@@ -14,6 +14,7 @@
 
 | Guide                                                      | Description                                                                     |
 |------------------------------------------------------------|---------------------------------------------------------------------------------|
+| [H1/H2 一次性复现指南](./guides/solar-h1-h2-reproduction.md) | 使用固定提示词和固定 DashScope 模型，从 CLI 或 WebUI 并发提交两个可审计、相互隔离的复现任务 |
 | [`stream-json` output protocol](https://github.com/zby0407/Jinwu-agent/blob/main/docs/guides/stream-json.md#stream-json-output-protocol)   | Line-delimited JSON event stream (`--output-format stream-json`) for driving JW headlessly from SDK / programmatic clients |
 | [Agent RL evolution plan](./2026-07-24-agent-rl-evolution-plan.md) | Introduce RL through verifier-first hypothesis graphs, operation-level policies, staged evaluation, and later multi-agent expansion |
 

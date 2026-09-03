@@ -76,6 +76,8 @@ docker compose run --rm jw
 
 ## 文档
 
+- [H1/H2 一次性复现指南](./docs/guides/solar-h1-h2-reproduction.md)
+- [第三方依赖许可证清单](./THIRD_PARTY_LICENSES.md)
 - [贡献指南](./CONTRIBUTING.md)
 - [项目文档](./docs/)
 - [项目目录与数据位置](./docs/PROJECT_LAYOUT.md)

@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from .. import deploy as _deploy_pkg  # noqa: F401 — registers `deploy` @app.command
 from . import commands  # noqa: F401 — registers @app.command decorators
+from . import reproduction  # noqa: F401 - registers `reproduce`
 from ._app import app
 
 __all__ = [

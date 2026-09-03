@@ -2,6 +2,7 @@
     "dependencies": ["."],
     "graphs": {
         "JW": "jw.langgraph_dev.main_graph:jw_agent",
+        "JW-reproduction": "jw.langgraph_dev.reproduction_graph:reproduction_agent",
         "writing-agent": "jw.langgraph_dev.graphs:writing_agent",
         "data-analysis-agent": "jw.langgraph_dev.graphs:data_analysis_agent",
         "scheduler": "jw.langgraph_dev.graphs:scheduler",
