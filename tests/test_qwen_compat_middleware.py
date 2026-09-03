@@ -691,6 +691,208 @@ def test_planner_serializes_duplicate_compact_plan_calls():
     assert [call["id"] for call in response.result[0].tool_calls] == ["call-first"]
 
 
+def test_morphology_design_forces_bound_inspect_create_once_in_order():
+    middleware = QwenToolCompatibilityMiddleware(default_model="qwen3.7-plus")
+    tools = [
+        {"name": "automatic_experiment_bind_request"},
+        {"name": "automatic_experiment_inspect_inputs"},
+        {"name": "automatic_experiment_create_silso_morphology_design"},
+    ]
+    run_id = "question_deadbeef-20260903T033725Z-ac943419"
+    human = HumanMessage(content="create a bounded SILSO design")
+    bind_ai = AIMessage(
+        content="",
+        tool_calls=[
+            {
+                "name": "automatic_experiment_bind_request",
+                "args": {"request_input": "bounded SILSO experiment"},
+                "id": "bind-1",
+                "type": "tool_call",
+            }
+        ],
+    )
+    bind_result = ToolMessage(
+        content=json.dumps({"ok": True, "status": "request_bound", "run_id": run_id}),
+        tool_call_id="bind-1",
+        name="automatic_experiment_bind_request",
+    )
+    inspect_ai = AIMessage(
+        content="",
+        tool_calls=[
+            {
+                "name": "automatic_experiment_inspect_inputs",
+                "args": {"run_id": run_id},
+                "id": "inspect-1",
+                "type": "tool_call",
+            }
+        ],
+    )
+    inspect_result = ToolMessage(
+        content=json.dumps(
+            {"ok": True, "status": "inputs_snapshotted", "run_id": run_id}
+        ),
+        tool_call_id="inspect-1",
+        name="automatic_experiment_inspect_inputs",
+    )
+
+    cases = [
+        ([human], "automatic_experiment_bind_request"),
+        ([human, bind_ai, bind_result], "automatic_experiment_inspect_inputs"),
+        (
+            [human, bind_ai, bind_result, inspect_ai, inspect_result],
+            "automatic_experiment_create_silso_morphology_design",
+        ),
+    ]
+    for messages, expected in cases:
+        request = _request(*tools, messages=messages)
+        request.system_message = SystemMessage(
+            content=(
+                "[RESEARCH_PRODUCER_V2]\nstage=experiment_design\n"
+                "analysis_protocol=silso_cycle_morphology_v1"
+            )
+        )
+        handler = MagicMock(return_value="ok")
+        with patch(
+            "jw.middleware.qwen_compat._read_model_override",
+            return_value=(None, None),
+        ):
+            assert middleware.wrap_model_call(request, handler) == "ok"
+        prepared = handler.call_args.args[0]
+        assert prepared.tool_choice["function"]["name"] == expected
+        assert prepared.model_settings["parallel_tool_calls"] is False
+
+
+@pytest.mark.parametrize(
+    "design_receipt",
+    [
+        {"ok": True, "status": "design_validated", "run_id": "run-1"},
+        {
+            "ok": False,
+            "status": "error",
+            "error_type": "StateError",
+            "message": "run_id has an invalid format",
+        },
+        {
+            "ok": True,
+            "result": {"status": "design_validated", "run_id": "run-1"},
+        },
+    ],
+)
+def test_morphology_design_receipt_never_reforces_builder(design_receipt):
+    middleware = QwenToolCompatibilityMiddleware(default_model="qwen3.7-plus")
+    tool_name = "automatic_experiment_create_silso_morphology_design"
+    request = _request(
+        {"name": "automatic_experiment_bind_request"},
+        {"name": "automatic_experiment_inspect_inputs"},
+        {"name": tool_name},
+        messages=[
+            HumanMessage(content="create a bounded SILSO design"),
+            AIMessage(
+                content="",
+                tool_calls=[
+                    {
+                        "name": tool_name,
+                        "args": {"run_id": "run-1"},
+                        "id": "design-1",
+                        "type": "tool_call",
+                    }
+                ],
+            ),
+            ToolMessage(
+                content=json.dumps(design_receipt),
+                tool_call_id="design-1",
+                name=tool_name,
+            ),
+        ],
+    )
+    request.system_message = SystemMessage(
+        content=(
+            "[RESEARCH_PRODUCER_V2]\nstage=experiment_design\n"
+            "analysis_protocol=silso_cycle_morphology_v1"
+        )
+    )
+    handler = MagicMock(return_value="ok")
+
+    with patch(
+        "jw.middleware.qwen_compat._read_model_override",
+        return_value=(None, None),
+    ):
+        assert middleware.wrap_model_call(request, handler) == "ok"
+
+    prepared = handler.call_args.args[0]
+    names = {
+        tool.name if hasattr(tool, "name") else tool["name"] for tool in prepared.tools
+    }
+    assert tool_name not in names
+    assert prepared.tool_choice is None
+
+
+def test_morphology_design_serializes_provider_parallel_calls():
+    middleware = QwenToolCompatibilityMiddleware(default_model="qwen3.7-plus")
+    tool_name = "automatic_experiment_create_silso_morphology_design"
+    run_id = "question_deadbeef-20260903T033725Z-ac943419"
+    request = _request(
+        {"name": "automatic_experiment_bind_request"},
+        {"name": "automatic_experiment_inspect_inputs"},
+        {"name": tool_name},
+        messages=[
+            HumanMessage(content="create a bounded SILSO design"),
+            ToolMessage(
+                content=json.dumps(
+                    {"ok": True, "status": "request_bound", "run_id": run_id}
+                ),
+                tool_call_id="bind-1",
+                name="automatic_experiment_bind_request",
+            ),
+            ToolMessage(
+                content=json.dumps(
+                    {
+                        "ok": True,
+                        "status": "inputs_snapshotted",
+                        "run_id": run_id,
+                    }
+                ),
+                tool_call_id="inspect-1",
+                name="automatic_experiment_inspect_inputs",
+            ),
+        ],
+    )
+    request.system_message = SystemMessage(
+        content=(
+            "[RESEARCH_PRODUCER_V2]\nstage=experiment_design\n"
+            "analysis_protocol=silso_cycle_morphology_v1"
+        )
+    )
+    handler = MagicMock(
+        return_value=ModelResponse(
+            result=[
+                AIMessage(
+                    content="duplicate batch",
+                    tool_calls=[
+                        {
+                            "name": tool_name,
+                            "args": {"run_id": run_id},
+                            "id": f"design-{index}",
+                            "type": "tool_call",
+                        }
+                        for index in range(5)
+                    ],
+                )
+            ]
+        )
+    )
+
+    with patch(
+        "jw.middleware.qwen_compat._read_model_override",
+        return_value=(None, None),
+    ):
+        response = middleware.wrap_model_call(request, handler)
+
+    assert len(response.result[0].tool_calls) == 1
+    assert response.result[0].tool_calls[0]["id"] == "design-0"
+    assert response.result[0].response_metadata["jw_deferred_parallel_tool_calls"] == 4
+
+
 @pytest.mark.parametrize(
     ("receipt_tool", "next_action", "expected_tool"),
     [

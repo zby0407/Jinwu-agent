@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import pytest
+from langgraph.types import Command
 
 from automatic_experiment import service
 from automatic_experiment.contracts import RESPONSE_VERSION, default_request
@@ -232,7 +233,7 @@ def test_cancelled_task_blocks_new_subagent_tool_calls(
     marker.parent.mkdir(parents=True)
     marker.write_text("{}", encoding="utf-8")
     monkeypatch.setattr(
-        "jw.middleware.task_cancellation.workspace_root_from_config",
+        "jw.task_cancellation.workspace_root_from_config",
         lambda _config: tmp_path,
     )
     request = _Request(
@@ -242,8 +243,11 @@ def test_cancelled_task_blocks_new_subagent_tool_calls(
     result = TaskCancellationMiddleware().wrap_tool_call(
         request, lambda _request: object()
     )
-    assert result.status == "error"
-    assert "TASK CANCELLED" in str(result.content)
+    assert isinstance(result, Command)
+    assert result.goto == "__end__"
+    message = result.update["messages"][0]
+    assert message.status == "error"
+    assert "TASK CANCELLED" in str(message.content)
 
 
 def test_structured_bind_preserves_compact_inputs() -> None:
