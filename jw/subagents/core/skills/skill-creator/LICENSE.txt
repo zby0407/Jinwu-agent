@@ -1,6 +1,6 @@
-Originally derived from the skill-creator skill in the skills.sh community
+Originally derived from Anthropic's skill-creator skill
 (https://github.com/anthropics/skills/tree/main/skills/skill-creator), licensed under the Apache
-License 2.0. Modified and adapted for the JW project.
+License 2.0. Copyright 2026 Anthropic, PBC. Modified and adapted for the JW project.
 
                                  Apache License
                            Version 2.0, January 2004
@@ -190,7 +190,7 @@ License 2.0. Modified and adapted for the JW project.
       same "printed page" as the copyright notice for easier
       identification within third-party archives.
 
-   Copyright [yyyy] [name of copyright owner]
+   Copyright 2026 Anthropic, PBC.
 
    Licensed under the Apache License, Version 2.0 (the "License");
    you may not use this file except in compliance with the License.

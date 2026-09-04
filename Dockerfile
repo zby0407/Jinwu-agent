@@ -15,7 +15,7 @@ ENV UV_COMPILE_BYTECODE=1 \
 
 WORKDIR /src
 
-COPY pyproject.toml uv.lock README.md ./
+COPY pyproject.toml uv.lock README.md LICENSE NOTICE ./
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --frozen --no-install-project --no-dev \
         --extra all-channels
