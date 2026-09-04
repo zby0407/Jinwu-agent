@@ -108,7 +108,18 @@ def test_unix_installer_keeps_source_and_builds_webui(tmp_path: Path) -> None:
 
     invocations = invocation_log.read_text(encoding="utf-8").splitlines()
     npm_invocations = npm_log.read_text(encoding="utf-8").splitlines()
-    assert f"tool install --reinstall --editable {source_dir}" in invocations
+    install_prefix = "tool install --reinstall --editable "
+    installed_sources = [
+        invocation.removeprefix(install_prefix)
+        for invocation in invocations
+        if invocation.startswith(install_prefix)
+    ]
+    expected_source = str(source_dir).replace("\\", "/")
+    if os.name == "nt":
+        # Git Bash/MSYS translates C:/... arguments passed to shell commands
+        # into /c/... paths before the fake uv executable receives them.
+        expected_source = f"/{expected_source[0].lower()}{expected_source[2:]}"
+    assert installed_sources == [expected_source]
     assert "tool update-shell" in invocations
     assert "tool dir --bin" in invocations
     assert npm_invocations == ["ci", "run build"]
