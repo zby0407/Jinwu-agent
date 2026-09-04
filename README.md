@@ -20,13 +20,37 @@
 
 项目根目录是唯一 Git 仓库，`webui/` 不包含独立的 Git 元数据。
 
+## 一键安装
+
+macOS 或 Linux：
+
+```bash
+curl -LsSf https://raw.githubusercontent.com/zby0407/Jinwu-agent/main/install.sh | sh
+```
+
+Windows PowerShell：
+
+```powershell
+powershell -ExecutionPolicy Bypass -Command "irm https://raw.githubusercontent.com/zby0407/Jinwu-agent/main/install.ps1 | iex"
+```
+
+安装脚本会在需要时自动安装 `uv` 和兼容的 Python，并从公开 GitHub
+源码安装最新版 `jw`。重复执行同一命令即可刷新安装。完成后打开一个新终端并运行：
+
+```bash
+jw onboard
+jw
+```
+
+此方式安装 CLI/TUI。浏览器 WebUI 需要仓库中的前端构建，按下方“从源码快速开始”运行。
+
 ## 环境要求
 
 - Python 3.11–3.13
 - [uv](https://docs.astral.sh/uv/)
 - Node.js 20+（仅 WebUI 开发或构建需要）
 
-## 快速开始
+## 从源码快速开始
 
 ```bash
 uv sync
