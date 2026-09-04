@@ -1995,7 +1995,7 @@ def sessions_stats():
 
 def _version_callback(value: bool):
     if value:
-        typer.echo(f"JW {_pkg_version('JW')}")
+        typer.echo(f"JW {_pkg_version('jw-agent')}")
         raise typer.Exit()
 
 
