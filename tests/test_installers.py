@@ -8,7 +8,6 @@ from pathlib import Path
 import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
-SOURCE_URL = "https://github.com/zby0407/Jinwu-agent/archive/refs/heads/main.tar.gz"
 
 
 def test_unix_installer_has_valid_shell_syntax() -> None:
@@ -46,14 +45,17 @@ def test_powershell_installer_has_valid_syntax() -> None:
     )
 
 
-def test_unix_installer_invokes_uv_tool_install(tmp_path: Path) -> None:
+def test_unix_installer_keeps_source_and_builds_webui(tmp_path: Path) -> None:
     shell = shutil.which("sh")
     if shell is None:
         pytest.skip("POSIX sh is unavailable")
 
     fake_bin = tmp_path / "bin"
     fake_bin.mkdir()
+    source_dir = tmp_path / "source"
+    (source_dir / "webui").mkdir(parents=True)
     invocation_log = tmp_path / "uv.log"
+    npm_log = tmp_path / "npm.log"
     fake_uv = fake_bin / "uv"
     fake_uv.write_text(
         "#!/bin/sh\n"
@@ -64,13 +66,31 @@ def test_unix_installer_invokes_uv_tool_install(tmp_path: Path) -> None:
         encoding="utf-8",
     )
     fake_uv.chmod(0o755)
+    fake_node = fake_bin / "node"
+    fake_node.write_text(
+        "#!/bin/sh\n"
+        "if [ \"$1\" = '-p' ]; then\n"
+        "    printf '20\\n'\n"
+        "else\n"
+        "    printf 'v20.0.0\\n'\n"
+        "fi\n",
+        encoding="utf-8",
+    )
+    fake_node.chmod(0o755)
+    fake_npm = fake_bin / "npm"
+    fake_npm.write_text(
+        '#!/bin/sh\nprintf \'%s\\n\' "$*" >> "$JW_TEST_NPM_LOG"\n',
+        encoding="utf-8",
+    )
+    fake_npm.chmod(0o755)
 
     env = os.environ.copy()
     env.update(
         {
             "HOME": str(tmp_path),
-            "JW_INSTALL_SOURCE": SOURCE_URL,
+            "JW_INSTALL_SOURCE": str(source_dir),
             "JW_TEST_BIN_DIR": str(fake_bin),
+            "JW_TEST_NPM_LOG": str(npm_log),
             "JW_TEST_UV_LOG": str(invocation_log),
             "PATH": os.pathsep.join(
                 [str(fake_bin), os.environ.get("PATH", "/usr/bin:/bin")]
@@ -87,10 +107,24 @@ def test_unix_installer_invokes_uv_tool_install(tmp_path: Path) -> None:
     )
 
     invocations = invocation_log.read_text(encoding="utf-8").splitlines()
-    assert f"tool install --reinstall {SOURCE_URL}" in invocations
+    npm_invocations = npm_log.read_text(encoding="utf-8").splitlines()
+    install_prefix = "tool install --reinstall --editable "
+    installed_sources = [
+        invocation.removeprefix(install_prefix)
+        for invocation in invocations
+        if invocation.startswith(install_prefix)
+    ]
+    expected_source = str(source_dir).replace("\\", "/")
+    if os.name == "nt":
+        # Git Bash/MSYS translates C:/... arguments passed to shell commands
+        # into /c/... paths before the fake uv executable receives them.
+        expected_source = f"/{expected_source[0].lower()}{expected_source[2:]}"
+    assert installed_sources == [expected_source]
     assert "tool update-shell" in invocations
     assert "tool dir --bin" in invocations
+    assert npm_invocations == ["ci", "run build"]
     assert "installation complete" in completed.stdout
+    assert "WebUI is ready" in completed.stdout
 
 
 def test_readme_exposes_public_installers() -> None:

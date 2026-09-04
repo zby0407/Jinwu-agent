@@ -35,14 +35,15 @@ powershell -ExecutionPolicy Bypass -Command "irm https://raw.githubusercontent.c
 ```
 
 安装脚本会在需要时自动安装 `uv` 和兼容的 Python，并从公开 GitHub
-源码安装最新版 `jw`。重复执行同一命令即可刷新安装。完成后打开一个新终端并运行：
+源码安装最新版 `jw`。如果机器已有 Node.js 20+ 和 npm，脚本也会自动构建 WebUI。
+重复执行同一命令即可刷新安装。完成后打开一个新终端并运行：
 
 ```bash
 jw onboard
 jw
 ```
 
-此方式安装 CLI/TUI。浏览器 WebUI 需要仓库中的前端构建，按下方“从源码快速开始”运行。
+没有 Node.js 时仍可正常使用 CLI/TUI；安装 Node.js 20+ 后重新执行安装命令即可补齐 WebUI。
 
 ## 环境要求
 
