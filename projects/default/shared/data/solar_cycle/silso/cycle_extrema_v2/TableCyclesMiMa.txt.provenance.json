@@ -1,0 +1,24 @@
+{
+  "bytes": 1205,
+  "data_path": "solar_cycle/silso/cycle_extrema_v2/TableCyclesMiMa.txt",
+  "data_sha256": "a4b5b8812c9e966f013c55655176cbd22531e7afd0c304cb93cc38e00e50e4a0",
+  "dataset_id": "silso-cycle-extrema-v2",
+  "provenance": {
+    "authority_url": "https://www.sidc.be/SILSO/DATA/Cycles/TableCyclesMiMa.txt",
+    "dataset_doi": "https://doi.org/10.24414/qnza-ac80",
+    "license": "CC BY-NC 4.0",
+    "product": "official cycle minima and maxima",
+    "retrieval_source_kind": "authority",
+    "retrieval_url": "https://www.sidc.be/SILSO/DATA/Cycles/TableCyclesMiMa.txt",
+    "retrieved_at": "2026-08-18T13:27:46.822776+00:00",
+    "validation": {
+      "cycle_count": 25,
+      "cycle_end": 25,
+      "cycle_start": 1,
+      "format": "SILSO official cycle minima/maxima table V2.0",
+      "latest_completed_cycle": 24
+    }
+  },
+  "registered_at": "2026-08-18T13:28:00.663588+00:00",
+  "schema_version": "project-data-provenance-v1"
+}

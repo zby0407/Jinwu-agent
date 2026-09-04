@@ -1,0 +1,23 @@
+{
+  "bytes": 126578,
+  "data_path": "solar_cycle/silso/monthly_total_v2/SN_m_tot_V2.0.txt",
+  "data_sha256": "e83932c7a47a12c4826e3ed5ca48da0a49ef6da98aebb9580e2b83ff272d87a7",
+  "dataset_id": "silso-monthly-total-v2",
+  "provenance": {
+    "authority_url": "https://www.sidc.be/SILSO/DATA/SN_m_tot_V2.0.txt",
+    "dataset_doi": "https://doi.org/10.24414/qnza-ac80",
+    "failed_prior_attempts": [],
+    "license": "CC BY-NC 4.0",
+    "retrieval_source_kind": "authority",
+    "retrieval_url": "https://www.sidc.be/SILSO/DATA/SN_m_tot_V2.0.txt",
+    "retrieved_at": "2026-08-18T13:27:46.822776+00:00",
+    "validation": {
+      "coverage_end": "2026-07",
+      "coverage_start": "1749-01",
+      "format": "SILSO monthly total sunspot number V2.0 whitespace ASCII",
+      "row_count": 3331
+    }
+  },
+  "registered_at": "2026-08-18T13:28:00.616481+00:00",
+  "schema_version": "project-data-provenance-v1"
+}

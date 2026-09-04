@@ -7,6 +7,7 @@
 ├── jw/                 主程序、工具与子 Agent 配置
 ├── src/                科研合同和确定性工作流源码
 ├── research/           规范、Schema、示例、测试和策划知识资料
+├── projects/           可选的版本化权威输入快照与本地项目状态
 ├── tests/              主应用测试
 ├── webui/              前端
 └── workspace/          所有可变的本地项目状态
@@ -34,14 +35,17 @@ workspace/
 
 数据维护规则：
 
-1. 新的真实科研数据只放入 `workspace/data/`，并附带来源说明或 provenance。
-2. 不直接编辑 `workspace/projects/*/shared/data/`；它由项目数据清单同步管理。
-3. 示例、fixture、估算值和模拟观测不得注册为 `primary_data`。
-4. 知识库的权威 SQLite 数据库默认位于 `~/.jw/knowledge.db`，对应的可读
+1. 复现套件冻结的权威输入位于 `projects/default/shared/data/`，并由
+   `projects/default/shared/project_data_catalog.json` 记录来源、字节数和 SHA-256。
+2. `projects/default/runs/`、共享决策、知识导出和其他运行期状态只保留在本地，不进入 Git。
+3. 使用其他工作区时，不直接编辑 `<workspace>/projects/*/shared/data/`；应通过数据获取脚本
+   生成或刷新项目数据清单。
+4. 示例、fixture、估算值和模拟观测不得注册为 `primary_data`。
+5. 知识库的权威 SQLite 数据库默认位于 `~/.jw/knowledge.db`，对应的可读
    Markdown 镜像位于 `workspace/knowledge_base/`。
-5. `JW_WORKSPACE_DIR` 可以整体迁移 `workspace/`；`JW_DATA_DIR` 可以迁移
+6. `JW_WORKSPACE_DIR` 可以整体迁移运行工作区；`JW_DATA_DIR` 可以迁移
    `~/.jw/` 中的全局 SQLite 状态。
 
-当前真实观测输入只有 WDC-SILSO Version 2.0 的月均太阳黑子序列和太阳活动周
-极小/极大表。完整任务可见清单见
-`workspace/projects/default/shared/data_manifest.json`。
+当前冻结输入包括 WDC-SILSO Version 2.0、MWO/WSO 极区场、WSO 当前极区场和 NOAA
+F10.7 月度数据。来源与许可证见
+[`projects/default/shared/DATA_LICENSES.md`](../projects/default/shared/DATA_LICENSES.md)。

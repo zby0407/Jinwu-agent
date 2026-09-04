@@ -22,7 +22,6 @@ build/
 venv/
 bridge/node_modules/
 bridge/package-lock.json
-projects/
 
 # IDE / Tools
 .vscode/
@@ -80,9 +79,36 @@ coverage/
 
 # Local runtime state (never commit generated knowledge/project runs)
 /knowledge_base/
-/projects/
 
-# Generated solar-cycle pipeline outputs (raw data stays outside the repo)
+# Project runtime state is local. Only the small, authoritative, hash-bound
+# default-project input snapshot is versioned for offline reproduction.
+/projects/**
+!/projects/default/
+!/projects/default/shared/
+!/projects/default/shared/data/
+!/projects/default/shared/data/**
+!/projects/default/shared/project_data_catalog.json
+!/projects/default/shared/DATA_LICENSES.md
+
+# Keep public user/developer documentation, but exclude internal experiment
+# notes, review drafts, generated figures, and implementation plans.
+/docs/**
+!/docs/README.md
+!/docs/PROJECT_LAYOUT.md
+!/docs/guides/
+!/docs/guides/**
+!/docs/examples/
+!/docs/examples/**
+!/docs/recipes/
+!/docs/recipes/**
+!/docs/architecture/
+!/docs/architecture/2026-06-20-solar-cycle-co-scientist-design.md
+
+# Generated evaluation runs are local evidence snapshots. Curated examples
+# intended for publication live under outputs/ instead.
+/research/review/evals/runs/
+
+# Generated solar-cycle pipeline outputs
 /data/
 /features/
 /artifacts/

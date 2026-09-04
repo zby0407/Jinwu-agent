@@ -1,0 +1,23 @@
+{
+  "bytes": 126578,
+  "data_path": "solar_cycle/silso/monthly_smoothed_v2/SN_ms_tot_V2.0.csv",
+  "data_sha256": "1289e5922889f26f4f322babe14f210442634c85ce02d1af8ccc050d2cc839da",
+  "dataset_id": "silso-monthly-smoothed-v2",
+  "provenance": {
+    "authority_url": "https://www.sidc.be/SILSO/DATA/SN_ms_tot_V2.0.csv",
+    "dataset_doi": "https://doi.org/10.24414/qnza-ac80",
+    "license": "CC BY-NC 4.0",
+    "product": "official 13-month smoothed monthly total",
+    "retrieval_source_kind": "authority",
+    "retrieval_url": "https://www.sidc.be/SILSO/DATA/SN_ms_tot_V2.0.csv",
+    "retrieved_at": "2026-08-18T13:27:46.822776+00:00",
+    "validation": {
+      "coverage_end": "2026-01",
+      "coverage_start": "1749-07",
+      "format": "SILSO official 13-month smoothed monthly total V2.0",
+      "row_count": 3319
+    }
+  },
+  "registered_at": "2026-08-18T13:28:00.643517+00:00",
+  "schema_version": "project-data-provenance-v1"
+}
