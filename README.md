@@ -102,6 +102,7 @@ docker compose run --rm jw
 ## 文档
 
 - [H1/H2 一次性复现指南](./docs/guides/solar-h1-h2-reproduction.md)
+- [已登记太阳数据及许可证](./projects/default/shared/DATA_LICENSES.md)
 - [第三方依赖许可证清单](./THIRD_PARTY_LICENSES.md)
 - [贡献指南](./CONTRIBUTING.md)
 - [项目文档](./docs/)

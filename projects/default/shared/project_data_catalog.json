@@ -1,0 +1,66 @@
+{
+  "files": [
+    {
+      "bytes": 10834,
+      "dataset_id": "noaa-swpc-monthly-f107-v1",
+      "path": "solar_cycle/f107/noaa_swpc_monthly_v1/f10-7cm-flux.json",
+      "provenance_ref": "/project/data/solar_cycle/f107/noaa_swpc_monthly_v1/f10-7cm-flux.json.provenance.json",
+      "registered_at": "2026-08-28T17:07:35.963218+00:00",
+      "role": "primary_data",
+      "sha256": "67c6fc2dde612129ecd29f2f4a2c6ab6b03f7d29786f055189b123c7f711841e",
+      "virtual_path": "/project/data/solar_cycle/f107/noaa_swpc_monthly_v1/f10-7cm-flux.json"
+    },
+    {
+      "bytes": 11446,
+      "dataset_id": "mwo-wso-polar-field-v2",
+      "path": "solar_cycle/polar_field/mwo_wso_v2/e_PField_MWO_WSO.csv",
+      "provenance_ref": "/project/data/solar_cycle/polar_field/mwo_wso_v2/e_PField_MWO_WSO.csv.provenance.json",
+      "registered_at": "2026-08-18T13:28:00.700195+00:00",
+      "role": "primary_data",
+      "sha256": "7425010f7e35e8cf3b788332b101353d3fdd7d425313b23cf58ec323a64455e6",
+      "virtual_path": "/project/data/solar_cycle/polar_field/mwo_wso_v2/e_PField_MWO_WSO.csv"
+    },
+    {
+      "bytes": 151700,
+      "dataset_id": "wso-current-polar-field-v1",
+      "path": "solar_cycle/polar_field/wso_current_v1/Polar.html",
+      "provenance_ref": "/project/data/solar_cycle/polar_field/wso_current_v1/Polar.html.provenance.json",
+      "registered_at": "2026-09-01T05:51:46.627155+00:00",
+      "role": "primary_data",
+      "sha256": "3168d36b876f7950087db5aafe79401d945f6eda3b08e48411950ba588ab0afc",
+      "virtual_path": "/project/data/solar_cycle/polar_field/wso_current_v1/Polar.html"
+    },
+    {
+      "bytes": 1205,
+      "dataset_id": "silso-cycle-extrema-v2",
+      "path": "solar_cycle/silso/cycle_extrema_v2/TableCyclesMiMa.txt",
+      "provenance_ref": "/project/data/solar_cycle/silso/cycle_extrema_v2/TableCyclesMiMa.txt.provenance.json",
+      "registered_at": "2026-08-18T13:28:00.663588+00:00",
+      "role": "primary_data",
+      "sha256": "a4b5b8812c9e966f013c55655176cbd22531e7afd0c304cb93cc38e00e50e4a0",
+      "virtual_path": "/project/data/solar_cycle/silso/cycle_extrema_v2/TableCyclesMiMa.txt"
+    },
+    {
+      "bytes": 126578,
+      "dataset_id": "silso-monthly-smoothed-v2",
+      "path": "solar_cycle/silso/monthly_smoothed_v2/SN_ms_tot_V2.0.csv",
+      "provenance_ref": "/project/data/solar_cycle/silso/monthly_smoothed_v2/SN_ms_tot_V2.0.csv.provenance.json",
+      "registered_at": "2026-08-18T13:28:00.643517+00:00",
+      "role": "primary_data",
+      "sha256": "1289e5922889f26f4f322babe14f210442634c85ce02d1af8ccc050d2cc839da",
+      "virtual_path": "/project/data/solar_cycle/silso/monthly_smoothed_v2/SN_ms_tot_V2.0.csv"
+    },
+    {
+      "bytes": 126578,
+      "dataset_id": "silso-monthly-total-v2",
+      "path": "solar_cycle/silso/monthly_total_v2/SN_m_tot_V2.0.txt",
+      "provenance_ref": "/project/data/solar_cycle/silso/monthly_total_v2/SN_m_tot_V2.0.txt.provenance.json",
+      "registered_at": "2026-08-18T13:28:00.616481+00:00",
+      "role": "primary_data",
+      "sha256": "e83932c7a47a12c4826e3ed5ca48da0a49ef6da98aebb9580e2b83ff272d87a7",
+      "virtual_path": "/project/data/solar_cycle/silso/monthly_total_v2/SN_m_tot_V2.0.txt"
+    }
+  ],
+  "schema_version": "project-data-catalog-v1",
+  "updated_at": "2026-09-01T05:51:46.627155+00:00"
+}

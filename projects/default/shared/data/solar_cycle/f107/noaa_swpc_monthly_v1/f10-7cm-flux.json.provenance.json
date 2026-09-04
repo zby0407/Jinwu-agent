@@ -1,0 +1,24 @@
+{
+  "bytes": 10834,
+  "data_path": "solar_cycle/f107/noaa_swpc_monthly_v1/f10-7cm-flux.json",
+  "data_sha256": "67c6fc2dde612129ecd29f2f4a2c6ab6b03f7d29786f055189b123c7f711841e",
+  "dataset_id": "noaa-swpc-monthly-f107-v1",
+  "provenance": {
+    "authority_url": "https://services.swpc.noaa.gov/json/solar-cycle/f10-7cm-flux.json",
+    "product": "monthly observed 10.7 cm radio flux",
+    "retrieval_source_kind": "authority",
+    "retrieval_url": "https://services.swpc.noaa.gov/json/solar-cycle/f10-7cm-flux.json",
+    "retrieved_at": "2026-08-28T17:07:33.829293+00:00",
+    "validation": {
+      "coverage_end": "2026-07",
+      "coverage_start": "2004-10",
+      "cutoff_2026_06_available": true,
+      "cutoff_month": "2026-06",
+      "format": "NOAA SWPC monthly 10.7 cm radio flux JSON",
+      "row_count": 262,
+      "unit": "solar_flux_unit"
+    }
+  },
+  "registered_at": "2026-08-28T17:07:35.963218+00:00",
+  "schema_version": "project-data-provenance-v1"
+}

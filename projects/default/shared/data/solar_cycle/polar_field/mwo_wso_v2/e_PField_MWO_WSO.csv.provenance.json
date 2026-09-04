@@ -1,0 +1,44 @@
+{
+  "bytes": 11446,
+  "data_path": "solar_cycle/polar_field/mwo_wso_v2/e_PField_MWO_WSO.csv",
+  "data_sha256": "7425010f7e35e8cf3b788332b101353d3fdd7d425313b23cf58ec323a64455e6",
+  "dataset_id": "mwo-wso-polar-field-v2",
+  "provenance": {
+    "authority_url": "https://doi.org/10.7910/DVN/KF96B2",
+    "dataverse_version": "5.0",
+    "license": {
+      "iconUri": "https://licensebuttons.net/p/zero/1.0/88x31.png",
+      "languageCode": "en",
+      "name": "CC0 1.0",
+      "rightsIdentifier": "CC0-1.0",
+      "rightsIdentifierScheme": "SPDX",
+      "schemeUri": "https://spdx.org/licenses/",
+      "uri": "http://creativecommons.org/publicdomain/zero/1.0"
+    },
+    "metadata_url": "https://dataverse.harvard.edu/api/datasets/:persistentId/?persistentId=doi%3A10.7910%2FDVN%2FKF96B2",
+    "method_paper_doi": "https://doi.org/10.1088/0004-637X/753/2/146",
+    "persistent_id": "doi:10.7910/DVN/KF96B2",
+    "release_time": "2023-10-17T11:58:06Z",
+    "retrieval_url": "https://doi.org/10.7910/DVN/KF96B2",
+    "retrieved_at": "2026-08-18T13:27:46.822776+00:00",
+    "upstream_checksum": {
+      "type": "MD5",
+      "value": "6259519884d590fb79956266131ee2e0"
+    },
+    "validation": {
+      "columns": 12,
+      "north_coverage": [
+        1906.7,
+        2023.7
+      ],
+      "row_count": 118,
+      "south_coverage": [
+        1906.2,
+        2023.2
+      ],
+      "units": "gauss for calibrated field and standard-error columns"
+    }
+  },
+  "registered_at": "2026-08-18T13:28:00.700195+00:00",
+  "schema_version": "project-data-provenance-v1"
+}

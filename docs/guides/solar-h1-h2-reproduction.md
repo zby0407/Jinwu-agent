@@ -32,15 +32,22 @@ $env:DASHSCOPE_API_KEY="<your-key>"
 $env:TAVILY_API_KEY="<optional-key>"
 ```
 
-## 2. 注册权威输入数据
+## 2. 使用或刷新权威输入数据
 
-先将项目使用的 SILSO 与 MWO/WSO 数据登记到同一个工作区：
+仓库已经包含本复现套件使用的权威输入固定快照及 SHA-256 清单，位置为
+`projects/default/shared/`。数据仍遵循各自的上游许可证，详见
+[`DATA_LICENSES.md`](../../projects/default/shared/DATA_LICENSES.md)。在仓库根目录作为
+工作区运行时，无需再次下载即可使用这组冻结输入。
+
+如需从权威来源刷新数据，或使用仓库根目录以外的工作区，请执行：
 
 ```bash
 uv run python scripts/acquire_authoritative_solar_data.py --workspace <workspace> --project-id default
 ```
 
-该步骤会保存来源、哈希和登记回执。H2 所需的极区前兆表未登记时，调度仍可完成，但后续科研流程应明确阻断或报告缺失，不得伪造输入。
+该步骤会重新保存来源、哈希和登记回执；刷新后的数据可能与仓库冻结快照不同，必须按
+新回执报告实际版本。H2 所需的极区前兆表未登记时，调度仍可完成，但后续科研流程应明确
+阻断或报告缺失，不得伪造输入。
 
 ## 3. 终端一键复现
 

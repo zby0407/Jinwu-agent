@@ -1,0 +1,28 @@
+{
+  "bytes": 151700,
+  "data_path": "solar_cycle/polar_field/wso_current_v1/Polar.html",
+  "data_sha256": "3168d36b876f7950087db5aafe79401d945f6eda3b08e48411950ba588ab0afc",
+  "dataset_id": "wso-current-polar-field-v1",
+  "provenance": {
+    "authority_url": "http://wso.stanford.edu/Polar.html",
+    "product": "WSO polar-field observations 1976-present",
+    "retrieval_source_kind": "authority",
+    "retrieval_url": "http://wso.stanford.edu/Polar.html",
+    "retrieved_at": "2026-09-01T05:51:43.390609+00:00",
+    "validation": {
+      "cadence": "centered 30-day average reported every 10 days",
+      "coverage_end": "2026-07-18",
+      "coverage_start": "1976-05-31",
+      "cutoff_date": "2026-06-30",
+      "cutoff_window_start": "2026-01-01",
+      "cutoff_window_status": "observations_missing",
+      "filtered_product": "20 nHz low-pass filter",
+      "latest_valid_observation": "2026-01-09",
+      "missing_rows_in_cutoff_window": 17,
+      "row_count": 1832,
+      "unit": "microtesla"
+    }
+  },
+  "registered_at": "2026-09-01T05:51:46.627155+00:00",
+  "schema_version": "project-data-provenance-v1"
+}
