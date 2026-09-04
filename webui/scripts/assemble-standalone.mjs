@@ -11,6 +11,7 @@ const STANDALONE = ".next/standalone";
 const STATIC = ".next/static";
 const PUBLIC = "public";
 const OUT = "dist";
+const LEGAL_FILES = ["LICENSE", "NOTICE"];
 
 if (!existsSync(STANDALONE)) {
   console.error(
@@ -25,6 +26,11 @@ await cp(STATIC, `${OUT}/.next/static`, { recursive: true });
 if (existsSync(PUBLIC)) {
   await cp(PUBLIC, `${OUT}/public`, { recursive: true });
 }
+for (const legalFile of LEGAL_FILES) {
+  if (existsSync(legalFile)) {
+    await cp(legalFile, `${OUT}/${legalFile}`);
+  }
+}
 
 // Next copies the whole project root into the standalone bundle. Prune it down
 // to just the runtime essentials (drops src/, configs, and local notes so
@@ -35,6 +41,7 @@ const KEEP = new Set([
   "node_modules",
   "package.json",
   "public",
+  ...LEGAL_FILES,
 ]);
 for (const entry of await readdir(OUT)) {
   if (!KEEP.has(entry)) {

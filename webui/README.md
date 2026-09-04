@@ -36,4 +36,5 @@ uv run jw --ui webui
 
 ## License
 
-Apache License 2.0，详见 [LICENSE](./LICENSE)。
+JW WebUI 原创代码采用 Apache License 2.0，详见 [LICENSE](./LICENSE)。第三方代码的
+版权归属和许可证全文见 [NOTICE](./NOTICE)。

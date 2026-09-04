@@ -84,4 +84,5 @@ docker compose run --rm jw
 
 ## License
 
-Apache License 2.0，详见 [LICENSE](./LICENSE)。
+JW 原创代码采用 Apache License 2.0，详见 [LICENSE](./LICENSE)。项目包含或改编了
+其他开源项目的部分代码；相应版权归属和许可证全文见 [NOTICE](./NOTICE)。
