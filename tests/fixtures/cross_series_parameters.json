@@ -1,0 +1,79 @@
+{
+  "schema": "cross-series-parameters-v1",
+  "protocol": "silso_gnbb2_annual_v1",
+  "cycles": [
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    10,
+    11,
+    12,
+    13,
+    14,
+    15,
+    16,
+    17,
+    18,
+    19,
+    20,
+    21,
+    22,
+    23
+  ],
+  "targets": [
+    3,
+    4,
+    5,
+    6
+  ],
+  "references": [
+    1,
+    2,
+    7,
+    8,
+    9,
+    10
+  ],
+  "annual_years": [
+    1749,
+    2015
+  ],
+  "weightings": [
+    "calendar_days",
+    "equal_months"
+  ],
+  "memberships": [
+    "whole_calendar_year",
+    "midyear"
+  ],
+  "primary": {
+    "weighting": "calendar_days",
+    "membership": "whole_calendar_year"
+  },
+  "required_months": 12,
+  "low_fraction_of_reference": 0.25,
+  "trough_boundaries": [
+    5,
+    6,
+    7
+  ],
+  "trough_half_width_years": 2,
+  "tie_rule": "earliest_plus_all",
+  "rank": "competition_descending",
+  "tolerance": {
+    "absolute": 1e-12,
+    "relative": 1e-12
+  },
+  "missing": "fail_required_scientific_values_keep_missing_error_metadata",
+  "uncertainty": "Eg_retained_not_propagated_no_p_value",
+  "known_source_interpolation": [
+    "1824-02"
+  ],
+  "scientific_status": "not_reviewed"
+}

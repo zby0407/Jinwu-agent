@@ -5,7 +5,9 @@ to work unchanged thanks to these re-exports.
 """
 
 from .automatic_experiment import AUTOMATIC_EXPERIMENT_TOOLS
+from .b1_flare import B1_FLARE_TOOLS, run_b1_flare_case
 from .knowledge_base import KB_READONLY_TOOLS, KB_TOOLS
+from .literature_artifacts import LITERATURE_ARTIFACT_TOOLS
 from .registry import (
     TOOL_BUNDLE_ENTRY_POINT_GROUP,
     ToolBundle,
@@ -36,8 +38,10 @@ from .think import think_tool
 
 __all__ = [
     "AUTOMATIC_EXPERIMENT_TOOLS",
+    "B1_FLARE_TOOLS",
     "KB_READONLY_TOOLS",
     "KB_TOOLS",
+    "LITERATURE_ARTIFACT_TOOLS",
     "RESEARCH_PLANNER_TOOLS",
     "RESEARCH_QUALITY_TOOLS",
     "RESEARCH_RELEASE_TOOLS",
@@ -57,6 +61,7 @@ __all__ = [
     "prepare_solar_cycle_26_readiness",
     "prepare_solar_experiment",
     "run_solar_cycle_26_historical_forecast",
+    "run_b1_flare_case",
     "register_tool_bundle",
     "resolve_tool_bundles",
     "skill_manager",

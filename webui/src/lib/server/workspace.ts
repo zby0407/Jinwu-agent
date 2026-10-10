@@ -12,6 +12,7 @@ import { basename, dirname, join, relative, resolve, sep } from "path";
 import { createHash, randomUUID } from "crypto";
 import type { NextRequest } from "next/server";
 import { isCrossOriginRequest } from "@/lib/server/origin-guard.js";
+import { readRegisteredProjectInput } from "@/lib/server/project-inputs.js";
 
 export const WORKSPACE_SIDECAR = join(
   homedir(),
@@ -373,6 +374,20 @@ export async function getWorkspaceDir(
     throw new Error("任务工作区不是目录。" );
   }
   return workspace;
+}
+
+/** Project inputs have a separate read-only namespace, never a write fallback. */
+export async function readProjectInput(
+  threadId: string | null,
+  path: string
+) {
+  if (!threadId?.trim() || hasControlChar(threadId)) {
+    throw new Error("尚未选择任务。请先开始或打开一个研究会话。");
+  }
+  const baseWorkspace = await getBaseWorkspaceDir();
+  const binding = await getWorkspaceBinding(threadId, baseWorkspace);
+  if (!binding) throw new Error("此任务尚未绑定工作区。");
+  return readRegisteredProjectInput({ threadId, baseWorkspace, binding, path });
 }
 
 /**

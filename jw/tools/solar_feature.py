@@ -110,6 +110,11 @@ def _task_bound_research_question(
 _SOLAR_DATA_OUTPUT_RECEIPT_CONTRACTS = {
     ("research-dataset-receipt-v1", "silso_cycle_extrema_reproduction"),
     ("solar-cycle-morphology-receipt-v1", "silso_cycle_morphology"),
+    ("solar-cycle-descriptive-receipt-v1", "silso_cycle_descriptive"),
+    ("solar-cycle-phase-receipt-v1", "silso_cycle_phase"),
+    ("solar-c-stage-receipt-v1", "c1_annual"),
+    ("solar-c-stage-receipt-v1", "c2_sensitivity"),
+    ("solar-c-stage-receipt-v1", "d_associations"),
     (
         "solar-cycle-26-readiness-receipt-v1",
         "solar_cycle_26_readiness_inventory",
@@ -2602,6 +2607,78 @@ def reproduce_silso_cycle_extrema(
 
 
 @tool(parse_docstring=True)
+def run_silso_cycle_phase(
+    monthly_total_path: str,
+    smoothed_path: str,
+    official_extrema_path: str,
+    a_metrics_path: str,
+    a_parameters_path: str,
+    parameters_path: str,
+    config: RunnableConfig = None,
+) -> str:
+    """Compute B phase comparisons from bound SILSO inputs and verified A baseline.
+
+    Args:
+        monthly_total_path: Eligible SILSO monthly total path.
+        smoothed_path: Eligible SILSO published smoothed path.
+        official_extrema_path: Eligible official cycle boundary path.
+        a_metrics_path: Task-bound A cycle_metrics.csv input.
+        a_parameters_path: Task-bound A analysis_parameters.json input.
+        parameters_path: Task-bound B phase_parameters.json input.
+        config: Runtime-injected workspace configuration.
+
+    Returns:
+        Actual phase artifacts and an unreviewed computation receipt, or audited error.
+    """
+    from .cycle_phase import run_adapter
+
+    return run_adapter(
+        monthly_total_path,
+        smoothed_path,
+        official_extrema_path,
+        a_metrics_path,
+        a_parameters_path,
+        parameters_path,
+        config,
+    )
+
+
+@tool(parse_docstring=True)
+def run_silso_cycle_descriptive(
+    monthly_total_path: str,
+    smoothed_path: str,
+    official_extrema_path: str,
+    parameters_path: str,
+    config: RunnableConfig = None,
+) -> str:
+    """Compute descriptive cycle metrics from immutable, task-bound inputs.
+
+    The hash-bound parameter JSON selects complete cycles, comparison groups,
+    thresholds and supported missingness/boundary rules. No inference, bootstrap,
+    forecast, network access or scientific approval is performed by this tool.
+
+    Args:
+        monthly_total_path: Eligible registered SILSO monthly total path.
+        smoothed_path: Eligible registered SILSO 13-month smoothed path.
+        official_extrema_path: Eligible registered official boundary path.
+        parameters_path: Eligible task input JSON defining all analysis settings.
+        config: Runtime-injected task workspace configuration.
+
+    Returns:
+        Verified computation artifacts and receipt, or an audited error.
+    """
+    from .cycle_descriptive import run_adapter
+
+    return run_adapter(
+        monthly_total_path,
+        smoothed_path,
+        official_extrema_path,
+        parameters_path,
+        config,
+    )
+
+
+@tool(parse_docstring=True)
 def run_silso_cycle_morphology(
     monthly_total_path: str,
     smoothed_path: str,
@@ -2940,6 +3017,111 @@ def bind_f107_dataset_semantics(
         return _error_json("bind_f107_dataset_semantics", exc)
 
 
+@tool(parse_docstring=True)
+def run_silso_gnbb2_annual(
+    monthly_total_path: str,
+    smoothed_path: str,
+    official_extrema_path: str,
+    a_metrics_path: str,
+    a_parameters_path: str,
+    gnbb2_path: str,
+    parameters_path: str,
+    config: RunnableConfig = None,
+) -> str:
+    """Compute one bounded C product with immutable inputs and independent review.
+
+    Args:
+        monthly_total_path: Eligible SILSO monthly total.
+        smoothed_path: Eligible SILSO published smoothed data.
+        official_extrema_path: Eligible official cycle boundaries.
+        a_metrics_path: Task-bound A metric CSV.
+        a_parameters_path: Task-bound A parameter JSON.
+        gnbb2_path: Task-bound GNbb2 annual text file.
+        parameters_path: Task-bound C parameter JSON.
+        config: Runtime-injected workspace configuration.
+
+    Returns:
+        Actual numeric results and unreviewed artifacts, or an audited error.
+    """
+    from .c_stage import run_adapter
+
+    return run_adapter(
+        "silso_gnbb2_annual_v1",
+        {
+            "monthly": monthly_total_path,
+            "smoothed": smoothed_path,
+            "boundaries": official_extrema_path,
+            "a_metrics": a_metrics_path,
+            "a_parameters": a_parameters_path,
+            "gnbb2": gnbb2_path,
+            "parameters": parameters_path,
+        },
+        config,
+    )
+
+
+@tool(parse_docstring=True)
+def run_silso_cycle_sensitivity(
+    monthly_total_path: str,
+    smoothed_path: str,
+    official_extrema_path: str,
+    a_metrics_path: str,
+    a_parameters_path: str,
+    b_parameters_path: str,
+    b_targets_path: str,
+    parameters_path: str,
+    config: RunnableConfig = None,
+) -> str:
+    """Compute one bounded C product with immutable inputs and independent review.
+
+    Args:
+        monthly_total_path: Eligible SILSO monthly total.
+        smoothed_path: Eligible SILSO published smoothed data.
+        official_extrema_path: Eligible official cycle boundaries.
+        a_metrics_path: Task-bound A metric CSV.
+        a_parameters_path: Task-bound A parameter JSON.
+        b_parameters_path: Frozen B parameter JSON.
+        b_targets_path: Frozen B target comparison CSV.
+        parameters_path: Task-bound C parameter JSON.
+        config: Runtime-injected workspace configuration.
+
+    Returns:
+        Actual numeric results and unreviewed artifacts, or an audited error.
+    """
+    from .c_stage import run_adapter
+
+    return run_adapter(
+        "silso_cycle_sensitivity_v1",
+        {
+            "monthly": monthly_total_path,
+            "smoothed": smoothed_path,
+            "boundaries": official_extrema_path,
+            "a_metrics": a_metrics_path,
+            "a_parameters": a_parameters_path,
+            "b_parameters": b_parameters_path,
+            "b_targets": b_targets_path,
+            "parameters": parameters_path,
+        },
+        config,
+    )
+
+
+@tool
+def run_silso_cycle_associations(
+    input_paths: dict[str, str], config: RunnableConfig
+) -> str:
+    """Compute one explicitly bound D1 or D2 retrospective association batch.
+
+    Args:
+        input_paths: Exactly monthly, smoothed, boundaries, a_metrics, a_parameters,
+            c2a_metrics, c2b_metrics, c2a_parameters, c2b_parameters, parameters.
+            All values are task-bound eligible input paths; do not invent inputs.
+    """
+    from .c_stage import run_adapter
+
+    return run_adapter("silso_cycle_associations_v1", input_paths, config)
+
+
 SOLAR_FEATURE_TOOLS = [
     solar_data_open_context,
     solar_research_evidence,
@@ -2952,6 +3134,11 @@ SOLAR_FEATURE_TOOLS = [
     prepare_solar_precursor_cycle_table,
     reproduce_silso_cycle_extrema,
     run_silso_cycle_morphology,
+    run_silso_cycle_descriptive,
+    run_silso_cycle_phase,
+    run_silso_gnbb2_annual,
+    run_silso_cycle_sensitivity,
+    run_silso_cycle_associations,
     run_solar_cycle_26_historical_forecast,
     bind_f107_dataset_semantics,
 ]

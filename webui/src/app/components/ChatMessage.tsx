@@ -137,14 +137,24 @@ export const ChatMessage = React.memo<ChatMessageProps>(
     const [editValue, setEditValue] = useState(messageContent);
     const editTextareaRef = useRef<HTMLTextAreaElement | null>(null);
     const hasToolCalls = toolCalls.length > 0;
+    const editSourceRef = useRef({ id: message.id, content: messageContent });
 
     useEffect(() => {
-      setIsEditing(false);
-      setEditValue(messageContent);
-    }, [message.id, messageContent]);
+      const previous = editSourceRef.current;
+      editSourceRef.current = { id: message.id, content: messageContent };
+      if (
+        isEditing &&
+        (previous.id !== message.id || previous.content !== messageContent)
+      ) {
+        setIsEditing(false);
+      }
+    }, [message.id, messageContent, isEditing]);
 
     const startEditing = useCallback(() => {
       if (!canEditMessage || !onEditMessage) return;
+      // Initialize the draft only when entering edit mode. Mirroring every
+      // streamed token into local state creates nested React updates during
+      // buffered SSE replay and can abort reconnection with React error #185.
       setEditValue(messageContent);
       setIsEditing(true);
       requestAnimationFrame(() => {
@@ -308,6 +318,7 @@ export const ChatMessage = React.memo<ChatMessageProps>(
 
     const [thinkingOpen, setThinkingOpen] = useState(false);
     const [copied, setCopied] = useState(false);
+    const copiedSourceRef = useRef(messageContent);
     const copyResetTimer = useRef<ReturnType<typeof setTimeout> | undefined>(
       undefined
     );
@@ -318,9 +329,13 @@ export const ChatMessage = React.memo<ChatMessageProps>(
       []
     );
     useEffect(() => {
-      setCopied(false);
+      if (copiedSourceRef.current === messageContent) return;
+      copiedSourceRef.current = messageContent;
+      // Even same-value state dispatches here can contribute to nested updates
+      // while React is synchronously consuming a buffered external-store stream.
+      if (copied) setCopied(false);
       if (copyResetTimer.current) clearTimeout(copyResetTimer.current);
-    }, [messageContent]);
+    }, [messageContent, copied]);
     const handleCopy = useCallback(async () => {
       if (!messageContent) return;
       if (await copyText(messageContent)) {

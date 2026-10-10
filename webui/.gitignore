@@ -17,6 +17,8 @@ next-env.d.ts
 
 # testing / coverage
 /coverage
+/test-results/
+/playwright-report/
 
 # env files
 .env
