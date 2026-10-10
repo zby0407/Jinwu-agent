@@ -158,6 +158,48 @@ def test_literature_only_route_blocks_persisted_data_stage() -> None:
     assert "ROUTING BLOCKER" in str(prepared.system_message.content)
 
 
+def test_literature_only_keeps_bounded_artifacts_without_general_file_or_stage_tools():
+    route = _with_analysis_protocol(
+        _route("verified_analysis", source_mode="external"),
+        text="Literature review only; do not perform data analysis or experiments.",
+    )
+    allowed = [
+        "lit_search",
+        "lit_fetch",
+        "literature_sources_list",
+        "literature_source_read",
+        "literature_report_save",
+    ]
+    blocked = [
+        "task",
+        "execute",
+        "read_file",
+        "write_file",
+        "edit_file",
+        "solar_data_open_context",
+        "solar_research_analysis",
+        "research_release_prepare",
+        "automatic_experiment_run",
+    ]
+    middleware = ResearchRouterMiddleware(model=MagicMock())
+    prepared = _prepared(
+        middleware,
+        _request(route=route, tools=[_tool(name) for name in allowed + blocked]),
+    )
+    assert {tool.name for tool in prepared.tools} == set(allowed)
+    assert "review_status=not_reviewed" in str(prepared.system_message.content)
+    assert "literature_report_save" in str(prepared.system_message.content)
+
+
+def test_literature_artifact_support_does_not_filter_conceptual_answer_tools():
+    tools = [_tool(name) for name in ("read_file", "write_file", "execute", "task")]
+    prepared = _prepared(
+        ResearchRouterMiddleware(model=MagicMock()),
+        _request(route=_route("fast_answer"), tools=tools),
+    )
+    assert prepared.tools == tools
+
+
 def test_silso_cycle_reproduction_routes_to_bounded_data_specialist() -> None:
     route = _with_analysis_protocol(
         _route("fast_answer"),

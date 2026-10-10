@@ -1,0 +1,68 @@
+{
+  "schema": "cycle-phase-parameters-v1",
+  "cycles": [
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    10,
+    11,
+    12,
+    13,
+    14,
+    15,
+    16,
+    17,
+    18,
+    19,
+    20,
+    21,
+    22,
+    23,
+    24
+  ],
+  "targets": [
+    3,
+    4,
+    5,
+    6
+  ],
+  "references": [
+    1,
+    2,
+    7,
+    8,
+    9,
+    10
+  ],
+  "plot_cycles": [
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    10
+  ],
+  "grid_intervals": 100,
+  "interpolation": "piecewise_linear",
+  "endpoint": "next_minimum_smoothed",
+  "normalization": "A_within_cycle_peak_no_baseline_subtraction",
+  "reference_summary": "equal_cycle_mean",
+  "distance": "equal_grid_rms_inclusive_endpoints",
+  "background": "reference_leave_one_out",
+  "decision": "strictly_above_all_background",
+  "missing_policy": "fail_no_gap_interpolation_no_extrapolation",
+  "comparison_tolerance": {
+    "absolute": 1e-12,
+    "relative": 1e-12
+  }
+}

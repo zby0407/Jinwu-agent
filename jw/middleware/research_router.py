@@ -27,6 +27,7 @@ import re
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, NotRequired
+from urllib.parse import urlsplit
 
 from langchain.agents import AgentState
 from langchain.agents.middleware.types import (
@@ -40,10 +41,16 @@ from langgraph.types import Command
 
 from jw.agent_harness import attach_harness_metadata
 from jw.research_protocols import (
+    B1_FLARE_CASE_PROTOCOL,
     F107_DISCONTINUITY_PROTOCOL,
     F107_DISCONTINUITY_REQUIRED_MEASUREMENTS,
     SILSO_CYCLE_REPRODUCTION_PROTOCOL,
     SILSO_CYCLE_MORPHOLOGY_PROTOCOL,
+    SILSO_CYCLE_DESCRIPTIVE_PROTOCOL,
+    SILSO_CYCLE_PHASE_PROTOCOL,
+    SILSO_GNBB2_ANNUAL_PROTOCOL,
+    SILSO_CYCLE_SENSITIVITY_PROTOCOL,
+    SILSO_CYCLE_ASSOCIATIONS_PROTOCOL,
     SOLAR_CYCLE_26_READINESS_PROTOCOL,
     SOLAR_CYCLE_26_FORECAST_BACKTEST_PROTOCOL,
     SOLAR_POLAR_PRECURSOR_PROTOCOL,
@@ -52,10 +59,11 @@ from jw.research_protocols import (
     solar_cycle_26_readiness_directive,
     solar_cycle_26_forecast_backtest_directive,
     is_literature_only_request,
+    routing_request_text,
     solar_polar_precursor_directive,
     silso_cycle_morphology_directive,
 )
-from jw.research_review import store_from_config
+from jw.research_review import ResearchDeliveryBlocked, store_from_config
 from jw.workspaces import workspace_root_from_config
 
 from .closed_loop_orchestration import closed_loop_receipts
@@ -249,6 +257,11 @@ _EXTERNAL_EVIDENCE_TOOLS = (
     "web_search",
 )
 _LITERATURE_TOOL_PREFIXES = ("lit_",)
+_LITERATURE_ARTIFACT_TOOLS = (
+    "literature_sources_list",
+    "literature_source_read",
+    "literature_report_save",
+)
 _LITERATURE_ONLY_REASON = (
     "literature-only request takes precedence over topic protocol and data stages"
 )
@@ -644,6 +657,7 @@ def _with_analysis_protocol(
     normalized = dict(route)
     if is_literature_only_request(text):
         normalized.pop("required_analysis_protocol", None)
+        normalized.pop("preliminary_stages", None)
         normalized.update(
             {
                 "mode": "verified_analysis",
@@ -682,6 +696,57 @@ def _with_analysis_protocol(
     if protocol == "none":
         return normalized
     normalized["required_analysis_protocol"] = protocol
+    if protocol == B1_FLARE_CASE_PROTOCOL:
+        affirmative = routing_request_text(text, affirmative_only=True)
+        # An explicit case protocol must reach its Data tool even when the
+        # classifier is unavailable. Only a positive hypothesis request adds
+        # Hypothesis; source quotes and negated instructions cannot add stages.
+        if _explicit_full_research(affirmative):
+            normalized.update(
+                mode="full_research",
+                source_mode="mixed",
+                needs_computation=True,
+                task_intent="general",
+                required_specialist="none",
+                reason="Explicit full research using the bounded B1 case protocol",
+            )
+            normalized.pop("preliminary_stages", None)
+            return normalized
+        hypothesis_intent = _hypothesis_intent(affirmative)
+        normalized.update(
+            mode="verified_analysis",
+            source_mode="local",
+            needs_computation=True,
+            task_intent=hypothesis_intent or "data_preparation",
+            required_specialist="solar-hypothesis"
+            if hypothesis_intent
+            else "solar-data",
+            reason="Explicit B1 case uses bound inputs, computation and independent review",
+        )
+        if hypothesis_intent:
+            normalized["preliminary_stages"] = ["data"]
+        else:
+            normalized.pop("preliminary_stages", None)
+        return normalized
+    if protocol in {
+        SILSO_CYCLE_DESCRIPTIVE_PROTOCOL,
+        SILSO_CYCLE_PHASE_PROTOCOL,
+        SILSO_GNBB2_ANNUAL_PROTOCOL,
+        SILSO_CYCLE_SENSITIVITY_PROTOCOL,
+        SILSO_CYCLE_ASSOCIATIONS_PROTOCOL,
+    }:
+        # This product computes declared descriptive metrics, not the legacy
+        # morphology correlations/bootstrap. Keep the normal Data review gate.
+        normalized.update(
+            mode="verified_analysis",
+            source_mode="local",
+            needs_computation=True,
+            task_intent="data_preparation",
+            required_specialist="solar-data",
+            reason="Bounded cycle descriptors require hash-bound parameters, real computation and Data review",
+        )
+        normalized.pop("preliminary_stages", None)
+        return normalized
     if protocol in {
         SILSO_CYCLE_MORPHOLOGY_PROTOCOL,
         SOLAR_CYCLE_26_FORECAST_BACKTEST_PROTOCOL,
@@ -777,6 +842,10 @@ def _with_analysis_protocol(
 def _fallback_route(text: str) -> dict[str, Any]:
     """Fail conservatively if the auxiliary routing call is unavailable."""
 
+    if is_literature_only_request(text):
+        return _with_analysis_protocol({}, text=text)
+    text = routing_request_text(text)
+    affirmative_text = routing_request_text(text, affirmative_only=True)
     if _explicit_full_research(text):
         return {
             "mode": "full_research",
@@ -814,7 +883,7 @@ def _fallback_route(text: str) -> dict[str, Any]:
             "needs_computation": bool(
                 re.search(
                     r"(?:计算|预测|回归|检验|拟合|calculate|predict|regression|test|fit)",
-                    text,
+                    affirmative_text,
                     re.IGNORECASE,
                 )
             ),
@@ -2311,6 +2380,8 @@ def _passthrough_accepted_bounded_stage(
     request: ModelRequest,
     response: ModelResponse,
 ) -> ModelResponse:
+    if _request_is_literature_only(request):
+        return response
     route = request.state.get("research_route")
     if not isinstance(route, Mapping) or route.get("mode") != "verified_analysis":
         return response
@@ -2328,6 +2399,8 @@ def _passthrough_accepted_bounded_stage(
             stage,
             analysis_protocol=str(route.get("required_analysis_protocol") or "none"),
         )
+    except ResearchDeliveryBlocked as exc:
+        return _blocked_model_response(response, str(exc))
     except Exception:
         logger.exception("accepted bounded-stage state is unavailable")
         return _blocked_model_response(
@@ -2342,6 +2415,15 @@ def _passthrough_accepted_bounded_stage(
     )
 
 
+def _request_is_literature_only(request: ModelRequest) -> bool:
+    route = request.state.get("research_route")
+    latest = _latest_human(request.messages)
+    return bool(
+        (isinstance(route, Mapping) and route.get("literature_only") is True)
+        or (latest is not None and is_literature_only_request(_message_text(latest[1])))
+    )
+
+
 class ResearchRouterMiddleware(AgentMiddleware[ResearchRoutingState, Any, Any]):
     """Route each user turn and enforce the selected workflow's entry nodes."""
 
@@ -2352,29 +2434,63 @@ class ResearchRouterMiddleware(AgentMiddleware[ResearchRoutingState, Any, Any]):
         super().__init__()
         self._model = disable_thinking(model)
 
-    def _route_sync(self, text: str) -> dict[str, Any]:
+    def _classifier_request(self, text: str) -> tuple[Any, list[dict[str, str]]]:
+        """Use the provider's supported structured format for this auxiliary call."""
+        base_url = str(
+            getattr(self._model, "openai_api_base", None)
+            or getattr(self._model, "base_url", None)
+            or ""
+        )
         try:
-            response = self._model.with_structured_output(_ROUTE_SCHEMA).invoke(
-                [
-                    {"role": "system", "content": _ROUTER_PROMPT},
-                    {"role": "user", "content": text},
-                ]
+            deepseek = urlsplit(base_url).hostname == "api.deepseek.com"
+        except ValueError:
+            deepseek = False
+        options: dict[str, Any] = {}
+        prompt = _ROUTER_PROMPT
+        if deepseek:
+            # DeepSeek supports json_object, not OpenAI's json_schema mode.
+            # Bind options per call: JW's compatibility patches capture the
+            # original model, so changing only model_copy fields is insufficient.
+            extra_body = dict(getattr(self._model, "extra_body", None) or {})
+            extra_body["thinking"] = {"type": "disabled"}
+            options = {"method": "json_mode", "extra_body": extra_body}
+            prompt += (
+                "\nReturn exactly one JSON object, without Markdown, satisfying "
+                "this JSON schema:\n" + json.dumps(_ROUTE_SCHEMA, ensure_ascii=False)
             )
-        except Exception:
+        classifier = self._model.with_structured_output(_ROUTE_SCHEMA, **options)
+        return classifier, [
+            {"role": "system", "content": prompt},
+            {"role": "user", "content": routing_request_text(text)},
+        ]
+
+    def _route_sync(self, text: str) -> dict[str, Any]:
+        if is_literature_only_request(text):
+            return attach_harness_metadata(_with_analysis_protocol({}, text=text))
+        try:
+            classifier, messages = self._classifier_request(text)
+            response = classifier.invoke(messages)
+        except Exception as exc:
+            logger.warning(
+                "Research route classifier failed (%s); using local scope rules",
+                type(exc).__name__,
+            )
             route = _fallback_route(text)
         else:
             route = _validated_route(response, fallback_text=text)
         return attach_harness_metadata(_with_analysis_protocol(route, text=text))
 
     async def _route_async(self, text: str) -> dict[str, Any]:
+        if is_literature_only_request(text):
+            return attach_harness_metadata(_with_analysis_protocol({}, text=text))
         try:
-            response = await self._model.with_structured_output(_ROUTE_SCHEMA).ainvoke(
-                [
-                    {"role": "system", "content": _ROUTER_PROMPT},
-                    {"role": "user", "content": text},
-                ]
+            classifier, messages = self._classifier_request(text)
+            response = await classifier.ainvoke(messages)
+        except Exception as exc:
+            logger.warning(
+                "Research route classifier failed (%s); using local scope rules",
+                type(exc).__name__,
             )
-        except Exception:
             route = _fallback_route(text)
         else:
             route = _validated_route(response, fallback_text=text)
@@ -2485,15 +2601,30 @@ class ResearchRouterMiddleware(AgentMiddleware[ResearchRoutingState, Any, Any]):
         if literature_only:
             directive.append(
                 "This is a literature-only request. Do not enter data, hypothesis, "
-                "experiment, or full-research stages; use only bound literature "
-                "evidence tools and report a blocker if they are unavailable."
+                "experiment, or full-research stages. Use bound literature evidence "
+                "tools; literature_sources_list and literature_source_read inspect "
+                "hash-bound local task/project inputs without running analysis. "
+                "For a requested Markdown artifact, call literature_report_save "
+                "with outputs/<filename>.md and return its real artifact reference. "
+                "A saved file is not an independent Evidence review or scientific "
+                "acceptance; retain review_status=not_reviewed and report missing "
+                "sources or unavailable tools precisely."
             )
             if mode != "verified_analysis" or required_specialist != "none":
                 directive.append(
                     "ROUTING BLOCKER: persisted route conflicts with the explicit "
                     "literature-only boundary; data/experiment delegation is forbidden."
                 )
-                suppress_tools = True
+                # Do not initialize or advance a stale Data/full-research state
+                # while enforcing the user's current literature-only boundary.
+                directive.append("</research_route>")
+                return request.override(
+                    system_message=append_to_system_message(
+                        request.system_message, "\n".join(directive)
+                    ),
+                    tools=[],
+                    tool_choice=None,
+                )
         if verified_precursor_table:
             directive.append(
                 "The deterministic solar precursor table has already returned "
@@ -2541,6 +2672,37 @@ class ResearchRouterMiddleware(AgentMiddleware[ResearchRoutingState, Any, Any]):
                     "The Data producer must call run_silso_cycle_morphology with "
                     "the three Supervisor-bound SILSO inputs. "
                     + silso_cycle_morphology_directive()
+                )
+            if required_analysis_protocol == SILSO_CYCLE_DESCRIPTIVE_PROTOCOL:
+                directive.append(
+                    "The bounded Data producer must call run_silso_cycle_descriptive "
+                    "with the three eligible SILSO inputs and the eligible JSON "
+                    "parameter file. The file's definitions are authoritative; "
+                    "do not substitute model-invented settings. Return every actual "
+                    "artifact and retain the normal Data scientific review. This "
+                    "is a descriptive product, with no bootstrap, causal finding "
+                    "or forecast. Never use the morphology/extrema tools instead."
+                )
+            if required_analysis_protocol in {
+                SILSO_GNBB2_ANNUAL_PROTOCOL,
+                SILSO_CYCLE_SENSITIVITY_PROTOCOL,
+            }:
+                directive.append(
+                    "Use run_silso_gnbb2_annual for C1 or run_silso_cycle_sensitivity for the single explicit C2_BATCH. "
+                    "Bind all SILSO, local baseline, parameter and (C1 only) GNbb2 inputs. "
+                    "Use actual output values, preserve failures and retain independent Data review. "
+                    "Do not invent parameters, combine C2 batches, invoke morphology/extrema, infer causality or start D/model experiments."
+                )
+            if required_analysis_protocol == SILSO_CYCLE_ASSOCIATIONS_PROTOCOL:
+                directive.append(
+                    "Call run_silso_cycle_associations with all ten hash-bound input_paths. Execute only the explicit D_BATCH. Retrospective correlations are not forecasts, p-values or causal evidence. Retain independent Data review, failures and all sensitivity rows. D2 rate/peak shares amplitude; report coupling diagnostics and fixed-window limitations. Never substitute legacy morphology, start model simulations or infer tau_corr."
+                )
+            if required_analysis_protocol == SILSO_CYCLE_PHASE_PROTOCOL:
+                directive.append(
+                    "Call run_silso_cycle_phase using the three eligible SILSO paths, "
+                    "the task-bound A metrics CSV and A parameters JSON, and B parameters JSON. "
+                    "Compute only phase/amplitude comparisons and retain independent Data review. "
+                    "Do not use morphology, extrema, bootstrap, forecasting or C/D analyses."
                 )
             if required_analysis_protocol == SOLAR_CYCLE_26_READINESS_PROTOCOL:
                 directive.append(
@@ -2903,6 +3065,7 @@ class ResearchRouterMiddleware(AgentMiddleware[ResearchRoutingState, Any, Any]):
                 for tool in request.tools
                 if _tool_name(tool) in _EXTERNAL_EVIDENCE_TOOLS
                 or _tool_name(tool).startswith(_LITERATURE_TOOL_PREFIXES)
+                or _tool_name(tool) in _LITERATURE_ARTIFACT_TOOLS
             ]
             prepared = prepared.override(tools=literature_tools, tool_choice=None)
         return prepared
@@ -2914,6 +3077,8 @@ class ResearchRouterMiddleware(AgentMiddleware[ResearchRoutingState, Any, Any]):
     ) -> ModelResponse:
         prepared = self._prepare_request(request)
         raw_response = handler(prepared)
+        if _request_is_literature_only(request):
+            return raw_response
         if _needs_release_draft_retry(request, raw_response):
             raw_response = handler(_release_draft_retry_request(prepared))
             if _needs_release_draft_retry(request, raw_response):
@@ -2930,6 +3095,8 @@ class ResearchRouterMiddleware(AgentMiddleware[ResearchRoutingState, Any, Any]):
     ) -> ModelResponse:
         prepared = await asyncio.to_thread(self._prepare_request, request)
         raw_response = await handler(prepared)
+        if _request_is_literature_only(request):
+            return raw_response
         if await asyncio.to_thread(
             _needs_release_draft_retry,
             request,

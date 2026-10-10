@@ -76,6 +76,11 @@ export function detectFileLink(text: string): FileLink | null {
       path: s.replace(/^\/memories\/+/, ""),
     };
   }
+  // Preserve the project namespace: the file API verifies this thread's
+  // registered input and serves it read-only from the bound shared directory.
+  if (s.startsWith("/project/")) {
+    return { kind: "workspace", display: s, path: s };
+  }
   // Workspace API resolves relative to the workspace root. Strip both a
   // leading `/` (the absolute form the agent sometimes emits) and a leading
   // `./` (the explicit-relative form, e.g. `./attention.pdf`) so the server's

@@ -104,7 +104,7 @@ function sameActivityState(
 export function RealtimeActivityBridge() {
   const { isLoading, interrupt, messages, subAgentActivity, todos } =
     useChatContext();
-  const { setState } = useRealtimeActivity();
+  const { state, setState } = useRealtimeActivity();
 
   const activeToolCalls = useMemo(
     () => getLatestToolCalls(messages, isLoading),
@@ -144,7 +144,9 @@ export function RealtimeActivityBridge() {
       subAgents,
       todos: visibleTodos,
     };
-    setState((prev) => (sameActivityState(prev, next) ? prev : next));
+    // Skip the dispatch itself during token replay. Returning prev inside an
+    // updater can still schedule work while the external stream store renders.
+    if (!sameActivityState(state, next)) setState(next);
   }, [
     isLoading,
     hasInterrupt,
@@ -152,6 +154,7 @@ export function RealtimeActivityBridge() {
     activeToolCalls,
     subAgents,
     visibleTodos,
+    state,
     setState,
   ]);
 

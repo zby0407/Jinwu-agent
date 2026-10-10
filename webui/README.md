@@ -14,6 +14,16 @@ npm run dev
 
 默认地址为 <http://localhost:4716>。后端默认连接 `http://127.0.0.1:6174`，也可以在界面配置中修改部署地址。
 
+浏览器回归测试使用模拟后端，不调用模型或真实工作区：
+
+```bash
+npx playwright install chromium
+npm run test:ui
+```
+
+测试默认使用本机 4717 端口。Windows 已安装 Edge 时，也可在 PowerShell 设置
+`$env:PLAYWRIGHT_CHANNEL='msedge'` 后运行，省去 Chromium 安装。
+
 ## 生产构建
 
 ```bash

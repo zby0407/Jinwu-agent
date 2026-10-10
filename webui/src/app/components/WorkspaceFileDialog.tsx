@@ -107,7 +107,7 @@ function kindOf(ext: string): Kind {
 }
 
 export const WorkspaceFileDialog = React.memo<{
-  /** Path relative to the workspace root, or null to close. */
+  /** Task-relative path or full /project/ input path; null closes the dialog. */
   path: string | null;
   /** Byte size from the listing — used to gate inline text preview. */
   size?: number;
@@ -151,9 +151,11 @@ export const WorkspaceFileDialog = React.memo<{
     [name]
   );
   const kind = kindOf(ext);
+  const immutable = readOnly || !!path?.startsWith("/project/");
+  const showEditing = editing && !immutable;
   const tooBigForText =
     kind === "text" && size != null && size > MAX_INLINE_TEXT_BYTES;
-  const editable = !readOnly && kind === "text" && !tooBigForText;
+  const editable = !immutable && kind === "text" && !tooBigForText;
 
   useEffect(() => {
     setImageZoomed(false);
@@ -196,7 +198,7 @@ export const WorkspaceFileDialog = React.memo<{
   const isMarkdown = ext === "md" || ext === "markdown";
   const language = LANGUAGE_MAP[ext] || "text";
 
-  const dirty = editing && content !== null && draft !== content;
+  const dirty = showEditing && content !== null && draft !== content;
   const runOrConfirmDiscard = (action: "close" | "cancel-edit") => {
     if (!dirty) {
       if (action === "close") onClose();
@@ -211,12 +213,14 @@ export const WorkspaceFileDialog = React.memo<{
   };
 
   const startEdit = () => {
+    if (immutable) return;
     setDraft(content ?? "");
     setActionError(null);
     setEditing(true);
   };
 
   const save = async () => {
+    if (immutable) return;
     setSaving(true);
     setActionError(null);
     try {
@@ -241,6 +245,7 @@ export const WorkspaceFileDialog = React.memo<{
   };
 
   const remove = async () => {
+    if (immutable) return;
     setDeleting(true);
     setActionError(null);
     try {
@@ -274,7 +279,7 @@ export const WorkspaceFileDialog = React.memo<{
 
   const copyPath = async () => {
     try {
-      await navigator.clipboard.writeText(`/${path}`);
+      await navigator.clipboard.writeText(path.startsWith("/") ? path : `/${path}`);
       toast.success("已复制文件路径");
     } catch {
       toast.error("无法复制路径");
@@ -305,7 +310,7 @@ export const WorkspaceFileDialog = React.memo<{
               </span>
             </div>
             <div className="flex shrink-0 items-center gap-1">
-              {editing ? (
+              {showEditing ? (
                 <>
                   <Button
                     variant="ghost"
@@ -407,7 +412,7 @@ export const WorkspaceFileDialog = React.memo<{
                       下载
                     </a>
                   </Button>
-                  {readOnly && (
+                  {immutable && (
                     <>
                       <Button
                         variant="ghost"
@@ -446,7 +451,7 @@ export const WorkspaceFileDialog = React.memo<{
                       )}
                     </>
                   )}
-                  {!readOnly && (
+                  {!immutable && (
                     <Button
                       variant="ghost"
                       size="sm"
@@ -485,7 +490,7 @@ export const WorkspaceFileDialog = React.memo<{
           )}
 
           <div className="min-h-0 flex-1 overflow-hidden">
-            {editing ? (
+            {showEditing ? (
               <textarea
                 value={draft}
                 onChange={(e) => setDraft(e.target.value)}
@@ -647,7 +652,7 @@ export const WorkspaceFileDialog = React.memo<{
       </Dialog>
 
       <Dialog
-        open={deleteOpen}
+        open={deleteOpen && !immutable}
         onOpenChange={(open) => {
           if (!deleting) setDeleteOpen(open);
         }}

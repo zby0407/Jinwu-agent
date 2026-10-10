@@ -2543,8 +2543,10 @@ def test_full_hypothesis_accepts_immutable_checkpoint_snapshot_after_draft_edit(
     assert store._canonical_stage_ready("hypothesis", sources, phase="hypothesis")
 
 
+@pytest.mark.parametrize("phase", ["hypothesis", "bounded_hypothesis_generation"])
 def test_full_hypothesis_rejects_invalid_checkpoint_snapshot(
     tmp_path: Path,
+    phase: str,
 ) -> None:
     payload = _current_full_hypothesis_state()
     snapshot_path = tmp_path / "work" / "scientific_hypothesis_checkpoint.json"
@@ -2564,9 +2566,56 @@ def test_full_hypothesis_rejects_invalid_checkpoint_snapshot(
     )
     store = ResearchReviewStore(tmp_path, "invalid-snapshot")
     assert (
-        store._canonical_stage_ready("hypothesis", [snapshot_path], phase="hypothesis")
+        store._canonical_stage_ready("hypothesis", [snapshot_path], phase=phase)
         is False
     )
+
+
+@pytest.mark.parametrize("stale_tail", [False, True])
+def test_bounded_hypothesis_checkpoint_enters_review_without_planning(
+    tmp_path: Path, stale_tail: bool
+) -> None:
+    payload = _current_full_hypothesis_state()
+    snapshot = {
+        key: payload[key]
+        for key in (
+            "checkpoint",
+            "checkpoint_sha256",
+            "checkpoint_evidence_sha256",
+            "evidence_register",
+            "tail_review",
+        )
+    }
+    snapshot["schema_version"] = "scientific-hypothesis-checkpoint-v1"
+    if stale_tail:
+        snapshot["tail_review"]["evidence_sha256"] = "0" * 64
+    path = tmp_path / "work" / "scientific_hypothesis_checkpoint.json"
+    path.parent.mkdir(parents=True)
+    path.write_text(json.dumps(snapshot), encoding="utf-8")
+    store = ResearchReviewStore(tmp_path, "bounded-checkpoint")
+    if stale_tail:
+        with pytest.raises(RuntimeError, match="complete task-local canonical"):
+            store.checkpoint_producer_result(
+                stage="hypothesis",
+                producer="solar-hypothesis",
+                content="Candidate report",
+                phase="bounded_hypothesis_generation",
+                require_canonical_source=True,
+            )
+        return
+    artifact = store.checkpoint_producer_result(
+        stage="hypothesis",
+        producer="solar-hypothesis",
+        content="Candidate report",
+        phase="bounded_hypothesis_generation",
+        require_canonical_source=True,
+    )
+    assert artifact["upstream_refs"] == []
+    assert (
+        artifact["payload"]["source_manifest"][0]["source_ref"]
+        == "work/scientific_hypothesis_checkpoint.json"
+    )
+    assert store.bounded_stage_action("hypothesis")["kind"] == "review"
 
 
 @pytest.mark.parametrize(

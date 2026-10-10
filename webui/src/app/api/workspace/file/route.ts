@@ -5,6 +5,7 @@ import { Readable } from "stream";
 import { NextRequest, NextResponse } from "next/server";
 import {
   getWorkspaceDir,
+  readProjectInput,
   safeResolve,
   isCrossOrigin,
   writeWorkspaceFile,
@@ -76,30 +77,36 @@ export async function GET(request: NextRequest) {
     const download = request.nextUrl.searchParams.get("download") === "1";
 
     const threadId = request.nextUrl.searchParams.get("threadId");
-    const workspaceDir = await getWorkspaceDir(threadId);
-    // safeResolve canonicalizes + re-checks containment, so a symlink can't be
-    // used to read a file outside the workspace (or a hidden/internal entry).
-    const target = await safeResolve(workspaceDir, relPath);
-
-    const stat = await fs.stat(target);
-    if (!stat.isFile()) {
-    return NextResponse.json({ error: "目标不是文件。" }, { status: 400 });
+    let fileName: string;
+    let contentLength: number;
+    let body: BodyInit;
+    if (relPath.startsWith("/project/")) {
+      const input = await readProjectInput(threadId, relPath);
+      fileName = input.fileName;
+      contentLength = input.bytes;
+      body = new Uint8Array(input.content).buffer;
+    } else {
+      const workspaceDir = await getWorkspaceDir(threadId);
+      const target = await safeResolve(workspaceDir, relPath);
+      const stat = await fs.stat(target);
+      if (!stat.isFile()) {
+        return NextResponse.json({ error: "目标不是文件。" }, { status: 400 });
+      }
+      fileName = basename(target);
+      contentLength = stat.size;
+      body = Readable.toWeb(createReadStream(target)) as ReadableStream<Uint8Array>;
     }
 
-    const ext = extname(target).slice(1).toLowerCase();
+    const ext = extname(fileName).slice(1).toLowerCase();
     const contentType = CONTENT_TYPES[ext] ?? "application/octet-stream";
     // Octet-stream and explicit ?download=1 go out as attachments; previewable
     // types render inline.
     const asAttachment = download || contentType === "application/octet-stream";
 
-    const nodeStream = createReadStream(target);
-    const webStream = Readable.toWeb(nodeStream) as ReadableStream<Uint8Array>;
-
-    const fileName = basename(target);
-    return new NextResponse(webStream, {
+    return new NextResponse(body, {
       headers: {
         "Content-Type": contentType,
-        "Content-Length": String(stat.size),
+        "Content-Length": String(contentLength),
         "Content-Disposition": contentDisposition(fileName, asAttachment),
         // Workspace files are agent/user-controlled. `sandbox` neutralizes
         // scripts in an inline SVG/HTML opened directly (XSS), and `nosniff`
@@ -205,6 +212,9 @@ export async function PUT(request: NextRequest) {
     if (!relPath) {
     return NextResponse.json({ error: "缺少路径。" }, { status: 400 });
     }
+    if (relPath.startsWith("/project/")) {
+      return NextResponse.json({ error: "项目共享输入仅支持只读预览。" }, { status: 403 });
+    }
     let body: { content?: unknown } | null;
     try {
       body = (await readJsonCapped(request, MAX_BODY_BYTES)) as {
@@ -255,6 +265,9 @@ export async function DELETE(request: NextRequest) {
     const relPath = request.nextUrl.searchParams.get("path");
     if (!relPath) {
     return NextResponse.json({ error: "缺少路径。" }, { status: 400 });
+    }
+    if (relPath.startsWith("/project/")) {
+      return NextResponse.json({ error: "项目共享输入仅支持只读预览。" }, { status: 403 });
     }
     const threadId = request.nextUrl.searchParams.get("threadId");
     const workspaceDir = await getWorkspaceDir(threadId);

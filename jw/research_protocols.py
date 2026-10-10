@@ -11,10 +11,25 @@ from typing import Any
 
 F107_DISCONTINUITY_PROTOCOL = "f107_discontinuity_v1"
 GENERIC_DATA_PRODUCT = "generic_data_artifact"
+B1_FLARE_CASE_PROTOCOL = "b1-flare-case-v1"
+B1_FLARE_CASE_DATA_PRODUCT = "b1_flare_case_v1"
+B1_FLARE_CASE_DATASET_IDS: tuple[str, ...] = (
+    "b1-sharp-11158-v1",
+    "b1-goes-events-2011-v1",
+    "b1-goes15-xrs-201102-v1",
+    "b1-case-parameters-v1",
+    "b1-case-sources-v1",
+)
 SILSO_CYCLE_REPRODUCTION_PROTOCOL = "silso_cycle_reproduction_v1"
 SILSO_CYCLE_EXTREMA_DATA_PRODUCT = "silso_cycle_extrema_v1"
 SILSO_CYCLE_MORPHOLOGY_PROTOCOL = "silso_cycle_morphology_v1"
 SILSO_CYCLE_MORPHOLOGY_DATA_PRODUCT = "silso_cycle_morphology_v1"
+SILSO_CYCLE_DESCRIPTIVE_PROTOCOL = "silso_cycle_descriptive_v1"
+SILSO_CYCLE_DESCRIPTIVE_DATA_PRODUCT = "silso_cycle_descriptive_v1"
+SILSO_CYCLE_PHASE_PROTOCOL = "silso_cycle_phase_v1"
+SILSO_GNBB2_ANNUAL_PROTOCOL = "silso_gnbb2_annual_v1"
+SILSO_CYCLE_SENSITIVITY_PROTOCOL = "silso_cycle_sensitivity_v1"
+SILSO_CYCLE_ASSOCIATIONS_PROTOCOL = "silso_cycle_associations_v1"
 SOLAR_CYCLE_26_READINESS_PROTOCOL = "solar_cycle_26_readiness_v1"
 SOLAR_CYCLE_26_READINESS_DATA_PRODUCT = "solar_cycle_26_readiness_inventory_v1"
 SOLAR_CYCLE_26_FORECAST_BACKTEST_PROTOCOL = "solar_cycle_26_forecast_backtest_v1"
@@ -71,8 +86,8 @@ _SILSO_CYCLE_REPRODUCTION_PATTERN = re.compile(
     re.IGNORECASE | re.DOTALL,
 )
 _SILSO_CYCLE_ENGLISH_PATTERN = re.compile(
-    r"(?:solar\s+)?cycles?.*(?:minimum|maximum|extrema|rise\s+time)|"
-    r"(?:minimum|maximum|extrema|rise\s+time).*(?:solar\s+)?cycles?",
+    r"\b(?:solar\s+)?cycles?\b.*\b(?:minimum|maximum|extrema|rise\s+time)\b|"
+    r"\b(?:minimum|maximum|extrema|rise\s+time)\b.*\b(?:solar\s+)?cycles?\b",
     re.IGNORECASE | re.DOTALL,
 )
 _SILSO_CYCLE_MORPHOLOGY_PATTERN = re.compile(
@@ -80,6 +95,11 @@ _SILSO_CYCLE_MORPHOLOGY_PATTERN = re.compile(
     r"周期长度.{0,20}(?:上升|下降)|"
     r"rise\s+time.{0,30}decline\s+time)",
     re.IGNORECASE | re.DOTALL,
+)
+_CYCLE_DESCRIPTIVE_PATTERN = re.compile(
+    r"(?:周期|cycles?).{0,80}(?:累计|累积|均值|平均|integrated|cumulative|mean)|"
+    r"(?:低活动|low.activity).{0,60}(?:时长|持续|月份|duration|fraction|months)",
+    re.IGNORECASE,
 )
 _POLAR_FIELD_PATTERN = re.compile(
     r"(?:polar[\s-]?field|polar precursor|MWO|WSO|极区磁场|极地磁场|极区场强|极区场)",
@@ -112,16 +132,187 @@ def _explicit_polar_data_exclusion(text: str) -> bool:
 
 
 _LITERATURE_ONLY_INTENT_PATTERN = re.compile(
-    r"(?:纯文献|文献(?:与规范知识)?(?:审查|综述)|literature\s+(?:review|only)|"
-    r"literature[- ]only)",
+    r"(?:纯文献|文献(?:与[^\n。！？!?；;，,]{0,20})?(?:审查|综述|核验)|"
+    r"(?:全文|文献|既有资料|已有证据)(?:证据)?(?:综述|审查|核验)|"
+    r"(?:综述|审查|核验)(?:既有|已有)?文献|"
+    r"literature\s+(?:review|only|synthesis)|literature[- ]only|"
+    r"(?:full[- ]text(?:\s+evidence)?|evidence)\s+(?:review|synthesis)|"
+    r"review\s+(?:the\s+)?(?:literature|full\s+texts?))",
     re.IGNORECASE,
 )
 _LITERATURE_ONLY_BOUNDARY_PATTERN = re.compile(
-    r"(?:不得|不要|禁止|不进入|不调用|不做|不进行|只做|仅做|only|without|"
-    r"do\s+not|don't|must\s+not).{0,40}(?:data|solar[- ]?data|数据|experiment|"
-    r"实验|回测|预测|计算|regression|bootstrap)",
-    re.IGNORECASE | re.DOTALL,
+    r"(?:(?:不得|不要|禁止|无需|不必|不需要|不允许|不)\s*"
+    r"(?:(?:再|重新|进行|开展|执行|调用|进入|运行|做|启动|任何|额外|新的?|数值|统计)\s*)*"
+    r"(?:data\b|solar[- ]?data\b|experiment\b|数据分析|实验|回测|预测|计算|回归|模拟|检验|bootstrap)"
+    r"|\b(?:do\s+not|don't|must\s+not|without|no|avoid)\s+"
+    r"(?:(?:perform(?:ing)?|run(?:ning)?|do(?:ing)?|conduct(?:ing)?|new|any|additional|numerical|statistical)\s+)*"
+    r"(?:data\s+analysis|experiments?|comput(?:ation|e|ing)|calculat(?:ion|e|ing)|"
+    r"regression|bootstrap|simulation|backtest(?:ing)?|forecast(?:ing)?|prediction)\b)",
+    re.IGNORECASE,
 )
+_ONLY_LITERATURE_SCOPE = re.compile(
+    r"(?:(?:只(?:允许|做|使用|采用)|仅(?:限于?|做|使用|允许|基于)|纯)\s*"
+    r"(?:进行|开展)?\s*(?:文献|全文证据|既有资料|已有证据|已发表证据)|"
+    r"\b(?:only\s+(?:use\s+)?(?:literature|published\s+evidence)|"
+    r"(?:literature|evidence|full[- ]text)\s+(?:review\s+)?only|literature[- ]only)\b)",
+    re.IGNORECASE,
+)
+
+_FILE_REFERENCE = re.compile(
+    r"(?<![\w])(?:[^\s`<>\"'|，。；！？!?()（）\[\]]*[\\/])?"
+    r"[^\s`<>\"'|，。；！？!?()（）\[\]\\/]+[.]"
+    r"(?:txt|csv|tsv|jsonl?|ya?ml|md|html?|pdf|parquet|fits?|xlsx?|docx?|py|png|jpe?g)\b",
+    re.IGNORECASE,
+)
+_SOURCE_HEADING = re.compile(
+    r"(?:来源|参考文献|附件|输入清单|哈希|\bsources?\b|\breferences?\b|"
+    r"\battachments?\b|\binput\s+(?:files?|manifest)\b|\bhash(?:es)?\b)",
+    re.IGNORECASE,
+)
+_FILE_COMPUTATION_REQUEST = re.compile(
+    r"(?:下游统计|统计分析|相关分析|计算|重算|复现|拟合|回归|"
+    r"分析\s*(?:已验证的|上传的|这份)?\s*\[file\]|"
+    r"\b(?:compute|recompute|reproduce|calculate|regression|backtest|bootstrap)\b|"
+    r"\banaly[sz]e\s+(?:the\s+)?\[file\])",
+    re.IGNORECASE,
+)
+_NEGATED_ACTION = re.compile(
+    r"(?:不要|不得|禁止|无需|不必|不用|不需要|不允许|不可|不能|避免|排除|"
+    r"不(?=(?:做|作|进行|开展|执行|调用|进入|运行|启动|计算|分析|使用|加入|复现|预测|检验)))"
+    r"|\b(?:do\s+not|don't|must\s+not|should\s+not|will\s+not|"
+    r"no\s+need\s+to|without|avoid|exclude)\b"
+    r"|\bno\s+(?:new\s+)?(?:computation|calculation|experiment|analysis|regression|simulation)",
+    re.IGNORECASE,
+)
+_POSTFIX_NEGATED_ACTION = re.compile(
+    r"(?:(?:均|都|也)?(?:不做|不算|不运行|不开展|不进行|不需要|不必|"
+    r"不要(?:做|运行|计算|执行|使用))(?:了)?|"
+    r"\bnot\s+(?:requested|required|needed|allowed))\s*$",
+    re.IGNORECASE,
+)
+_AFFIRMATIVE_RESTART = re.compile(
+    r"^\s*(?:(?:但是|但|而是|改为|转而|同时|请|然后)|"
+    r"(?:but|instead|then|please)\s+)*\s*"
+    r"(?:分析|复现|重算|计算|比较|检验|回测|拟合|使用|研究|判断|"
+    r"analy[sz]e\b|reproduce\b|compute\b|calculate\b|compare\b|run\b|use\b)",
+    re.IGNORECASE,
+)
+_EXPLICIT_COMPUTE_REQUEST = re.compile(
+    r"(?:^|[。！？!?；;，,\n])\s*"
+    r"(?:(?:请|然后|同时|并|另|还要|再|只|仅|也|先)|"
+    r"(?:please|then|also|and|only|next)\s+)*\s*"
+    r"(?:复现|重算|计算|拟合|回归|模拟|"
+    r"(?:运行|执行)\s*(?:(?:新的?|数值|统计)\s*)?(?:实验|回测|计算|分析|代码|脚本|模型)|"
+    r"compute\b|recompute\b|calculate\b|reproduce\b|run\b|simulate\b|fit\b)",
+    re.IGNORECASE,
+)
+
+
+def _affirmative_clauses(text: str) -> str:
+    """Keep positive commands, without reinterpreting prohibited work as intent."""
+
+    output: list[str] = []
+    negated_list = False
+    text = re.sub(
+        r"(?<!不)(?:但是|但|而是|改为|转而)|\b(?:but|instead|however)\b",
+        "; ",
+        text,
+        flags=re.I,
+    )
+    for clause in re.split(r"([，,](?!\d)|[。！？!?；;\n]|[.](?!\d))", text):
+        if re.fullmatch(r"[，,。！？!?；;\n.]", clause):
+            if clause not in {",", "，"}:
+                negated_list = False
+            output.append(clause)
+            continue
+        if _POSTFIX_NEGATED_ACTION.search(clause):
+            negated_list = True
+            continue
+        negative = _NEGATED_ACTION.search(clause)
+        if negative:
+            output.append(clause[: negative.start()])
+            negated_list = True
+        elif not negated_list or _AFFIRMATIVE_RESTART.search(clause):
+            output.append(clause)
+            negated_list = False
+    return "".join(output)
+
+
+def routing_request_text(text: str, *, affirmative_only: bool = False) -> str:
+    """Return instruction prose for routing, not source inventories or file names.
+
+    This is a routing view only: keep the original message for the research
+    agent. A file in an explicit read request becomes ``[file]``. Only an
+    affirmative computation request retains its file's basename semantics;
+    this preserves requests to analyze a named, verified feature table without
+    letting a bare input inventory select a protocol. Negations remain by default.
+    """
+
+    lines: list[str] = []
+    fenced = False
+    source_section = False
+    for line in text.splitlines():
+        stripped = line.strip()
+        if re.match(r"^(?:```|~~~)", stripped):
+            fenced = not fenced
+            continue
+        if fenced or stripped.startswith((">", "|")):
+            continue
+        heading = re.match(r"^#{1,6}\s+(.+)", stripped)
+        if heading:
+            source_section = bool(_SOURCE_HEADING.search(heading[1]))
+            if source_section:
+                continue
+        if source_section and re.match(r"^(?:[-*+]\s|\d+[.)、]\s*)", stripped):
+            continue
+        if re.match(
+            r"^(?:来源|参考文献|附件|sources?|references?|sha-?256)\s*[:：]",
+            stripped,
+            re.I,
+        ):
+            continue
+        # A URL or machine-readable identity is evidence metadata, not a verb.
+        line = re.sub(r"https?://[^\s<>`]+", "[source]", line, flags=re.I)
+        masked = _FILE_REFERENCE.sub("[file]", line)
+        # Check the request after masking paths so verbs in a filename cannot
+        # authorize computation on their own.
+        if _FILE_COMPUTATION_REQUEST.search(_affirmative_clauses(masked)):
+            line = _FILE_REFERENCE.sub(
+                lambda match: (
+                    "[file: "
+                    + re.sub(
+                        r"[_-]+", " ", match[0].replace("\\", "/").rsplit("/", 1)[-1]
+                    )
+                    + "]"
+                ),
+                line,
+            )
+        else:
+            line = masked
+        line = re.sub(r"\b[a-f0-9]{32,128}\b", "[hash]", line, flags=re.I)
+        line = re.sub(
+            r"\b(?:[a-z][a-z0-9]*[-_])+(?:v\d+(?:[.]\d+)*)\b",
+            # Keep this explicit protocol after the source/quotation/file
+            # filters. Middleware also consumes this routing view, so preserving
+            # it only inside detect_analysis_protocol would still lose intent.
+            lambda match: (
+                B1_FLARE_CASE_PROTOCOL
+                if match[0].casefold() == B1_FLARE_CASE_PROTOCOL and not source_section
+                else "[source]"
+            ),
+            line,
+            flags=re.I,
+        )
+        line = re.sub(r"`([^`\n]+)`", lambda m: m[1], line)
+        # A bare file/hash list carries no affirmative instruction at all.
+        remainder = re.sub(
+            r"\[(?:file|source|hash)\]|[\s\d.*+\-:：()（）,，;；|]+", "", line
+        )
+        if not remainder:
+            continue
+        lines.append(line)
+    prose = "\n".join(lines)
+    return _affirmative_clauses(prose) if affirmative_only else prose
 
 
 _CYCLE_26_PATTERN = re.compile(
@@ -156,7 +347,16 @@ _CYCLE_26_BACKTEST_FORECAST_PATTERN = re.compile(
 def is_literature_only_request(text: str) -> bool:
     """Return whether a request explicitly scopes itself to literature evidence."""
 
-    if not _LITERATURE_ONLY_INTENT_PATTERN.search(text):
+    text = routing_request_text(text)
+    positive = _affirmative_clauses(text)
+    # Restricting evidence sources does not prohibit calculations performed on
+    # those sources. An affirmative computation command disambiguates "only
+    # use literature" from a genuinely literature-only task.
+    if _EXPLICIT_COMPUTE_REQUEST.search(positive):
+        return False
+    if _ONLY_LITERATURE_SCOPE.search(positive):
+        return True
+    if not _LITERATURE_ONLY_INTENT_PATTERN.search(positive):
         return False
     return bool(_LITERATURE_ONLY_BOUNDARY_PATTERN.search(text))
 
@@ -167,6 +367,38 @@ def detect_analysis_protocol(text: str) -> str:
     if is_literature_only_request(text):
         return "none"
 
+    # Preserve explicit C commands through dataset-ID masking, while retaining
+    # source-section, quotation, negation and affirmative-computation checks.
+    text = text.replace("[C_PROTOCOL=silso_gnbb2_annual_v1]", "[CAnnualBounded]")
+    text = text.replace(
+        "[C_PROTOCOL=silso_cycle_sensitivity_v1]", "[CSensitivityBounded]"
+    )
+    text = text.replace(
+        "[D_PROTOCOL=silso_cycle_associations_v1]", "[DAssociationsBounded]"
+    )
+    text = routing_request_text(text, affirmative_only=True)
+
+    # This one-case contract is opt-in. Match only the filtered affirmative
+    # request, never a source inventory, quoted example, URL or prohibition.
+    if re.search(r"(?<![\w-])b1-flare-case-v1(?![\w-])", text, re.IGNORECASE):
+        return B1_FLARE_CASE_PROTOCOL
+
+    # Explicit bounded C markers precede the more general A/B vocabulary.
+    c_command = re.sub(
+        r"\[(?:CAnnualBounded|CSensitivityBounded|C2_BATCH=C2[abc]|C2_BATCH=C1|DAssociationsBounded|D_BATCH=D[12])\]",
+        "",
+        text,
+    )
+    c_requested = bool(
+        _EXPLICIT_COMPUTE_REQUEST.search(c_command)
+        or re.search(r"(?:使用|基于)[^。；;\n]{0,120}(?:计算|重算)", c_command)
+    )
+    if "[DAssociationsBounded]" in text and c_requested:
+        return SILSO_CYCLE_ASSOCIATIONS_PROTOCOL
+    if "[CAnnualBounded]" in text and c_requested:
+        return SILSO_GNBB2_ANNUAL_PROTOCOL
+    if "[CSensitivityBounded]" in text and c_requested:
+        return SILSO_CYCLE_SENSITIVITY_PROTOCOL
     if _F107_PATTERN.search(text) and _F107_DISCONTINUITY_PATTERN.search(text):
         return F107_DISCONTINUITY_PROTOCOL
     if _CYCLE_26_BACKTEST_FORECAST_PATTERN.search(text):
@@ -187,6 +419,14 @@ def detect_analysis_protocol(text: str) -> str:
         and not _explicit_polar_data_exclusion(text)
     ):
         return SOLAR_POLAR_PRECURSOR_PROTOCOL
+    if _SILSO_PATTERN.search(text) and re.search(
+        r"相位(?:与幅度)?归一化|相位对齐|phase\s+(?:alignment|normali[sz]ation)",
+        text,
+        re.I,
+    ):
+        return SILSO_CYCLE_PHASE_PROTOCOL
+    if _SILSO_PATTERN.search(text) and _CYCLE_DESCRIPTIVE_PATTERN.search(text):
+        return SILSO_CYCLE_DESCRIPTIVE_PROTOCOL
     if _SILSO_PATTERN.search(text) and _SILSO_CYCLE_MORPHOLOGY_PATTERN.search(text):
         return SILSO_CYCLE_MORPHOLOGY_PROTOCOL
     if _SILSO_PATTERN.search(text) and (
@@ -201,8 +441,14 @@ def required_data_product_for_protocol(protocol: str) -> str:
     """Return the sole specialized Data product required by one protocol."""
 
     return {
+        B1_FLARE_CASE_PROTOCOL: B1_FLARE_CASE_DATA_PRODUCT,
         SILSO_CYCLE_REPRODUCTION_PROTOCOL: SILSO_CYCLE_EXTREMA_DATA_PRODUCT,
         SILSO_CYCLE_MORPHOLOGY_PROTOCOL: SILSO_CYCLE_MORPHOLOGY_DATA_PRODUCT,
+        SILSO_CYCLE_DESCRIPTIVE_PROTOCOL: SILSO_CYCLE_DESCRIPTIVE_DATA_PRODUCT,
+        SILSO_CYCLE_PHASE_PROTOCOL: SILSO_CYCLE_PHASE_PROTOCOL,
+        SILSO_GNBB2_ANNUAL_PROTOCOL: SILSO_GNBB2_ANNUAL_PROTOCOL,
+        SILSO_CYCLE_SENSITIVITY_PROTOCOL: SILSO_CYCLE_SENSITIVITY_PROTOCOL,
+        SILSO_CYCLE_ASSOCIATIONS_PROTOCOL: SILSO_CYCLE_ASSOCIATIONS_PROTOCOL,
         SOLAR_CYCLE_26_READINESS_PROTOCOL: SOLAR_CYCLE_26_READINESS_DATA_PRODUCT,
         SOLAR_CYCLE_26_FORECAST_BACKTEST_PROTOCOL: SOLAR_CYCLE_26_FORECAST_BACKTEST_DATA_PRODUCT,
         SOLAR_POLAR_PRECURSOR_PROTOCOL: SOLAR_POLAR_PRECURSOR_DATA_PRODUCT,
@@ -213,8 +459,14 @@ def required_dataset_ids_for_protocol(protocol: str) -> tuple[str, ...]:
     """Return the registered dataset IDs required by one stable protocol."""
 
     return {
+        B1_FLARE_CASE_PROTOCOL: B1_FLARE_CASE_DATASET_IDS,
         SILSO_CYCLE_REPRODUCTION_PROTOCOL: SILSO_CYCLE_REPRODUCTION_DATASET_IDS,
         SILSO_CYCLE_MORPHOLOGY_PROTOCOL: SILSO_CYCLE_REPRODUCTION_DATASET_IDS,
+        SILSO_CYCLE_DESCRIPTIVE_PROTOCOL: SILSO_CYCLE_REPRODUCTION_DATASET_IDS,
+        SILSO_CYCLE_PHASE_PROTOCOL: SILSO_CYCLE_REPRODUCTION_DATASET_IDS,
+        SILSO_GNBB2_ANNUAL_PROTOCOL: SILSO_CYCLE_REPRODUCTION_DATASET_IDS,
+        SILSO_CYCLE_SENSITIVITY_PROTOCOL: SILSO_CYCLE_REPRODUCTION_DATASET_IDS,
+        SILSO_CYCLE_ASSOCIATIONS_PROTOCOL: SILSO_CYCLE_REPRODUCTION_DATASET_IDS,
         SOLAR_CYCLE_26_READINESS_PROTOCOL: SOLAR_CYCLE_26_READINESS_DATASET_IDS,
         SOLAR_CYCLE_26_FORECAST_BACKTEST_PROTOCOL: SILSO_CYCLE_REPRODUCTION_DATASET_IDS,
         SOLAR_POLAR_PRECURSOR_PROTOCOL: SOLAR_POLAR_PRECURSOR_DATASET_IDS,
@@ -590,6 +842,15 @@ class DatasetSemanticManifest:
 
 
 __all__ = [
+    "SILSO_CYCLE_PHASE_PROTOCOL",
+    "SILSO_GNBB2_ANNUAL_PROTOCOL",
+    "SILSO_CYCLE_SENSITIVITY_PROTOCOL",
+    "SILSO_CYCLE_ASSOCIATIONS_PROTOCOL",
+    "SILSO_CYCLE_DESCRIPTIVE_PROTOCOL",
+    "SILSO_CYCLE_DESCRIPTIVE_DATA_PRODUCT",
+    "B1_FLARE_CASE_PROTOCOL",
+    "B1_FLARE_CASE_DATA_PRODUCT",
+    "B1_FLARE_CASE_DATASET_IDS",
     "F107_DISCONTINUITY_PROTOCOL",
     "F107_DISCONTINUITY_REQUIRED_MEASUREMENTS",
     "GENERIC_DATA_PRODUCT",
@@ -609,6 +870,7 @@ __all__ = [
     "DatasetSemanticManifest",
     "detect_analysis_protocol",
     "is_literature_only_request",
+    "routing_request_text",
     "f107_discontinuity_directive",
     "plan_dataset_selection_conflicts_protocol",
     "render_silso_cycle_reproduction_markdown",

@@ -26,7 +26,15 @@ if str(_SRC) not in sys.path:
     sys.path.insert(0, str(_SRC))
 
 from jw.research_protocols import (  # noqa: E402
+    B1_FLARE_CASE_DATA_PRODUCT,
+    B1_FLARE_CASE_DATASET_IDS,
+    B1_FLARE_CASE_PROTOCOL,
     SILSO_CYCLE_EXTREMA_DATA_PRODUCT,
+    SILSO_CYCLE_DESCRIPTIVE_DATA_PRODUCT,
+    SILSO_CYCLE_PHASE_PROTOCOL,
+    SILSO_GNBB2_ANNUAL_PROTOCOL,
+    SILSO_CYCLE_SENSITIVITY_PROTOCOL,
+    SILSO_CYCLE_ASSOCIATIONS_PROTOCOL,
     SOLAR_POLAR_PRECURSOR_DATA_PRODUCT,
     SOLAR_CYCLE_26_FORECAST_BACKTEST_DATA_PRODUCT,
     detect_analysis_protocol,
@@ -182,8 +190,14 @@ _STRUCTURED_SOURCE_SUFFIXES = {
     ".tsv",
 }
 _SOLAR_DATA_OUTPUT_RECEIPT_CONTRACTS = {
+    ("b1-flare-case-receipt-v1", "b1_flare_case"),
     ("research-dataset-receipt-v1", "silso_cycle_extrema_reproduction"),
     ("solar-cycle-morphology-receipt-v1", "silso_cycle_morphology"),
+    ("solar-cycle-descriptive-receipt-v1", "silso_cycle_descriptive"),
+    ("solar-cycle-phase-receipt-v1", "silso_cycle_phase"),
+    ("solar-c-stage-receipt-v1", "c1_annual"),
+    ("solar-c-stage-receipt-v1", "c2_sensitivity"),
+    ("solar-c-stage-receipt-v1", "d_associations"),
     ("solar-precursor-cycle-table-v1", "solar_precursor_cycle_table"),
     ("solar-precursor-cycle-table-v2", "solar_precursor_cycle_table"),
     ("solar-cycle-pair-analysis-table-v2", "solar_cycle_pair_analysis_table"),
@@ -214,6 +228,102 @@ _SAME_CYCLE_BMR_CAUSALITY = re.compile(
     r".{0,30}(?:BMR|bipolar|tilt)",
     re.IGNORECASE,
 )
+
+
+class ResearchDeliveryBlocked(ValueError):
+    """An accepted stage still explicitly reports a task-level delivery blocker."""
+
+    def __init__(self, reason_code: str, detail: str) -> None:
+        self.reason_code = reason_code
+        super().__init__(f"{reason_code}: {detail}")
+
+
+_DELIVERY_BLOCKER_CODES = {
+    "INPUT_BINDING_BLOCKED",
+    "TASK_BLOCKED",
+    "TASK_INCOMPLETE",
+    "REQUIRED_STAGE_INCOMPLETE",
+}
+_DELIVERY_BLOCKER_LINE = re.compile(
+    r"(?:(?P<label>[^:：=]{1,100})\s*[:：=]\s*)?"
+    r"(?P<code>INPUT_BINDING_BLOCKED|TASK_BLOCKED|TASK_INCOMPLETE|"
+    r"REQUIRED_STAGE_INCOMPLETE)(?P<detail>\s*(?:[:：（(，,。；;—–-].*)?)$"
+)
+_NONCURRENT_BLOCKER_LABEL = re.compile(
+    r"\b(?:example|quoted?|reference|previous|prior|historical|if|unless)\b"
+    r"|示例|示范|引用|原文|历史|此前|先前|如果|若|条件|假设|并非|不是|无需|无须",
+    re.IGNORECASE,
+)
+_RESOLVED_BLOCKER_DETAIL = re.compile(
+    r"^[\s:：（(，,。；;—–-]*(?:已(?:解除|解决|修复)|不再|"
+    r"(?:now\s+)?(?:resolved|cleared|fixed|not\s+active)\b)",
+    re.IGNORECASE,
+)
+
+
+def _producer_delivery_blocker(text: object) -> tuple[str, str] | None:
+    """Read explicit current status declarations, not arbitrary BLOCKED mentions.
+
+    This protects the delivery boundary, not the scientific verdict. In particular,
+    an accepted Data receipt cannot erase a producer's explicit task input failure.
+    Ordinary limitations, quoted evidence and conditional instructions are not a
+    machine-readable task failure contract and must remain reviewable as prose.
+    """
+
+    if not isinstance(text, str):
+        return None
+    try:
+        structured = json.loads(text)
+    except (TypeError, ValueError):
+        structured = None
+    if isinstance(structured, dict):
+        for key in ("task_status", "delivery_status", "status"):
+            value = structured.get(key)
+            if isinstance(value, str) and value in _DELIVERY_BLOCKER_CODES:
+                return value, f"{key}={value}"
+        return None
+
+    fence = ""
+    for raw_line in text.splitlines():
+        line = raw_line.strip()
+        if line.startswith(("```", "~~~")):
+            marker = line[:3]
+            if not fence:
+                fence = marker
+            elif fence == marker:
+                fence = ""
+            continue
+        if fence or raw_line.startswith(("    ", "\t")) or line.startswith((">", "|")):
+            continue
+        heading = bool(re.match(r"^#{1,6}\s+", line))
+        line = re.sub(r"^#{1,6}\s+", "", line)
+        line = re.sub(r"^(?:[-+*]\s+|\d+[.)]\s+)", "", line)
+        line = line.replace("**", "").replace("`", "").strip()
+        match = _DELIVERY_BLOCKER_LINE.fullmatch(line)
+        if match is None:
+            continue
+        label = (match.group("label") or "").strip()
+        if label and (
+            _NONCURRENT_BLOCKER_LABEL.search(label)
+            or not (
+                re.fullmatch(
+                    r"(?:(?:task|delivery)[_ ]?)?status|(?:任务|交付)?状态",
+                    label,
+                    re.IGNORECASE,
+                )
+                or (
+                    heading
+                    and re.search(
+                        r"task|stage|section|任务|阶段|部分|交付", label, re.IGNORECASE
+                    )
+                )
+            )
+        ):
+            continue
+        if _RESOLVED_BLOCKER_DETAIL.search(match.group("detail")):
+            continue
+        return match.group("code"), raw_line.strip()[:500]
+    return None
 
 
 def _now() -> str:
@@ -988,6 +1098,9 @@ class ResearchReviewStore:
                 or receipt.get("task_id") != self.task_id
             ):
                 continue
+            if contract == ("b1-flare-case-receipt-v1", "b1_flare_case"):
+                if self._b1_flare_receipt_defect(receipt) is not None:
+                    continue
             declared_outputs = receipt.get("outputs")
             if not isinstance(declared_outputs, list):
                 continue
@@ -1512,7 +1625,15 @@ class ResearchReviewStore:
             }
             produced_refs = {path.resolve() for path in produced_sources}
             return bool(recognized_outputs & produced_refs)
-        if stage == "hypothesis" and not phase.startswith("bounded_hypothesis"):
+        # Bounded tasks may also produce the immutable checkpoint selected by
+        # canonical source discovery. Validate its hashes and current tail review
+        # exactly as in the full workflow; keep legacy partial-state handling.
+        if stage == "hypothesis" and (
+            not phase.startswith("bounded_hypothesis")
+            or any(
+                path.name == "scientific_hypothesis_checkpoint.json" for path in sources
+            )
+        ):
             snapshot_path = next(
                 (
                     path
@@ -2593,6 +2714,12 @@ class ResearchReviewStore:
         if artifact is None:
             return None
         producer_result = artifact.get("payload", {}).get("producer_result")
+        blocker = _producer_delivery_blocker(producer_result)
+        if blocker is not None:
+            # Stage acceptance concerns its evidence, not completion of every
+            # requested deliverable. Check before any deterministic replacement
+            # or terminal-state mutation can hide the producer's explicit blocker.
+            raise ResearchDeliveryBlocked(*blocker)
         if stage == "hypothesis":
             if not isinstance(producer_result, str) or not producer_result.strip():
                 return None
@@ -2813,6 +2940,192 @@ class ResearchReviewStore:
             lines.extend(f"- {limit}" for limit in limits)
         return "\n".join(lines).strip() + "\n"
 
+    def _b1_flare_receipt_defect(
+        self, receipt: Mapping[str, Any], context: Mapping[str, Any] | None = None
+    ) -> str | None:
+        """Check B1 computation provenance, without granting scientific approval."""
+
+        if not (
+            receipt.get("schema_version") == "b1-flare-case-receipt-v1"
+            and receipt.get("receipt_type") == "b1_flare_case"
+            and receipt.get("analysis_protocol") == B1_FLARE_CASE_PROTOCOL
+            and receipt.get("producer") == "solar-data"
+            and receipt.get("tool") == "run_b1_flare_case"
+            and receipt.get("task_id") == self.task_id
+            and receipt.get("status") == "verified"
+            and receipt.get("calculation_status") == "completed"
+            and receipt.get("scientific_status") == "not_reviewed"
+            and receipt.get("scientific_not_reviewed") is True
+            and receipt.get("execution_kind") == "deterministic_tool"
+        ):
+            return "the calculation receipt has invalid metadata or claims scientific approval"
+        task_path = self.workspace_root / "task.json"
+        manifest_path = self.workspace_root / "input_manifest.json"
+        task = _read_json(task_path)
+        if not isinstance(task, dict) or not manifest_path.is_file():
+            return "the current task binding is missing"
+        question = task.get("research_question")
+        if not (
+            task.get("thread_id") == self.task_id
+            and isinstance(question, str)
+            and detect_analysis_protocol(question) == B1_FLARE_CASE_PROTOCOL
+            and receipt.get("task_sha256") == _file_sha256(task_path)
+            and receipt.get("input_manifest_sha256") == _file_sha256(manifest_path)
+            and receipt.get("research_question_sha256")
+            == hashlib.sha256(question.encode("utf-8")).hexdigest()
+        ):
+            return "the receipt is not bound to the current task, manifest and question"
+        current = self._current_manifest_input_records()
+        if current is None:
+            return "the current input files or their registered hashes are invalid"
+        context_ids = context.get("required_dataset_ids") if context is not None else []
+        if context is not None and (
+            context.get("analysis_protocol") != B1_FLARE_CASE_PROTOCOL
+            or context.get("required_data_product") != B1_FLARE_CASE_DATA_PRODUCT
+            or context.get("status") != "inputs_available"
+            or context.get("must_stop") is not False
+            or context.get("missing_required_dataset_ids") != []
+            or not isinstance(context_ids, list)
+            or not all(isinstance(item, str) for item in context_ids)
+            or len(context_ids) != len(B1_FLARE_CASE_DATASET_IDS)
+            or set(context_ids) != set(B1_FLARE_CASE_DATASET_IDS)
+            or context.get("eligible_inputs") != current
+        ):
+            return "the Data context does not bind the B1 protocol and current inputs"
+        required = dict(
+            zip(
+                ("magnetic", "events", "xrs", "parameters", "sources"),
+                B1_FLARE_CASE_DATASET_IDS,
+                strict=True,
+            )
+        )
+        inputs = receipt.get("inputs")
+        if not isinstance(inputs, list) or len(inputs) != len(required):
+            return "the receipt must bind all five B1 inputs exactly once"
+        observed: dict[str, Mapping[str, Any]] = {}
+        for row in inputs:
+            if not isinstance(row, Mapping):
+                return "the B1 input record is invalid"
+            kind = row.get("input_kind")
+            if not isinstance(kind, str) or kind not in required or kind in observed:
+                return "the B1 input kinds are missing, duplicated or unknown"
+            observed[kind] = row
+            matches = [
+                item for item in current if item.get("dataset_id") == required[kind]
+            ]
+            if len(matches) != 1 or any(
+                row.get(key) != matches[0].get(key)
+                for key in (
+                    "path",
+                    "sha256",
+                    "bytes",
+                    "dataset_id",
+                    "source_group",
+                    "role",
+                )
+            ):
+                return (
+                    "the B1 input paths, IDs or hashes differ from the current context"
+                )
+        if receipt.get("parameters_sha256") != observed["parameters"].get(
+            "sha256"
+        ) or receipt.get("sources_sha256") != observed["sources"].get("sha256"):
+            return "the frozen parameters or source manifest hash is inconsistent"
+        attempt_id = receipt.get("attempt_id")
+        if not isinstance(attempt_id, str) or not re.fullmatch(
+            r"[A-Za-z0-9_-]+", attempt_id
+        ):
+            return "the B1 attempt identifier is invalid"
+        prefix = f"work/solar_data/b1_flare/{attempt_id}/products/"
+        outputs = receipt.get("outputs")
+        if not isinstance(outputs, list) or not outputs:
+            return "the B1 calculation has no declared output products"
+        names: set[str] = set()
+        for row in outputs:
+            if not isinstance(row, Mapping):
+                return "the B1 output record is invalid"
+            ref = row.get("path")
+            if not isinstance(ref, str) or not ref.startswith(prefix) or "\\" in ref:
+                return "the B1 output path is outside its attempt products directory"
+            if ".." in Path(ref).parts or ref in names:
+                return "the B1 output path is duplicated or traverses a parent"
+            cursor = self.workspace_root
+            for part in Path(ref).parts:
+                cursor /= part
+                if cursor.is_symlink() or (
+                    hasattr(cursor, "is_junction") and cursor.is_junction()
+                ):
+                    return "the B1 output path traverses a link"
+            path = (self.workspace_root / ref).resolve()
+            if not (
+                path.is_relative_to(self.workspace_root)
+                and path.is_file()
+                and row.get("sha256") == _file_sha256(path)
+                and row.get("bytes") == path.stat().st_size
+            ):
+                return "a B1 output file is absent or its current hash/size is stale"
+            names.add(ref)
+        required_names = {
+            "report.md",
+            "provenance.json",
+            "windows.json",
+            "windows.csv",
+            "event_screening.json",
+            "comparisons.csv",
+            "receipt.json",
+            "output_hashes.json",
+            "b1_compute_snapshot.py",
+            "inputs/magnetic.csv",
+            "inputs/events.csv",
+            "inputs/xrs.csv",
+            "inputs/parameters.json",
+            "inputs/source_manifest.json",
+        }
+        if not {prefix + name for name in required_names}.issubset(names):
+            return (
+                "the B1 receipt omits required tables, report, code or input snapshots"
+            )
+        for kind, name in {
+            "magnetic": "magnetic.csv",
+            "events": "events.csv",
+            "xrs": "xrs.csv",
+            "parameters": "parameters.json",
+            "sources": "source_manifest.json",
+        }.items():
+            if (
+                _file_sha256(self.workspace_root / prefix / "inputs" / name)
+                != observed[kind]["sha256"]
+            ):
+                return "the B1 archived input snapshot differs from its bound source"
+        summary = _read_json(self.workspace_root / prefix / "receipt.json")
+        if not (
+            isinstance(summary, dict)
+            and summary.get("status") == "computed_not_scientifically_reviewed"
+            and summary.get("scientific_review") == "not_performed"
+            and summary.get("agent_run") is False
+        ):
+            return "the B1 product must retain the distinction between calculation and scientific review"
+        return None
+
+    def _b1_flare_product_defect(
+        self, context: Mapping[str, Any] | None, manifest: Mapping[str, Any]
+    ) -> str | None:
+        if context is None:
+            return "an authoritative task-bound Data context is absent"
+        defect = "the B1 calculation receipt and products are absent"
+        for ref in manifest:
+            if not (
+                ref.startswith("receipts/datasets/b1-flare-") and ref.endswith(".json")
+            ):
+                continue
+            receipt = self._manifest_json_source(manifest, ref)
+            if not isinstance(receipt, Mapping):
+                continue
+            defect = self._b1_flare_receipt_defect(receipt, context)
+            if defect is None:
+                return None
+        return defect
+
     def _data_input_boundary_issues(
         self, targets: list[dict[str, Any]]
     ) -> list[dict[str, Any]]:
@@ -2839,6 +3152,41 @@ class ResearchReviewStore:
                 for item in manifest
                 if isinstance(item, Mapping) and isinstance(item.get("source_ref"), str)
             }
+            task = _read_json(self.workspace_root / "task.json")
+            if (
+                isinstance(task, dict)
+                and detect_analysis_protocol(str(task.get("research_question") or ""))
+                == B1_FLARE_CASE_PROTOCOL
+            ):
+                defect = self._b1_flare_product_defect(
+                    authoritative_context, manifest_by_ref
+                )
+                if defect is not None:
+                    rule_id = "DATA_SEMANTICS_BOUND"
+                    claim_ref = "receipts/datasets/b1-flare-*/#computed-data-product"
+                    owner = "solar-data"
+                    return [
+                        {
+                            "issue_id": "deterministic-b1-flare-contract",
+                            "rule_id": rule_id,
+                            "severity": "critical",
+                            "claim_ref": claim_ref,
+                            "evidence_refs": list(manifest_by_ref),
+                            "owner": owner,
+                            "message": f"The bounded B1 Data product is incomplete: {defect}.",
+                            "required_action": (
+                                "Open the current B1 Data context, run run_b1_flare_case on "
+                                "its five immutable inputs, and bind the resulting receipt "
+                                "and outputs. Preserve scientific_status=not_reviewed."
+                            ),
+                            "acceptance_test": (
+                                "All five context input hashes and all current output hashes "
+                                "match; tables and report exist. This validates computation "
+                                "only and does not replace independent scientific review."
+                            ),
+                            "fingerprint": issue_fingerprint(rule_id, claim_ref, owner),
+                        }
+                    ]
             specialized_context: tuple[str, dict[str, Any]] | None = None
             for source in manifest:
                 if not isinstance(source, Mapping):
@@ -2995,6 +3343,11 @@ class ResearchReviewStore:
                     or context.get("context_mode") != "full_research"
                 ) and context.get("required_data_product") in {
                     SILSO_CYCLE_EXTREMA_DATA_PRODUCT,
+                    SILSO_CYCLE_DESCRIPTIVE_DATA_PRODUCT,
+                    SILSO_CYCLE_PHASE_PROTOCOL,
+                    SILSO_GNBB2_ANNUAL_PROTOCOL,
+                    SILSO_CYCLE_SENSITIVITY_PROTOCOL,
+                    SILSO_CYCLE_ASSOCIATIONS_PROTOCOL,
                     SOLAR_POLAR_PRECURSOR_DATA_PRODUCT,
                     SOLAR_CYCLE_26_FORECAST_BACKTEST_DATA_PRODUCT,
                 }:
@@ -3005,6 +3358,87 @@ class ResearchReviewStore:
 
             context_ref, context = specialized_context
             required_product = context.get("required_data_product")
+            if required_product in {
+                SILSO_GNBB2_ANNUAL_PROTOCOL,
+                SILSO_CYCLE_SENSITIVITY_PROTOCOL,
+                SILSO_CYCLE_ASSOCIATIONS_PROTOCOL,
+            }:
+                from jw.tools.c_stage import receipt_defect as c_receipt_defect, NAMES
+
+                defect = c_receipt_defect(
+                    self.workspace_root, self.task_id, manifest_by_ref, required_product
+                )
+                if defect is None:
+                    continue
+                rule_id = "DATA_SEMANTICS_BOUND"
+                claim_ref = f"receipts/datasets/{NAMES[required_product]}.json#computed-C-tables"
+                return [
+                    {
+                        "issue_id": "deterministic-c-stage",
+                        "rule_id": rule_id,
+                        "severity": "critical",
+                        "claim_ref": claim_ref,
+                        "owner": "solar-data",
+                        "evidence_refs": [context_ref],
+                        "message": f"C computation integrity failed: {defect}",
+                        "required_action": "Use the authorized bound C tool; retain audited failures and independent scientific review.",
+                        "acceptance_test": "All C tables, inputs, parameters, batch and result-dependent claims validate.",
+                        "fingerprint": issue_fingerprint(
+                            rule_id, claim_ref, "solar-data"
+                        ),
+                    }
+                ]
+            if required_product == SILSO_CYCLE_PHASE_PROTOCOL:
+                from jw.tools.cycle_phase import receipt_defect as phase_receipt_defect
+
+                defect = phase_receipt_defect(
+                    self.workspace_root, self.task_id, manifest_by_ref
+                )
+                if defect is None:
+                    continue
+                rule_id = "DATA_SEMANTICS_BOUND"
+                claim_ref = "receipts/datasets/silso_cycle_phase.json#phase-comparisons"
+                return [
+                    {
+                        "issue_id": "deterministic-cycle-phase",
+                        "rule_id": rule_id,
+                        "severity": "critical",
+                        "claim_ref": claim_ref,
+                        "owner": "solar-data",
+                        "evidence_refs": [context_ref],
+                        "message": f"Phase comparison integrity failed: {defect}",
+                        "required_action": "Use the task-bound phase tool and preserve audited errors; do not substitute another protocol.",
+                        "acceptance_test": "Complete, hash-matched phase outputs consistent with bound parameters and actual distances.",
+                        "fingerprint": issue_fingerprint(
+                            rule_id, claim_ref, "solar-data"
+                        ),
+                    }
+                ]
+            if required_product == SILSO_CYCLE_DESCRIPTIVE_DATA_PRODUCT:
+                from jw.tools.cycle_descriptive import receipt_defect
+
+                defect = receipt_defect(
+                    self.workspace_root, self.task_id, manifest_by_ref
+                )
+                if defect is None:
+                    continue
+                rule_id = "DATA_SEMANTICS_BOUND"
+                claim_ref = "receipts/datasets/silso_cycle_descriptive.json#complete-descriptors"
+                owner = "solar-data"
+                return [
+                    {
+                        "issue_id": "deterministic-cycle-descriptors",
+                        "rule_id": rule_id,
+                        "severity": "critical",
+                        "claim_ref": claim_ref,
+                        "owner": owner,
+                        "evidence_refs": [context_ref],
+                        "message": f"Descriptive cycle product is incomplete: {defect}",
+                        "required_action": "Use run_silso_cycle_descriptive with the bound inputs and parameters; preserve errors and do not substitute another protocol.",
+                        "acceptance_test": "Current-task receipt, parameter identity, all deliverables and cycle metric invariants validate against the review snapshot.",
+                        "fingerprint": issue_fingerprint(rule_id, claim_ref, owner),
+                    }
+                ]
             if required_product == SILSO_CYCLE_EXTREMA_DATA_PRODUCT:
                 defect = self._silso_cycle_reproduction_defect(context, manifest_by_ref)
                 if defect is None:
@@ -4867,6 +5301,7 @@ __all__ = [
     "ALL_REVIEW_MODES",
     "PRODUCER_FOR_STAGE",
     "REVIEW_SEQUENCE",
+    "ResearchDeliveryBlocked",
     "ResearchReviewStore",
     "store_from_config",
 ]
