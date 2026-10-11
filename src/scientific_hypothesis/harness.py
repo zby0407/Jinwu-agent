@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import shutil
 import uuid
+from collections.abc import Iterator
 from copy import deepcopy
 from datetime import datetime, timezone
 from pathlib import Path
@@ -120,6 +121,28 @@ def build_wiki_evidence_excerpt(
     return receipt
 
 
+def _material_evidence_fragments(material: dict[str, Any]) -> Iterator[str]:
+    """Yield original scientific text without serializing or joining fields."""
+
+    def text_leaves(value: object) -> Iterator[str]:
+        if isinstance(value, str):
+            yield " ".join(value.split())
+        elif isinstance(value, dict):
+            for child in value.values():
+                yield from text_leaves(child)
+        elif isinstance(value, list):
+            for child in value:
+                yield from text_leaves(child)
+
+    # Notes may themselves contain a JSON document. Keep that original string
+    # intact: decoding it would turn escaped text into a different quotation.
+    yield from text_leaves(material.get("content_notes"))
+    summary = material.get("experiment_summary")
+    if isinstance(summary, dict):
+        for field in ("outcome", "uncertainty_notes", "metrics"):
+            yield from text_leaves(summary.get(field))
+
+
 def validate_evidence_provenance(
     request: dict[str, Any],
     evidence: dict[str, Any],
@@ -202,9 +225,11 @@ def validate_evidence_provenance(
         raise ContractError(
             f"证据 {evidence['evidence_id']} 的 evidence_kind={kind} 与材料 "
             f"{material_id} 的 material_kind={material['material_kind']} 不一致"
+            f"；允许的 evidence_kind={', '.join(sorted(allowed_kinds))}"
         )
-    corpus = " ".join(json.dumps(material, ensure_ascii=False, sort_keys=True).split())
-    if excerpt not in corpus:
+    if not any(
+        excerpt in fragment for fragment in _material_evidence_fragments(material)
+    ):
         raise ContractError(
             f"证据 {evidence['evidence_id']} 的摘录无法在材料 {material_id} 中定位；"
             "请绑定材料中的原文，不要用记忆摘要替代"

@@ -2040,9 +2040,14 @@ def scientific_hypothesis_bind_evidence(
 
     Args:
         evidence_id: Unique identifier for this evidence entry (1-64 chars).
-        evidence_kind: One of ``experiment``, ``literature``, ``upstream``, ``user``.
+        evidence_kind: Must match the declared material kind:
+            experiment_result uses experiment; literature_note uses literature;
+            research_plan and data_feature use upstream; user_material uses
+            user or upstream.
         material_id: Identifier of the upstream material the excerpt comes from.
-        excerpt: Verbatim excerpt from the material (1-2000 chars).
+        excerpt: Original text from content_notes or an experiment summary
+            text field (1-2000 chars), with original quotes and backslashes.
+            Do not JSON-escape, rewrite, or concatenate separate text fields.
         verified_support: Whether the excerpt was verified against the claim.
         role: One of ``supports``, ``opposes``, ``limits``, ``gap``.
 
