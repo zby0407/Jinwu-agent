@@ -6,6 +6,7 @@ to work unchanged thanks to these re-exports.
 
 from .automatic_experiment import AUTOMATIC_EXPERIMENT_TOOLS
 from .b1_flare import B1_FLARE_TOOLS, run_b1_flare_case
+from .flare_forecast import forecast_flare_24h
 from .knowledge_base import KB_READONLY_TOOLS, KB_TOOLS
 from .literature_artifacts import LITERATURE_ARTIFACT_TOOLS
 from .registry import (
@@ -37,6 +38,7 @@ from .solar_feature import (
 from .think import think_tool
 
 __all__ = [
+    "forecast_flare_24h",
     "AUTOMATIC_EXPERIMENT_TOOLS",
     "B1_FLARE_TOOLS",
     "KB_READONLY_TOOLS",
