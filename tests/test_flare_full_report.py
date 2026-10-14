@@ -244,7 +244,7 @@ def test_full_report_contains_all_elements_embedded_figures_and_exact_window(
     output = tmp_path / "report"
     build_report(forecast, assets, output)
     page = (output / "report.html").read_text("utf-8")
-    manifest = json.loads((output / "report_manifest.json").read_text())
+    manifest = json.loads((output / "report_manifest.json").read_text("utf-8"))
     assert len(manifest["figures"]) == 8
     assert page.count("<img ") == 8
     assert "2026-10-14 22:00:00.123456+08:00" in page
@@ -271,7 +271,7 @@ def test_full_report_contains_all_elements_embedded_figures_and_exact_window(
             r["png_sha256"] for r in manifest["figures"]
         }
         assert (output / (figure["id"] + ".svg")).is_file()
-    bins = json.loads((output / "reliability_bins.json").read_text())
+    bins = json.loads((output / "reliability_bins.json").read_text("utf-8"))
     assert all(
         sum(r["n"] for r in bins if r["target"] == t) == 9 for t in ("C1.0+", "M1.0+")
     )
