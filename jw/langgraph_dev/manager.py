@@ -890,6 +890,22 @@ def stop_langgraph_dev(proc: subprocess.Popen | None = None) -> None:
             if proc is _PROCESS:
                 _PROCESS = None
                 _PROCESS_WORKSPACE = None
+    # A caller that reused an external deployment has no owned Popen handle.
+    # Its exit must not erase the live deployment's workspace registration.
+    # Also protect a newer deployment from a delayed old atexit callback.
+    recorded_pids = []
+    try:
+        recorded_pids.append(int(RUNTIME.pid_file.read_text(encoding="utf-8").strip()))
+    except (OSError, ValueError):
+        pass
+    sidecar = _read_workspace_sidecar()
+    if sidecar and isinstance(sidecar.get("pid"), int):
+        recorded_pids.append(sidecar["pid"])
+    own_pid = getattr(proc, "pid", None)
+    if any(
+        pid > 0 and pid != own_pid and psutil.pid_exists(pid) for pid in recorded_pids
+    ):
+        return
     if RUNTIME.pid_file.exists():
         try:
             RUNTIME.pid_file.unlink()
