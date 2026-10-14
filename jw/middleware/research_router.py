@@ -40,6 +40,7 @@ from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 from langgraph.types import Command
 
 from jw.agent_harness import attach_harness_metadata
+from jw.flare_forecast.chat import is_live_request, latest_request
 from jw.research_protocols import (
     B1_FLARE_CASE_PROTOCOL,
     F107_DISCONTINUITY_PROTOCOL,
@@ -2502,6 +2503,17 @@ class ResearchRouterMiddleware(AgentMiddleware[ResearchRoutingState, Any, Any]):
         runtime: Any,
     ) -> dict[str, Any] | None:
         messages = state.get("messages", [])
+        if is_live_request(latest_request(messages)[0]):
+            return {
+                "research_route": {
+                    "mode": "fast_answer",
+                    "source_mode": "mixed",
+                    "needs_computation": True,
+                    "task_intent": "general",
+                    "required_specialist": "none",
+                    "reason": "Bounded live flare workflow owns acquisition, native Data review and delivery",
+                }
+            }
         latest = _latest_human(messages)
         if latest is None:
             return None
@@ -2529,6 +2541,8 @@ class ResearchRouterMiddleware(AgentMiddleware[ResearchRoutingState, Any, Any]):
         runtime: Any,
     ) -> dict[str, Any] | None:
         messages = state.get("messages", [])
+        if is_live_request(latest_request(messages)[0]):
+            return self.before_agent(state, runtime)
         latest = _latest_human(messages)
         if latest is None:
             return None
@@ -3075,6 +3089,8 @@ class ResearchRouterMiddleware(AgentMiddleware[ResearchRoutingState, Any, Any]):
         request: ModelRequest,
         handler: Callable[[ModelRequest], ModelResponse],
     ) -> ModelResponse:
+        if is_live_request(latest_request(request.messages)[0]):
+            return handler(request)
         prepared = self._prepare_request(request)
         raw_response = handler(prepared)
         if _request_is_literature_only(request):
@@ -3093,6 +3109,8 @@ class ResearchRouterMiddleware(AgentMiddleware[ResearchRoutingState, Any, Any]):
         request: ModelRequest,
         handler: Callable[[ModelRequest], Awaitable[ModelResponse]],
     ) -> ModelResponse:
+        if is_live_request(latest_request(request.messages)[0]):
+            return await handler(request)
         prepared = await asyncio.to_thread(self._prepare_request, request)
         raw_response = await handler(prepared)
         if _request_is_literature_only(request):

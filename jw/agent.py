@@ -1279,6 +1279,11 @@ def _get_default_middleware(
         # that inline specialist specs receive in _inject_subagent_middleware.
         mw.append(ContractToolAllowlistMiddleware(allowed_tools))
 
+    if not for_async_subagent:
+        from .middleware.flare_forecast import FlareForecastMiddleware
+
+        mw.append(FlareForecastMiddleware())
+
     # Keep this last: Qwen must validate the exact tool set that survives all
     # registries, middleware injection, selection, and specialist allowlists.
     mw.append(QwenToolCompatibilityMiddleware(default_model=cfg.model))
