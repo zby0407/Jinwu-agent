@@ -160,6 +160,15 @@ def test_native_data_complete_messages_and_actual_binding(tmp_path, monkeypatch)
     (live / "live_physical.csv").write_text("synthetic_feature\n1\n", encoding="utf-8")
     contract = tmp_path / "contract.json"
     write(contract, {"synthetic": True})
+    monkeypatch.setattr(
+        native_data,
+        "quality_policy_input",
+        lambda _: {
+            "sha256": "synthetic-policy",
+            "bytes": 1,
+            "document": {"synthetic": True},
+        },
+    )
     core = SimpleNamespace(
         checked_live=lambda *a: ({}, {}, {}, None, live / "source_manifest.json"),
         validate_physical=lambda *a, **k: None,
@@ -174,6 +183,10 @@ def test_native_data_complete_messages_and_actual_binding(tmp_path, monkeypatch)
         json.loads(bundle_message.content)["live_physical_csv"]
         == "synthetic_feature\n1\n"
     )
+    received = json.loads(bundle_message.content)
+    assert received["registered_quality_policy"]["document"] == {"synthetic": True}
+    assert received["review_decision_contract"]["scope"] == received["review_scope"]
+    assert "registered_quality_policy" in model.inputs[0][0].content
     binding = read(path.parent / "native_review_binding.json")
     assert (
         json.loads(bundle_message.content)["registered_row_audit_projection"][

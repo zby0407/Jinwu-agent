@@ -19,6 +19,51 @@ MAX_INLINE_BYTES = 192 * 1024
 MAX_MODEL_CALLS = 4
 MAX_SECONDS = 600
 
+LIVE_REVIEW_DECISION_CONTRACT = {
+    "scope": "current_live_SHARP_input_only_not_future_skill_or_truth",
+    "question": "Whether this exact input is usable under the registered restricted experimental cohort, not whether the model or data are harmless or operationally validated.",
+    "registered_limits_not_automatic_new_blockers": [
+        "Complete primary QUALITY exactly 1024 is the preregistered warning cohort. It remains a suboptimal-condition warning, never a harmlessness certificate; do not clear bits.",
+        "QUALLEV1 0x40000000 is bit30 in the independent Level1 namespace. The archived quallev1.h in the source policy identifies Q_NRT; this is not primary QUALITY or bit31. Other/unreviewed secondary flags still need review.",
+        "Central SHARP scalar inputs versus full-Sun GOES labels, no pixels/FITS, DATE not first-publication proof, and archived/deployed version and licensing uncertainty remain declared limits of this task.",
+        "scientific_status=not_reviewed, formal ResearchReviewStore chain=false and operational validation=false stay unchanged even if Data accepts the restricted input.",
+    ],
+    "blocking_examples": [
+        "Source/hash binding or schema/version mismatch; missing source-policy basis; unsupported new quality flags; incomplete central patches or geometry; invalid/nonfinite features; future-time/as-of violation or input older than three hours.",
+        "A specific material gap in the policy or current snapshot that makes the restricted task unsupported, with the relevant field or source and explanation. Deterministic eligibility is evidence, not a preset independent acceptance.",
+    ],
+    "decision_semantics": {
+        "accept_with_limits": "Independent input acceptance with every warning retained; no model skill, safety, formal science acceptance or future truth claim.",
+        "revise_block_reject": "Valid decisions; explain the concrete current-input defect or unresolved policy basis in issues. The mere existence of already declared limits does not itself establish a new defect. Never downgrade a genuine concern just to obtain a forecast.",
+    },
+}
+
+
+def quality_policy_input(contract):
+    """Read the actual source-policy content, which the bounded role cannot open."""
+    binding = contract["quality_decision_file"]
+    path = Path(binding["path"])
+    if path.is_symlink() or (hasattr(path, "is_junction") and path.is_junction()):
+        raise ValueError("Quality policy must be a regular source file")
+    body = path.read_bytes()
+    digest = hashlib.sha256(body).hexdigest()
+    source_proof = contract["live_source"]["source_policy_proofs"][
+        "quality_source_decision"
+    ]
+    if (
+        digest != binding["sha256"]
+        or digest != contract["quality_policy_sha256"]
+        or digest != source_proof["sha256"]
+        or Path(source_proof["path"]).resolve() != path.resolve()
+    ):
+        raise ValueError("Registered quality policy content/hash bindings differ")
+    return {
+        "sha256": digest,
+        "bytes": len(body),
+        "document": json.loads(body.decode("utf-8-sig")),
+        "read_scope": "Complete archived source-policy document, including authorship and limitations. Historical row counts/old-window statements in it are source-review context, not current snapshot facts or a new JW acceptance.",
+    }
+
 
 class LiveFacts(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -52,6 +97,8 @@ def review_live(live_dir: Path, contract: Path, output: Path, model) -> Path:
     policy, _, before, frame, _ = core.checked_live(live_dir, contract)
     core.validate_physical(frame, policy, live=True)
     bundle = {"contract": read(contract)}
+    bundle["registered_quality_policy"] = quality_policy_input(bundle["contract"])
+    bundle["review_decision_contract"] = LIVE_REVIEW_DECISION_CONTRACT
     for name in (
         "source_manifest.json",
         "live_qualification.json",
@@ -121,7 +168,7 @@ def review_live(live_dir: Path, contract: Path, output: Path, model) -> Path:
         manifest_sha256: str,
         contract_sha256: str,
     ) -> str:
-        """Submit your independent current Data decision with exact read hashes and checks/issues/limitations lists. Decisions: accept_with_limits, revise, block, reject. Never accept away QUALITY warnings or assert future truth."""
+        """Submit an independent current-input decision with exact hashes and checks/issues/limitations. accept_with_limits retains registered warnings and does not certify harmlessness or skill. revise/block/reject remain valid: describe a specific defect or unresolved policy basis, rather than merely restating the declared restrictions. Never assert future truth."""
         nonlocal submitted
         assessment = assessment.model_dump()
         if submitted or not provider_read:
@@ -182,6 +229,7 @@ def review_live(live_dir: Path, contract: Path, output: Path, model) -> Path:
     ]
     prompt += "\nThis is a bounded live flare Data review, not RESEARCH_PRODUCER_V2. Use only the two registered live tools. First read the complete live bundle; next independently submit the decision bound to its exact hashes. The scope must equal review_scope. Keep QUALITY/source/spatial warnings. Do not fit, issue, read future outcomes, draw figures or discover other data. Return a short Chinese final reply after submission. A revise/block/reject is valid and will prevent issuance."
     prompt += "\nFollow the exact assessment schema: checks (not checks_passed), issues, limitations, facts. Facts must match the current projection summary; never infer counts from a prior example. 0x40000000 is bit30; bit31 is 0x80000000. Do not claim all archived unselected per-patch rows were read. Keep the projection's stated review scope."
+    prompt += "\nApply the bundle's review_decision_contract and read the complete registered_quality_policy. Source-policy authorship is preserved: operator source-condition review is not your native Data acceptance. Distinguish current snapshot facts from historical examples in that policy. This live task asks whether the registered restricted input is usable, not for a new model-performance/Evidence review or unrestricted scientific acceptance. Preserving a QUALITY warning is compatible with accept_with_limits; it must never be called harmless. For revise/block/reject, explain the concrete current-input defect or unresolved source-policy basis in issues, referencing the supplied field/source. A material source-policy concern may still block; do not preset or force acceptance."
     messages = [
         SystemMessage(content=prompt),
         HumanMessage(
@@ -200,6 +248,10 @@ def review_live(live_dir: Path, contract: Path, output: Path, model) -> Path:
         "actual_original_native_JW_role": True,
         "execution_framework": "JW bounded LangChain native tool loop",
         "role_prompt_sha256": sha(role_path),
+        "effective_system_prompt_sha256": hashlib.sha256(
+            prompt.encode("utf-8")
+        ).hexdigest(),
+        "source_quality_policy_sha256": bundle["registered_quality_policy"]["sha256"],
         "model_call_limit": MAX_MODEL_CALLS,
         "tool_call_limit": 2,
         "active_seconds_limit": MAX_SECONDS,

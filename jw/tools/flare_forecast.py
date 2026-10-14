@@ -139,7 +139,13 @@ def execute_forecast(root: Path, messages, call_id: str, model_factory, assets: 
         contract = Path(acquired["contract"])
         stage = "native_Data"
         review = review_live(live_dir, contract, work / "native_data", model_factory())
-        if read(review)["decision"] != "accept_with_limits":
+        review_result = read(review)
+        result["data_review_decision"] = review_result["decision"]
+        result["data_review_path"] = review.relative_to(root).as_posix()
+        result["data_review_reasons"] = review_result.get("assessment", {}).get(
+            "issues", []
+        )
+        if review_result["decision"] != "accept_with_limits":
             raise ValueError("CURRENT_NATIVE_DATA_REVIEW_NOT_ACCEPTED")
         stage = "issuance"
         issued = issue(assets, live_dir, contract, review, work / "issued")
@@ -223,7 +229,11 @@ def execute_forecast(root: Path, messages, call_id: str, model_factory, assets: 
 def render_delivery(result):
     if result.get("status") != "completed":
         text = result.get("message", "本次请求已登记，未重复获取或签发。")
-        for key in ("forecast_path", "failure_path"):
+        if result.get("data_review_decision"):
+            text += f"\n\nJW Data原生裁决：`{result['data_review_decision']}`。"
+            for reason in result.get("data_review_reasons", []):
+                text += "\n\n- " + str(reason)
+        for key in ("forecast_path", "failure_path", "data_review_path"):
             if result.get(key):
                 text += f"\n\n`{result[key]}`"
         return text
