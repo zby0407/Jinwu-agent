@@ -1334,6 +1334,12 @@ class TestStepThinking:
 
 
 class TestRunOnboard:
+    @pytest.fixture(autouse=True)
+    def offline_mcp_marketplace(self, monkeypatch):
+        """Wizard tests must not clone the live marketplace or read host MCP config."""
+        monkeypatch.setattr("jw.mcp.registry.fetch_marketplace_index", lambda: [])
+        monkeypatch.setattr("jw.mcp.client._load_user_config", lambda: {})
+
     def test_returns_true_on_save(self):
         """Test that run_onboard returns True when config is saved."""
         from jw.config.onboard.wizard import run_onboard
@@ -1348,6 +1354,12 @@ class TestRunOnboard:
             patch("jw.config.onboard.channels.console"),
             patch("jw.config.onboard.helpers.console"),
             patch("jw.config.onboard.wizard._step_tinytex"),
+            patch(
+                "jw.mcp.registry._clone_repo",
+                side_effect=AssertionError(
+                    "Wizard test attempted a real marketplace clone"
+                ),
+            ),
         ):
             # Setup mock config
             mock_load.return_value = JWConfig()
