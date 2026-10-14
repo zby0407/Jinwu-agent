@@ -15,6 +15,7 @@ from jw.flare_forecast.engine import PACKAGE
 from jw.flare_forecast.model import load_forest
 from jw.flare_forecast.native_data import review_live, write
 from jw.flare_forecast.report import build_report
+from jw.flare_forecast.report_reference import verify_reference
 from jw.flare_forecast.workflow import fetch_live, issue, read
 from jw.workspaces import workspace_root_from_config
 
@@ -113,6 +114,7 @@ def execute_forecast(root: Path, messages, call_id: str, model_factory, assets: 
             raise ValueError("Actual native main tool-call ID required")
         # Verify the model before any HTTP. Never implicitly rebuild missing assets.
         load_forest(assets)
+        verify_reference(child(assets, "report_reference"))
         write(
             work / "registered_request.json",
             {
@@ -156,7 +158,7 @@ def execute_forecast(root: Path, messages, call_id: str, model_factory, assets: 
             },
         )
         stage = "report"
-        build_report(issued, assets, outputs)
+        build_report(issued, assets, outputs, live_dir=live_dir)
         write(outputs / "issued_forecast.json", issued)
         result["status"] = "completed"
         result["report_path"] = (outputs / "report.md").relative_to(root).as_posix()

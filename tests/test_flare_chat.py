@@ -218,6 +218,7 @@ def install_pipeline(
 ):
     calls = []
     monkeypatch.setattr(service, "load_forest", lambda _: object())
+    monkeypatch.setattr(service, "verify_reference", lambda _: {})
 
     def acquire(assets, output):
         calls.append("fetch")
@@ -243,7 +244,7 @@ def install_pipeline(
         write(output / "issued_forecast.json", result)
         return result
 
-    def report(value, assets, output):
+    def report(value, assets, output, **kwargs):
         calls.append("report")
         if render_failure:
             raise ValueError("Synthetic renderer failure")
@@ -335,6 +336,57 @@ def test_frontend_graph_one_native_tool_and_verified_download_paths(
     assert "2026-10-14 18:00:00" in final
     assert "report.md" in final and "report.html" in final
     assert len(list((tmp_path / "outputs").rglob("issued_forecast.json"))) == 1
+
+
+def test_native_graph_delivers_real_full_renderer_output(tmp_path, monkeypatch):
+    from tests.test_flare_full_report import install_history
+
+    from jw.flare_forecast.report import build_report
+
+    calls = install_pipeline(monkeypatch)
+    assets, forecast, _, _, _ = install_history(tmp_path, monkeypatch)
+
+    def issue_full(assets, live, contract, review, output):
+        calls.append("issue")
+        output.mkdir()
+        write(output / "issued_forecast.json", forecast)
+        return forecast
+
+    # Transport/reviewer/issuance are synthetic; the registered JW tool and
+    # entire full renderer execute, including receipt-bound embedded figures.
+    monkeypatch.setattr(service, "issue", issue_full)
+    monkeypatch.setattr(
+        service, "build_report", lambda f, a, o, **kw: build_report(f, a, o)
+    )
+    monkeypatch.setattr(service, "assets_root", lambda: assets)
+    monkeypatch.setattr(service, "workspace_root_from_config", lambda _: tmp_path)
+    monkeypatch.setattr(
+        "jw.middleware.flare_forecast.workspace_root_from_config", lambda _: tmp_path
+    )
+    monkeypatch.setattr(service, "reviewer_model", lambda _: object())
+    graph = create_agent(
+        NativeModel(),
+        tools=[service.forecast_flare_24h],
+        middleware=[
+            ResearchRouterMiddleware(model=NativeModel()),
+            FlareForecastMiddleware(),
+        ],
+    )
+    result = graph.invoke(
+        {"messages": [HumanMessage(content=REQUEST, id="native-full-report")]}
+    )
+    final = result["messages"][-1].content
+    assert "91.00%" in final and "37.00%" in final and "report.html" in final
+    reports = list((tmp_path / "outputs").rglob("report.html"))
+    assert len(reports) == 1 and reports[0].read_text("utf-8").count("<img ") == 8
+    receipt = read(next((tmp_path / "receipts").rglob("*.json")))
+    assert receipt["status"] == "completed"
+    assert receipt["native_main_tool_call_id"] == "main-actual-test-call"
+    assert (
+        sum(r["path"].endswith("report_manifest.json") for r in receipt["artifacts"])
+        == 1
+    )
+    assert calls.count("fetch") == calls.count("issue") == 1
 
 
 def test_modified_report_is_not_returned_as_verified(tmp_path, monkeypatch):
