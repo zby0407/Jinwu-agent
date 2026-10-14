@@ -131,6 +131,11 @@ include = ["jw*", "research_review*", "research_quality*"]
 
 [tool.setuptools.package-data]
 jw = [
+    "flare_forecast/asset_inventory.json",
+    "flare_forecast/portable_model_identity.json",
+    "flare_forecast/model_protocol.json",
+    "flare_forecast/contract_template.json",
+    "flare_forecast/_frozen/**/*.py",
     "subagents/**/*.yaml",
     "subagents/**/skills/**/*",
     "langgraph_dev/*.json",
@@ -154,6 +159,7 @@ filterwarnings = [
 [tool.ruff]
 # Exclude a variety of commonly ignored directories.
 exclude = [
+    "jw/flare_forecast/_frozen",
     ".bzr",
     ".direnv",
     ".eggs",

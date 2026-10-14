@@ -1,0 +1,191 @@
+{
+  "schema_version": "available24-qualification-contract-v1",
+  "project_id": "NEW_REGISTERED_PROJECT_REQUIRED",
+  "source_mode": "hmi.sharp_cea_720s_nrt",
+  "splits": {
+    "train": [
+      "2011-01-01",
+      "2020-12-31"
+    ],
+    "selection": [
+      "2021-01-01",
+      "2021-12-31"
+    ],
+    "calibration": [
+      "2022-01-01",
+      "2022-12-31"
+    ],
+    "test": [
+      "2023-01-01",
+      "2025-12-31"
+    ]
+  },
+  "test_target_end_max_utc": "2026-01-01T00:00:00Z",
+  "accepted_QUALITY_words": [
+    1024
+  ],
+  "max_observation_age_seconds": 10800,
+  "support_half_width_seconds": 675,
+  "historical_clock_policy": "max_central_support_end_and_DATE_plus_1_second",
+  "issue_padding_seconds": 1,
+  "target_duration_seconds": 86400,
+  "target_offset_hours": [
+    0,
+    24
+  ],
+  "history_completion_lag_hours": 3,
+  "history_missing_end_policy": "unknown_not_zero",
+  "coverage_fraction_min": 0.99,
+  "coverage_max_gap_seconds": 300,
+  "target_spatial_scope": "whole_sun_GOES_catalog_no_AR_filter",
+  "historical_nominal_tai_hour": 13,
+  "prepare_allowed": true,
+  "input_readonly": true,
+  "features_physical": [
+    "USFLUX_max",
+    "USFLUX_median",
+    "TOTUSJH_max",
+    "TOTUSJH_median",
+    "TOTUSJZ_max",
+    "TOTUSJZ_median",
+    "ABSNJZH_max",
+    "ABSNJZH_median",
+    "SAVNCPP_max",
+    "SAVNCPP_median",
+    "MEANALP_max",
+    "MEANALP_median",
+    "R_VALUE_max",
+    "R_VALUE_median",
+    "TOTPOT_max",
+    "TOTPOT_median",
+    "MEANSHR_max",
+    "MEANSHR_median",
+    "AREA_ACR_max",
+    "AREA_ACR_median",
+    "MEANPOT_max",
+    "MEANPOT_median",
+    "patch_count"
+  ],
+  "features_history_baseline": [
+    "history_24h_c_count",
+    "history_24h_m_count",
+    "history_24h_x_count",
+    "history_24h_max_peak_w_m2",
+    "history_72h_c_count",
+    "history_72h_m_count",
+    "history_72h_x_count",
+    "history_72h_max_peak_w_m2",
+    "history_168h_c_count",
+    "history_168h_m_count",
+    "history_168h_x_count",
+    "history_168h_max_peak_w_m2"
+  ],
+  "source_manifest_sha256": "59a17004af8e76dcae125f3ea3433f6f58be19b1ca72be1807dba9030f0df351",
+  "quality_policy_sha256": "570585be8d5a22d3667a5723b818c58ce339ade4ac4622f6d00de4f5d9f582dc",
+  "quality_decision_file": {
+    "path": "REVIEWED_SOURCE_POLICY_REQUIRED",
+    "sha256": "570585be8d5a22d3667a5723b818c58ce339ade4ac4622f6d00de4f5d9f582dc"
+  },
+  "frozen_helpers": {
+    "acquire_prepare_magnetic.frozen_source_only_01.py": "4d9eb68936272dcacd6d4eccdd69c79ce85f0f8dcc5b0e719fdfec9a5f508d77",
+    "forecast_math_reference.py": "1af883b3cdba0717d827a1c8768d80f9720103f57795f6825f56b142e89090d1",
+    "frozen_math_core.py": "0582ae6f2085e18029b640c22a95b7be634c4e593560283c004b91ebec8c93d3",
+    "historical_prepare_reference.py": "921acd866fc3ad909799016687b38cfc91e9d60d30c1d705ed48e2c4d31802b1",
+    "history_math_reference.py": "7c170b3c8f9429d0d72b12455be9cc5afc100633c7beb8d04b36f6d480c1358a",
+    "magnetic_source_gateway.py": "d9aa0ea42262a444cc7d61479937d7ad0032f8edd67ab07b1b37893f0b3f99c8",
+    "physical_methods_frozen_v1.py": "69dd04bcbc8fb909df3d23cdf32ee667acf7d99c72f38988ab3b9c58e63ea4dc"
+  },
+  "historical_catalog_cutoff_utc": "2026-10-11T00:00:00Z",
+  "label_policy": "start_half_open_peak_threshold_end_optional",
+  "seed": 20261011,
+  "selection_metric": "mean_binary_Brier_C_M",
+  "final_refit_roles": [
+    "train",
+    "selection"
+  ],
+  "minimum_rows_per_role": 30,
+  "minimum_train_rows_per_class": 20,
+  "test_requires_both_binary_classes": true,
+  "main_features": "physical_only_23",
+  "random_forest_grid": {
+    "n_estimators": [
+      200
+    ],
+    "min_samples_leaf": [
+      5,
+      15,
+      30
+    ],
+    "max_depth": [
+      4,
+      8,
+      null
+    ]
+  },
+  "max_features": "sqrt",
+  "n_jobs": 4,
+  "calibration": "2022_scalar_temperature_only",
+  "probability_threshold": 0.5,
+  "bootstrap_draws": 200,
+  "bootstrap_unit": "eligible_test_month_paired",
+  "importance_repeats": 10,
+  "importance_role": "heldout_test_descriptive_permutation_no_feature_selection",
+  "common_insufficiency_policy": "unknown_not_fit_without_blocking_primary",
+  "future_outcome_read_during_live": false,
+  "budgets": {
+    "models": 24,
+    "tools": 32,
+    "active_seconds": 1800
+  },
+  "limits": [
+    "DATE production timestamp only, not first publication or archive retrieval proof",
+    "Whole-Sun labels and central patch input differ",
+    "Exact QUALITY1024 warning is not harmlessness certificate",
+    "NRT2011 absent and early R_VALUE absent; missing unknown",
+    "Historical fixed13TAI vs arbitrary live snapshot time differs",
+    "Original not_reviewed/formal ResearchReviewStore false not changed",
+    "History baseline missing end remains unknown; common may not fit",
+    "RF vs logistic different architectures not causal ablation",
+    "Probabilities are not accuracy; single future truth null",
+    "No automatic test-based model/threshold/feature adjustment"
+  ],
+  "live_source": {
+    "series": "hmi.sharp_cea_720s_nrt",
+    "endpoint": "http://jsoc.stanford.edu/cgi-bin/ajax/jsoc_info",
+    "HTTP_requests_max": 2,
+    "HTTP_request_timeout_seconds": 30,
+    "response_bytes_each_max": 2097152,
+    "total_response_bytes_max": 4194304,
+    "HTTP_retries": 0,
+    "lookback_hours": 12,
+    "cadence_seconds": 720,
+    "support_half_width_seconds": 675,
+    "max_input_age_seconds": 10800,
+    "max_abs_cmd_degrees": 60,
+    "accepted_QUALITY_words": [
+      1024
+    ],
+    "schema_literal_baseline_path": "LOCAL_SCHEMA_BASELINE_REQUIRED",
+    "schema_literal_baseline_sha256": "604cf1468a892d4ee67b7e70562952f54f8a9d2b0535ea9af9c249992ab9193d",
+    "known_version_literals": {
+      "BLD_VERS": [
+        "v10.0.5"
+      ],
+      "CALVER64": [
+        "0x0000000010042012"
+      ],
+      "CODEVER7": [
+        "$Id: sharp.c,v 1.39 2021/05/24 22:17:37 mbobra Exp $\n$Id"
+      ]
+    },
+    "source_policy_proofs": {
+      "quality_source_decision": {
+        "path": "REVIEWED_SOURCE_POLICY_REQUIRED",
+        "sha256": "570585be8d5a22d3667a5723b818c58ce339ade4ac4622f6d00de4f5d9f582dc"
+      }
+    },
+    "secondary_highbit_policy": "reject_pending_source_review"
+  },
+  "secondary_highbit_policy": "reject_pending_source_review",
+  "registration_note": "Template, not an accepted research contract; register current project, source policy and paths before any new scientific execution."
+}

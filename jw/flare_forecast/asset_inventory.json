@@ -1,0 +1,2543 @@
+{
+  "schema_version": "jw-flare-toolkit-assets-v1",
+  "input_only": true,
+  "reports_included": false,
+  "model_origin_contract_sha256": "483ff7e0d4bd7dd82514317b369e84c47029b8b6b73d447f9da02e095d8c09d3",
+  "files": [
+    {
+      "path": "inputs/operator_parent/reused/goes_2010_v1-0-1.csv",
+      "source": "raw/operator_parent/reused/goes_2010_v1-0-1.csv",
+      "sha256": "b460bacc09159fe5945b86843dcd223fdfe6eabc97153871d8948fcd889ce1cf",
+      "bytes": 313115,
+      "role": "science_event_annual"
+    },
+    {
+      "path": "inputs/operator_parent/reused/goes_2011_v1-0-1.csv",
+      "source": "raw/operator_parent/reused/goes_2011_v1-0-1.csv",
+      "sha256": "e094cf9f5325fcf4474c330219bb2d01490ca8586ec94c0e60644d3ed58bd519",
+      "bytes": 488029,
+      "role": "science_event_annual"
+    },
+    {
+      "path": "inputs/operator_parent/reused/goes_2012_v1-0-1.csv",
+      "source": "raw/operator_parent/reused/goes_2012_v1-0-1.csv",
+      "sha256": "4469dc5b9c588cd93d3c0bf369303e88c16ce397e02bc4ea8550936d21b72fa0",
+      "bytes": 477182,
+      "role": "science_event_annual"
+    },
+    {
+      "path": "inputs/operator_parent/reused/goes_2013_v1-0-1.csv",
+      "source": "raw/operator_parent/reused/goes_2013_v1-0-1.csv",
+      "sha256": "113008d522abee1439ec61ba14caa3acaa3c1a91c86284331f2ff83f1bea5b6a",
+      "bytes": 465944,
+      "role": "science_event_annual"
+    },
+    {
+      "path": "inputs/operator_parent/reused/goes_2014_v1-0-1.csv",
+      "source": "raw/operator_parent/reused/goes_2014_v1-0-1.csv",
+      "sha256": "bf0827d87ced965ebb4834927bcc5165bb995640d4dc4a9385917552c789c057",
+      "bytes": 521773,
+      "role": "science_event_annual"
+    },
+    {
+      "path": "inputs/operator_parent/reused/goes_2015_v1-0-1.csv",
+      "source": "raw/operator_parent/reused/goes_2015_v1-0-1.csv",
+      "sha256": "ebf46bdbefc60b4a9637289c9b7bd39714f98546ffd5ca3685de6434e2c34040",
+      "bytes": 484646,
+      "role": "science_event_annual"
+    },
+    {
+      "path": "inputs/operator_parent/reused/goes_2016_v1-0-1.csv",
+      "source": "raw/operator_parent/reused/goes_2016_v1-0-1.csv",
+      "sha256": "72034c0e8115aeaf1a484479abf96834f2a82991138c88e693b87aa1ba6e8a9b",
+      "bytes": 400660,
+      "role": "science_event_annual"
+    },
+    {
+      "path": "inputs/operator_parent/reused/goes_2017_v1-0-1.csv",
+      "source": "raw/operator_parent/reused/goes_2017_v1-0-1.csv",
+      "sha256": "c710e5da5990b38f8ec1c9d2e860141f36cc4591e9dcd0722ae1af027b8dc9c7",
+      "bytes": 329879,
+      "role": "science_event_annual"
+    },
+    {
+      "path": "inputs/operator_parent/reused/coverage_g15_2011_01.csv",
+      "source": "raw/operator_parent/reused/coverage_g15_2011_01.csv",
+      "sha256": "f820e35c5ba2f1729c7237a2409b9926358dff180660418becc6c881fdb6daa7",
+      "bytes": 2639731,
+      "role": "reused_legacy_coverage"
+    },
+    {
+      "path": "inputs/operator_parent/reused/coverage_g15_2010_12.csv",
+      "source": "raw/operator_parent/reused/coverage_g15_2010_12.csv",
+      "sha256": "f7728439f629dffc64335fb2b55b064f8adfbed8dd107c63e47c8b990d159fa5",
+      "bytes": 2640095,
+      "role": "reused_legacy_coverage"
+    },
+    {
+      "path": "inputs/operator_parent/reused/coverage_g15_2011_02.csv",
+      "source": "raw/operator_parent/reused/coverage_g15_2011_02.csv",
+      "sha256": "07cdb2e06410298dc8394ef862c0da07e79841e1439af82988408f155083f3a4",
+      "bytes": 2385591,
+      "role": "reused_legacy_coverage"
+    },
+    {
+      "path": "inputs/operator_parent/reused/coverage_g15_2011_03.csv",
+      "source": "raw/operator_parent/reused/coverage_g15_2011_03.csv",
+      "sha256": "5b0784136fd7c25c27463916333063623ed7a63f1916a2c6753237030eea28d2",
+      "bytes": 2619393,
+      "role": "reused_legacy_coverage"
+    },
+    {
+      "path": "inputs/operator_parent/reused/coverage_g15_2011_04.csv",
+      "source": "raw/operator_parent/reused/coverage_g15_2011_04.csv",
+      "sha256": "25cef6e1f3ac2939cf6bc9de2112905f5be123d46f3cb4de2ccdd3c707fc8add",
+      "bytes": 2554041,
+      "role": "reused_legacy_coverage"
+    },
+    {
+      "path": "inputs/operator_parent/reused/coverage_g15_2011_05.csv",
+      "source": "raw/operator_parent/reused/coverage_g15_2011_05.csv",
+      "sha256": "2201369c79236c7cefda75bcf68a78c3227b738cdbbeee7f63e762c27d5181af",
+      "bytes": 2639903,
+      "role": "reused_legacy_coverage"
+    },
+    {
+      "path": "inputs/operator_parent/reused/coverage_g15_2011_06.csv",
+      "source": "raw/operator_parent/reused/coverage_g15_2011_06.csv",
+      "sha256": "9e7a067d2c4632be563aaad43f58d2469747883ab9900cd982e11c6bc8c9214e",
+      "bytes": 2555347,
+      "role": "reused_legacy_coverage"
+    },
+    {
+      "path": "inputs/operator_parent/reused/coverage_g15_2011_07.csv",
+      "source": "raw/operator_parent/reused/coverage_g15_2011_07.csv",
+      "sha256": "440bd70b28751348abac6f91d680da4d7c42e37b4ccff7515fd984f4502ce7b5",
+      "bytes": 2639879,
+      "role": "reused_legacy_coverage"
+    },
+    {
+      "path": "inputs/operator_parent/reused/coverage_g15_2011_08.csv",
+      "source": "raw/operator_parent/reused/coverage_g15_2011_08.csv",
+      "sha256": "bb4d33a6f75cd4ab0a60c021358d1d607d1fbf56dbc296fb5340e0e44a448fdc",
+      "bytes": 2640599,
+      "role": "reused_legacy_coverage"
+    },
+    {
+      "path": "inputs/operator_parent/reused/coverage_g15_2011_11.csv",
+      "source": "raw/operator_parent/reused/coverage_g15_2011_11.csv",
+      "sha256": "45372a3ff76a6d6415333c331c8c0c503790f1b71bf6d483f3abeaa07ada7290",
+      "bytes": 2554844,
+      "role": "reused_legacy_coverage"
+    },
+    {
+      "path": "inputs/operator_parent/reused/coverage_g15_2011_09.csv",
+      "source": "raw/operator_parent/reused/coverage_g15_2011_09.csv",
+      "sha256": "7f3b624e7560583a827ac65dbf6e970598b18d601f6bb80627c0939e6a3487fb",
+      "bytes": 2573845,
+      "role": "reused_legacy_coverage"
+    },
+    {
+      "path": "inputs/operator_parent/reused/coverage_g15_2011_10.csv",
+      "source": "raw/operator_parent/reused/coverage_g15_2011_10.csv",
+      "sha256": "008371ec98fb3f615ab5adb1edd1621f003becbebc0518b3b7f969e00300e334",
+      "bytes": 2649395,
+      "role": "reused_legacy_coverage"
+    },
+    {
+      "path": "inputs/operator_parent/reused/coverage_g15_2011_12.csv",
+      "source": "raw/operator_parent/reused/coverage_g15_2011_12.csv",
+      "sha256": "c010fd9de7b5c56a2cd9044d00c8c5dbcec45b5cc88530382f001476e0e0750d",
+      "bytes": 2640043,
+      "role": "reused_legacy_coverage"
+    },
+    {
+      "path": "inputs/operator_parent/reused/coverage_g15_2012_02.csv",
+      "source": "raw/operator_parent/reused/coverage_g15_2012_02.csv",
+      "sha256": "25eb56b107634c8ddce7d1591b82c4c268545fd84cbf44822bdd8a9d53155590",
+      "bytes": 2471377,
+      "role": "reused_legacy_coverage"
+    },
+    {
+      "path": "inputs/operator_parent/reused/coverage_g15_2012_01.csv",
+      "source": "raw/operator_parent/reused/coverage_g15_2012_01.csv",
+      "sha256": "675f2b0d4dad66c80e5d506ea2f7f0eaa338ad8e0860113a16fe571d51657b48",
+      "bytes": 2639899,
+      "role": "reused_legacy_coverage"
+    },
+    {
+      "path": "inputs/operator_parent/reused/coverage_g15_2012_03.csv",
+      "source": "raw/operator_parent/reused/coverage_g15_2012_03.csv",
+      "sha256": "bb9c9cce2fedcd518fdda02003a2db4bc9c36970331154129185a0386acb5e04",
+      "bytes": 2579573,
+      "role": "reused_legacy_coverage"
+    },
+    {
+      "path": "inputs/operator_parent/reused/coverage_g15_2012_04.csv",
+      "source": "raw/operator_parent/reused/coverage_g15_2012_04.csv",
+      "sha256": "fe78a8a0d4847b87c1705812e65da1ff1c5d3e0bd7304ecbe67c02ad086759c1",
+      "bytes": 2560111,
+      "role": "reused_legacy_coverage"
+    },
+    {
+      "path": "inputs/operator_parent/reused/coverage_g15_2012_05.csv",
+      "source": "raw/operator_parent/reused/coverage_g15_2012_05.csv",
+      "sha256": "963f3afc2d3e5972c05b66ba998da9a4faa520c447109a6ce83745de2ded5c64",
+      "bytes": 2640033,
+      "role": "reused_legacy_coverage"
+    },
+    {
+      "path": "inputs/operator_parent/reused/coverage_g15_2012_06.csv",
+      "source": "raw/operator_parent/reused/coverage_g15_2012_06.csv",
+      "sha256": "8720235c1f868bb987fe25841f4a6256ab1b951b54461a34534a37f13a28dc49",
+      "bytes": 2554905,
+      "role": "reused_legacy_coverage"
+    },
+    {
+      "path": "inputs/operator_parent/reused/coverage_g15_2012_07.csv",
+      "source": "raw/operator_parent/reused/coverage_g15_2012_07.csv",
+      "sha256": "4683719add8eed2549bc718c6ed63844fb3d678fc772a1063f8822c83e8d09f5",
+      "bytes": 2639898,
+      "role": "reused_legacy_coverage"
+    },
+    {
+      "path": "inputs/operator_parent/reused/coverage_g15_2012_08.csv",
+      "source": "raw/operator_parent/reused/coverage_g15_2012_08.csv",
+      "sha256": "f780814def6609c27bef3070a1a27b74e7d77386570659eeb33a692b3db8813d",
+      "bytes": 2640793,
+      "role": "reused_legacy_coverage"
+    },
+    {
+      "path": "inputs/operator_parent/reused/coverage_g15_2012_09.csv",
+      "source": "raw/operator_parent/reused/coverage_g15_2012_09.csv",
+      "sha256": "0ef8afda4d105623c96b6959a75af1253b0ebf90f25eb946e2677c5206da3ad0",
+      "bytes": 2574065,
+      "role": "reused_legacy_coverage"
+    },
+    {
+      "path": "inputs/operator_parent/reused/coverage_g15_2012_10.csv",
+      "source": "raw/operator_parent/reused/coverage_g15_2012_10.csv",
+      "sha256": "f798dca1c51629b06e7ce10fd49fc78cdfe4b0c0eb7a238825e072015dca6c58",
+      "bytes": 2569724,
+      "role": "reused_legacy_coverage"
+    },
+    {
+      "path": "inputs/operator_parent/reused/coverage_g15_2012_11.csv",
+      "source": "raw/operator_parent/reused/coverage_g15_2012_11.csv",
+      "sha256": "d620b93495edb5bd2a1f3bdb7bc3e0c7faec20d918b13927c973391fe8307a4a",
+      "bytes": 2700576,
+      "role": "reused_legacy_coverage"
+    },
+    {
+      "path": "inputs/operator_parent/reused/coverage_g15_2012_12.csv",
+      "source": "raw/operator_parent/reused/coverage_g15_2012_12.csv",
+      "sha256": "1202ef615e28aef1cf6a01ceb7dd3ae7595edf10c12275f74079caf51cbc2525",
+      "bytes": 2639871,
+      "role": "reused_legacy_coverage"
+    },
+    {
+      "path": "inputs/operator_parent/reused/coverage_g15_2013_01.csv",
+      "source": "raw/operator_parent/reused/coverage_g15_2013_01.csv",
+      "sha256": "1dc7f1bb5af6b44a56f8352c43b46d6ced10b847df85e9bbcd3bd8f68dc7db60",
+      "bytes": 2639956,
+      "role": "reused_legacy_coverage"
+    },
+    {
+      "path": "inputs/operator_parent/reused/coverage_g15_2013_02.csv",
+      "source": "raw/operator_parent/reused/coverage_g15_2013_02.csv",
+      "sha256": "36cd1325093af2fb0e62499a17047712e7ddb0b68555d8827b2de44499494ec6",
+      "bytes": 2386507,
+      "role": "reused_legacy_coverage"
+    },
+    {
+      "path": "inputs/operator_parent/reused/coverage_g15_2013_03.csv",
+      "source": "raw/operator_parent/reused/coverage_g15_2013_03.csv",
+      "sha256": "1973e66c5b24ae206fe76703219eef9cb1b7e015a15545f81995be2bd6cd8fc5",
+      "bytes": 2661774,
+      "role": "reused_legacy_coverage"
+    },
+    {
+      "path": "inputs/operator_parent/reused/coverage_g15_2013_04.csv",
+      "source": "raw/operator_parent/reused/coverage_g15_2013_04.csv",
+      "sha256": "df175ee740ab7d6b271933b970cc5602c291e8a145dd5a160426eadc009cf2cf",
+      "bytes": 2560651,
+      "role": "reused_legacy_coverage"
+    },
+    {
+      "path": "inputs/operator_parent/reused/coverage_g15_2013_06.csv",
+      "source": "raw/operator_parent/reused/coverage_g15_2013_06.csv",
+      "sha256": "ff0531049bc2be2c7b6718a5753ceb7a8ae912b16a8266f743b8fdeed0b7a45b",
+      "bytes": 2554799,
+      "role": "reused_legacy_coverage"
+    },
+    {
+      "path": "inputs/operator_parent/reused/coverage_g15_2013_05.csv",
+      "source": "raw/operator_parent/reused/coverage_g15_2013_05.csv",
+      "sha256": "dd64c271076adb20da6269d99dd45892d829572fa4d0f50524c671278bf8ce27",
+      "bytes": 2640604,
+      "role": "reused_legacy_coverage"
+    },
+    {
+      "path": "inputs/operator_parent/reused/coverage_g15_2013_07.csv",
+      "source": "raw/operator_parent/reused/coverage_g15_2013_07.csv",
+      "sha256": "242bb77437bb96725bd1ba698cdb1a813bbb78a23baa5369c4058387a49ff0d6",
+      "bytes": 2639867,
+      "role": "reused_legacy_coverage"
+    },
+    {
+      "path": "inputs/operator_parent/reused/coverage_g15_2013_08.csv",
+      "source": "raw/operator_parent/reused/coverage_g15_2013_08.csv",
+      "sha256": "464dbcfec002a0a8b79a74ed1469b1345a7419e4b5e99722f07ec613fd7b72a1",
+      "bytes": 2640615,
+      "role": "reused_legacy_coverage"
+    },
+    {
+      "path": "inputs/operator_parent/reused/coverage_g15_2013_09.csv",
+      "source": "raw/operator_parent/reused/coverage_g15_2013_09.csv",
+      "sha256": "7b08a984f25f204da4624f9ccc3bb390a17b628d80df2da04e699028aacb3da2",
+      "bytes": 2574113,
+      "role": "reused_legacy_coverage"
+    },
+    {
+      "path": "inputs/operator_parent/reused/coverage_g15_2013_10.csv",
+      "source": "raw/operator_parent/reused/coverage_g15_2013_10.csv",
+      "sha256": "9863a3f09a70eb03042635eb6f7d6a0715f2f0c661def633f752e95f0af2477e",
+      "bytes": 2649275,
+      "role": "reused_legacy_coverage"
+    },
+    {
+      "path": "inputs/operator_parent/reused/coverage_g15_2013_11.csv",
+      "source": "raw/operator_parent/reused/coverage_g15_2013_11.csv",
+      "sha256": "78c0efa762c3ba60a2fd7c9579150acf84e439345a689e0cfb38f04f33699f2f",
+      "bytes": 2554931,
+      "role": "reused_legacy_coverage"
+    },
+    {
+      "path": "inputs/operator_parent/reused/coverage_g15_2013_12.csv",
+      "source": "raw/operator_parent/reused/coverage_g15_2013_12.csv",
+      "sha256": "d44eb13a2cdb05ddf9efbbc3a37d017a39ddd56963aa144e691bf291ec9b16d5",
+      "bytes": 2639883,
+      "role": "reused_legacy_coverage"
+    },
+    {
+      "path": "inputs/operator_parent/reused/coverage_g15_2014_01.csv",
+      "source": "raw/operator_parent/reused/coverage_g15_2014_01.csv",
+      "sha256": "44888f06b4bb2546b3c772bd9d22bc121579fdd40e4ff70f4968cf063242bdd2",
+      "bytes": 2644002,
+      "role": "reused_legacy_coverage"
+    },
+    {
+      "path": "inputs/operator_parent/reused/coverage_g15_2014_02.csv",
+      "source": "raw/operator_parent/reused/coverage_g15_2014_02.csv",
+      "sha256": "ad54a771bf250acb79f4e36b0c9045766479a3fc2eb8a84e0b5382177fd67f87",
+      "bytes": 2386898,
+      "role": "reused_legacy_coverage"
+    },
+    {
+      "path": "inputs/operator_parent/reused/coverage_g15_2014_03.csv",
+      "source": "raw/operator_parent/reused/coverage_g15_2014_03.csv",
+      "sha256": "3e6897865a3bed794c91e3e7c77964c43659bfc3d0952d235def836f83098008",
+      "bytes": 2661852,
+      "role": "reused_legacy_coverage"
+    },
+    {
+      "path": "inputs/operator_parent/reused/coverage_g15_2014_04.csv",
+      "source": "raw/operator_parent/reused/coverage_g15_2014_04.csv",
+      "sha256": "03750c8016ea7bacde6c4f1df90953f282d10c2fe0c9287ef0827581b476a5b2",
+      "bytes": 2562014,
+      "role": "reused_legacy_coverage"
+    },
+    {
+      "path": "inputs/operator_parent/reused/coverage_g15_2014_05.csv",
+      "source": "raw/operator_parent/reused/coverage_g15_2014_05.csv",
+      "sha256": "b0b54d2a75f431dc4d32a143822674bd766b3d05e8b97fe36567d9faaae05fb0",
+      "bytes": 2641530,
+      "role": "reused_legacy_coverage"
+    },
+    {
+      "path": "inputs/operator_parent/reused/coverage_g15_2014_06.csv",
+      "source": "raw/operator_parent/reused/coverage_g15_2014_06.csv",
+      "sha256": "152774a8e76b18e2c116bbd06f74eb35a2af8357b7495fc4b0ebfa0fb6d8fe77",
+      "bytes": 2555152,
+      "role": "reused_legacy_coverage"
+    },
+    {
+      "path": "inputs/operator_parent/reused/coverage_g15_2014_07.csv",
+      "source": "raw/operator_parent/reused/coverage_g15_2014_07.csv",
+      "sha256": "9b36e58612d14cf13b454298613615cda2c9fd8690991f6ffe93b4ded58504e0",
+      "bytes": 2641340,
+      "role": "reused_legacy_coverage"
+    },
+    {
+      "path": "inputs/operator_parent/reused/coverage_g15_2014_08.csv",
+      "source": "raw/operator_parent/reused/coverage_g15_2014_08.csv",
+      "sha256": "258551709ddb647561c5dc231e3b234906e964cedc4d8fac8fefa56ba2b03a8e",
+      "bytes": 2640838,
+      "role": "reused_legacy_coverage"
+    },
+    {
+      "path": "inputs/operator_parent/reused/coverage_g15_2014_09.csv",
+      "source": "raw/operator_parent/reused/coverage_g15_2014_09.csv",
+      "sha256": "c746813084cff277d5d004de23397e4254c761893086a80bfb20fc5e299d50ac",
+      "bytes": 2574186,
+      "role": "reused_legacy_coverage"
+    },
+    {
+      "path": "inputs/operator_parent/reused/coverage_g15_2014_10.csv",
+      "source": "raw/operator_parent/reused/coverage_g15_2014_10.csv",
+      "sha256": "d0aa717c20de75d3da68fb220a89d7324f57def5f6ae315bb1dad1dcb59d16f6",
+      "bytes": 2649493,
+      "role": "reused_legacy_coverage"
+    },
+    {
+      "path": "inputs/operator_parent/reused/coverage_g15_2014_11.csv",
+      "source": "raw/operator_parent/reused/coverage_g15_2014_11.csv",
+      "sha256": "75eec39518855da9918284c161458d97661342375fe4a1386b4daa8c12d46638",
+      "bytes": 2555281,
+      "role": "reused_legacy_coverage"
+    },
+    {
+      "path": "inputs/operator_parent/reused/coverage_g15_2014_12.csv",
+      "source": "raw/operator_parent/reused/coverage_g15_2014_12.csv",
+      "sha256": "ef284f1f0f79cb6eea35b8d6e23b6a8fbb64371c96770fd678be8cb54c380320",
+      "bytes": 2643316,
+      "role": "reused_legacy_coverage"
+    },
+    {
+      "path": "inputs/operator_parent/reused/coverage_g15_2015_01.csv",
+      "source": "raw/operator_parent/reused/coverage_g15_2015_01.csv",
+      "sha256": "4acf9be218ba6a8214d1af7e92c0c8d98522aeb8c40505b754598a17e839de79",
+      "bytes": 2640544,
+      "role": "reused_legacy_coverage"
+    },
+    {
+      "path": "inputs/operator_parent/reused/coverage_g13_2015_01.csv",
+      "source": "raw/operator_parent/reused/coverage_g13_2015_01.csv",
+      "sha256": "8fa9bc49095ef0eba18b225d91bb357ca78dd0b360272e275dd96a283aa7bbce",
+      "bytes": 1562164,
+      "role": "reused_legacy_coverage"
+    },
+    {
+      "path": "inputs/operator_parent/reused/coverage_g15_2015_02.csv",
+      "source": "raw/operator_parent/reused/coverage_g15_2015_02.csv",
+      "sha256": "5b256697e839f4fa8937bff5527303d451d7260b541620284978dd35be858c31",
+      "bytes": 2388963,
+      "role": "reused_legacy_coverage"
+    },
+    {
+      "path": "inputs/operator_parent/reused/coverage_g13_2015_02.csv",
+      "source": "raw/operator_parent/reused/coverage_g13_2015_02.csv",
+      "sha256": "1840e78578d49e436fa5d70c6f0fbec1564145f5be4b6d578034366dc8a250b1",
+      "bytes": 2423817,
+      "role": "reused_legacy_coverage"
+    },
+    {
+      "path": "inputs/operator_parent/reused/coverage_g13_2015_03.csv",
+      "source": "raw/operator_parent/reused/coverage_g13_2015_03.csv",
+      "sha256": "7026b1e52ec9e413df45bd5ace20d68f42e57fa0ddf7eb6608261999b26a9ecd",
+      "bytes": 2667127,
+      "role": "reused_legacy_coverage"
+    },
+    {
+      "path": "inputs/operator_parent/reused/coverage_g15_2015_03.csv",
+      "source": "raw/operator_parent/reused/coverage_g15_2015_03.csv",
+      "sha256": "1305706898df96d650dbb927681aadd3327fa92760a6440de173e4493114e8aa",
+      "bytes": 2665074,
+      "role": "reused_legacy_coverage"
+    },
+    {
+      "path": "inputs/operator_parent/reused/coverage_g15_2015_04.csv",
+      "source": "raw/operator_parent/reused/coverage_g15_2015_04.csv",
+      "sha256": "0a88518ac360f9ea9ba1b3fdbbf174ed8d6abf07e2e6c8e816c94cff578f61bd",
+      "bytes": 2563445,
+      "role": "reused_legacy_coverage"
+    },
+    {
+      "path": "inputs/operator_parent/reused/coverage_g13_2015_04.csv",
+      "source": "raw/operator_parent/reused/coverage_g13_2015_04.csv",
+      "sha256": "8ad928f01c37f58a5f772bbbcf87b665fddf807b21b44738195257b2fbb7eabe",
+      "bytes": 2565265,
+      "role": "reused_legacy_coverage"
+    },
+    {
+      "path": "inputs/operator_parent/reused/coverage_g15_2015_05.csv",
+      "source": "raw/operator_parent/reused/coverage_g15_2015_05.csv",
+      "sha256": "31fdfbd46b68963375935fcad87839a1ab203f9ffaeb186ed17d06494883d752",
+      "bytes": 2748642,
+      "role": "reused_legacy_coverage"
+    },
+    {
+      "path": "inputs/operator_parent/reused/coverage_g13_2015_05.csv",
+      "source": "raw/operator_parent/reused/coverage_g13_2015_05.csv",
+      "sha256": "05d491a81ac11c16bccc08ae828c1f2101cfc6a60075b80243b245114687b097",
+      "bytes": 2560057,
+      "role": "reused_legacy_coverage"
+    },
+    {
+      "path": "inputs/operator_parent/reused/coverage_g13_2015_06.csv",
+      "source": "raw/operator_parent/reused/coverage_g13_2015_06.csv",
+      "sha256": "94ff39afc389f7fc2434f944b6c34117529655103862712145fbc7cc658ad492",
+      "bytes": 2558094,
+      "role": "reused_legacy_coverage"
+    },
+    {
+      "path": "inputs/operator_parent/reused/coverage_g15_2015_06.csv",
+      "source": "raw/operator_parent/reused/coverage_g15_2015_06.csv",
+      "sha256": "374108f2cc7dfdc33eed49b5329d3d1ea2668045ea1c105f2c5ca7dc96b76cd2",
+      "bytes": 2613545,
+      "role": "reused_legacy_coverage"
+    },
+    {
+      "path": "inputs/operator_parent/reused/coverage_g13_2015_07.csv",
+      "source": "raw/operator_parent/reused/coverage_g13_2015_07.csv",
+      "sha256": "d4f22a2daf7708070e720b931d1ef8fb4aa231fc1f81b163d1fc1b64b5be5342",
+      "bytes": 2641533,
+      "role": "reused_legacy_coverage"
+    },
+    {
+      "path": "inputs/operator_parent/reused/coverage_g15_2015_07.csv",
+      "source": "raw/operator_parent/reused/coverage_g15_2015_07.csv",
+      "sha256": "3f1c07971bcaf22b02f60a50287b4e201c2c5f95caa2f440b72ddce38d23e137",
+      "bytes": 2641434,
+      "role": "reused_legacy_coverage"
+    },
+    {
+      "path": "inputs/operator_parent/reused/coverage_g13_2015_08.csv",
+      "source": "raw/operator_parent/reused/coverage_g13_2015_08.csv",
+      "sha256": "cb1a77c812ab6376262a55635e125a7fcf8ac99df1ff200aa239e24dee4af01f",
+      "bytes": 2640357,
+      "role": "reused_legacy_coverage"
+    },
+    {
+      "path": "inputs/operator_parent/reused/coverage_g15_2015_08.csv",
+      "source": "raw/operator_parent/reused/coverage_g15_2015_08.csv",
+      "sha256": "e0b6c1a28b5529df1caba05a656c48b38013cc234eda5bb4470a4dc3f4642705",
+      "bytes": 2640886,
+      "role": "reused_legacy_coverage"
+    },
+    {
+      "path": "inputs/operator_parent/reused/coverage_g15_2015_09.csv",
+      "source": "raw/operator_parent/reused/coverage_g15_2015_09.csv",
+      "sha256": "be68ffd739382b362224875f8724d5afc5d3beabd0fd38cecb4a63b4825fff38",
+      "bytes": 2574575,
+      "role": "reused_legacy_coverage"
+    },
+    {
+      "path": "inputs/operator_parent/reused/coverage_g13_2015_09.csv",
+      "source": "raw/operator_parent/reused/coverage_g13_2015_09.csv",
+      "sha256": "977c6719545b1aa8f5bee929d2676910f1f41f1670c14d5017839c1e2d1c3627",
+      "bytes": 2577680,
+      "role": "reused_legacy_coverage"
+    },
+    {
+      "path": "inputs/operator_parent/reused/coverage_g15_2015_10.csv",
+      "source": "raw/operator_parent/reused/coverage_g15_2015_10.csv",
+      "sha256": "7dcab69b08d2dfff33526681d7be2e2aa7c30190267e93355506a61c365a4ed2",
+      "bytes": 2649172,
+      "role": "reused_legacy_coverage"
+    },
+    {
+      "path": "inputs/operator_parent/reused/coverage_g13_2015_10.csv",
+      "source": "raw/operator_parent/reused/coverage_g13_2015_10.csv",
+      "sha256": "6a5ee661ec399caf3a3939a021a6c08ecdaacf7080b12d5cdc060871fe1553f5",
+      "bytes": 2648864,
+      "role": "reused_legacy_coverage"
+    },
+    {
+      "path": "inputs/operator_parent/reused/coverage_g13_2015_11.csv",
+      "source": "raw/operator_parent/reused/coverage_g13_2015_11.csv",
+      "sha256": "fbb903b167c795dcadcce43992855172345d35f8c390be4e1d288df7cabd9645",
+      "bytes": 2555746,
+      "role": "reused_legacy_coverage"
+    },
+    {
+      "path": "inputs/operator_parent/reused/coverage_g15_2015_11.csv",
+      "source": "raw/operator_parent/reused/coverage_g15_2015_11.csv",
+      "sha256": "1d651ef93bd070f3365a82d5452b265cbda85d60d155d97d43323773afd82727",
+      "bytes": 2555324,
+      "role": "reused_legacy_coverage"
+    },
+    {
+      "path": "inputs/operator_parent/reused/coverage_g13_2015_12.csv",
+      "source": "raw/operator_parent/reused/coverage_g13_2015_12.csv",
+      "sha256": "1c2fa4598c4f96dd636f6753c467ea34c673feb4436062b2fe70fd030b1737ed",
+      "bytes": 2640785,
+      "role": "reused_legacy_coverage"
+    },
+    {
+      "path": "inputs/operator_parent/reused/coverage_g15_2015_12.csv",
+      "source": "raw/operator_parent/reused/coverage_g15_2015_12.csv",
+      "sha256": "52aa94b90154662c41df43eb443138c3bf55fa9377e98b0773230dfeee657627",
+      "bytes": 2640814,
+      "role": "reused_legacy_coverage"
+    },
+    {
+      "path": "inputs/operator_parent/reused/coverage_g13_2016_01.csv",
+      "source": "raw/operator_parent/reused/coverage_g13_2016_01.csv",
+      "sha256": "dd88ce274e03eab925adac16780d6666ef20c340752432ea9c022058cf6b6453",
+      "bytes": 2641437,
+      "role": "reused_legacy_coverage"
+    },
+    {
+      "path": "inputs/operator_parent/reused/coverage_g13_2016_02.csv",
+      "source": "raw/operator_parent/reused/coverage_g13_2016_02.csv",
+      "sha256": "6dc062fe21b366d8536623bd2f6004843e94f43936cf50f36c2818233fbe4f9b",
+      "bytes": 2473334,
+      "role": "reused_legacy_coverage"
+    },
+    {
+      "path": "inputs/operator_parent/reused/coverage_g15_2016_02.csv",
+      "source": "raw/operator_parent/reused/coverage_g15_2016_02.csv",
+      "sha256": "ab19ae53124adad14baa938808be09bb2cc1db35ebb7caa6641cf550e04eb843",
+      "bytes": 2471212,
+      "role": "reused_legacy_coverage"
+    },
+    {
+      "path": "inputs/operator_parent/reused/coverage_g15_2016_01.csv",
+      "source": "raw/operator_parent/reused/coverage_g15_2016_01.csv",
+      "sha256": "b5de11c2f22c035fdbe4e370e65ad910704c1549986eb02b5b94baa002148cee",
+      "bytes": 2640574,
+      "role": "reused_legacy_coverage"
+    },
+    {
+      "path": "inputs/operator_parent/reused/coverage_g13_2016_03.csv",
+      "source": "raw/operator_parent/reused/coverage_g13_2016_03.csv",
+      "sha256": "558bdd0727587c2d70659e06ba6ef33d7a067649e18d4d21cbc9e6ddd02a4d7d",
+      "bytes": 2628359,
+      "role": "reused_legacy_coverage"
+    },
+    {
+      "path": "inputs/operator_parent/reused/coverage_g15_2016_04.csv",
+      "source": "raw/operator_parent/reused/coverage_g15_2016_04.csv",
+      "sha256": "ab5a6afe38e8e2ebc5f66a0d9c8782b461ae929075e562369921660c508a9689",
+      "bytes": 2560471,
+      "role": "reused_legacy_coverage"
+    },
+    {
+      "path": "inputs/operator_parent/reused/coverage_g15_2016_03.csv",
+      "source": "raw/operator_parent/reused/coverage_g15_2016_03.csv",
+      "sha256": "ed2970384029c16798e4966b507c35827f111cb4a01f2efe7f757967f07e93f0",
+      "bytes": 2577774,
+      "role": "reused_legacy_coverage"
+    },
+    {
+      "path": "inputs/operator_parent/reused/coverage_g13_2016_04.csv",
+      "source": "raw/operator_parent/reused/coverage_g13_2016_04.csv",
+      "sha256": "7e3926aa5d846fe0cca8621622ef2508eb65ffa3a299487f069af1900c03682b",
+      "bytes": 2619028,
+      "role": "reused_legacy_coverage"
+    },
+    {
+      "path": "inputs/operator_parent/reused/coverage_g13_2016_05.csv",
+      "source": "raw/operator_parent/reused/coverage_g13_2016_05.csv",
+      "sha256": "79d16d31284b05cbb939318c7a1a540bda8ef8631bc7f5a64d21d8df26aae770",
+      "bytes": 2826674,
+      "role": "reused_legacy_coverage"
+    },
+    {
+      "path": "inputs/operator_parent/reused/coverage_g13_2016_06.csv",
+      "source": "raw/operator_parent/reused/coverage_g13_2016_06.csv",
+      "sha256": "6361c749a19885e732f4d6ba81d9f0893de74aa1d8f407df5a73f505ad17fc14",
+      "bytes": 2690245,
+      "role": "reused_legacy_coverage"
+    },
+    {
+      "path": "inputs/operator_parent/reused/coverage_g15_2016_05.csv",
+      "source": "raw/operator_parent/reused/coverage_g15_2016_05.csv",
+      "sha256": "b486f33f18972cb68a5261d137d66ba794f5aa8931f5cd4ae5846ef39b935309",
+      "bytes": 2799614,
+      "role": "reused_legacy_coverage"
+    },
+    {
+      "path": "inputs/operator_parent/reused/coverage_g15_2016_06.csv",
+      "source": "raw/operator_parent/reused/coverage_g15_2016_06.csv",
+      "sha256": "1ea9b1173a33630343445521a05cda1ec4aa95e73df68fe92fe0bf2101478ed1",
+      "bytes": 2555309,
+      "role": "reused_legacy_coverage"
+    },
+    {
+      "path": "inputs/operator_parent/reused/coverage_g13_2016_07.csv",
+      "source": "raw/operator_parent/reused/coverage_g13_2016_07.csv",
+      "sha256": "6b40f46b90f0c0e8ea63b37ae60fc27af8283db0b2736a23d9e23b78ca7ab342",
+      "bytes": 2715156,
+      "role": "reused_legacy_coverage"
+    },
+    {
+      "path": "inputs/operator_parent/reused/coverage_g15_2016_07.csv",
+      "source": "raw/operator_parent/reused/coverage_g15_2016_07.csv",
+      "sha256": "f6836643b9b9df538a7001e246f89e86b8ef1ea93d4bfc9375680c6f4da354a2",
+      "bytes": 2640170,
+      "role": "reused_legacy_coverage"
+    },
+    {
+      "path": "inputs/operator_parent/reused/coverage_g13_2016_08.csv",
+      "source": "raw/operator_parent/reused/coverage_g13_2016_08.csv",
+      "sha256": "614a99e316256a4ffbaac433342e253929c0654241a250863c2ce1f5b1c2742e",
+      "bytes": 2766550,
+      "role": "reused_legacy_coverage"
+    },
+    {
+      "path": "inputs/operator_parent/reused/coverage_g15_2016_08.csv",
+      "source": "raw/operator_parent/reused/coverage_g15_2016_08.csv",
+      "sha256": "a4e81c4153a933f38eb7f76aea8b36dc95ca7ea9a4209b60b1097ad9b0f9ff02",
+      "bytes": 2641048,
+      "role": "reused_legacy_coverage"
+    },
+    {
+      "path": "inputs/operator_parent/reused/coverage_g13_2016_09.csv",
+      "source": "raw/operator_parent/reused/coverage_g13_2016_09.csv",
+      "sha256": "84127855ff88e9e5cff88c742f72f437c4b42e604f1fe9d768e320dd22da51c8",
+      "bytes": 2591329,
+      "role": "reused_legacy_coverage"
+    },
+    {
+      "path": "inputs/operator_parent/reused/coverage_g15_2016_09.csv",
+      "source": "raw/operator_parent/reused/coverage_g15_2016_09.csv",
+      "sha256": "01d92dcda51a95dac0c41f6c53aec4266e8ff8084a2d472b80fdaa006bbdc657",
+      "bytes": 2574641,
+      "role": "reused_legacy_coverage"
+    },
+    {
+      "path": "inputs/operator_parent/reused/coverage_g13_2016_10.csv",
+      "source": "raw/operator_parent/reused/coverage_g13_2016_10.csv",
+      "sha256": "bb5b0580e277ed5d2d19bf77eb7acacf1d66cc405d5a68a31c324e283cba209a",
+      "bytes": 2650173,
+      "role": "reused_legacy_coverage"
+    },
+    {
+      "path": "inputs/operator_parent/reused/coverage_g15_2016_10.csv",
+      "source": "raw/operator_parent/reused/coverage_g15_2016_10.csv",
+      "sha256": "b95259707fa8f7058e33a82d60d36d4e029830dbd6e9e76300d6a5d2dca826e3",
+      "bytes": 2648556,
+      "role": "reused_legacy_coverage"
+    },
+    {
+      "path": "inputs/operator_parent/reused/coverage_g13_2016_11.csv",
+      "source": "raw/operator_parent/reused/coverage_g13_2016_11.csv",
+      "sha256": "960a8af4e2ff4fa0d680f938d6d4f1f8ca473fb3187c3edbc022e8fe7ae0bf31",
+      "bytes": 2555660,
+      "role": "reused_legacy_coverage"
+    },
+    {
+      "path": "inputs/operator_parent/reused/coverage_g15_2016_11.csv",
+      "source": "raw/operator_parent/reused/coverage_g15_2016_11.csv",
+      "sha256": "b3e70586ddff5699112a9acb667d1ef39ea77e5bfcb3836207a43ff7005d302e",
+      "bytes": 2555125,
+      "role": "reused_legacy_coverage"
+    },
+    {
+      "path": "inputs/operator_parent/reused/coverage_g13_2016_12.csv",
+      "source": "raw/operator_parent/reused/coverage_g13_2016_12.csv",
+      "sha256": "8f5093fe05ca39eefa7279bf353e59c5da0c023da64e3f6e783fcb3e74ce47fb",
+      "bytes": 2640594,
+      "role": "reused_legacy_coverage"
+    },
+    {
+      "path": "inputs/operator_parent/reused/coverage_g15_2016_12.csv",
+      "source": "raw/operator_parent/reused/coverage_g15_2016_12.csv",
+      "sha256": "c3b7317ec3292ea2df988c2ffa004883e8624cffe36fe3410af681f0ac485d84",
+      "bytes": 2640162,
+      "role": "reused_legacy_coverage"
+    },
+    {
+      "path": "inputs/operator_parent/reused/science_g15_2010_v2-2-1.nc",
+      "source": "raw/operator_parent/reused/science_g15_2010_v2-2-1.nc",
+      "sha256": "94330758625903bdf20826085863c6e1b2ca68a9cf27eedba18336cf863ff6eb",
+      "bytes": 1691000,
+      "role": "reused_science_coverage"
+    },
+    {
+      "path": "inputs/operator_parent/reused/science_g15_2012_v2-2-1.nc",
+      "source": "raw/operator_parent/reused/science_g15_2012_v2-2-1.nc",
+      "sha256": "9c59038db6941d20fa44039884a7cdf7f63b6b5590a156ac594908e28a479dda",
+      "bytes": 3950431,
+      "role": "reused_science_coverage"
+    },
+    {
+      "path": "inputs/operator_parent/reused/science_g15_2011_v2-2-1.nc",
+      "source": "raw/operator_parent/reused/science_g15_2011_v2-2-1.nc",
+      "sha256": "dabfe2a5fae0a6a114b35f8545093b07ce8ff9c14d18a4af6ccf25ac785e0e7d",
+      "bytes": 4037062,
+      "role": "reused_science_coverage"
+    },
+    {
+      "path": "inputs/operator_parent/reused/science_g15_2013_v2-2-1.nc",
+      "source": "raw/operator_parent/reused/science_g15_2013_v2-2-1.nc",
+      "sha256": "8daf2065d8e6cb196aadc45e73ac29b764fd48c6db9ca6a2890eb50f5bfbfe75",
+      "bytes": 4049555,
+      "role": "reused_science_coverage"
+    },
+    {
+      "path": "inputs/operator_parent/reused/science_g15_2014_v2-2-1.nc",
+      "source": "raw/operator_parent/reused/science_g15_2014_v2-2-1.nc",
+      "sha256": "6b7919a26ca630544726d7ee5f48ddf872ecc55b5b15a660ced4f36b3ad28a5e",
+      "bytes": 4317485,
+      "role": "reused_science_coverage"
+    },
+    {
+      "path": "inputs/operator_parent/reused/science_g13_2013_v2-2-1.nc",
+      "source": "raw/operator_parent/reused/science_g13_2013_v2-2-1.nc",
+      "sha256": "a66430af74c3580ce498eb2bc81241cce656f188885f6b91c96bc120f751400b",
+      "bytes": 2049021,
+      "role": "reused_science_coverage"
+    },
+    {
+      "path": "inputs/operator_parent/reused/science_g14_2012_v2-2-1.nc",
+      "source": "raw/operator_parent/reused/science_g14_2012_v2-2-1.nc",
+      "sha256": "baeef67736e5e6addf1f3f438733ce2b52c20cefc2849662ff133c50c2b7c579",
+      "bytes": 596652,
+      "role": "reused_science_coverage"
+    },
+    {
+      "path": "inputs/operator_parent/reused/science_g13_2014_v2-2-1.nc",
+      "source": "raw/operator_parent/reused/science_g13_2014_v2-2-1.nc",
+      "sha256": "287e63db902efec60d62b3f13277f1e1126b1599c65f27ddccf12ba1fad91459",
+      "bytes": 3477544,
+      "role": "reused_science_coverage"
+    },
+    {
+      "path": "inputs/operator_parent/new_events/event_metadata.json",
+      "source": "raw/operator_parent/new_events/event_metadata.json",
+      "sha256": "ff6587f179d295bc6cfa145130f7bec1b0827ea100c1da0223cc0db3e683e2f2",
+      "bytes": 8516,
+      "role": "science_event_metadata"
+    },
+    {
+      "path": "inputs/operator_parent/new_events/science_events_2018.csv",
+      "source": "raw/operator_parent/new_events/science_events_2018.csv",
+      "sha256": "37b1f52afdbe3e5955976b91078933a61c120d2d953743eb54fafeaa6a924a55",
+      "bytes": 82441,
+      "role": "science_event_annual"
+    },
+    {
+      "path": "inputs/operator_parent/new_events/science_events_2019.csv",
+      "source": "raw/operator_parent/new_events/science_events_2019.csv",
+      "sha256": "1b5ca02a379c064cd3078eb8ae7c8bf83f730737d6c5f0e81f99236678aeea26",
+      "bytes": 65345,
+      "role": "science_event_annual"
+    },
+    {
+      "path": "inputs/operator_parent/new_events/science_events_2020.csv",
+      "source": "raw/operator_parent/new_events/science_events_2020.csv",
+      "sha256": "02dff4063724c465a3c007a2970993bcf5b936712a02d0490842f252b61cf3a2",
+      "bytes": 90090,
+      "role": "science_event_annual"
+    },
+    {
+      "path": "inputs/operator_parent/new_events/science_events_2021.csv",
+      "source": "raw/operator_parent/new_events/science_events_2021.csv",
+      "sha256": "d4395bef95eea8fdcf3dcba7ed202840a0b2c0ccedfd0c54fd68b673692af542",
+      "bytes": 339510,
+      "role": "science_event_annual"
+    },
+    {
+      "path": "inputs/operator_parent/new_events/science_events_2022.csv",
+      "source": "raw/operator_parent/new_events/science_events_2022.csv",
+      "sha256": "1a7978e87410a64db53e1459bd125727c114eb5d6f19dbb15e1fad3ef09991e9",
+      "bytes": 598803,
+      "role": "science_event_annual"
+    },
+    {
+      "path": "inputs/operator_parent/new_events/science_events_2023.csv",
+      "source": "raw/operator_parent/new_events/science_events_2023.csv",
+      "sha256": "23902fe462a5eafc500ea15d897d59e57480526d83dda448b9047ead4a89dbe5",
+      "bytes": 646363,
+      "role": "science_event_annual"
+    },
+    {
+      "path": "inputs/operator_parent/new_events/science_events_2024.csv",
+      "source": "raw/operator_parent/new_events/science_events_2024.csv",
+      "sha256": "74f23ea854f8f1f39b7b6521a08d7cf280a46e46f06ac6924b308d1ae070b4cd",
+      "bytes": 746060,
+      "role": "science_event_annual"
+    },
+    {
+      "path": "inputs/operator_parent/new_events/science_events_2025.csv",
+      "source": "raw/operator_parent/new_events/science_events_2025.csv",
+      "sha256": "287c9ee0961e221368f3580c6e159e8dc17ef7607d02442dabf3ab48fa8c6c88",
+      "bytes": 626081,
+      "role": "science_event_annual"
+    },
+    {
+      "path": "inputs/operator_parent/new_events/science_events_2026.csv",
+      "source": "raw/operator_parent/new_events/science_events_2026.csv",
+      "sha256": "4f55f62cf0d06bb29155d0e7f69cb84db8f87e38c3ddb58d92e76cf133ed8b36",
+      "bytes": 431949,
+      "role": "science_event_annual"
+    },
+    {
+      "path": "inputs/operator_parent/annual/sci_xrsf-l2-avg1m_g16_y2020_v2-2-1.nc",
+      "source": "raw/operator_parent/annual/sci_xrsf-l2-avg1m_g16_y2020_v2-2-1.nc",
+      "sha256": "53a96f3c341484eb1107f0bada78a1b411a64d49fd07e65ab32a494cce38439e",
+      "bytes": 29674517,
+      "role": "new_annual_science_coverage"
+    },
+    {
+      "path": "inputs/operator_parent/annual/sci_xrsf-l2-avg1m_g16_y2019_v2-2-1.nc",
+      "source": "raw/operator_parent/annual/sci_xrsf-l2-avg1m_g16_y2019_v2-2-1.nc",
+      "sha256": "e037b88d2375592b002553d5faa8160eac11c21947cc6366a10b4fc0009e0021",
+      "bytes": 28039493,
+      "role": "new_annual_science_coverage"
+    },
+    {
+      "path": "inputs/operator_parent/annual/sci_xrsf-l2-avg1m_g16_y2017_v2-2-1.nc",
+      "source": "raw/operator_parent/annual/sci_xrsf-l2-avg1m_g16_y2017_v2-2-1.nc",
+      "sha256": "b558e0345cab675691b2e08fdc261fa312a9eac30841c0a1d96496d815fcb751",
+      "bytes": 26392866,
+      "role": "new_annual_science_coverage"
+    },
+    {
+      "path": "inputs/operator_parent/annual/sci_xrsf-l2-avg1m_g16_y2018_v2-2-1.nc",
+      "source": "raw/operator_parent/annual/sci_xrsf-l2-avg1m_g16_y2018_v2-2-1.nc",
+      "sha256": "b987a93c7fbd2b7cdbf2c574eee7292d4959cbbe0952817f33cb4d181698a930",
+      "bytes": 29123316,
+      "role": "new_annual_science_coverage"
+    },
+    {
+      "path": "inputs/operator_parent/annual/sci_xrsf-l2-avg1m_g16_y2021_v2-2-1.nc",
+      "source": "raw/operator_parent/annual/sci_xrsf-l2-avg1m_g16_y2021_v2-2-1.nc",
+      "sha256": "f54ec5efbde711e2adffe62d05488f2a2b63b8b86b2c1e585f877bacaaba3f38",
+      "bytes": 31736480,
+      "role": "new_annual_science_coverage"
+    },
+    {
+      "path": "inputs/operator_parent/annual/sci_xrsf-l2-avg1m_g16_y2022_v2-2-1.nc",
+      "source": "raw/operator_parent/annual/sci_xrsf-l2-avg1m_g16_y2022_v2-2-1.nc",
+      "sha256": "17ceaa1bd787de38579f7de8f91f2a26065eac2ff13398b8c9d85e3a52f673a3",
+      "bytes": 33911208,
+      "role": "new_annual_science_coverage"
+    },
+    {
+      "path": "inputs/operator_parent/annual/sci_xrsf-l2-avg1m_g16_y2024_v2-2-1.nc",
+      "source": "raw/operator_parent/annual/sci_xrsf-l2-avg1m_g16_y2024_v2-2-1.nc",
+      "sha256": "e9bdb405fd332c09f77f8daf319be198e239781d0dcd5bf36b5f0915b1d476be",
+      "bytes": 33312055,
+      "role": "new_annual_science_coverage"
+    },
+    {
+      "path": "inputs/operator_parent/annual/sci_xrsf-l2-avg1m_g16_y2023_v2-2-1.nc",
+      "source": "raw/operator_parent/annual/sci_xrsf-l2-avg1m_g16_y2023_v2-2-1.nc",
+      "sha256": "c25cde23fe3ecb1b6185ec823126cd0d68893461216d3f2ca687e1c08034af31",
+      "bytes": 33484822,
+      "role": "new_annual_science_coverage"
+    },
+    {
+      "path": "inputs/operator_parent/annual/sci_xrsf-l2-avg1m_g16_y2025_v2-2-1.nc",
+      "source": "raw/operator_parent/annual/sci_xrsf-l2-avg1m_g16_y2025_v2-2-1.nc",
+      "sha256": "037c3c511bf5c20e862a85353231f5ce98db7f55ea95590d4dd7ed8d244577c8",
+      "bytes": 8597442,
+      "role": "new_annual_science_coverage"
+    },
+    {
+      "path": "inputs/operator_parent/annual/sci_xrsf-l2-avg1m_g17_y2018_v2-2-1.nc",
+      "source": "raw/operator_parent/annual/sci_xrsf-l2-avg1m_g17_y2018_v2-2-1.nc",
+      "sha256": "026c972b2109f319394ee672e85c9d6a3db3290b2ab854f7ad831af6a4462532",
+      "bytes": 11196514,
+      "role": "new_annual_science_coverage"
+    },
+    {
+      "path": "inputs/operator_parent/annual/sci_xrsf-l2-avg1m_g17_y2019_v2-2-1.nc",
+      "source": "raw/operator_parent/annual/sci_xrsf-l2-avg1m_g17_y2019_v2-2-1.nc",
+      "sha256": "5e53b69d68894e57fa310816d45a9c9ef53ca2cfa5c91e7e2a12e1bdf109de47",
+      "bytes": 19835613,
+      "role": "new_annual_science_coverage"
+    },
+    {
+      "path": "inputs/operator_parent/annual/sci_xrsf-l2-avg1m_g17_y2023_v2-2-1.nc",
+      "source": "raw/operator_parent/annual/sci_xrsf-l2-avg1m_g17_y2023_v2-2-1.nc",
+      "sha256": "5b2c366bb733dfa0e9c89e1d0ebd4d850959d38ab5ff0b8e7e0332991ea9dc06",
+      "bytes": 1015449,
+      "role": "new_annual_science_coverage"
+    },
+    {
+      "path": "inputs/operator_parent/annual/sci_xrsf-l2-avg1m_g17_y2021_v2-2-1.nc",
+      "source": "raw/operator_parent/annual/sci_xrsf-l2-avg1m_g17_y2021_v2-2-1.nc",
+      "sha256": "37d09613ceef8f4821724afb3c638b639047d24a75fc56cf0a7f90c1dcdbfb99",
+      "bytes": 31207787,
+      "role": "new_annual_science_coverage"
+    },
+    {
+      "path": "inputs/operator_parent/annual/sci_xrsf-l2-avg1m_g17_y2020_v2-2-1.nc",
+      "source": "raw/operator_parent/annual/sci_xrsf-l2-avg1m_g17_y2020_v2-2-1.nc",
+      "sha256": "933d66c97abe347dab52713b0043169ba3f32c9e5e0d8b90dfb8b42fcd4dd33b",
+      "bytes": 28929706,
+      "role": "new_annual_science_coverage"
+    },
+    {
+      "path": "inputs/operator_parent/annual/sci_xrsf-l2-avg1m_g17_y2022_v2-2-1.nc",
+      "source": "raw/operator_parent/annual/sci_xrsf-l2-avg1m_g17_y2022_v2-2-1.nc",
+      "sha256": "102bda0d7bed6444a35bef79cbf380c4f26613bae2fe5202f210df7ec1b113f5",
+      "bytes": 32703249,
+      "role": "new_annual_science_coverage"
+    },
+    {
+      "path": "inputs/operator_parent/annual/sci_xrsf-l2-avg1m_g18_y2022_v2-2-1.nc",
+      "source": "raw/operator_parent/annual/sci_xrsf-l2-avg1m_g18_y2022_v2-2-1.nc",
+      "sha256": "4a1ced320dabca835ebdba8727421ec22a2466fcea5ead028f4d21183486df3d",
+      "bytes": 16225169,
+      "role": "new_annual_science_coverage"
+    },
+    {
+      "path": "inputs/operator_parent/annual/sci_xrsf-l2-avg1m_g18_y2023_v2-2-1.nc",
+      "source": "raw/operator_parent/annual/sci_xrsf-l2-avg1m_g18_y2023_v2-2-1.nc",
+      "sha256": "7f3ef5e7fe9c9daba7f4e3002b86add0ac3b34e5e5a2b2ec9e6fda13d0523f14",
+      "bytes": 32945885,
+      "role": "new_annual_science_coverage"
+    },
+    {
+      "path": "inputs/operator_parent/annual/sci_xrsf-l2-avg1m_g18_y2024_v2-2-1.nc",
+      "source": "raw/operator_parent/annual/sci_xrsf-l2-avg1m_g18_y2024_v2-2-1.nc",
+      "sha256": "2af30d9e3b315bc60a48e05f4fd61adc292c7f914962fb506c8f38ef9daa25bb",
+      "bytes": 33679133,
+      "role": "new_annual_science_coverage"
+    },
+    {
+      "path": "inputs/operator_parent/annual/sci_xrsf-l2-avg1m_g18_y2025_v2-2-1.nc",
+      "source": "raw/operator_parent/annual/sci_xrsf-l2-avg1m_g18_y2025_v2-2-1.nc",
+      "sha256": "3ae55615bc290517b1b641259c260901006a61c8bc6c1ec9847e0fd335a329bf",
+      "bytes": 33335396,
+      "role": "new_annual_science_coverage"
+    },
+    {
+      "path": "inputs/operator_parent/annual/sci_xrsf-l2-avg1m_g19_y2024_v2-2-1.nc",
+      "source": "raw/operator_parent/annual/sci_xrsf-l2-avg1m_g19_y2024_v2-2-1.nc",
+      "sha256": "9673caf1ad06ae59d571d73372e5b1195b02908dc422bea856ee702433e266fe",
+      "bytes": 9168295,
+      "role": "new_annual_science_coverage"
+    },
+    {
+      "path": "inputs/operator_parent/annual/sci_xrsf-l2-avg1m_g18_y2026_v2-2-1.nc",
+      "source": "raw/operator_parent/annual/sci_xrsf-l2-avg1m_g18_y2026_v2-2-1.nc",
+      "sha256": "724432cf202073aae544b32604e17bef22e524b249e54c61214a5191eaced7c7",
+      "bytes": 23151335,
+      "role": "new_annual_science_coverage"
+    },
+    {
+      "path": "inputs/operator_parent/annual/sci_xrsf-l2-avg1m_g13_y2016_v2-2-1.nc",
+      "source": "raw/operator_parent/annual/sci_xrsf-l2-avg1m_g13_y2016_v2-2-1.nc",
+      "sha256": "c4bea99ef5de36ff6873e8df63ac163f986650e7e51e8127b29a7e197eda92d6",
+      "bytes": 3360778,
+      "role": "new_annual_science_coverage"
+    },
+    {
+      "path": "inputs/operator_parent/annual/sci_xrsf-l2-avg1m_g13_y2015_v2-2-1.nc",
+      "source": "raw/operator_parent/annual/sci_xrsf-l2-avg1m_g13_y2015_v2-2-1.nc",
+      "sha256": "aa89a8e773292c565bf0c162be3021218e56db9911839a05bba68af981ed28fe",
+      "bytes": 3953839,
+      "role": "new_annual_science_coverage"
+    },
+    {
+      "path": "inputs/operator_parent/annual/sci_xrsf-l2-avg1m_g19_y2026_v2-2-1.nc",
+      "source": "raw/operator_parent/annual/sci_xrsf-l2-avg1m_g19_y2026_v2-2-1.nc",
+      "sha256": "e2a7f24bdb14293d27af0f1a556793ef4a11d5977090516f69e2b128870be06d",
+      "bytes": 25233677,
+      "role": "new_annual_science_coverage"
+    },
+    {
+      "path": "inputs/operator_parent/annual/sci_xrsf-l2-avg1m_g19_y2025_v2-2-1.nc",
+      "source": "raw/operator_parent/annual/sci_xrsf-l2-avg1m_g19_y2025_v2-2-1.nc",
+      "sha256": "f6b2f1d007eeb03d46746b27fa7b3d0a118b377d9e0fae7fa22e941d65f58823",
+      "bytes": 30719782,
+      "role": "new_annual_science_coverage"
+    },
+    {
+      "path": "inputs/operator_parent/annual/sci_xrsf-l2-avg1m_g14_y2015_v2-2-1.nc",
+      "source": "raw/operator_parent/annual/sci_xrsf-l2-avg1m_g14_y2015_v2-2-1.nc",
+      "sha256": "e68c47d6b97a113cb80e7b886a5ee99448a4a2baa5c35746d6c6351eb5420764",
+      "bytes": 341802,
+      "role": "new_annual_science_coverage"
+    },
+    {
+      "path": "inputs/operator_parent/annual/sci_xrsf-l2-avg1m_g14_y2016_v2-2-1.nc",
+      "source": "raw/operator_parent/annual/sci_xrsf-l2-avg1m_g14_y2016_v2-2-1.nc",
+      "sha256": "aff9cdd5d32484d6a71ee68de41383ff9a411a75bf31fb673c049d7b297ea8d5",
+      "bytes": 903476,
+      "role": "new_annual_science_coverage"
+    },
+    {
+      "path": "inputs/operator_parent/annual/sci_xrsf-l2-avg1m_g14_y2017_v2-2-1.nc",
+      "source": "raw/operator_parent/annual/sci_xrsf-l2-avg1m_g14_y2017_v2-2-1.nc",
+      "sha256": "c3905dac6a553cdfe917e395f2d8681f9df180cb81c55d5d1777f5956f5c89f0",
+      "bytes": 677825,
+      "role": "new_annual_science_coverage"
+    },
+    {
+      "path": "inputs/operator_parent/annual/sci_xrsf-l2-avg1m_g13_y2017_v2-2-1.nc",
+      "source": "raw/operator_parent/annual/sci_xrsf-l2-avg1m_g13_y2017_v2-2-1.nc",
+      "sha256": "565fbc77fa0e93e4ca29d16e9cfcb2a1224a0aa791c052b2aecdfaa1f6aec425",
+      "bytes": 3244581,
+      "role": "new_annual_science_coverage"
+    },
+    {
+      "path": "inputs/operator_parent/annual/sci_xrsf-l2-avg1m_g14_y2020_v2-2-1.nc",
+      "source": "raw/operator_parent/annual/sci_xrsf-l2-avg1m_g14_y2020_v2-2-1.nc",
+      "sha256": "94c7e9fc6b4246a013d7e87e3ae20c31af4b8835e36b23596fb01bce32f0c350",
+      "bytes": 479637,
+      "role": "new_annual_science_coverage"
+    },
+    {
+      "path": "inputs/operator_parent/annual/sci_xrsf-l2-avg1m_g14_y2019_v2-2-1.nc",
+      "source": "raw/operator_parent/annual/sci_xrsf-l2-avg1m_g14_y2019_v2-2-1.nc",
+      "sha256": "9107ff8ccb049d1bd7e2b433a90b17de01a72e55278cd7d72ec5c77c25410144",
+      "bytes": 2570639,
+      "role": "new_annual_science_coverage"
+    },
+    {
+      "path": "inputs/operator_parent/annual/sci_xrsf-l2-avg1m_g14_y2018_v2-2-1.nc",
+      "source": "raw/operator_parent/annual/sci_xrsf-l2-avg1m_g14_y2018_v2-2-1.nc",
+      "sha256": "7635f9545b7c7f256eb4d8016cfcdd9c35d5e990d8c60b40685681c8e2f87a29",
+      "bytes": 2633441,
+      "role": "new_annual_science_coverage"
+    },
+    {
+      "path": "inputs/operator_parent/annual/sci_xrsf-l2-avg1m_g15_y2018_v2-2-1.nc",
+      "source": "raw/operator_parent/annual/sci_xrsf-l2-avg1m_g15_y2018_v2-2-1.nc",
+      "sha256": "6761e8dea1b306d39c02336fad139717a51c21531efe4cd598710f33e88d3f47",
+      "bytes": 2477521,
+      "role": "new_annual_science_coverage"
+    },
+    {
+      "path": "inputs/operator_parent/annual/sci_xrsf-l2-avg1m_g15_y2017_v2-2-1.nc",
+      "source": "raw/operator_parent/annual/sci_xrsf-l2-avg1m_g15_y2017_v2-2-1.nc",
+      "sha256": "83297934083e9d2943ef7ec75bb0c7e5b91fa1b714ea038fc6790abbafc435b6",
+      "bytes": 2967777,
+      "role": "new_annual_science_coverage"
+    },
+    {
+      "path": "inputs/operator_parent/annual/sci_xrsf-l2-avg1m_g15_y2015_v2-2-1.nc",
+      "source": "raw/operator_parent/annual/sci_xrsf-l2-avg1m_g15_y2015_v2-2-1.nc",
+      "sha256": "a4b8006e12905a1381e405c49736147974eaa40679eebbe3f3e24abfeb687af3",
+      "bytes": 3824220,
+      "role": "new_annual_science_coverage"
+    },
+    {
+      "path": "inputs/operator_parent/annual/sci_xrsf-l2-avg1m_g15_y2016_v2-2-1.nc",
+      "source": "raw/operator_parent/annual/sci_xrsf-l2-avg1m_g15_y2016_v2-2-1.nc",
+      "sha256": "4de8e919a46d806b092c2161e839049d697cdc5e433624842e31db9f5c35a857",
+      "bytes": 3203507,
+      "role": "new_annual_science_coverage"
+    },
+    {
+      "path": "inputs/operator_parent/annual/sci_xrsf-l2-avg1m_g15_y2019_v2-2-1.nc",
+      "source": "raw/operator_parent/annual/sci_xrsf-l2-avg1m_g15_y2019_v2-2-1.nc",
+      "sha256": "156ef5702c443f77373b57fb00394cc108fa298c03e8a61e6bc5b182e1970291",
+      "bytes": 2479442,
+      "role": "new_annual_science_coverage"
+    },
+    {
+      "path": "inputs/operator_parent/annual/sci_xrsf-l2-avg1m_g15_y2020_v2-2-1.nc",
+      "source": "raw/operator_parent/annual/sci_xrsf-l2-avg1m_g15_y2020_v2-2-1.nc",
+      "sha256": "46c6cf372fba2b08e12d47a094c18bf8b4d5e39bc1bf4191d762a1340724c0dc",
+      "bytes": 438110,
+      "role": "new_annual_science_coverage"
+    },
+    {
+      "path": "inputs/operator_parent/finalweek/sci_xrsf-l2-avg1m_g19_d20261004_v2-2-2.nc",
+      "source": "raw/operator_parent/finalweek/sci_xrsf-l2-avg1m_g19_d20261004_v2-2-2.nc",
+      "sha256": "9554d9ab24c8553b8ee252b3ebd2b4a441fcb4ee46b661a44243009bbb8d5306",
+      "bytes": 295233,
+      "role": "finalweek_fallback_science"
+    },
+    {
+      "path": "inputs/operator_parent/finalweek/sci_xrsf-l2-avg1m_g19_d20261005_v2-2-1.nc",
+      "source": "raw/operator_parent/finalweek/sci_xrsf-l2-avg1m_g19_d20261005_v2-2-1.nc",
+      "sha256": "d82d7a0ea241d6fd751cb87ca4d15f3cb98ebff6674fcd611c0339aebdfbea8a",
+      "bytes": 298723,
+      "role": "finalweek_fallback_science"
+    },
+    {
+      "path": "inputs/operator_parent/finalweek/sci_xrsf-l2-avg1m_g19_d20261006_v2-2-1.nc",
+      "source": "raw/operator_parent/finalweek/sci_xrsf-l2-avg1m_g19_d20261006_v2-2-1.nc",
+      "sha256": "88cdcda386fc14f87e3f260f56ccbad1968e8b051713ba59178ec34387dcd687",
+      "bytes": 300477,
+      "role": "finalweek_fallback_science"
+    },
+    {
+      "path": "inputs/operator_parent/finalweek/sci_xrsf-l2-avg1m_g19_d20261007_v2-2-1.nc",
+      "source": "raw/operator_parent/finalweek/sci_xrsf-l2-avg1m_g19_d20261007_v2-2-1.nc",
+      "sha256": "ca3ebb258ee04c603ab2baae8567949e4dbf353ab8ee849e15e183015bb351c5",
+      "bytes": 298671,
+      "role": "finalweek_fallback_science"
+    },
+    {
+      "path": "inputs/operator_parent/finalweek/sci_xrsf-l2-avg1m_g19_d20261008_v2-2-1.nc",
+      "source": "raw/operator_parent/finalweek/sci_xrsf-l2-avg1m_g19_d20261008_v2-2-1.nc",
+      "sha256": "f6e644a5c95622e10c9e6ecb9ae00b9615c44a70468e984bdc391874254b74c1",
+      "bytes": 300619,
+      "role": "finalweek_fallback_science"
+    },
+    {
+      "path": "inputs/operator_parent/finalweek/sci_xrsf-l2-avg1m_g19_d20261009_v2-2-2.nc",
+      "source": "raw/operator_parent/finalweek/sci_xrsf-l2-avg1m_g19_d20261009_v2-2-2.nc",
+      "sha256": "ca146a2739840bdd940fc5347f0cd142b9e57436a716de3b4990c445eeaac1c6",
+      "bytes": 297278,
+      "role": "finalweek_fallback_science"
+    },
+    {
+      "path": "inputs/operator_parent/finalweek/sci_xrsf-l2-avg1m_g19_d20261010_v2-2-2.nc",
+      "source": "raw/operator_parent/finalweek/sci_xrsf-l2-avg1m_g19_d20261010_v2-2-2.nc",
+      "sha256": "ed0fd75f099fa5cacbbc8feeb40cb8e10e5e4ac82d0f75328b1df911974ae2f3",
+      "bytes": 299956,
+      "role": "finalweek_fallback_science"
+    },
+    {
+      "path": "inputs/operator_parent/finalweek/sci_xrsf-l2-avg1m_g18_d20261005_v2-2-1.nc",
+      "source": "raw/operator_parent/finalweek/sci_xrsf-l2-avg1m_g18_d20261005_v2-2-1.nc",
+      "sha256": "3cbd3531cf58ec2af827dedd2a9d454c895bc4007d1c0b9eae2cad060bfa2bfa",
+      "bytes": 274253,
+      "role": "finalweek_fallback_science"
+    },
+    {
+      "path": "inputs/operator_parent/finalweek/sci_xrsf-l2-avg1m_g18_d20261004_v2-2-2.nc",
+      "source": "raw/operator_parent/finalweek/sci_xrsf-l2-avg1m_g18_d20261004_v2-2-2.nc",
+      "sha256": "5b063a6c254b5881917f46d982bcbb2f49bf72637ff79e1d798d4cabe2dc1b0a",
+      "bytes": 287170,
+      "role": "finalweek_fallback_science"
+    },
+    {
+      "path": "inputs/operator_parent/finalweek/sci_xrsf-l2-avg1m_g18_d20261006_v2-2-1.nc",
+      "source": "raw/operator_parent/finalweek/sci_xrsf-l2-avg1m_g18_d20261006_v2-2-1.nc",
+      "sha256": "2db0c88fb7dae40d1ff57528b104a823ab4f00169fe728847e75971ed61bd5d4",
+      "bytes": 294176,
+      "role": "finalweek_fallback_science"
+    },
+    {
+      "path": "inputs/operator_parent/finalweek/sci_xrsf-l2-avg1m_g18_d20261007_v2-2-1.nc",
+      "source": "raw/operator_parent/finalweek/sci_xrsf-l2-avg1m_g18_d20261007_v2-2-1.nc",
+      "sha256": "2ea60c615bf9a03f3905683015781e095fc9093cbd05e7f9db957705d28abdea",
+      "bytes": 286212,
+      "role": "finalweek_fallback_science"
+    },
+    {
+      "path": "inputs/operator_parent/finalweek/sci_xrsf-l2-avg1m_g18_d20261008_v2-2-1.nc",
+      "source": "raw/operator_parent/finalweek/sci_xrsf-l2-avg1m_g18_d20261008_v2-2-1.nc",
+      "sha256": "8ab56c1875a8385a3364ae3e1a1254dd688ff618d8e517e71c8a0b4be9c9337e",
+      "bytes": 297073,
+      "role": "finalweek_fallback_science"
+    },
+    {
+      "path": "inputs/operator_parent/finalweek/sci_xrsf-l2-avg1m_g18_d20261009_v2-2-2.nc",
+      "source": "raw/operator_parent/finalweek/sci_xrsf-l2-avg1m_g18_d20261009_v2-2-2.nc",
+      "sha256": "8829ff584336d1d5d3b4d59a0103f11094a73b8f8f5f0e393ced28f55a5421da",
+      "bytes": 294131,
+      "role": "finalweek_fallback_science"
+    },
+    {
+      "path": "inputs/operator_parent/finalweek/sci_xrsf-l2-avg1m_g18_d20261010_v2-2-2.nc",
+      "source": "raw/operator_parent/finalweek/sci_xrsf-l2-avg1m_g18_d20261010_v2-2-2.nc",
+      "sha256": "d13d992ec126cc8681fd61d9151273b9df192de6e0599a0abf855842b17b33ab",
+      "bytes": 298145,
+      "role": "finalweek_fallback_science"
+    },
+    {
+      "path": "inputs/actual_JW_magnetic/raw/nrt_2012-09.bin",
+      "source": "raw/actual_JW_magnetic/raw/nrt_2012-09.bin",
+      "sha256": "7f691da61637bfc9e4a6450e54f9ef7241920fcfb326c246a468f065b5d22435",
+      "bytes": 118928,
+      "role": "magnetic_month"
+    },
+    {
+      "path": "inputs/actual_JW_magnetic/raw/nrt_2012-10.bin",
+      "source": "raw/actual_JW_magnetic/raw/nrt_2012-10.bin",
+      "sha256": "f3fad16b0bd8b10c33de6eac6b47de054d2109c176fa84878e9538fd3459625c",
+      "bytes": 118189,
+      "role": "magnetic_month"
+    },
+    {
+      "path": "inputs/actual_JW_magnetic/raw/nrt_2012-11.bin",
+      "source": "raw/actual_JW_magnetic/raw/nrt_2012-11.bin",
+      "sha256": "9609ac87aba5a65b7a5f592e48ca6b2270c48dfc0fe17274b01e03a209934084",
+      "bytes": 115626,
+      "role": "magnetic_month"
+    },
+    {
+      "path": "inputs/actual_JW_magnetic/raw/nrt_2012-12.bin",
+      "source": "raw/actual_JW_magnetic/raw/nrt_2012-12.bin",
+      "sha256": "b92dc16f564237edf9c37da893dfd55472700848e9b00cd54dbff0dea2fe39e6",
+      "bytes": 150946,
+      "role": "magnetic_month"
+    },
+    {
+      "path": "inputs/actual_JW_magnetic/raw/nrt_2013-01.bin",
+      "source": "raw/actual_JW_magnetic/raw/nrt_2013-01.bin",
+      "sha256": "47dd99ffaac119b9c1911a89b9e463f3c3e70529f8c85297f08a8e22456228f0",
+      "bytes": 194896,
+      "role": "magnetic_month"
+    },
+    {
+      "path": "inputs/actual_JW_magnetic/raw/nrt_2013-02.bin",
+      "source": "raw/actual_JW_magnetic/raw/nrt_2013-02.bin",
+      "sha256": "d2b0e01ec6c1f19b0567eba81d58ebdb9647b831e72ab7f792e0cdedc5ede5bf",
+      "bytes": 109454,
+      "role": "magnetic_month"
+    },
+    {
+      "path": "inputs/actual_JW_magnetic/raw/nrt_2013-03.bin",
+      "source": "raw/actual_JW_magnetic/raw/nrt_2013-03.bin",
+      "sha256": "74e9b3b5a1b70643ca55bd4f210d1aacb7aee8ec8d0b8056f9f9cdc152743756",
+      "bytes": 56000,
+      "role": "magnetic_month"
+    },
+    {
+      "path": "inputs/actual_JW_magnetic/raw/nrt_2013-04.bin",
+      "source": "raw/actual_JW_magnetic/raw/nrt_2013-04.bin",
+      "sha256": "0487d57b67b2a19f6fe40511500461a0a20603a049df1831dd56fa49531ab26e",
+      "bytes": 124674,
+      "role": "magnetic_month"
+    },
+    {
+      "path": "inputs/actual_JW_magnetic/raw/nrt_2013-05.bin",
+      "source": "raw/actual_JW_magnetic/raw/nrt_2013-05.bin",
+      "sha256": "a893b368074a6ec3c7957e287b608399d8012e331536535706a741cabdc2b791",
+      "bytes": 186230,
+      "role": "magnetic_month"
+    },
+    {
+      "path": "inputs/actual_JW_magnetic/raw/nrt_2013-06.bin",
+      "source": "raw/actual_JW_magnetic/raw/nrt_2013-06.bin",
+      "sha256": "0a5a74aa357b6ca4ec304a126e550e13078853061914884da11b12599d66cb9d",
+      "bytes": 130136,
+      "role": "magnetic_month"
+    },
+    {
+      "path": "inputs/actual_JW_magnetic/raw/nrt_2013-07.bin",
+      "source": "raw/actual_JW_magnetic/raw/nrt_2013-07.bin",
+      "sha256": "c81fb298f059eb5d03b3f09bd255921f0e3cd3c319621258740f15a37224baa6",
+      "bytes": 175192,
+      "role": "magnetic_month"
+    },
+    {
+      "path": "inputs/actual_JW_magnetic/raw/nrt_2013-08.bin",
+      "source": "raw/actual_JW_magnetic/raw/nrt_2013-08.bin",
+      "sha256": "c01ec55bec4de4760f8dfaebf5c4e18b697016a221ee0193a83f40b4a40b0404",
+      "bytes": 185126,
+      "role": "magnetic_month"
+    },
+    {
+      "path": "inputs/actual_JW_magnetic/raw/nrt_2013-09.bin",
+      "source": "raw/actual_JW_magnetic/raw/nrt_2013-09.bin",
+      "sha256": "d3588e4770fd6bfa64fb11b0d60a477db546a20fe1770d2e539bba9d342c4d99",
+      "bytes": 167947,
+      "role": "magnetic_month"
+    },
+    {
+      "path": "inputs/actual_JW_magnetic/raw/nrt_2013-10.bin",
+      "source": "raw/actual_JW_magnetic/raw/nrt_2013-10.bin",
+      "sha256": "88f5d60296c8d762de4f17b063ad2b8dc830e022b42d8dacff8cf26e271fd00c",
+      "bytes": 177378,
+      "role": "magnetic_month"
+    },
+    {
+      "path": "inputs/actual_JW_magnetic/raw/nrt_2013-11.bin",
+      "source": "raw/actual_JW_magnetic/raw/nrt_2013-11.bin",
+      "sha256": "cbbb92f61da290169818a9cd368b3c8ecd19a9a09b4993dba8a6021c13fb2f44",
+      "bytes": 163272,
+      "role": "magnetic_month"
+    },
+    {
+      "path": "inputs/actual_JW_magnetic/raw/nrt_2013-12.bin",
+      "source": "raw/actual_JW_magnetic/raw/nrt_2013-12.bin",
+      "sha256": "717f0f2565423402c7f34e2a4c5c5f35c5ea38648b8ca18e7359c813d7783b6d",
+      "bytes": 133216,
+      "role": "magnetic_month"
+    },
+    {
+      "path": "inputs/actual_JW_magnetic/raw/nrt_2014-01.bin",
+      "source": "raw/actual_JW_magnetic/raw/nrt_2014-01.bin",
+      "sha256": "5e36a1a23446083e8c543f16cf9e79267e30457333ce765ca41f3f70f0d78c33",
+      "bytes": 195024,
+      "role": "magnetic_month"
+    },
+    {
+      "path": "inputs/actual_JW_magnetic/raw/nrt_2014-02.bin",
+      "source": "raw/actual_JW_magnetic/raw/nrt_2014-02.bin",
+      "sha256": "c1701298e9879afd17fff3637bb5d9eb9b947e2a176062e420c62e806f8dcca6",
+      "bytes": 152588,
+      "role": "magnetic_month"
+    },
+    {
+      "path": "inputs/actual_JW_magnetic/raw/nrt_2014-03.bin",
+      "source": "raw/actual_JW_magnetic/raw/nrt_2014-03.bin",
+      "sha256": "ede7cc06618a966259a0ff549e46151704b6bb198ee42340ca56e3e4e58340a3",
+      "bytes": 158470,
+      "role": "magnetic_month"
+    },
+    {
+      "path": "inputs/actual_JW_magnetic/raw/nrt_2014-04.bin",
+      "source": "raw/actual_JW_magnetic/raw/nrt_2014-04.bin",
+      "sha256": "34b733dcbde03c015767d719b97cf091309a58106708a72a485ccc03577edb5b",
+      "bytes": 203087,
+      "role": "magnetic_month"
+    },
+    {
+      "path": "inputs/actual_JW_magnetic/raw/nrt_2014-05.bin",
+      "source": "raw/actual_JW_magnetic/raw/nrt_2014-05.bin",
+      "sha256": "b2b2e42b277086661b1e15543b0c024afc924fc28230430bf29a3a7e4734d2e0",
+      "bytes": 157982,
+      "role": "magnetic_month"
+    },
+    {
+      "path": "inputs/actual_JW_magnetic/raw/nrt_2014-06.bin",
+      "source": "raw/actual_JW_magnetic/raw/nrt_2014-06.bin",
+      "sha256": "e517af109fce96f549e4928de3b5038e32e09f0c9ec3cfe6accea4944798317a",
+      "bytes": 136437,
+      "role": "magnetic_month"
+    },
+    {
+      "path": "inputs/actual_JW_magnetic/raw/nrt_2014-07.bin",
+      "source": "raw/actual_JW_magnetic/raw/nrt_2014-07.bin",
+      "sha256": "2e8995915780465471000524ead3cf4b6e0ca4c158c9db140eb6c118b6d2a874",
+      "bytes": 144710,
+      "role": "magnetic_month"
+    },
+    {
+      "path": "inputs/actual_JW_magnetic/raw/nrt_2014-08.bin",
+      "source": "raw/actual_JW_magnetic/raw/nrt_2014-08.bin",
+      "sha256": "ae58c64c4a83fa1f437d02f18e119354b28db03390c6647186cba1c02945be55",
+      "bytes": 140283,
+      "role": "magnetic_month"
+    },
+    {
+      "path": "inputs/actual_JW_magnetic/raw/nrt_2014-09.bin",
+      "source": "raw/actual_JW_magnetic/raw/nrt_2014-09.bin",
+      "sha256": "564a1fec39d619dbedab0c807a2845e72b72b9e31f9a755492c1877ae4423412",
+      "bytes": 188651,
+      "role": "magnetic_month"
+    },
+    {
+      "path": "inputs/actual_JW_magnetic/raw/nrt_2014-10.bin",
+      "source": "raw/actual_JW_magnetic/raw/nrt_2014-10.bin",
+      "sha256": "30561c4a310340a99d39ac2da59112ebb92cb0b5155f8efbd13fca51dd0b2d09",
+      "bytes": 162267,
+      "role": "magnetic_month"
+    },
+    {
+      "path": "inputs/actual_JW_magnetic/raw/nrt_2014-11.bin",
+      "source": "raw/actual_JW_magnetic/raw/nrt_2014-11.bin",
+      "sha256": "f118d41d835b22897ca82f1c2fa6ed196258271bc48d9283040356fb29e5cad6",
+      "bytes": 165452,
+      "role": "magnetic_month"
+    },
+    {
+      "path": "inputs/actual_JW_magnetic/raw/nrt_2014-12.bin",
+      "source": "raw/actual_JW_magnetic/raw/nrt_2014-12.bin",
+      "sha256": "45f58341e7312612fab3daea8d60870a1a1da5b03bcf5433a1c0ea131639808b",
+      "bytes": 188027,
+      "role": "magnetic_month"
+    },
+    {
+      "path": "inputs/actual_JW_magnetic/raw/nrt_2015-01.bin",
+      "source": "raw/actual_JW_magnetic/raw/nrt_2015-01.bin",
+      "sha256": "ec68c811b21a806729714ac83d1b427ce2eb68e27f557307ab74ac9e693b745b",
+      "bytes": 628,
+      "role": "magnetic_month"
+    },
+    {
+      "path": "inputs/actual_JW_magnetic/raw/nrt_2015-02.bin",
+      "source": "raw/actual_JW_magnetic/raw/nrt_2015-02.bin",
+      "sha256": "53c2beb5c5766d2b26ff109160884418ad7ef27d0da15f8b972e83480bfdc7b3",
+      "bytes": 165571,
+      "role": "magnetic_month"
+    },
+    {
+      "path": "inputs/actual_JW_magnetic/raw/nrt_2015-03.bin",
+      "source": "raw/actual_JW_magnetic/raw/nrt_2015-03.bin",
+      "sha256": "fc8f59196cab7aa8477a4c6ff852b365f86a67ac8caf2ba787ba865f0c1a459f",
+      "bytes": 187950,
+      "role": "magnetic_month"
+    },
+    {
+      "path": "inputs/actual_JW_magnetic/raw/nrt_2015-04.bin",
+      "source": "raw/actual_JW_magnetic/raw/nrt_2015-04.bin",
+      "sha256": "3f662b3a3f828738e7170f0b739122cdd01096788929698983e9cf9e7f4cdca1",
+      "bytes": 163301,
+      "role": "magnetic_month"
+    },
+    {
+      "path": "inputs/actual_JW_magnetic/raw/nrt_2015-05.bin",
+      "source": "raw/actual_JW_magnetic/raw/nrt_2015-05.bin",
+      "sha256": "33af479b883d55331379c12a5c2ba558ae608d2d422d27546da1de770d0895eb",
+      "bytes": 154342,
+      "role": "magnetic_month"
+    },
+    {
+      "path": "inputs/actual_JW_magnetic/raw/nrt_2015-06.bin",
+      "source": "raw/actual_JW_magnetic/raw/nrt_2015-06.bin",
+      "sha256": "dd58c4260c5bdd4f592450ade98fe491ea3c7a8434428d7a261de060bea29f84",
+      "bytes": 116770,
+      "role": "magnetic_month"
+    },
+    {
+      "path": "inputs/actual_JW_magnetic/raw/nrt_2015-07.bin",
+      "source": "raw/actual_JW_magnetic/raw/nrt_2015-07.bin",
+      "sha256": "cce52d32da7430d8812fa63790706925522b7f02f66d03c8e05a1e7aff23f7a1",
+      "bytes": 132212,
+      "role": "magnetic_month"
+    },
+    {
+      "path": "inputs/actual_JW_magnetic/raw/nrt_2015-08.bin",
+      "source": "raw/actual_JW_magnetic/raw/nrt_2015-08.bin",
+      "sha256": "151ab9db4acb78caf947312c0d41fa2c7354f32d07024efb3019a09195c62116",
+      "bytes": 150329,
+      "role": "magnetic_month"
+    },
+    {
+      "path": "inputs/actual_JW_magnetic/raw/nrt_2015-09.bin",
+      "source": "raw/actual_JW_magnetic/raw/nrt_2015-09.bin",
+      "sha256": "dad8320467e5bd4f2c1bf45fbe58eab85fcee81059d7569ead34ef8b14c2a147",
+      "bytes": 111714,
+      "role": "magnetic_month"
+    },
+    {
+      "path": "inputs/actual_JW_magnetic/raw/nrt_2015-10.bin",
+      "source": "raw/actual_JW_magnetic/raw/nrt_2015-10.bin",
+      "sha256": "fd16445b6db07cf10f173799d56c9dd4be79d0626311c18a5c9bb4477d9c29d7",
+      "bytes": 102924,
+      "role": "magnetic_month"
+    },
+    {
+      "path": "inputs/actual_JW_magnetic/raw/nrt_2015-11.bin",
+      "source": "raw/actual_JW_magnetic/raw/nrt_2015-11.bin",
+      "sha256": "211930c3d029f14ae550f56ad2c5755b3687092606a47629646caaca8c3838b3",
+      "bytes": 101574,
+      "role": "magnetic_month"
+    },
+    {
+      "path": "inputs/actual_JW_magnetic/raw/nrt_2015-12.bin",
+      "source": "raw/actual_JW_magnetic/raw/nrt_2015-12.bin",
+      "sha256": "b84d263f74cf9c7ede5cf8963ec7c8f4fd8abdf69b1e5ccc5b6f32b17efbf039",
+      "bytes": 132065,
+      "role": "magnetic_month"
+    },
+    {
+      "path": "inputs/actual_JW_magnetic/raw/nrt_2016-01.bin",
+      "source": "raw/actual_JW_magnetic/raw/nrt_2016-01.bin",
+      "sha256": "7a2c0af48c3d457709707f7e7b12acff9a374b580d9e8de3e69c3c7571e8f1a4",
+      "bytes": 116881,
+      "role": "magnetic_month"
+    },
+    {
+      "path": "inputs/actual_JW_magnetic/raw/nrt_2016-02.bin",
+      "source": "raw/actual_JW_magnetic/raw/nrt_2016-02.bin",
+      "sha256": "6767709610a6ff52d30b65507e40ba292b5d10e2a93be19ba13a78e5f25bc43b",
+      "bytes": 121805,
+      "role": "magnetic_month"
+    },
+    {
+      "path": "inputs/actual_JW_magnetic/raw/nrt_2016-03.bin",
+      "source": "raw/actual_JW_magnetic/raw/nrt_2016-03.bin",
+      "sha256": "0dd26cd67def96cb215ec0553e686a8cdf1fea3e91673b9f17a107fe67e56332",
+      "bytes": 82894,
+      "role": "magnetic_month"
+    },
+    {
+      "path": "inputs/actual_JW_magnetic/raw/nrt_2016-04.bin",
+      "source": "raw/actual_JW_magnetic/raw/nrt_2016-04.bin",
+      "sha256": "0802f89c88a3b63e511ae37b7e668c4b3f89b5d0c1da682c8e342c0316e9e6cd",
+      "bytes": 87420,
+      "role": "magnetic_month"
+    },
+    {
+      "path": "inputs/actual_JW_magnetic/raw/nrt_2016-05.bin",
+      "source": "raw/actual_JW_magnetic/raw/nrt_2016-05.bin",
+      "sha256": "27d0d19e5175048681d36e3ae6e3f02766c86996bf95b7fdab2d9752b030e80a",
+      "bytes": 87513,
+      "role": "magnetic_month"
+    },
+    {
+      "path": "inputs/actual_JW_magnetic/raw/nrt_2016-06.bin",
+      "source": "raw/actual_JW_magnetic/raw/nrt_2016-06.bin",
+      "sha256": "98f60170ce0e202f6283a8294f4afda41fdd559614484041ef7b8a52b1d7038f",
+      "bytes": 92280,
+      "role": "magnetic_month"
+    },
+    {
+      "path": "inputs/actual_JW_magnetic/raw/nrt_2016-07.bin",
+      "source": "raw/actual_JW_magnetic/raw/nrt_2016-07.bin",
+      "sha256": "0f9d527c86e096506e9cc8c12b59b03193453c8c9426188612df4387778f7c54",
+      "bytes": 70249,
+      "role": "magnetic_month"
+    },
+    {
+      "path": "inputs/actual_JW_magnetic/raw/nrt_2016-08.bin",
+      "source": "raw/actual_JW_magnetic/raw/nrt_2016-08.bin",
+      "sha256": "78a899de1b1594ee3567f695dc8726254cf2f58d7a1a16051defc43ce36ef6bf",
+      "bytes": 61656,
+      "role": "magnetic_month"
+    },
+    {
+      "path": "inputs/actual_JW_magnetic/raw/nrt_2016-09.bin",
+      "source": "raw/actual_JW_magnetic/raw/nrt_2016-09.bin",
+      "sha256": "a10c2f8fa50e5414392fd86e33834a802459317272a50b07e860c87c03b7b43b",
+      "bytes": 72497,
+      "role": "magnetic_month"
+    },
+    {
+      "path": "inputs/actual_JW_magnetic/raw/nrt_2016-10.bin",
+      "source": "raw/actual_JW_magnetic/raw/nrt_2016-10.bin",
+      "sha256": "e8087750a2d7defb8d9cdbd062a715b4fc6d79d8d18017e5990339483fae7544",
+      "bytes": 65546,
+      "role": "magnetic_month"
+    },
+    {
+      "path": "inputs/actual_JW_magnetic/raw/nrt_2016-11.bin",
+      "source": "raw/actual_JW_magnetic/raw/nrt_2016-11.bin",
+      "sha256": "89a755dc3241248334a32bd7e20df13f43d18dcc10001f7e855e1f486c41ef8e",
+      "bytes": 68640,
+      "role": "magnetic_month"
+    },
+    {
+      "path": "inputs/actual_JW_magnetic/raw/nrt_2016-12.bin",
+      "source": "raw/actual_JW_magnetic/raw/nrt_2016-12.bin",
+      "sha256": "b6fb6fa410f5ae0d37cecfeaf1cb3e110b067d56b7b338117936ed9fb151ff7a",
+      "bytes": 43527,
+      "role": "magnetic_month"
+    },
+    {
+      "path": "inputs/actual_JW_magnetic/raw/nrt_2017-01.bin",
+      "source": "raw/actual_JW_magnetic/raw/nrt_2017-01.bin",
+      "sha256": "37b383ff305c22dd153cf7c935535fa355c16b3666dddf8e31401d151241bc4d",
+      "bytes": 46332,
+      "role": "magnetic_month"
+    },
+    {
+      "path": "inputs/actual_JW_magnetic/raw/nrt_2017-02.bin",
+      "source": "raw/actual_JW_magnetic/raw/nrt_2017-02.bin",
+      "sha256": "1c4321ed22112af759cd281c6756633b304191c78ff89eb33e1a6f896a28db20",
+      "bytes": 35835,
+      "role": "magnetic_month"
+    },
+    {
+      "path": "inputs/actual_JW_magnetic/raw/nrt_2017-03.bin",
+      "source": "raw/actual_JW_magnetic/raw/nrt_2017-03.bin",
+      "sha256": "52a89e6a3ee5b04fbcf8bd429f901fc7cfc580f5c026419528d8f2c1034c2823",
+      "bytes": 31540,
+      "role": "magnetic_month"
+    },
+    {
+      "path": "inputs/actual_JW_magnetic/raw/nrt_2017-04.bin",
+      "source": "raw/actual_JW_magnetic/raw/nrt_2017-04.bin",
+      "sha256": "e9440a7a4003e003222afd2615faeaca7f41ab5844f8ef2dded4ee9d19608c8e",
+      "bytes": 35417,
+      "role": "magnetic_month"
+    },
+    {
+      "path": "inputs/actual_JW_magnetic/raw/nrt_2017-05.bin",
+      "source": "raw/actual_JW_magnetic/raw/nrt_2017-05.bin",
+      "sha256": "347e961034049421299349fe03b5e4145da971128d0ce5acfc91c1f64e4e5337",
+      "bytes": 44322,
+      "role": "magnetic_month"
+    },
+    {
+      "path": "inputs/actual_JW_magnetic/raw/nrt_2017-06.bin",
+      "source": "raw/actual_JW_magnetic/raw/nrt_2017-06.bin",
+      "sha256": "f0bd1516e0227bcddaa8ac0af82802414dedc5c731672ba3cd5b69717c592763",
+      "bytes": 42945,
+      "role": "magnetic_month"
+    },
+    {
+      "path": "inputs/actual_JW_magnetic/raw/nrt_2017-07.bin",
+      "source": "raw/actual_JW_magnetic/raw/nrt_2017-07.bin",
+      "sha256": "b874861a4ed4c9723979aab198be6fab55ab4c43f3ca1f09a5c91a92d6423da9",
+      "bytes": 37005,
+      "role": "magnetic_month"
+    },
+    {
+      "path": "inputs/actual_JW_magnetic/raw/nrt_2017-08.bin",
+      "source": "raw/actual_JW_magnetic/raw/nrt_2017-08.bin",
+      "sha256": "67c470e613f53cf55c0dc497ea4c85fc12df857d60509a5a4e50ea4cc687c4d8",
+      "bytes": 29434,
+      "role": "magnetic_month"
+    },
+    {
+      "path": "inputs/actual_JW_magnetic/raw/nrt_2017-09.bin",
+      "source": "raw/actual_JW_magnetic/raw/nrt_2017-09.bin",
+      "sha256": "d63c62dfbc346ce99b9d4e97ea6759f8f0d549d2652a7c59a6ebe99e2ee028bc",
+      "bytes": 61891,
+      "role": "magnetic_month"
+    },
+    {
+      "path": "inputs/actual_JW_magnetic/raw/nrt_2017-10.bin",
+      "source": "raw/actual_JW_magnetic/raw/nrt_2017-10.bin",
+      "sha256": "e1abe61026a94acadc05ba22fde03d2b7abc39dae8c72989f0a7b9fc112cd49d",
+      "bytes": 38916,
+      "role": "magnetic_month"
+    },
+    {
+      "path": "inputs/actual_JW_magnetic/raw/nrt_2017-11.bin",
+      "source": "raw/actual_JW_magnetic/raw/nrt_2017-11.bin",
+      "sha256": "72817c1a753f5c1e508cbf6ac43b6d4717d8e753cdf2d3df4c7880c87440e717",
+      "bytes": 25644,
+      "role": "magnetic_month"
+    },
+    {
+      "path": "inputs/actual_JW_magnetic/raw/nrt_2017-12.bin",
+      "source": "raw/actual_JW_magnetic/raw/nrt_2017-12.bin",
+      "sha256": "55cfbaa6633f501bc2c578477060b0aeb6b1808f340d307e4f8c98acfbe298f2",
+      "bytes": 21487,
+      "role": "magnetic_month"
+    },
+    {
+      "path": "inputs/actual_JW_magnetic/raw/nrt_2018-01.bin",
+      "source": "raw/actual_JW_magnetic/raw/nrt_2018-01.bin",
+      "sha256": "36da2ae9b4360b916c5a9e019e6da063b69d9f53e5c703d065ff3e7def00ae38",
+      "bytes": 14691,
+      "role": "magnetic_month"
+    },
+    {
+      "path": "inputs/actual_JW_magnetic/raw/nrt_2018-02.bin",
+      "source": "raw/actual_JW_magnetic/raw/nrt_2018-02.bin",
+      "sha256": "561865c687f7aed1ad656db3b7df0ba8a51b208217204b72e1fe93188ce53712",
+      "bytes": 12914,
+      "role": "magnetic_month"
+    },
+    {
+      "path": "inputs/actual_JW_magnetic/raw/nrt_2018-03.bin",
+      "source": "raw/actual_JW_magnetic/raw/nrt_2018-03.bin",
+      "sha256": "c3fe8f8b5dcb04f05ddda8dd7d5473c997d0fc1cc5923e396788ecb1b9e76f3b",
+      "bytes": 10574,
+      "role": "magnetic_month"
+    },
+    {
+      "path": "inputs/actual_JW_magnetic/raw/nrt_2018-04.bin",
+      "source": "raw/actual_JW_magnetic/raw/nrt_2018-04.bin",
+      "sha256": "9d4b969c4020094d44506b89544f2e4f2646d4b9ab2d62fa2ea0392954db473d",
+      "bytes": 13331,
+      "role": "magnetic_month"
+    },
+    {
+      "path": "inputs/actual_JW_magnetic/raw/nrt_2018-05.bin",
+      "source": "raw/actual_JW_magnetic/raw/nrt_2018-05.bin",
+      "sha256": "bc6f3eb0ece74c6f6cfea0eae712aced133233415c8a264d39b9fb54c993cad9",
+      "bytes": 25169,
+      "role": "magnetic_month"
+    },
+    {
+      "path": "inputs/actual_JW_magnetic/raw/nrt_2018-06.bin",
+      "source": "raw/actual_JW_magnetic/raw/nrt_2018-06.bin",
+      "sha256": "94c183caa630967e8cee17c8e41704b9acee26a473103092dcceb2b55d48fba4",
+      "bytes": 25664,
+      "role": "magnetic_month"
+    },
+    {
+      "path": "inputs/actual_JW_magnetic/raw/nrt_2018-07.bin",
+      "source": "raw/actual_JW_magnetic/raw/nrt_2018-07.bin",
+      "sha256": "e919aa88fe81bc73011b27618541e2cf6cbbdec3a08aa52994c15ce35f151546",
+      "bytes": 9655,
+      "role": "magnetic_month"
+    },
+    {
+      "path": "inputs/actual_JW_magnetic/raw/nrt_2018-08.bin",
+      "source": "raw/actual_JW_magnetic/raw/nrt_2018-08.bin",
+      "sha256": "98510d83ae2607ebf2649673247cbe7baf2c4ec32eeaae3c54b8812cc92fd3fa",
+      "bytes": 22414,
+      "role": "magnetic_month"
+    },
+    {
+      "path": "inputs/actual_JW_magnetic/raw/nrt_2018-09.bin",
+      "source": "raw/actual_JW_magnetic/raw/nrt_2018-09.bin",
+      "sha256": "ab578eaab71c9628a6184843fecf5fe6f4db97b42a1fd4a361a236c52d5f2928",
+      "bytes": 14622,
+      "role": "magnetic_month"
+    },
+    {
+      "path": "inputs/actual_JW_magnetic/raw/nrt_2018-10.bin",
+      "source": "raw/actual_JW_magnetic/raw/nrt_2018-10.bin",
+      "sha256": "7e774286a8f701022fd8ff433e3e771b50de21aecdaf7679c4d5bfca2d0aa884",
+      "bytes": 10122,
+      "role": "magnetic_month"
+    },
+    {
+      "path": "inputs/actual_JW_magnetic/raw/nrt_2018-11.bin",
+      "source": "raw/actual_JW_magnetic/raw/nrt_2018-11.bin",
+      "sha256": "7e6bcea30e7c51cb1c2f72e2b4135b42493a6df5ff6af10e599746f1e2fcd372",
+      "bytes": 5550,
+      "role": "magnetic_month"
+    },
+    {
+      "path": "inputs/actual_JW_magnetic/raw/nrt_2018-12.bin",
+      "source": "raw/actual_JW_magnetic/raw/nrt_2018-12.bin",
+      "sha256": "9867834e0da6a492367dd9f4612348114d40151bf13ac77ab32dc8a365df0ccc",
+      "bytes": 12384,
+      "role": "magnetic_month"
+    },
+    {
+      "path": "inputs/actual_JW_magnetic/raw/nrt_2019-01.bin",
+      "source": "raw/actual_JW_magnetic/raw/nrt_2019-01.bin",
+      "sha256": "f5ad7a34c10363a37a0060085ef7ddc36f7c144106aa384b75213e9a69312783",
+      "bytes": 13315,
+      "role": "magnetic_month"
+    },
+    {
+      "path": "inputs/actual_JW_magnetic/raw/nrt_2019-02.bin",
+      "source": "raw/actual_JW_magnetic/raw/nrt_2019-02.bin",
+      "sha256": "51feb316a894582c60312106a1e858b57be78f492f82e73ed055088cf1abf56b",
+      "bytes": 10979,
+      "role": "magnetic_month"
+    },
+    {
+      "path": "inputs/actual_JW_magnetic/raw/nrt_2019-03.bin",
+      "source": "raw/actual_JW_magnetic/raw/nrt_2019-03.bin",
+      "sha256": "7f5ef79cd11ef16234c8048ebc1d40b5ce4bee8d3734a3429dacd9324f0e1fed",
+      "bytes": 16026,
+      "role": "magnetic_month"
+    },
+    {
+      "path": "inputs/actual_JW_magnetic/raw/nrt_2019-04.bin",
+      "source": "raw/actual_JW_magnetic/raw/nrt_2019-04.bin",
+      "sha256": "c3dc1fb8d1288e1d1c8fd2bbe6bec819deddd8530e9a8e3dff858553238e5f83",
+      "bytes": 11522,
+      "role": "magnetic_month"
+    },
+    {
+      "path": "inputs/actual_JW_magnetic/raw/nrt_2019-05.bin",
+      "source": "raw/actual_JW_magnetic/raw/nrt_2019-05.bin",
+      "sha256": "1c9016bc91a479439fdf93bc33702aa9f200ff0f8706e20fe7d2561e0cefb122",
+      "bytes": 17877,
+      "role": "magnetic_month"
+    },
+    {
+      "path": "inputs/actual_JW_magnetic/raw/nrt_2019-06.bin",
+      "source": "raw/actual_JW_magnetic/raw/nrt_2019-06.bin",
+      "sha256": "d4a867a4b0942e3be14b173cbb310321bedbd06854e5932b6976a9eccc7af93f",
+      "bytes": 14615,
+      "role": "magnetic_month"
+    },
+    {
+      "path": "inputs/actual_JW_magnetic/raw/nrt_2019-07.bin",
+      "source": "raw/actual_JW_magnetic/raw/nrt_2019-07.bin",
+      "sha256": "95a1bb5f1af04db724912aa8c33ea6020999dd184cf5d57da0d2eb1f56f90789",
+      "bytes": 8752,
+      "role": "magnetic_month"
+    },
+    {
+      "path": "inputs/actual_JW_magnetic/raw/nrt_2019-08.bin",
+      "source": "raw/actual_JW_magnetic/raw/nrt_2019-08.bin",
+      "sha256": "083d0e9e06c5433817fba65a8a280e0b9871d4d21366f5304f1fbe0befa5974e",
+      "bytes": 2817,
+      "role": "magnetic_month"
+    },
+    {
+      "path": "inputs/actual_JW_magnetic/raw/nrt_2019-09.bin",
+      "source": "raw/actual_JW_magnetic/raw/nrt_2019-09.bin",
+      "sha256": "b8cded863a4b8a4c9d484f0e6ef852157e9b22afdd1f707ae1d88a1fa0cd4c21",
+      "bytes": 2833,
+      "role": "magnetic_month"
+    },
+    {
+      "path": "inputs/actual_JW_magnetic/raw/nrt_2019-10.bin",
+      "source": "raw/actual_JW_magnetic/raw/nrt_2019-10.bin",
+      "sha256": "7d81e579ec61d4dd25d55992729955c726c276c7defeef13e2ff9418e41eb4f0",
+      "bytes": 4659,
+      "role": "magnetic_month"
+    },
+    {
+      "path": "inputs/actual_JW_magnetic/raw/nrt_2019-11.bin",
+      "source": "raw/actual_JW_magnetic/raw/nrt_2019-11.bin",
+      "sha256": "f270f26d9aa1f6724d0bae3e4110a7bb3db3a1b7c77cef9eaba6c4a2e875d192",
+      "bytes": 8325,
+      "role": "magnetic_month"
+    },
+    {
+      "path": "inputs/actual_JW_magnetic/raw/nrt_2019-12.bin",
+      "source": "raw/actual_JW_magnetic/raw/nrt_2019-12.bin",
+      "sha256": "7bd05e758fd426230cb7a1db688ccd6590d85320df9c02a128b50a1b16eb1f73",
+      "bytes": 5587,
+      "role": "magnetic_month"
+    },
+    {
+      "path": "inputs/actual_JW_magnetic/raw/nrt_2020-01.bin",
+      "source": "raw/actual_JW_magnetic/raw/nrt_2020-01.bin",
+      "sha256": "0ab4eb4fdc685fea8d67e4767872a9d496cd066ce75a25ee13b7e2e3f0360756",
+      "bytes": 13789,
+      "role": "magnetic_month"
+    },
+    {
+      "path": "inputs/actual_JW_magnetic/raw/nrt_2020-02.bin",
+      "source": "raw/actual_JW_magnetic/raw/nrt_2020-02.bin",
+      "sha256": "42e608b85886185afeeea5f217686390b183da588e59ce88392eaa868816268f",
+      "bytes": 2823,
+      "role": "magnetic_month"
+    },
+    {
+      "path": "inputs/actual_JW_magnetic/raw/nrt_2020-03.bin",
+      "source": "raw/actual_JW_magnetic/raw/nrt_2020-03.bin",
+      "sha256": "b12c85df17a385e4045545300ea71329afad94951b0d7d88d0d1c857657f8449",
+      "bytes": 5591,
+      "role": "magnetic_month"
+    },
+    {
+      "path": "inputs/actual_JW_magnetic/raw/nrt_2020-04.bin",
+      "source": "raw/actual_JW_magnetic/raw/nrt_2020-04.bin",
+      "sha256": "83aafadc81670da9c3cbd28536aaf31820b5928f6d8172f9b457b6aea85f03f4",
+      "bytes": 9253,
+      "role": "magnetic_month"
+    },
+    {
+      "path": "inputs/actual_JW_magnetic/raw/nrt_2020-05.bin",
+      "source": "raw/actual_JW_magnetic/raw/nrt_2020-05.bin",
+      "sha256": "472ae5ab8cb4b4516187ec704177075ddc7971ef2243e21c21339eae98ac812a",
+      "bytes": 7405,
+      "role": "magnetic_month"
+    },
+    {
+      "path": "inputs/actual_JW_magnetic/raw/nrt_2020-06.bin",
+      "source": "raw/actual_JW_magnetic/raw/nrt_2020-06.bin",
+      "sha256": "ab15ac3bb0ba093bfacfae73d954b0e6481c26246f5c8acd621d6098a1d4aafb",
+      "bytes": 14772,
+      "role": "magnetic_month"
+    },
+    {
+      "path": "inputs/actual_JW_magnetic/raw/nrt_2020-07.bin",
+      "source": "raw/actual_JW_magnetic/raw/nrt_2020-07.bin",
+      "sha256": "29c37a10b9ae14e2e8a158d6ce50529e4222f26d46cd624d2f75b7a129e13f08",
+      "bytes": 13377,
+      "role": "magnetic_month"
+    },
+    {
+      "path": "inputs/actual_JW_magnetic/raw/nrt_2020-08.bin",
+      "source": "raw/actual_JW_magnetic/raw/nrt_2020-08.bin",
+      "sha256": "d1769a8d954a05cf8ae8322c64ba6fe4bb763c2f790d56ab3a1fe74941c77144",
+      "bytes": 26620,
+      "role": "magnetic_month"
+    },
+    {
+      "path": "inputs/actual_JW_magnetic/raw/nrt_2020-09.bin",
+      "source": "raw/actual_JW_magnetic/raw/nrt_2020-09.bin",
+      "sha256": "b4e0bd6a0bcf650fa73486f085d57b26f6212015342bcfc6d3e44c0020a8ab82",
+      "bytes": 10571,
+      "role": "magnetic_month"
+    },
+    {
+      "path": "inputs/actual_JW_magnetic/raw/nrt_2020-10.bin",
+      "source": "raw/actual_JW_magnetic/raw/nrt_2020-10.bin",
+      "sha256": "b6ad1fc44efca3e923890077c67c9cac10a677e433d6b93081f1d454fb94a279",
+      "bytes": 23916,
+      "role": "magnetic_month"
+    },
+    {
+      "path": "inputs/actual_JW_magnetic/raw/nrt_2020-11.bin",
+      "source": "raw/actual_JW_magnetic/raw/nrt_2020-11.bin",
+      "sha256": "62a94150005bda73bdb8df6f934a3c062fd366f7228be95adca49a6dbef3f2d6",
+      "bytes": 41961,
+      "role": "magnetic_month"
+    },
+    {
+      "path": "inputs/actual_JW_magnetic/raw/nrt_2020-12.bin",
+      "source": "raw/actual_JW_magnetic/raw/nrt_2020-12.bin",
+      "sha256": "1432cb992673ccb5e21cbe71d645d081e0a9600262be0311efadbfa1eea10106",
+      "bytes": 58407,
+      "role": "magnetic_month"
+    },
+    {
+      "path": "inputs/actual_JW_magnetic/raw/nrt_2021-01.bin",
+      "source": "raw/actual_JW_magnetic/raw/nrt_2021-01.bin",
+      "sha256": "4c2f932c143cd725bb350a5857f11bea3767c21690265f0cf1867329db91040f",
+      "bytes": 38088,
+      "role": "magnetic_month"
+    },
+    {
+      "path": "inputs/actual_JW_magnetic/raw/nrt_2021-02.bin",
+      "source": "raw/actual_JW_magnetic/raw/nrt_2021-02.bin",
+      "sha256": "597a79cfdd21786beae81254d9136225e24917749f589a8f10e14fead2fa54fe",
+      "bytes": 20245,
+      "role": "magnetic_month"
+    },
+    {
+      "path": "inputs/actual_JW_magnetic/raw/nrt_2021-03.bin",
+      "source": "raw/actual_JW_magnetic/raw/nrt_2021-03.bin",
+      "sha256": "6d92cdebedc12932bd8eafcc6065e14d7bf00c4b779e561a5f451a9f20f7785a",
+      "bytes": 36386,
+      "role": "magnetic_month"
+    },
+    {
+      "path": "inputs/actual_JW_magnetic/raw/nrt_2021-04.bin",
+      "source": "raw/actual_JW_magnetic/raw/nrt_2021-04.bin",
+      "sha256": "76254fb0fb06b0ac49c32c97f76e5f7930f378d6628fc82179b6d8f871cf6f2e",
+      "bytes": 25483,
+      "role": "magnetic_month"
+    },
+    {
+      "path": "inputs/actual_JW_magnetic/raw/nrt_2021-05.bin",
+      "source": "raw/actual_JW_magnetic/raw/nrt_2021-05.bin",
+      "sha256": "9925af0bfddec0c78ceaff608365d6c8e075878aefc60ebc6346a0ffd992e545",
+      "bytes": 38696,
+      "role": "magnetic_month"
+    },
+    {
+      "path": "inputs/actual_JW_magnetic/raw/nrt_2021-06.bin",
+      "source": "raw/actual_JW_magnetic/raw/nrt_2021-06.bin",
+      "sha256": "e5849da185a4bc2de955fd1f6c98e4d77e97fffe9806b25948d81b7857fc7619",
+      "bytes": 65574,
+      "role": "magnetic_month"
+    },
+    {
+      "path": "inputs/actual_JW_magnetic/raw/nrt_2021-07.bin",
+      "source": "raw/actual_JW_magnetic/raw/nrt_2021-07.bin",
+      "sha256": "02b0ea49e824868e5e2286347e7b9b0d685be5a08e0279854bb81612c8728e91",
+      "bytes": 72120,
+      "role": "magnetic_month"
+    },
+    {
+      "path": "inputs/actual_JW_magnetic/raw/nrt_2021-08.bin",
+      "source": "raw/actual_JW_magnetic/raw/nrt_2021-08.bin",
+      "sha256": "a5d50f7f6214ec176da0ec859217160150cfd19cfe7688cef7503d5a77b855b4",
+      "bytes": 52778,
+      "role": "magnetic_month"
+    },
+    {
+      "path": "inputs/actual_JW_magnetic/raw/nrt_2021-09.bin",
+      "source": "raw/actual_JW_magnetic/raw/nrt_2021-09.bin",
+      "sha256": "79ef42210143e81c7e13efcf7409cddad2ffbb7d1fc70ce27416f2b3b3f22219",
+      "bytes": 74120,
+      "role": "magnetic_month"
+    },
+    {
+      "path": "inputs/actual_JW_magnetic/raw/nrt_2021-10.bin",
+      "source": "raw/actual_JW_magnetic/raw/nrt_2021-10.bin",
+      "sha256": "cf84dfe845d1e7889315c2a7a187c31396f841fc5c7d444ddf8065c6d857d431",
+      "bytes": 72626,
+      "role": "magnetic_month"
+    },
+    {
+      "path": "inputs/actual_JW_magnetic/raw/nrt_2021-11.bin",
+      "source": "raw/actual_JW_magnetic/raw/nrt_2021-11.bin",
+      "sha256": "77d0a6157f746e8ffebdfafba8e4bcfeb1cc685eaf21cdbfed1615ffdad3fb1a",
+      "bytes": 68518,
+      "role": "magnetic_month"
+    },
+    {
+      "path": "inputs/actual_JW_magnetic/raw/nrt_2021-12.bin",
+      "source": "raw/actual_JW_magnetic/raw/nrt_2021-12.bin",
+      "sha256": "3a8f892f502332d4ae0b4c55110a8f444e829b1b8911f5cef85af10e9d79261b",
+      "bytes": 97331,
+      "role": "magnetic_month"
+    },
+    {
+      "path": "inputs/actual_JW_magnetic/raw/nrt_2022-01.bin",
+      "source": "raw/actual_JW_magnetic/raw/nrt_2022-01.bin",
+      "sha256": "1e3c93a583cd06253c2e4462f6ae233de45178db52e8d7328e432015e5b2ac26",
+      "bytes": 111709,
+      "role": "magnetic_month"
+    },
+    {
+      "path": "inputs/actual_JW_magnetic/raw/nrt_2022-02.bin",
+      "source": "raw/actual_JW_magnetic/raw/nrt_2022-02.bin",
+      "sha256": "9658e31158a2f9c3cf58957b8668b6d438524f3d5bca30a5fdfc8067c8c83d54",
+      "bytes": 134593,
+      "role": "magnetic_month"
+    },
+    {
+      "path": "inputs/actual_JW_magnetic/raw/nrt_2022-03.bin",
+      "source": "raw/actual_JW_magnetic/raw/nrt_2022-03.bin",
+      "sha256": "ee4ce2e559306b45d13afb7950989071435c5c92b65e319dbd80cb0e4e549a2b",
+      "bytes": 112439,
+      "role": "magnetic_month"
+    },
+    {
+      "path": "inputs/actual_JW_magnetic/raw/nrt_2022-04.bin",
+      "source": "raw/actual_JW_magnetic/raw/nrt_2022-04.bin",
+      "sha256": "bcff0af342ecd750d2cc999b1c62cf1cb5d637e60423e8fbb289ea210f70a29d",
+      "bytes": 137621,
+      "role": "magnetic_month"
+    },
+    {
+      "path": "inputs/actual_JW_magnetic/raw/nrt_2022-05.bin",
+      "source": "raw/actual_JW_magnetic/raw/nrt_2022-05.bin",
+      "sha256": "5214e3db0badc9f1c0394a6f5e2b2b029839cf35480f8cf2d67d40a5e75850eb",
+      "bytes": 150134,
+      "role": "magnetic_month"
+    },
+    {
+      "path": "inputs/actual_JW_magnetic/raw/nrt_2022-06.bin",
+      "source": "raw/actual_JW_magnetic/raw/nrt_2022-06.bin",
+      "sha256": "8d796cea9ed28c1a237350772be8eb610a5744450eab07fdbcd94951fc789db5",
+      "bytes": 91715,
+      "role": "magnetic_month"
+    },
+    {
+      "path": "inputs/actual_JW_magnetic/raw/nrt_2022-07.bin",
+      "source": "raw/actual_JW_magnetic/raw/nrt_2022-07.bin",
+      "sha256": "8e781220c6179ae3b5236cd3115cb8e57deef89008ad15bdb284368fef667c52",
+      "bytes": 140636,
+      "role": "magnetic_month"
+    },
+    {
+      "path": "inputs/actual_JW_magnetic/raw/nrt_2022-08.bin",
+      "source": "raw/actual_JW_magnetic/raw/nrt_2022-08.bin",
+      "sha256": "eb362e69a343eb53925cca09961a0c1f51e53db6a9e601260c092df59aafa16e",
+      "bytes": 141283,
+      "role": "magnetic_month"
+    },
+    {
+      "path": "inputs/actual_JW_magnetic/raw/nrt_2022-09.bin",
+      "source": "raw/actual_JW_magnetic/raw/nrt_2022-09.bin",
+      "sha256": "9e6fe033abe18178331242e9587b7c94edf7380bf778a6acd53cf13374c73d16",
+      "bytes": 110327,
+      "role": "magnetic_month"
+    },
+    {
+      "path": "inputs/actual_JW_magnetic/raw/nrt_2022-10.bin",
+      "source": "raw/actual_JW_magnetic/raw/nrt_2022-10.bin",
+      "sha256": "b42784d217f3df2c4c40f7ae16d32587550074700175d0a57f934c0f21005e63",
+      "bytes": 157846,
+      "role": "magnetic_month"
+    },
+    {
+      "path": "inputs/actual_JW_magnetic/raw/nrt_2022-11.bin",
+      "source": "raw/actual_JW_magnetic/raw/nrt_2022-11.bin",
+      "sha256": "c56db4a27603021878847d2482fa148a26e2b45aefc8fc77f1c4ffbd005d42af",
+      "bytes": 130208,
+      "role": "magnetic_month"
+    },
+    {
+      "path": "inputs/actual_JW_magnetic/raw/nrt_2022-12.bin",
+      "source": "raw/actual_JW_magnetic/raw/nrt_2022-12.bin",
+      "sha256": "9e853fe0ef9fe6978a65651d57785bf51b1b210a3498522571b93c709c921cac",
+      "bytes": 155757,
+      "role": "magnetic_month"
+    },
+    {
+      "path": "inputs/actual_JW_magnetic/raw/nrt_2023-01.bin",
+      "source": "raw/actual_JW_magnetic/raw/nrt_2023-01.bin",
+      "sha256": "fa6c4615a9ab3b9aa6608efcae21c55ba7ac0178269ab8b0e89dc6b45b82f268",
+      "bytes": 170314,
+      "role": "magnetic_month"
+    },
+    {
+      "path": "inputs/actual_JW_magnetic/raw/nrt_2023-02.bin",
+      "source": "raw/actual_JW_magnetic/raw/nrt_2023-02.bin",
+      "sha256": "d29b06ae0097ab45e869389af2102609ee257a58e6947ebcfae385c0dbf3ca46",
+      "bytes": 178469,
+      "role": "magnetic_month"
+    },
+    {
+      "path": "inputs/actual_JW_magnetic/raw/nrt_2023-03.bin",
+      "source": "raw/actual_JW_magnetic/raw/nrt_2023-03.bin",
+      "sha256": "4d1721ae89cf7f33acadfe455005bc5cb7976ccddc83a9cbc9f9aab64dab6624",
+      "bytes": 208006,
+      "role": "magnetic_month"
+    },
+    {
+      "path": "inputs/actual_JW_magnetic/raw/nrt_2023-04.bin",
+      "source": "raw/actual_JW_magnetic/raw/nrt_2023-04.bin",
+      "sha256": "34f6af6edb73923de2689ea68ed7098970ca7de277df6c8daf8a120d436fbbd8",
+      "bytes": 197900,
+      "role": "magnetic_month"
+    },
+    {
+      "path": "inputs/actual_JW_magnetic/raw/nrt_2023-05.bin",
+      "source": "raw/actual_JW_magnetic/raw/nrt_2023-05.bin",
+      "sha256": "810a6b99098abd034b85369971300864a27099dc6a69b264b291e035427e62a6",
+      "bytes": 163597,
+      "role": "magnetic_month"
+    },
+    {
+      "path": "inputs/actual_JW_magnetic/raw/nrt_2023-06.bin",
+      "source": "raw/actual_JW_magnetic/raw/nrt_2023-06.bin",
+      "sha256": "eb0997b8db39634ceb226c4c2fb45db2780568b7479aa2636f12f5cb1c4c3b26",
+      "bytes": 213099,
+      "role": "magnetic_month"
+    },
+    {
+      "path": "inputs/actual_JW_magnetic/raw/nrt_2023-07.bin",
+      "source": "raw/actual_JW_magnetic/raw/nrt_2023-07.bin",
+      "sha256": "e1ece511ac3dd97a189ea6eaad79fe0838d9e40c8d88a07cf45a1c07ace8f051",
+      "bytes": 202631,
+      "role": "magnetic_month"
+    },
+    {
+      "path": "inputs/actual_JW_magnetic/raw/nrt_2023-08.bin",
+      "source": "raw/actual_JW_magnetic/raw/nrt_2023-08.bin",
+      "sha256": "2fb944f19fe5e855435516047de09659ab8754809d472dc00e6d1e9b73633fdd",
+      "bytes": 216878,
+      "role": "magnetic_month"
+    },
+    {
+      "path": "inputs/actual_JW_magnetic/raw/nrt_2023-09.bin",
+      "source": "raw/actual_JW_magnetic/raw/nrt_2023-09.bin",
+      "sha256": "e76f2b8b39a1b83ff4997d0f24d9e320dc29bb898174acf096ee9a9774013863",
+      "bytes": 212840,
+      "role": "magnetic_month"
+    },
+    {
+      "path": "inputs/actual_JW_magnetic/raw/nrt_2023-10.bin",
+      "source": "raw/actual_JW_magnetic/raw/nrt_2023-10.bin",
+      "sha256": "c1f59f6a64fe98cce1bf2ac9be498643604ed73e6aa83356cdca6133e51e840b",
+      "bytes": 212173,
+      "role": "magnetic_month"
+    },
+    {
+      "path": "inputs/actual_JW_magnetic/raw/nrt_2023-11.bin",
+      "source": "raw/actual_JW_magnetic/raw/nrt_2023-11.bin",
+      "sha256": "b631a22e78df5f221f6e0dcaf019768f79c4768e6aa0b9cc4587ef1b73cb7ec3",
+      "bytes": 199583,
+      "role": "magnetic_month"
+    },
+    {
+      "path": "inputs/actual_JW_magnetic/raw/nrt_2023-12.bin",
+      "source": "raw/actual_JW_magnetic/raw/nrt_2023-12.bin",
+      "sha256": "bdcc78cc5b8521984fcfa941087c12ffb888507c5cf653e1e92e97bb4699add4",
+      "bytes": 197647,
+      "role": "magnetic_month"
+    },
+    {
+      "path": "inputs/actual_JW_magnetic/raw/nrt_2024-01.bin",
+      "source": "raw/actual_JW_magnetic/raw/nrt_2024-01.bin",
+      "sha256": "a39570e26d647748971af32285911561d6711db7d4ca8812873a0af2c189e29a",
+      "bytes": 226057,
+      "role": "magnetic_month"
+    },
+    {
+      "path": "inputs/actual_JW_magnetic/raw/nrt_2024-02.bin",
+      "source": "raw/actual_JW_magnetic/raw/nrt_2024-02.bin",
+      "sha256": "7cf00ab691f7ce42c1807c8bceebda194fcae405e9221432de40f24f2d26d653",
+      "bytes": 177646,
+      "role": "magnetic_month"
+    },
+    {
+      "path": "inputs/actual_JW_magnetic/raw/nrt_2024-03.bin",
+      "source": "raw/actual_JW_magnetic/raw/nrt_2024-03.bin",
+      "sha256": "c48033b5970dbd516f4cf7987b9640dd5bfb5461920bff55320a5481b17c34e5",
+      "bytes": 200819,
+      "role": "magnetic_month"
+    },
+    {
+      "path": "inputs/actual_JW_magnetic/raw/nrt_2024-04.bin",
+      "source": "raw/actual_JW_magnetic/raw/nrt_2024-04.bin",
+      "sha256": "3e86ff25d612a1000de31d45534e12073031ccad63c5530d88fdf23ac3b094b9",
+      "bytes": 188841,
+      "role": "magnetic_month"
+    },
+    {
+      "path": "inputs/actual_JW_magnetic/raw/nrt_2024-05.bin",
+      "source": "raw/actual_JW_magnetic/raw/nrt_2024-05.bin",
+      "sha256": "aba16788667ce0a9a4a70587d6f0fd54544c9748c3662dcdadea4a30858ef80d",
+      "bytes": 176986,
+      "role": "magnetic_month"
+    },
+    {
+      "path": "inputs/actual_JW_magnetic/raw/nrt_2024-06.bin",
+      "source": "raw/actual_JW_magnetic/raw/nrt_2024-06.bin",
+      "sha256": "c07bf900457919e75a612b556e1e86d2e775ac97b741e8382bec1eef4b458da4",
+      "bytes": 198440,
+      "role": "magnetic_month"
+    },
+    {
+      "path": "inputs/actual_JW_magnetic/raw/nrt_2024-07.bin",
+      "source": "raw/actual_JW_magnetic/raw/nrt_2024-07.bin",
+      "sha256": "6eae7c3703b946c123f56b84fbd28678b6a7508ef21ac31d7c3c5979377a0531",
+      "bytes": 226019,
+      "role": "magnetic_month"
+    },
+    {
+      "path": "inputs/actual_JW_magnetic/raw/nrt_2024-08.bin",
+      "source": "raw/actual_JW_magnetic/raw/nrt_2024-08.bin",
+      "sha256": "baf359c92dca7b06e6aa956d7cc83ced3a09f9dedc774a15db232d4503fdcb8d",
+      "bytes": 220893,
+      "role": "magnetic_month"
+    },
+    {
+      "path": "inputs/actual_JW_magnetic/raw/nrt_2024-09.bin",
+      "source": "raw/actual_JW_magnetic/raw/nrt_2024-09.bin",
+      "sha256": "d1a248864647d012ad08bd7c65b1b36b1a3d0956cde43cc41d1677dbfecd3840",
+      "bytes": 202613,
+      "role": "magnetic_month"
+    },
+    {
+      "path": "inputs/actual_JW_magnetic/raw/nrt_2024-10.bin",
+      "source": "raw/actual_JW_magnetic/raw/nrt_2024-10.bin",
+      "sha256": "bccb8af03be2c417450267645eb6840cd206bf27fbd496fb2b87927055c82816",
+      "bytes": 201527,
+      "role": "magnetic_month"
+    },
+    {
+      "path": "inputs/actual_JW_magnetic/raw/nrt_2024-11.bin",
+      "source": "raw/actual_JW_magnetic/raw/nrt_2024-11.bin",
+      "sha256": "2581e9db4fee07056cc103e152a032ee3587d6ede54df9a05b0a49eb4fa14632",
+      "bytes": 189752,
+      "role": "magnetic_month"
+    },
+    {
+      "path": "inputs/actual_JW_magnetic/raw/nrt_2024-12.bin",
+      "source": "raw/actual_JW_magnetic/raw/nrt_2024-12.bin",
+      "sha256": "ed4e1359aa9e298505244616f4acedd0515b6440a1484a65171c68af05f5d386",
+      "bytes": 207552,
+      "role": "magnetic_month"
+    },
+    {
+      "path": "inputs/actual_JW_magnetic/raw/nrt_2025-01.bin",
+      "source": "raw/actual_JW_magnetic/raw/nrt_2025-01.bin",
+      "sha256": "59b7e1740418afa26dea825b8454aaa12fe2f2274100b3ea98ba09a29ef86d1d",
+      "bytes": 174373,
+      "role": "magnetic_month"
+    },
+    {
+      "path": "inputs/actual_JW_magnetic/raw/nrt_2025-02.bin",
+      "source": "raw/actual_JW_magnetic/raw/nrt_2025-02.bin",
+      "sha256": "1ee790782e8388de2d00f5bd93a044f0bf5ab7592c342e2174b5c0c8e76c888f",
+      "bytes": 192626,
+      "role": "magnetic_month"
+    },
+    {
+      "path": "inputs/actual_JW_magnetic/raw/nrt_2025-03.bin",
+      "source": "raw/actual_JW_magnetic/raw/nrt_2025-03.bin",
+      "sha256": "29f9d5d00dbf25bb3baeac2872d9054647b603920a1080c4c654df22862cb0fb",
+      "bytes": 213606,
+      "role": "magnetic_month"
+    },
+    {
+      "path": "inputs/actual_JW_magnetic/raw/nrt_2025-04.bin",
+      "source": "raw/actual_JW_magnetic/raw/nrt_2025-04.bin",
+      "sha256": "48fdb980116b09e7cedf345d32cf581945d61154e2bc9d91665f287ccf7de8af",
+      "bytes": 212470,
+      "role": "magnetic_month"
+    },
+    {
+      "path": "inputs/actual_JW_magnetic/raw/nrt_2025-05.bin",
+      "source": "raw/actual_JW_magnetic/raw/nrt_2025-05.bin",
+      "sha256": "f03112b52a8d0537550ab870e94fdb4d304d60f92dd888323ecb035c5a10bb89",
+      "bytes": 230479,
+      "role": "magnetic_month"
+    },
+    {
+      "path": "inputs/actual_JW_magnetic/raw/nrt_2025-06.bin",
+      "source": "raw/actual_JW_magnetic/raw/nrt_2025-06.bin",
+      "sha256": "bea5884efb83d1179d417f99fa78a89e00bc9efa6e29a5d849aec6ce8f72bd99",
+      "bytes": 184356,
+      "role": "magnetic_month"
+    },
+    {
+      "path": "inputs/actual_JW_magnetic/raw/nrt_2025-07.bin",
+      "source": "raw/actual_JW_magnetic/raw/nrt_2025-07.bin",
+      "sha256": "bd328ef89030fee8e22dc0a65b3ece027431cced1f93b79c5364023842f04fba",
+      "bytes": 206721,
+      "role": "magnetic_month"
+    },
+    {
+      "path": "inputs/actual_JW_magnetic/raw/nrt_2025-08.bin",
+      "source": "raw/actual_JW_magnetic/raw/nrt_2025-08.bin",
+      "sha256": "4b0eb2bdc0a1fb0f773ada56982dae50071e7d5c1c340922e84ceb16945717d5",
+      "bytes": 207384,
+      "role": "magnetic_month"
+    },
+    {
+      "path": "inputs/actual_JW_magnetic/raw/nrt_2025-09.bin",
+      "source": "raw/actual_JW_magnetic/raw/nrt_2025-09.bin",
+      "sha256": "520ab60904c6118f42a54bbd06a38999b32eabd2ee7fdfe704379a07b294e48a",
+      "bytes": 178755,
+      "role": "magnetic_month"
+    },
+    {
+      "path": "inputs/actual_JW_magnetic/raw/nrt_2025-10.bin",
+      "source": "raw/actual_JW_magnetic/raw/nrt_2025-10.bin",
+      "sha256": "8bc3b26b6cb124268f64c70690da8d6b53af944bbe5f2b7705ce55ce0e440333",
+      "bytes": 188865,
+      "role": "magnetic_month"
+    },
+    {
+      "path": "inputs/actual_JW_magnetic/raw/nrt_2025-11.bin",
+      "source": "raw/actual_JW_magnetic/raw/nrt_2025-11.bin",
+      "sha256": "18c2023c9318b4f708770e2005a10f37f5395957c6f8833e63b4893d7320d5b3",
+      "bytes": 181239,
+      "role": "magnetic_month"
+    },
+    {
+      "path": "inputs/actual_JW_magnetic/raw/nrt_2025-12.bin",
+      "source": "raw/actual_JW_magnetic/raw/nrt_2025-12.bin",
+      "sha256": "251840bb7c4f6100c60e540cfafd8cfa8e6c7ecb3f573ad326e0b7346fb45930",
+      "bytes": 173028,
+      "role": "magnetic_month"
+    },
+    {
+      "path": "inputs/actual_JW_magnetic/raw/nrt_2026-01.bin",
+      "source": "raw/actual_JW_magnetic/raw/nrt_2026-01.bin",
+      "sha256": "5a78b6abd71f9fb87bcf07cb3b851fe05878fe8af53df8b99c562d6a667c1889",
+      "bytes": 140659,
+      "role": "magnetic_month"
+    },
+    {
+      "path": "inputs/actual_JW_magnetic/raw/nrt_2026-02.bin",
+      "source": "raw/actual_JW_magnetic/raw/nrt_2026-02.bin",
+      "sha256": "456222cee6c6e9ca7195988178be584e0e31b49baeeaf33aa581834c39dfe667",
+      "bytes": 172502,
+      "role": "magnetic_month"
+    },
+    {
+      "path": "inputs/actual_JW_magnetic/raw/nrt_2026-03.bin",
+      "source": "raw/actual_JW_magnetic/raw/nrt_2026-03.bin",
+      "sha256": "9fc756af0d7ddcbcdf7ad73b9f5c6e6838ff2eee125ff6305dd8b7c9d0fcf4ba",
+      "bytes": 160413,
+      "role": "magnetic_month"
+    },
+    {
+      "path": "inputs/actual_JW_magnetic/raw/nrt_2026-04.bin",
+      "source": "raw/actual_JW_magnetic/raw/nrt_2026-04.bin",
+      "sha256": "6e2c897047008642132d42c37d9d604ee888972bd7674a5cae40dbcd4c9df247",
+      "bytes": 152111,
+      "role": "magnetic_month"
+    },
+    {
+      "path": "inputs/actual_JW_magnetic/raw/nrt_2026-05.bin",
+      "source": "raw/actual_JW_magnetic/raw/nrt_2026-05.bin",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0,
+      "role": "magnetic_month"
+    },
+    {
+      "path": "inputs/actual_JW_magnetic/raw/nrt_2026-06.bin",
+      "source": "raw/actual_JW_magnetic/raw/nrt_2026-06.bin",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0,
+      "role": "magnetic_month"
+    },
+    {
+      "path": "inputs/actual_JW_magnetic/raw/nrt_2026-07.bin",
+      "source": "raw/actual_JW_magnetic/raw/nrt_2026-07.bin",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0,
+      "role": "magnetic_month"
+    },
+    {
+      "path": "inputs/actual_JW_magnetic/raw/nrt_2026-08.bin",
+      "source": "raw/actual_JW_magnetic/raw/nrt_2026-08.bin",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0,
+      "role": "magnetic_month"
+    },
+    {
+      "path": "inputs/actual_JW_magnetic/raw/nrt_2026-09.bin",
+      "source": "raw/actual_JW_magnetic/raw/nrt_2026-09.bin",
+      "sha256": "139724b64a7c3a68fe1dc06b7b65621ffd624af46a7dde4f2974851286016c71",
+      "bytes": 150306,
+      "role": "magnetic_month"
+    },
+    {
+      "path": "inputs/actual_JW_magnetic/raw/nrt_2026-10.bin",
+      "source": "raw/actual_JW_magnetic/raw/nrt_2026-10.bin",
+      "sha256": "416ef73eadc12fc3024105a8e8ebc26cca08c822ded8b988befcf566e63e3f4c",
+      "bytes": 47960,
+      "role": "magnetic_month"
+    },
+    {
+      "path": "inputs/source_manifest.json",
+      "source": "raw/source_manifest.json",
+      "sha256": "59a17004af8e76dcae125f3ea3433f6f58be19b1ca72be1807dba9030f0df351",
+      "bytes": 688890,
+      "role": "frozen_input_manifest"
+    },
+    {
+      "path": "contract/original_contract.json",
+      "source": "asset/contract/original_contract.json",
+      "sha256": "483ff7e0d4bd7dd82514317b369e84c47029b8b6b73d447f9da02e095d8c09d3",
+      "bytes": 7213,
+      "role": "model_input_or_source_definition"
+    },
+    {
+      "path": "source/schema.json",
+      "source": "asset/source/schema.json",
+      "sha256": "604cf1468a892d4ee67b7e70562952f54f8a9d2b0535ea9af9c249992ab9193d",
+      "bytes": 113770,
+      "role": "model_input_or_source_definition"
+    },
+    {
+      "path": "source/quality_policy.json",
+      "source": "asset/source/quality_policy.json",
+      "sha256": "570585be8d5a22d3667a5723b818c58ce339ade4ac4622f6d00de4f5d9f582dc",
+      "bytes": 24562,
+      "role": "model_input_or_source_definition"
+    },
+    {
+      "path": "model/selected_rf.joblib",
+      "source": "asset/model/selected_rf.joblib",
+      "sha256": "041123dc2e58d0c5e5e1cc8d5c5bfc32c965f37d7505e941e212dbb9f3e533aa",
+      "bytes": 2373351,
+      "role": "model"
+    },
+    {
+      "path": "prepared/daily_physical.csv",
+      "source": "asset/prepared/daily_physical.csv",
+      "sha256": "4ac2b6ef7e050c1cdc30b19938040e2ad038548e678039c463bd01e45b4477a1",
+      "bytes": 2674347,
+      "role": "model_input_or_source_definition"
+    },
+    {
+      "path": "prepared/daily_common.csv",
+      "source": "asset/prepared/daily_common.csv",
+      "sha256": "da895cf520012cdc36bf8db45485a9397592a391793cd26c9ee7394fa1cf514b",
+      "bytes": 358694,
+      "role": "model_input_or_source_definition"
+    },
+    {
+      "path": "prepared/prepared_manifest.json",
+      "source": "asset/prepared/prepared_manifest.json",
+      "sha256": "b44ec6e43fcf129e7030ad727e7b16bb4d7dfdc1c0636d95a457519473aaa5bc",
+      "bytes": 120306,
+      "role": "model_input_or_source_definition"
+    }
+  ],
+  "science_source_files": [
+    {
+      "path": "_frozen/available24_data.py",
+      "sha256": "b48f22d422c5982e0ee908dc3f731be02b58aaa5b2287f8212e2b07132cfefc0",
+      "origin_basename": "available24_data.py"
+    },
+    {
+      "path": "_frozen/available24_live.py",
+      "sha256": "7400b4f47fdbdaaf60744b7ea56c15ec9f79680ecbe02ab8c04e3af580f56181",
+      "origin_basename": "available24_live.py"
+    },
+    {
+      "path": "_frozen/available24_model.py",
+      "sha256": "e03b00e1195dd29c45bf46f9297283f5ea4595d1b894de4297e9163115b218b9",
+      "origin_basename": "available24_model.py"
+    },
+    {
+      "path": "_frozen/frozen_shared/acquire_prepare_magnetic.frozen_source_only_01.py",
+      "sha256": "4d9eb68936272dcacd6d4eccdd69c79ce85f0f8dcc5b0e719fdfec9a5f508d77",
+      "origin_basename": "acquire_prepare_magnetic.frozen_source_only_01.py"
+    },
+    {
+      "path": "_frozen/frozen_shared/forecast_math_reference.py",
+      "sha256": "1af883b3cdba0717d827a1c8768d80f9720103f57795f6825f56b142e89090d1",
+      "origin_basename": "forecast_math_reference.py"
+    },
+    {
+      "path": "_frozen/frozen_shared/frozen_math_core.py",
+      "sha256": "0582ae6f2085e18029b640c22a95b7be634c4e593560283c004b91ebec8c93d3",
+      "origin_basename": "frozen_math_core.py"
+    },
+    {
+      "path": "_frozen/frozen_shared/historical_prepare_reference.py",
+      "sha256": "921acd866fc3ad909799016687b38cfc91e9d60d30c1d705ed48e2c4d31802b1",
+      "origin_basename": "historical_prepare_reference.py"
+    },
+    {
+      "path": "_frozen/frozen_shared/history_math_reference.py",
+      "sha256": "7c170b3c8f9429d0d72b12455be9cc5afc100633c7beb8d04b36f6d480c1358a",
+      "origin_basename": "history_math_reference.py"
+    },
+    {
+      "path": "_frozen/frozen_shared/magnetic_source_gateway.py",
+      "sha256": "d9aa0ea42262a444cc7d61479937d7ad0032f8edd67ab07b1b37893f0b3f99c8",
+      "origin_basename": "magnetic_source_gateway.py"
+    },
+    {
+      "path": "_frozen/frozen_shared/physical_methods_frozen_v1.py",
+      "sha256": "69dd04bcbc8fb909df3d23cdf32ee667acf7d99c72f38988ab3b9c58e63ea4dc",
+      "origin_basename": "physical_methods_frozen_v1.py"
+    },
+    {
+      "path": "_frozen/independent_label_audit.py",
+      "sha256": "beac00d6feea379840d901120ca209326aa89477f1d04e4ab4b33616d92b679d",
+      "origin_basename": "independent_label_audit.py"
+    }
+  ],
+  "limitations": [
+    "Exact QUALITY1024 remains a warning cohort",
+    "JSOC/HMI redistribution terms not verified; raw data kept local",
+    "No operational forecast validation",
+    "Full-Sun GOES labels vs central SHARP inputs",
+    "History Logistic comparison unavailable"
+  ]
+}

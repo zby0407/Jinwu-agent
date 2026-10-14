@@ -1,0 +1,23 @@
+{
+  "schema_version": "jw-flare-model-protocol-v1",
+  "origin_checkpoint_sha256": "041123dc2e58d0c5e5e1cc8d5c5bfc32c965f37d7505e941e212dbb9f3e533aa",
+  "original_contract_sha256": "483ff7e0d4bd7dd82514317b369e84c47029b8b6b73d447f9da02e095d8c09d3",
+  "target_anchor": "actual_issue_after_prediction",
+  "target_duration_seconds": 86400,
+  "decision_threshold": 0.5,
+  "accepted_QUALITY_words": [
+    1024
+  ],
+  "historical_Evidence": {
+    "decision": "accept_with_limits",
+    "scope": "frozen historical evaluation only; not this future window correctness",
+    "original_review_sha256": "d2fe5fe63255d6a8947689837d3d73c91c887b1aadbf89666d2a4f5cd026be83",
+    "target_skill_supported": {
+      "C1.0+": false,
+      "M1.0+": true
+    }
+  },
+  "scientific_status": "not_reviewed",
+  "formal_ResearchReviewStore_chain": false,
+  "operational_forecast_validated": false
+}
