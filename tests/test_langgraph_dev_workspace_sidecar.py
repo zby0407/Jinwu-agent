@@ -218,7 +218,7 @@ def test_ensure_langgraph_dev_reuses_when_sidecar_missing(
 
 
 def test_stop_langgraph_dev_removes_sidecar(tmp_path, monkeypatch, runtime_paths):
-    """``stop_langgraph_dev`` should unlink the sidecar alongside the PID file."""
+    """Stopping without an owned process removes a dead registration."""
     sidecar = tmp_path / "ws.json"
     pid_file = tmp_path / "pid.txt"
     monkeypatch.setattr(
@@ -231,8 +231,9 @@ def test_stop_langgraph_dev_removes_sidecar(tmp_path, monkeypatch, runtime_paths
     manager._write_workspace_sidecar(workspace_dir=tmp_path / "x", pid=42)
     assert sidecar.exists()
 
-    # _PROCESS is None so stop_langgraph_dev shouldn't try to kill anything;
-    # we're only verifying the sidecar cleanup path here.
+    # The synthetic PID can belong to a real process on CI. Explicitly make
+    # this registration dead; live external registrations must be preserved.
+    monkeypatch.setattr(manager.psutil, "pid_exists", lambda pid: False)
     monkeypatch.setattr(manager, "_PROCESS", None)
     manager.stop_langgraph_dev()
     assert not sidecar.exists()
