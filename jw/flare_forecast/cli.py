@@ -21,6 +21,9 @@ def main(argv=None):
         help="JSON mapping pinned asset names to local source files",
     )
     p.add_argument("--output", type=Path, required=True)
+    p = commands.add_parser("import-report-reference")
+    p.add_argument("--source", type=Path, required=True)
+    p.add_argument("--assets", type=Path, required=True)
     for command in ("export-model", "score", "fetch-live", "issue"):
         p = commands.add_parser(command)
         p.add_argument("--assets", type=Path, required=True)
@@ -47,6 +50,10 @@ def main(argv=None):
         from .export import export_forest
 
         result = export_forest(args.assets)
+    elif args.command == "import-report-reference":
+        from .report_reference import import_reference
+
+        result = import_reference(args.source, args.assets)
     elif args.command == "score":
         result = score_csv(args.assets, args.input)
     elif args.command == "fetch-live":

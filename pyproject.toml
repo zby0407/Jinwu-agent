@@ -135,6 +135,7 @@ jw = [
     "flare_forecast/portable_model_identity.json",
     "flare_forecast/model_protocol.json",
     "flare_forecast/contract_template.json",
+    "flare_forecast/report_reference_inventory.json",
     "flare_forecast/_frozen/**/*.py",
     "subagents/**/*.yaml",
     "subagents/**/skills/**/*",

@@ -10,6 +10,16 @@
 
 聊天返回概率、北京时间窗口和 `outputs/flare_forecast/<id>/report.md`、`report.html`、`issued_forecast.json` 文件入口。Markdown可在现有文件面板阅读；HTML是含嵌图的独立离线图文报告，可下载后在浏览器打开或打印。历史图使用全部841个冻结测试窗口，明示它不是未来逐时走势。图表和指标由本次真实主Agent工具计算/编排，Data只审阅输入，不能声称Data做了图像目检或新独立模型性能审查。报告/签发产物属于当前任务runtime，被Git忽略，不写入工具源码或输入资产。
 
+完整报告自动包含八组图：当前概率、全部测试样本散点、同日期基线、混淆矩阵、校准与概率分布、逐年表现、冻结参数重要性、历史概率曲线；同时列出训练/选型/校准/测试数量、标签规则、模型参数、贡献/用途及证据边界。所有图以PNG嵌入HTML，离线打开不依赖外部资源，伴随保存SVG、原始数值与`report_manifest.json`。模板在主Agent的真实`forecast_flare_24h`调用内部运行，无需操作者事后整理；模板解释与Data原话的归属明确区分。
+
+完整报告还须一次性导入与冻结模型匹配的九份历史结果。输入目录只应提供`report_reference_inventory.json`登记的summary、heldout_predictions、metrics_primary、year_metrics、importance、bootstrap_ci、calibration、selected_config_lock和proof原件（对应JSON/CSV扩展名）。导入核验原字节、模型checkpoint及合同身份，不重新拟合、置换或bootstrap：
+
+```bash
+jw flare import-report-reference --source /path/to/frozen_model_results --assets workspace/flare_forecast/assets
+```
+
+结果复制到被Git忽略的`assets/report_reference/`，原353项输入清单保持不变。完整报告缺失或哈希不符会在获取实时输入前返回未签发；另一台机器不能仅安装源码便假定已有这些结果。每次报告核对全部841行的窗口、标签、冻结概率与当前可移植模型评分，并校验主要指标；不混入4测试窗的共同子集图。导入不覆盖已有目录。已有请求回执和旧报告保留；新用户消息使用新模板，同一消息重试继续复用原回执。
+
 源码变更需重启加载后端后才生效；仅复制工具或仍运行旧后端不会获得聊天能力。自然语言能力只覆盖明确的当前未来24小时请求；历史回测、72小时、明天指定窗口或模型调整不触发该流程。暂不接入LaTeX，也不生成PDF文件。
 
 ### DeepSeek与Qwen

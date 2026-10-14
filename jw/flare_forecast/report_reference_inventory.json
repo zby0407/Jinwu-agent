@@ -1,0 +1,53 @@
+{
+  "schema_version": "jw-flare-report-reference-v1",
+  "origin_checkpoint_sha256": "041123dc2e58d0c5e5e1cc8d5c5bfc32c965f37d7505e941e212dbb9f3e533aa",
+  "original_contract_sha256": "483ff7e0d4bd7dd82514317b369e84c47029b8b6b73d447f9da02e095d8c09d3",
+  "scope": "frozen 2023-2025 historical evaluation; never a live forecast or new independent review",
+  "files": [
+    {
+      "path": "summary.json",
+      "bytes": 20893,
+      "sha256": "671be8cf41a2253e162c7234947f43f1a710eaf7b91f95ead585f3026cc4fa6a"
+    },
+    {
+      "path": "metrics_primary.csv",
+      "bytes": 2903,
+      "sha256": "9edeff7b851c948d4d7399cd547f2d86a5411440c7abc180592dc6215fc8fd8a"
+    },
+    {
+      "path": "year_metrics.csv",
+      "bytes": 16672,
+      "sha256": "29ec1fa4e809097686da43ff8fa421ae107b9a138907da8e1cfe8b82f1ef9a45"
+    },
+    {
+      "path": "heldout_predictions.csv",
+      "bytes": 1051420,
+      "sha256": "16d4bd42a350d35c3a3e94cf320ac9637c9cf4d5da01dff46ea2f1bd8d8083bd"
+    },
+    {
+      "path": "importance.csv",
+      "bytes": 16527,
+      "sha256": "2aceee723832be97c9b0a631163b2c4f00254e83fd2bb2a62fd10fb99eaf9f3b"
+    },
+    {
+      "path": "bootstrap_ci.csv",
+      "bytes": 53599,
+      "sha256": "199ec0260951e028da20b73660b368355be29cc244c06c3ed7111c92e009dccb"
+    },
+    {
+      "path": "calibration.json",
+      "bytes": 27281,
+      "sha256": "6ba6efb7c462218af967016210f486438810f75fd58a4e17f704132390f1b685"
+    },
+    {
+      "path": "selected_config_lock.json",
+      "bytes": 10753,
+      "sha256": "82560244e58b1fccb97d2e2cc5878938f75c7f81deaf8187e65739866a71022d"
+    },
+    {
+      "path": "proof.json",
+      "bytes": 243087,
+      "sha256": "24e01bcdf313470cac7d5e25e94c8747eb782081e02ea1fe4092ec6a188d7cca"
+    }
+  ]
+}

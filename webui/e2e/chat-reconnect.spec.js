@@ -27,7 +27,8 @@ const CHUNKS = Array.from({ length: 1000 }, (_, index) =>
 const REPORT = CHUNKS.join("");
 const ANSWER = { id: "answer-1", type: "ai", content: REPORT };
 const PROJECT_INPUT_PATH = "/project/data/solar/cycles.txt";
-const PROJECT_INPUT_CONTENT = "registered solar data\nsource: isolated fixture\n";
+const PROJECT_INPUT_CONTENT =
+  "registered solar data\nsource: isolated fixture\n";
 const PROJECT_ANSWER = {
   id: "answer-project-input",
   type: "ai",
@@ -73,7 +74,12 @@ function snapshot(id, messages, parent = null) {
 async function installBackend(
   page,
   baseURL,
-  { replay = false, versions = false, projectPreview = false } = {}
+  {
+    replay = false,
+    versions = false,
+    projectPreview = false,
+    empty = false,
+  } = {}
 ) {
   const backendPrefix = "/__e2e_langgraph";
   const origin = new URL(baseURL).origin;
@@ -99,7 +105,9 @@ async function installBackend(
       ? newer
       : snapshot(
           "003",
-          projectPreview
+          empty
+            ? []
+            : projectPreview
             ? [HUMAN, PROJECT_ANSWER]
             : persisted
             ? [HUMAN, ANSWER]
@@ -192,6 +200,8 @@ async function installBackend(
       }
       if (apiPath === "/api/models")
         return json({ entries: [], default: null });
+      if (empty && method === "POST" && apiPath === "/runs/crons/search")
+        return json([]);
       if (apiPath === "/info") return json({ version: "e2e" });
       if (method !== "GET") observed.mutations.push(`${method} ${apiPath}`);
       observed.unexpected.push(`${method} ${apiPath}`);
@@ -220,7 +230,9 @@ async function installBackend(
           contentType: "text/plain; charset=utf-8",
           headers: {
             "Content-Security-Policy": "sandbox",
-            "Content-Disposition": `${download ? "attachment" : "inline"}; filename="cycles.txt"`,
+            "Content-Disposition": `${
+              download ? "attachment" : "inline"
+            }; filename="cycles.txt"`,
           },
           body: PROJECT_INPUT_CONTENT,
         });
@@ -261,6 +273,35 @@ async function installBackend(
 
   return { observed };
 }
+
+test("starter buttons fill actionable editable drafts without submitting", async ({
+  page,
+  baseURL,
+}) => {
+  const backend = await installBackend(page, baseURL, { empty: true });
+  await page.goto(`/?threadId=${THREAD_ID}&assistantId=JW`);
+  const draft = page.getByRole("textbox", { name: "消息", exact: true });
+  await expect(draft).toHaveValue("");
+  for (const [label, expected] of [
+    ["调研某个主题的最新论文", "太阳耀斑预测近三年"],
+    ["设计一份实验方案", "暂不执行实验"],
+    ["预测24h内耀斑爆发情况", "从本次真实签发时刻起未来24小时"],
+  ]) {
+    await page.getByRole("button", { name: label, exact: true }).click();
+    await expect(draft).toHaveValue(new RegExp(expected));
+    await expect(draft).toBeFocused();
+    expect(await draft.inputValue()).not.toBe(label);
+    expect(backend.observed.mutations).toEqual([]);
+  }
+  await expect(draft).toHaveValue(/HTML下载入口/);
+  await draft.fill((await draft.inputValue()) + " 请保留全部测试年份。");
+  await expect(draft).toHaveValue(/请保留全部测试年份。$/);
+  await expect(
+    page.getByRole("button", { name: "分析工作区文件", exact: true })
+  ).toHaveCount(0);
+  expect(backend.observed.joins).toEqual([]);
+  expect(backend.observed.mutations).toEqual([]);
+});
 
 test("reconnect replays 1000 message chunks without losing the report or creating a run", async ({
   page,
@@ -312,13 +353,26 @@ test("project inputs preserve their namespace and thread binding in read-only pr
 }) => {
   const backend = await installBackend(page, baseURL, { projectPreview: true });
   await page.goto(`/?threadId=${THREAD_ID}&assistantId=JW`);
-  await page.getByRole("button", { name: PROJECT_INPUT_PATH, exact: true }).click();
-  const dialog = page.getByRole("dialog", { name: PROJECT_INPUT_PATH, exact: true });
+  await page
+    .getByRole("button", { name: PROJECT_INPUT_PATH, exact: true })
+    .click();
+  const dialog = page.getByRole("dialog", {
+    name: PROJECT_INPUT_PATH,
+    exact: true,
+  });
   await expect(dialog).toBeVisible();
-  await expect(dialog.getByText("registered solar data", { exact: true })).toBeVisible();
-  await expect(dialog.getByRole("button", { name: "编辑文件", exact: true })).toHaveCount(0);
-  await expect(dialog.getByRole("button", { name: "删除文件", exact: true })).toHaveCount(0);
-  await expect(dialog.getByRole("button", { name: "复制路径", exact: true })).toBeVisible();
+  await expect(
+    dialog.getByText("registered solar data", { exact: true })
+  ).toBeVisible();
+  await expect(
+    dialog.getByRole("button", { name: "编辑文件", exact: true })
+  ).toHaveCount(0);
+  await expect(
+    dialog.getByRole("button", { name: "删除文件", exact: true })
+  ).toHaveCount(0);
+  await expect(
+    dialog.getByRole("button", { name: "复制路径", exact: true })
+  ).toBeVisible();
   const download = dialog.getByRole("link", { name: "下载", exact: true });
   await expect(download).toHaveAttribute("download", "cycles.txt");
   const downloadUrl = new URL(await download.getAttribute("href"), baseURL);

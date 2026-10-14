@@ -129,9 +129,21 @@ interface ChatInterfaceProps {
 }
 
 const SUGGESTED_PROMPTS = [
-  "调研某个主题的最新论文",
-  "设计一份实验方案",
-  "分析工作区文件",
+  {
+    label: "调研某个主题的最新论文",
+    prompt:
+      "请调研太阳耀斑预测近三年的研究论文，优先阅读原论文，比较数据、预测窗口、评估方法与主要局限，给出带来源链接的综述。",
+  },
+  {
+    label: "设计一份实验方案",
+    prompt:
+      "请针对工作区当前研究项目设计一份可复现的实验方案，明确研究问题、输入数据、对照、评估指标和资源上限。先检查已有材料；缺少关键项目背景时向我询问，暂不执行实验。",
+  },
+  {
+    label: "预测24h内耀斑爆发情况",
+    prompt:
+      "请获取最新合格SHARP磁场数据，预测从本次真实签发时刻起未来24小时内全太阳发生C1.0+和M1.0+耀斑的概率，生成包含全样本图表、基线比较、样本数量和主要限制的完整预测报告，并提供HTML下载入口。",
+  },
 ];
 
 interface UploadedWorkspaceFile {
@@ -1841,14 +1853,14 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
                       金乌是你的 AI 科研伙伴 —— 阅读文献、运行实验、沉淀知识。
                     </p>
                     <div className="mt-4 flex max-w-2xl flex-wrap justify-center gap-2">
-                      {SUGGESTED_PROMPTS.map((prompt) => (
+                      {SUGGESTED_PROMPTS.map(({ label, prompt }) => (
                         <button
-                          key={prompt}
+                          key={label}
                           type="button"
                           onClick={() => handleSuggestedPrompt(prompt)}
                           className="max-w-full rounded-full border border-border bg-card px-2.5 py-1.5 text-xs text-foreground shadow-sm transition-colors hover:border-[var(--color-border)] hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring sm:text-sm"
                         >
-                          {prompt}
+                          {label}
                         </button>
                       ))}
                     </div>
@@ -1915,9 +1927,7 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
                   const showCompactionBefore =
                     compactionAnchorId === data.message.id;
                   return (
-                    <div
-                      key={data.message.id}
-                    >
+                    <div key={data.message.id}>
                       {showCompactionBefore && summarizationEvent && (
                         <CompactionSummary
                           content={summarizationEvent.content}
