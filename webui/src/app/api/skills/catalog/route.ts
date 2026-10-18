@@ -3,13 +3,13 @@ import { getCatalog } from "@/lib/server/skills";
 import {
   bundledSkillsAsCatalog,
   readBundledSkills,
+  skillProjectRoots,
 } from "@/lib/server/builtinSkills.js";
-import { resolve } from "node:path";
 
 export const runtime = "nodejs";
 
 export async function GET(request: NextRequest) {
-  const projectRoots = [resolve(process.cwd(), ".."), resolve(process.cwd())];
+  const projectRoots = skillProjectRoots();
   for (const projectRoot of projectRoots) {
     const bundled = await readBundledSkills(projectRoot);
     if (bundled.length > 0) {
@@ -39,9 +39,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json(
       {
         error:
-          error instanceof Error
-            ? error.message
-            : "加载 Skills 目录失败。",
+          error instanceof Error ? error.message : "加载 Skills 目录失败。",
       },
       { status: 502 }
     );

@@ -50,6 +50,11 @@ uv run jw --ui webui
 - 浏览器本地配置键为 `jw-config`。
 - 主图 ID 固定为 `JW`。
 
+Skills 页面读取 JW 源码中的 `jw/subagents/skill_registry.json` 和随包技能。
+`JW_WORKSPACE_DIR` 可以指向独立的研究运行目录，无需复制技能文件进去。
+从源码的 `webui/` 或 `webui/dist/` 启动时会自动查找源码根目录；独立安装的
+WebUI 可通过 `JW_SKILLS_PROJECT_ROOT` 显式指定包含 `jw/subagents/` 的 JW 源码根目录。
+
 ## License
 
 JW WebUI 原创代码采用 Apache License 2.0，详见 [LICENSE](./LICENSE)。第三方代码的
