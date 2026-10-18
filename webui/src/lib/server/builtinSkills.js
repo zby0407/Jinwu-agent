@@ -31,6 +31,31 @@ async function countFiles(root) {
 const REGISTRY_FILE = join("jw", "subagents", "skill_registry.json");
 const SAFE_NAME = /^[a-z0-9][a-z0-9._-]{1,80}$/;
 
+// A research workspace may contain only inputs/outputs, while bundled skills
+// belong to the JW source tree. Standalone Next servers run from webui/dist,
+// one level deeper than the development server. Keep every skills API on the
+// same source lookup, even when JW_WORKSPACE_DIR points outside the checkout.
+export function skillProjectRoots({
+  cwd = process.cwd(),
+  workspaceDir = process.env.JW_WORKSPACE_DIR,
+  sourceDir = process.env.JW_SKILLS_PROJECT_ROOT,
+} = {}) {
+  const candidates = [
+    sourceDir,
+    workspaceDir,
+    resolve(cwd, ".."),
+    cwd,
+    resolve(cwd, "..", ".."),
+  ];
+  return [
+    ...new Set(
+      candidates
+        .filter((root) => typeof root === "string" && root.trim())
+        .map((root) => resolve(root.trim()))
+    ),
+  ];
+}
+
 async function readRegistry(projectRoot) {
   try {
     const value = JSON.parse(
