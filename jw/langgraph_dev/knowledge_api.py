@@ -892,7 +892,9 @@ def create_custom_feed(body: Any) -> dict[str, Any]:
         "id": feed_id,
         "title_zh": title_zh,
         "query": query,
-        "required_terms": _normalized_term_list(body.get("required_terms"), "required_terms", 10),
+        "required_terms": _normalized_term_list(
+            body.get("required_terms"), "required_terms", 10
+        ),
         "required_any_terms": _normalized_term_list(
             body.get("required_any_terms"), "required_any_terms", 20
         ),
@@ -1344,9 +1346,7 @@ async def update_literature_feed(request: Request) -> JSONResponse:
     except (json.JSONDecodeError, ValueError):
         return _json({"error": "request body must be JSON"}, status_code=400)
     if not isinstance(body, dict) or not isinstance(body.get("enabled"), bool):
-        return _json(
-            {"error": "body must be {\"enabled\": true|false}"}, status_code=400
-        )
+        return _json({"error": 'body must be {"enabled": true|false}'}, status_code=400)
     try:
         result = await asyncio.to_thread(set_feed_enabled, feed_id, body["enabled"])
     except FeedCatalogError as exc:

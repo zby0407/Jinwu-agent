@@ -37,9 +37,7 @@ def _latest_registrations() -> dict[str, dict[str, Any]]:
     projects_root = WORKSPACE_ROOT / "projects"
     if not projects_root.is_dir():
         return registrations
-    for provenance_path in projects_root.glob(
-        "*/shared/data/**/*.provenance.json"
-    ):
+    for provenance_path in projects_root.glob("*/shared/data/**/*.provenance.json"):
         try:
             payload = json.loads(provenance_path.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError):
@@ -117,9 +115,7 @@ async def update_data_source(request: Request) -> JSONResponse:
     except (json.JSONDecodeError, ValueError):
         return _json({"error": "request body must be JSON"}, status_code=400)
     if not isinstance(body, dict) or not isinstance(body.get("enabled"), bool):
-        return _json(
-            {"error": "body must be {\"enabled\": true|false}"}, status_code=400
-        )
+        return _json({"error": 'body must be {"enabled": true|false}'}, status_code=400)
     result = await asyncio.to_thread(
         _set_data_source_enabled, dataset_id, body["enabled"]
     )

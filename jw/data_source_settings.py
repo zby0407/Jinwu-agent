@@ -65,9 +65,7 @@ def set_source_enabled(
     settings[dataset_id] = bool(enabled)
     payload = {
         "schema_version": SCHEMA_VERSION,
-        "sources": {
-            key: {"enabled": value} for key, value in sorted(settings.items())
-        },
+        "sources": {key: {"enabled": value} for key, value in sorted(settings.items())},
     }
     settings_path.parent.mkdir(parents=True, exist_ok=True)
     handle, temporary = tempfile.mkstemp(
