@@ -16,6 +16,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from .data_source_settings import load_source_settings
 from .workspaces import register_project_data_file
 
 _USER_AGENT = "Jinwu-research-data/2.0"
@@ -423,6 +424,67 @@ def _acquire_wso_current_polar_field() -> tuple[bytes, dict[str, Any]]:
     }
 
 
+SOLAR_DATASETS: tuple[dict[str, Any], ...] = (
+    {
+        "id": "silso-monthly-total-v2",
+        "relative": "solar_cycle/silso/monthly_total_v2/SN_m_tot_V2.0.txt",
+        "title_zh": "SILSO 月度总黑子数 V2.0",
+        "provider": "SILSO / Royal Observatory of Belgium",
+        "authority_url": _SILSO_AUTHORITY_URL,
+        "acquire": "_acquire_silso",
+    },
+    {
+        "id": "silso-monthly-smoothed-v2",
+        "relative": "solar_cycle/silso/monthly_smoothed_v2/SN_ms_tot_V2.0.csv",
+        "title_zh": "SILSO 13 个月平滑月度总黑子数 V2.0",
+        "provider": "SILSO / Royal Observatory of Belgium",
+        "authority_url": _SILSO_SMOOTHED_URL,
+        "acquire": "_acquire_silso_smoothed",
+    },
+    {
+        "id": "silso-cycle-extrema-v2",
+        "relative": "solar_cycle/silso/cycle_extrema_v2/TableCyclesMiMa.txt",
+        "title_zh": "SILSO 活动周极值表 V2.0",
+        "provider": "SILSO / Royal Observatory of Belgium",
+        "authority_url": _SILSO_EXTREMA_URL,
+        "acquire": "_acquire_silso_extrema",
+    },
+    {
+        "id": "mwo-wso-polar-field-v2",
+        "relative": "solar_cycle/polar_field/mwo_wso_v2/e_PField_MWO_WSO.csv",
+        "title_zh": "MWO + WSO 极区磁场（Harvard Dataverse V2）",
+        "provider": "Harvard Dataverse (MWO/WSO)",
+        "authority_url": "https://doi.org/10.7910/DVN/KF96B2",
+        "acquire": "_acquire_polar_field",
+    },
+    {
+        "id": "noaa-swpc-monthly-f107-v1",
+        "relative": "solar_cycle/f107/noaa_swpc_monthly_v1/f10-7cm-flux.json",
+        "title_zh": "NOAA SWPC 月度 F10.7 射电流量",
+        "provider": "NOAA Space Weather Prediction Center",
+        "authority_url": _NOAA_MONTHLY_F107_URL,
+        "acquire": "_acquire_noaa_monthly_f107",
+    },
+    {
+        "id": "wso-current-polar-field-v1",
+        "relative": "solar_cycle/polar_field/wso_current_v1/Polar.html",
+        "title_zh": "WSO 当前极区磁场观测（1976 至今）",
+        "provider": "Wilcox Solar Observatory",
+        "authority_url": _WSO_CURRENT_POLAR_URL,
+        "acquire": "_acquire_wso_current_polar_field",
+    },
+)
+
+
+def describe_solar_datasets() -> list[dict[str, Any]]:
+    """Catalog metadata without the acquisition callables (JSON-safe)."""
+
+    return [
+        {key: value for key, value in dataset.items() if key != "acquire"}
+        for dataset in SOLAR_DATASETS
+    ]
+
+
 def acquire_authoritative_solar_data(
     base_workspace: str | Path,
     *,
@@ -435,40 +497,13 @@ def acquire_authoritative_solar_data(
     records = []
     with tempfile.TemporaryDirectory(prefix="jinwu-solar-data-") as temp_dir:
         temporary_root = Path(temp_dir)
-        specifications = (
-            (
-                "silso-monthly-total-v2",
-                "solar_cycle/silso/monthly_total_v2/SN_m_tot_V2.0.txt",
-                _acquire_silso,
-            ),
-            (
-                "silso-monthly-smoothed-v2",
-                "solar_cycle/silso/monthly_smoothed_v2/SN_ms_tot_V2.0.csv",
-                _acquire_silso_smoothed,
-            ),
-            (
-                "silso-cycle-extrema-v2",
-                "solar_cycle/silso/cycle_extrema_v2/TableCyclesMiMa.txt",
-                _acquire_silso_extrema,
-            ),
-            (
-                "mwo-wso-polar-field-v2",
-                "solar_cycle/polar_field/mwo_wso_v2/e_PField_MWO_WSO.csv",
-                _acquire_polar_field,
-            ),
-            (
-                "noaa-swpc-monthly-f107-v1",
-                "solar_cycle/f107/noaa_swpc_monthly_v1/f10-7cm-flux.json",
-                _acquire_noaa_monthly_f107,
-            ),
-            (
-                "wso-current-polar-field-v1",
-                "solar_cycle/polar_field/wso_current_v1/Polar.html",
-                _acquire_wso_current_polar_field,
-            ),
+        specifications = tuple(
+            (dataset["id"], dataset["relative"], globals()[dataset["acquire"]])
+            for dataset in SOLAR_DATASETS
         )
         if isinstance(dataset_ids, str):
             raise TypeError("dataset_ids must be an iterable of dataset identifiers")
+        enabled_state = load_source_settings()
         if dataset_ids is not None:
             requested = set(dataset_ids)
             known = {dataset_id for dataset_id, _relative, _acquire in specifications}
@@ -477,10 +512,26 @@ def acquire_authoritative_solar_data(
                 raise ValueError(
                     "unsupported authoritative solar dataset IDs: " + ", ".join(unknown)
                 )
+            disabled = sorted(
+                dataset_id
+                for dataset_id in requested
+                if not enabled_state.get(dataset_id, True)
+            )
+            if disabled:
+                raise ValueError(
+                    "authoritative solar dataset IDs are disabled in settings: "
+                    + ", ".join(disabled)
+                )
             specifications = tuple(
                 specification
                 for specification in specifications
                 if specification[0] in requested
+            )
+        else:
+            specifications = tuple(
+                specification
+                for specification in specifications
+                if enabled_state.get(specification[0], True)
             )
         for dataset_id, relative, acquire in specifications:
             try:
@@ -506,5 +557,7 @@ def acquire_authoritative_solar_data(
 
 
 __all__ = [
+    "SOLAR_DATASETS",
     "acquire_authoritative_solar_data",
+    "describe_solar_datasets",
 ]
