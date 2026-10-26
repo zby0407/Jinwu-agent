@@ -209,8 +209,23 @@ export interface KbLiteratureFeed {
   sort: "relevance" | "recent";
   limit: number;
   enabled: boolean;
+  custom?: boolean;
+  required_terms?: string[];
+  required_any_terms?: string[];
   source_count: number;
   latest_run: KbLiteratureFeedRun | null;
+}
+
+export interface NewLiteratureFeedInput {
+  id: string;
+  title_zh?: string;
+  query: string;
+  providers: string[];
+  lookback_years?: number;
+  limit?: number;
+  sort?: "relevance" | "recent";
+  required_terms?: string[];
+  required_any_terms?: string[];
 }
 
 export interface KbLiteratureFeedCatalog {
@@ -355,6 +370,32 @@ async function kbFetch<T>(path: string): Promise<T> {
   return (await r.json()) as T;
 }
 
+/** Mutating counterpart of {@link kbFetch}; surfaces backend `error` messages. */
+export async function kbSend<T>(
+  path: string,
+  method: "POST" | "PUT",
+  body?: unknown
+): Promise<T> {
+  const { url, headers } = kbRequest(path);
+  const r = await fetch(url, {
+    method,
+    headers: { ...headers, "Content-Type": "application/json" },
+    body: body === undefined ? undefined : JSON.stringify(body),
+    cache: "no-store",
+  });
+  if (!r.ok) {
+    let message = `HTTP ${r.status}`;
+    try {
+      const data = (await r.json()) as { error?: string };
+      if (data?.error) message = data.error;
+    } catch {
+      // keep the status-only message
+    }
+    throw new Error(message);
+  }
+  return (await r.json()) as T;
+}
+
 export async function fetchKbEntries(filters: {
   type?: string;
   status?: string;
@@ -401,6 +442,21 @@ export async function fetchKbSources(filters: {
 
 export async function fetchKbLiteratureFeeds(): Promise<KbLiteratureFeedCatalog> {
   return kbFetch<KbLiteratureFeedCatalog>("/api/kb/literature/feeds");
+}
+
+export async function setLiteratureFeedEnabled(
+  feedId: string,
+  enabled: boolean
+): Promise<{ id: string; enabled: boolean }> {
+  return kbSend(`/api/kb/literature/feeds/${encodeURIComponent(feedId)}`, "PUT", {
+    enabled,
+  });
+}
+
+export async function createLiteratureFeed(
+  feed: NewLiteratureFeedInput
+): Promise<KbLiteratureFeed> {
+  return kbSend("/api/kb/literature/feeds", "POST", feed);
 }
 
 export async function fetchKbLiteratureDeltas(filters: {

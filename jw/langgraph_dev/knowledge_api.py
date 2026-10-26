@@ -24,6 +24,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import re
 import sqlite3
 import sys
 import urllib.parse
@@ -54,8 +55,10 @@ except ImportError:  # packaged installs without the repo's src/ tree
 
 
 try:
+    from knowledge_base.literature import default_literature_feeds_path
     from knowledge_base.literature import load_literature_feeds
 except ImportError:  # packaged installs without the literature module
+    default_literature_feeds_path = None  # type: ignore[assignment]
     load_literature_feeds = None  # type: ignore[assignment]
 
 
@@ -769,6 +772,142 @@ def _fetch_literature_feeds() -> dict[str, Any]:
     }
 
 
+# ----------------------------------------------------------------------
+# literature feed catalog writes (settings dialog)
+# ----------------------------------------------------------------------
+_FEED_ID_PATTERN = re.compile(r"[a-z0-9_]{3,80}")
+_FEED_PROVIDERS = ("ads", "openalex", "arxiv", "crossref")
+_FEED_SORTS = ("relevance", "recent")
+
+
+class FeedCatalogError(Exception):
+    """User-facing feed-catalog write failure with an HTTP status."""
+
+    def __init__(self, message: str, status_code: int = 400) -> None:
+        super().__init__(message)
+        self.status_code = status_code
+
+
+def _read_feed_catalog() -> tuple[Path, dict[str, Any]]:
+    if load_literature_feeds is None or default_literature_feeds_path is None:
+        raise FeedCatalogError("literature feed catalog is unavailable", 503)
+    path = default_literature_feeds_path()
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise FeedCatalogError(f"cannot read feed catalog: {exc}") from exc
+    if not isinstance(payload, dict) or not isinstance(payload.get("feeds"), list):
+        raise FeedCatalogError("feed catalog must contain a feeds list")
+    return path, payload
+
+
+def _write_feed_catalog(path: Path, payload: dict[str, Any]) -> None:
+    """Validate the mutated catalog on a temp copy, then atomically replace."""
+
+    temporary = path.with_name(f".{path.name}.{os.getpid()}.tmp")
+    try:
+        temporary.write_text(
+            json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
+        )
+        try:
+            load_literature_feeds(temporary)
+        except Exception as exc:
+            raise FeedCatalogError(f"feed catalog validation failed: {exc}") from exc
+        os.replace(temporary, path)
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
+def set_feed_enabled(feed_id: str, enabled: bool) -> dict[str, Any]:
+    path, payload = _read_feed_catalog()
+    feed = next(
+        (
+            item
+            for item in payload["feeds"]
+            if isinstance(item, dict) and str(item.get("id") or "") == feed_id
+        ),
+        None,
+    )
+    if feed is None:
+        raise FeedCatalogError(f"unknown literature feed: {feed_id}", 404)
+    feed["enabled"] = bool(enabled)
+    _write_feed_catalog(path, payload)
+    return {"id": feed_id, "enabled": feed["enabled"]}
+
+
+def _normalized_term_list(value: Any, field: str, maximum: int) -> list[str]:
+    if value in (None, ""):
+        return []
+    if not isinstance(value, list) or any(
+        not isinstance(term, str) or not term.strip() for term in value
+    ):
+        raise FeedCatalogError(f"{field} must be a list of non-empty strings")
+    return [" ".join(str(term).split()) for term in value[:maximum]]
+
+
+def create_custom_feed(body: Any) -> dict[str, Any]:
+    if not isinstance(body, dict):
+        raise FeedCatalogError("request body must be a JSON object")
+    path, payload = _read_feed_catalog()
+
+    feed_id = str(body.get("id") or "").strip().casefold()
+    if not _FEED_ID_PATTERN.fullmatch(feed_id):
+        raise FeedCatalogError(
+            "feed id 必须是 3-80 位小写字母、数字或下划线（[a-z0-9_]）"
+        )
+    if any(
+        isinstance(item, dict) and str(item.get("id") or "") == feed_id
+        for item in payload["feeds"]
+    ):
+        raise FeedCatalogError(f"feed id already exists: {feed_id}", 409)
+
+    query = str(body.get("query") or "").strip()
+    if not query or len(query) > 500:
+        raise FeedCatalogError("query 必须是非空且不超过 500 字符的检索式")
+
+    providers = body.get("providers")
+    if (
+        not isinstance(providers, list)
+        or not providers
+        or any(provider not in _FEED_PROVIDERS for provider in providers)
+    ):
+        raise FeedCatalogError(
+            f"providers 只能从 {list(_FEED_PROVIDERS)} 中选择一个或多个"
+        )
+
+    sort = str(body.get("sort") or "relevance").strip().casefold()
+    if sort not in _FEED_SORTS:
+        raise FeedCatalogError(f"sort 必须是 {list(_FEED_SORTS)} 之一")
+
+    def _bounded_int(value: Any, default: int, low: int, high: int) -> int:
+        try:
+            number = int(value if value is not None else default)
+        except (TypeError, ValueError) as exc:
+            raise FeedCatalogError("lookback_years / limit 必须是整数") from exc
+        return max(low, min(number, high))
+
+    title_zh = str(body.get("title_zh") or "").strip()[:120] or feed_id
+    feed = {
+        "id": feed_id,
+        "title_zh": title_zh,
+        "query": query,
+        "required_terms": _normalized_term_list(body.get("required_terms"), "required_terms", 10),
+        "required_any_terms": _normalized_term_list(
+            body.get("required_any_terms"), "required_any_terms", 20
+        ),
+        "providers": list(dict.fromkeys(providers)),
+        "lookback_years": _bounded_int(body.get("lookback_years"), 3, 1, 10),
+        "sort": sort,
+        "limit": _bounded_int(body.get("limit"), 25, 1, 50),
+        "enabled": True,
+        "custom": True,
+    }
+    payload["feeds"].append(feed)
+    _write_feed_catalog(path, payload)
+    return dict(feed)
+
+
 def _fetch_source(source_id: str) -> dict[str, Any] | None:
     conn = _connect_ro()
     if conn is None:
@@ -1196,6 +1335,43 @@ async def list_literature_feeds(request: Request) -> JSONResponse:
     return _json(await asyncio.to_thread(_fetch_literature_feeds))
 
 
+async def update_literature_feed(request: Request) -> JSONResponse:
+    """Toggle one feed's ``enabled`` flag in the on-disk catalog."""
+
+    feed_id = request.path_params["feed_id"]
+    try:
+        body = await request.json()
+    except (json.JSONDecodeError, ValueError):
+        return _json({"error": "request body must be JSON"}, status_code=400)
+    if not isinstance(body, dict) or not isinstance(body.get("enabled"), bool):
+        return _json(
+            {"error": "body must be {\"enabled\": true|false}"}, status_code=400
+        )
+    try:
+        result = await asyncio.to_thread(set_feed_enabled, feed_id, body["enabled"])
+    except FeedCatalogError as exc:
+        return _json({"error": str(exc)}, status_code=exc.status_code)
+    except OSError as exc:
+        return _json({"error": f"cannot write feed catalog: {exc}"}, status_code=500)
+    return _json(result)
+
+
+async def create_literature_feed(request: Request) -> JSONResponse:
+    """Append a user-defined feed to the on-disk catalog."""
+
+    try:
+        body = await request.json()
+    except (json.JSONDecodeError, ValueError):
+        return _json({"error": "request body must be JSON"}, status_code=400)
+    try:
+        feed = await asyncio.to_thread(create_custom_feed, body)
+    except FeedCatalogError as exc:
+        return _json({"error": str(exc)}, status_code=exc.status_code)
+    except OSError as exc:
+        return _json({"error": f"cannot write feed catalog: {exc}"}, status_code=500)
+    return _json(feed, status_code=201)
+
+
 async def list_literature_deltas(request: Request) -> JSONResponse:
     """Return immutable source/version/retraction/feed changes."""
 
@@ -1291,6 +1467,12 @@ KB_ROUTES = [
     Route("/api/kb/entries", list_entries, methods=["GET"]),
     Route("/api/kb/entries/{entry_id}", get_entry, methods=["GET"]),
     Route("/api/kb/literature/feeds", list_literature_feeds, methods=["GET"]),
+    Route("/api/kb/literature/feeds", create_literature_feed, methods=["POST"]),
+    Route(
+        "/api/kb/literature/feeds/{feed_id}",
+        update_literature_feed,
+        methods=["PUT"],
+    ),
     Route("/api/kb/literature/deltas", list_literature_deltas, methods=["GET"]),
     Route("/api/kb/literature/bundles", list_literature_bundles, methods=["GET"]),
     Route("/api/kb/literature/impacts", list_literature_impacts, methods=["GET"]),
