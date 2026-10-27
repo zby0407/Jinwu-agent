@@ -484,7 +484,14 @@ def _probe_python(
 
     try:
         result = run_probe(
-            [python_path, "-I", "-c", "import jw, langgraph_cli; print('imports-ok')"],
+            [
+                python_path,
+                "-I",
+                "-X",
+                "utf8",
+                "-c",
+                "import jw, langgraph_cli; print('imports-ok')",
+            ],
             cwd=root,
         )
     except ProbeError as exc:
@@ -500,7 +507,9 @@ def _probe_python(
             )
 
     try:
-        result = run_probe([python_path, "-I", "-m", "jw", "--help"], cwd=root)
+        result = run_probe(
+            [python_path, "-I", "-X", "utf8", "-m", "jw", "--help"], cwd=root
+        )
     except ProbeError as exc:
         report.add("fail", "python-jw-cli", str(exc))
     else:
@@ -515,7 +524,8 @@ def _probe_python(
 
     try:
         result = run_probe(
-            [python_path, "-I", "-m", "langgraph_cli", "--help"], cwd=root
+            [python_path, "-I", "-X", "utf8", "-m", "langgraph_cli", "--help"],
+            cwd=root,
         )
     except ProbeError as exc:
         report.add("fail", "python-langgraph-cli", str(exc))
@@ -531,7 +541,8 @@ def _probe_python(
 
     try:
         result = run_probe(
-            [python_path, "-I", "-c", "import sys; print(sys.prefix)"], cwd=root
+            [python_path, "-I", "-X", "utf8", "-c", "import sys; print(sys.prefix)"],
+            cwd=root,
         )
         prefix = Path(result.stdout.strip()).resolve()
         expected = (root / "python").resolve()
@@ -554,6 +565,8 @@ def _probe_python(
             [
                 python_path,
                 "-I",
+                "-X",
+                "utf8",
                 "-c",
                 "import platform; print(platform.python_version())",
             ],
@@ -563,6 +576,8 @@ def _probe_python(
             [
                 python_path,
                 "-I",
+                "-X",
+                "utf8",
                 "-c",
                 "import importlib.metadata as m; print(m.version('jw-agent'))",
             ],

@@ -204,6 +204,12 @@ function buildSharedEnvironment({
     JW_WEBUI_DIST: runtime.webuiServerPath,
     JW_NODE_BIN: runtime.nodePath,
     JW_DESKTOP_MANAGED: '1',
+    // Windows pipes default to the active ANSI code page (often cp1252). JW's
+    // CLI output contains Chinese text and emoji, so force UTF-8 for the
+    // bundled Python process and its stdio regardless of the host locale.
+    PYTHONUTF8: '1',
+    PYTHONIOENCODING: 'utf-8',
+    PYTHONDONTWRITEBYTECODE: '1',
     JW_LANGGRAPH_COMMAND_JSON: serializeLanggraphCommand(
       runtime.langgraphCommand?.[0] ?? runtime.langgraphExecutablePath,
       runtime.langgraphCommand?.slice(1) ?? runtime.langgraphArgs ?? [],

@@ -92,6 +92,10 @@ test('后端环境变量完整且保留模型密钥', () => {
   assert.equal(env.JW_WORKSPACE_DIR, BASE_OPTIONS.workspaceDir);
   assert.equal(env.JW_LANGGRAPH_DEV_PORT, '6174');
   assert.equal(env.JW_LANGGRAPH_COMMAND_JSON, JSON.stringify(RUNTIME.langgraphCommand));
+  // Windows 管道默认 ANSI 代码页，必须强制 UTF-8，否则中文/emoji 输出会崩溃。
+  assert.equal(env.PYTHONUTF8, '1');
+  assert.equal(env.PYTHONIOENCODING, 'utf-8');
+  assert.equal(env.PYTHONDONTWRITEBYTECODE, '1');
   // 后端保留配置密钥（由 Python 端自行读取）
   assert.equal(env.OPENAI_API_KEY, 'sk-do-not-leak');
   assert.equal(env.PATH, INHERITED_ENV.PATH);
