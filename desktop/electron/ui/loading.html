@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta
     http-equiv="Content-Security-Policy"
-    content="default-src 'none'; style-src 'unsafe-inline'; img-src data:;"
+    content="default-src 'none'; style-src 'unsafe-inline'; img-src 'self' data:;"
   />
   <title>金乌正在启动</title>
   <style>
@@ -42,13 +42,22 @@
       color: #8b949e;
       line-height: 1.7;
     }
+    .logo {
+      display: block;
+      width: 112px;
+      height: 112px;
+      margin: 0 auto 18px;
+      border-radius: 28px;
+      object-fit: cover;
+      box-shadow: 0 24px 70px rgba(232, 184, 74, 0.2);
+    }
     .spinner {
-      width: 34px;
-      height: 34px;
+      width: 28px;
+      height: 28px;
       margin: 0 auto 22px;
       border-radius: 50%;
       border: 3px solid #21262d;
-      border-top-color: #1f6feb;
+      border-top-color: #e8b84a;
       animation: spin 900ms linear infinite;
     }
     @keyframes spin {
@@ -65,6 +74,7 @@
 </head>
 <body>
   <main>
+    <img class="logo" src="./assets/logo.png" alt="金乌" />
     <div class="spinner" aria-hidden="true"></div>
     <h1>金乌正在启动</h1>
     <p>正在启动随包 Python 后端与本地 WebUI，首次启动可能需要几十秒。请稍候…</p>
