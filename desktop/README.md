@@ -38,6 +38,7 @@ desktop/
 │       ├── setup.html          # 首启配置向导（CSP、无内联脚本）
 │       ├── setup.css
 │       └── setup.js
+├── assets/                     # 金乌图标母版、icns/ico 与品牌资源
 ├── test/                       # Node 内置 node:test 单元测试
 ├── electron-builder.yml        # 打包配置（dmg/zip arm64、nsis x64）
 ├── package.json                # 依赖精确锁定 + 脚本
