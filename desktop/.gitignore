@@ -1,0 +1,13 @@
+# 依赖与构建产物（不要提交）
+node_modules/
+dist/
+out/
+build/
+*.log
+.DS_Store
+
+# 本地覆盖的运行时清单（开发调试用）
+runtime-manifest.local.json
+
+# electron-builder 输出（CI 亦会从 release/** 上传）
+release/

@@ -8,24 +8,19 @@
 // .installed.yaml manifest so JW's onboard/CLI stay in sync. Zero
 // npm dependencies.
 
-import { homedir } from "os";
 import { dirname, join, resolve, sep } from "path";
 import { promises as fs } from "fs";
 import { randomUUID } from "crypto";
 import { readBundledSkills, skillProjectRoots } from "./builtinSkills.js";
+import { jwConfigDir, jwDataDir } from "./jwPaths";
 
 const REPO = "zby0407/JW-Skills";
 const BRANCH = "main";
 const SKILLS_PREFIX = "skills/";
 
-/** JW's global data dir — `~/.jw` by default (paths.py
- *  DATA_DIR), relocatable via JW_DATA_DIR, exactly like the backend. */
+/** JW's global data dir, matching Python's `paths.DATA_DIR`. */
 function globalDataDir(): string {
-  const env = process.env.agent_DATA_DIR;
-  if (env && env.trim()) {
-    return env.startsWith("~") ? join(homedir(), env.slice(1)) : resolve(env);
-  }
-  return join(homedir(), ".jw");
+  return jwDataDir();
 }
 
 /**
@@ -40,7 +35,7 @@ export const SKILLS_INSTALL_DIR = join(globalDataDir(), "skills");
  *  dir first, then the legacy ~/.config path as a harmless fallback. */
 export const SKILL_DIRS = [
   SKILLS_INSTALL_DIR,
-  join(homedir(), ".config", "jw", "skills"),
+  join(jwConfigDir(), "skills"),
 ];
 
 // Install guards.

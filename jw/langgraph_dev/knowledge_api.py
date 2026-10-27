@@ -37,7 +37,8 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse
 from starlette.routing import Route
 
-_REPO_ROOT = Path(__file__).resolve().parents[2]
+from ..runtime_layout import PROJECT_ROOT as _REPO_ROOT
+
 _SRC = _REPO_ROOT / "src"
 if _SRC.is_dir() and str(_SRC) not in sys.path:
     sys.path.insert(0, str(_SRC))
@@ -70,8 +71,7 @@ _DEFAULT_LIMIT = 50
 _MAX_LIMIT = 200
 _GRAPH_MAX_NODES = 300
 _BUILTIN_WIKI_DIR = (
-    _REPO_ROOT
-    / "jw"
+    Path(__file__).resolve().parents[1]
     / "subagents"
     / "solar"
     / "skills"

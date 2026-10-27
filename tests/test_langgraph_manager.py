@@ -103,6 +103,29 @@ class TestLanggraphCliResolution:
 
         assert manager._langgraph_exe() == str(local_langgraph)
 
+    def test_explicit_bundled_command_takes_precedence(self, monkeypatch):
+        monkeypatch.setenv(
+            "JW_LANGGRAPH_COMMAND_JSON",
+            '["/bundle/python/bin/python3", "-m", "langgraph_cli"]',
+        )
+
+        assert manager._langgraph_command() == [
+            "/bundle/python/bin/python3",
+            "-m",
+            "langgraph_cli",
+        ]
+
+    def test_malformed_bundled_command_is_actionable(self, monkeypatch):
+        monkeypatch.setenv("JW_LANGGRAPH_COMMAND_JSON", "not-json")
+
+        with pytest.raises(ValueError, match="JW_LANGGRAPH_COMMAND_JSON"):
+            manager._langgraph_command()
+
+    def test_pid_directory_honors_xdg_config_home(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "xdg"))
+
+        assert manager._default_pid_dir() == tmp_path / "xdg" / "jw"
+
 
 # =============================================================================
 # is_langgraph_dev_running
@@ -124,9 +147,9 @@ class TestIsLanggraphDevRunning:
     def test_returns_true_on_200(self, mock_get):
         mock_get.return_value = MagicMock(status_code=200)
         assert manager.is_langgraph_dev_running(port=6174) is True
-        # Verify it probed /ok at the configured port.
+        # Verify it probed /ok at the configured port on loopback IPv4.
         called_url = mock_get.call_args[0][0]
-        assert called_url == "http://localhost:6174/ok"
+        assert called_url == "http://127.0.0.1:6174/ok"
 
     @patch("jw.langgraph_dev.manager.httpx.get")
     def test_returns_false_on_non_200(self, mock_get):

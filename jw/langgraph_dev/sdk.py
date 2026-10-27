@@ -15,7 +15,9 @@ def langgraph_dev_url(config: object | None = None, *, port: int | None = None) 
         if port is not None
         else int(getattr(config, "langgraph_dev_port", DEFAULT_LANGGRAPH_DEV_PORT))
     )
-    return f"http://localhost:{selected_port}"
+    # Use explicit loopback IPv4: on macOS `localhost` can resolve to ::1
+    # while the local langgraph-dev server binds 127.0.0.1.
+    return f"http://127.0.0.1:{selected_port}"
 
 
 def configured_langgraph_dev_url() -> str:

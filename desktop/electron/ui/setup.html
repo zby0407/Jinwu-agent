@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'"
+    />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>金乌 · 首次配置</title>
+    <link rel="stylesheet" href="./setup.css" />
+  </head>
+  <body>
+    <main class="setup-shell">
+      <header>
+        <img class="mark" src="./assets/logo.png" alt="金乌" />
+        <div>
+          <h1>欢迎使用金乌</h1>
+          <p class="subtitle">连接一个模型服务，开始你的科研智能体。</p>
+        </div>
+      </header>
+
+      <form id="setup-form" novalidate>
+        <div class="field">
+          <label for="provider">模型供应商</label>
+          <select id="provider" name="provider" required></select>
+        </div>
+
+        <div class="field">
+          <label for="model">模型</label>
+          <input id="model" name="model" type="text" spellcheck="false" />
+          <p class="hint">可填写供应商的模型名称，保留默认值即可。</p>
+        </div>
+
+        <div class="field" id="api-key-field">
+          <label for="api-key">API Key</label>
+          <input
+            id="api-key"
+            name="api-key"
+            type="password"
+            autocomplete="off"
+            spellcheck="false"
+          />
+          <p class="hint">
+            只保存在本机配置文件中，不会写入日志或发送到金乌之外的服务。
+          </p>
+        </div>
+
+        <div class="field hidden" id="base-url-field">
+          <label for="base-url">Base URL</label>
+          <input
+            id="base-url"
+            name="base-url"
+            type="url"
+            spellcheck="false"
+            placeholder="https://api.example.com/v1"
+          />
+        </div>
+
+        <p class="error hidden" id="error" role="alert"></p>
+        <p class="success hidden" id="success" role="status">
+          配置已保存，正在启动金乌…
+        </p>
+
+        <div class="actions">
+          <button type="button" class="secondary" id="cancel">退出</button>
+          <button type="submit" class="primary" id="submit">保存并启动</button>
+        </div>
+      </form>
+
+      <footer>
+        <span id="config-path"></span>
+        <span>首次配置完成后，可随时通过 `jw configure` 修改。</span>
+      </footer>
+    </main>
+    <script src="./setup.js"></script>
+  </body>
+</html>

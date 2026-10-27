@@ -150,12 +150,12 @@ def test_swaps_async_flagged_subs():
     # Async subs are AsyncSubAgent specs (TypedDict) pointing at the right URL.
     writing = by_name["writing-agent"]
     assert writing["graph_id"] == "writing-agent"
-    assert writing["url"] == "http://localhost:6174"
+    assert writing["url"] == "http://127.0.0.1:6174"
     assert writing["description"] == "write report"
 
     data = by_name["data-analysis-agent"]
     assert data["graph_id"] == "data-analysis-agent"
-    assert data["url"] == "http://localhost:6174"
+    assert data["url"] == "http://127.0.0.1:6174"
 
 
 def test_swap_uses_configured_port():
@@ -170,7 +170,7 @@ def test_swap_uses_configured_port():
         ),
     ):
         out = _maybe_swap_async_subagents(subs)
-    assert out[0]["url"] == "http://localhost:9999"
+    assert out[0]["url"] == "http://127.0.0.1:9999"
 
 
 # =============================================================================
