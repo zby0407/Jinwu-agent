@@ -375,11 +375,11 @@ jobs:
           generate_release_notes: true
           fail_on_unmatched_files: false
           files: |
-            release-assets/*.dmg
-            release-assets/*.zip
-            release-assets/*.exe
-            release-assets/*.blockmap
-            release-assets/*.yml
+            release-assets/**/*.dmg
+            release-assets/**/*.zip
+            release-assets/**/*.exe
+            release-assets/**/*.blockmap
+            release-assets/**/latest*.yml
             release-assets/SHA256SUMS.txt
 
       # Follow-up (needs team decisions, NOT configured here):
