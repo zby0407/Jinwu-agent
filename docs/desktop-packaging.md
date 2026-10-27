@@ -296,10 +296,19 @@ PR 不触发发布；workflow 级权限为 `contents: read`，只有 draft relea
 - 修复回归：Python 本地健康检查、LangGraph SDK 客户端和 AsyncSubAgent URL 从
   `http://localhost:<port>` 改为 `http://127.0.0.1:<port>`。此前在 macOS 上
   `localhost` 可能先解析 `::1`，而 LangGraph 只监听 IPv4，导致启动 120 秒后被误判失败并退出。
-- `electron-builder --mac dmg --arm64` 产出 `Jinwu-0.3.0-mac-arm64.dmg`（约 363 MiB）与
-  更新用 `Jinwu-0.3.0-mac-arm64.zip`（约 369 MiB）；`hdiutil verify` 通过，
-  挂载后包含 `Jinwu.app` 与 `Applications` 链接。
+- CI 实际执行（GitHub Actions run `40501791737`，tag `v0.3.0-desktop.2`）：
+  macOS arm64 与 Windows x64 两个原生 runner 均成功完成运行时组装、smoke test、Electron 测试、
+  安装包构建与 artifact 上传。CI 产物：
+  - `Jinwu-0.3.0-mac-arm64.dmg`（约 336 MiB）与更新用 `.zip`（约 340 MiB）
+  - `Jinwu-0.3.0-win-x64.exe`（约 289 MiB，NSIS）
+  - 全部文件通过 `SHA256SUMS.txt` 校验；
+  - Draft Release 已创建，但**未签名、未公证、未人工发布**。
+- Windows 构建中修复了 `python -I` 忽略 `PYTHONIOENCODING` 导致的 cp1252 编码失败：
+  自检命令显式使用 `-X utf8`，桌面注入的 Python 子进程也设置 `PYTHONUTF8=1` 与
+  `PYTHONIOENCODING=utf-8`。
 - 产物未签名、未公证；使用默认 Electron 图标。macOS 首次打开需右键 → 打开。
+- 已从 CI 产物 DMG 实际启动 macOS 应用：首启向导、配置保存、后端/WebUI 启动正常，
+  持续运行超过原 120 秒超时窗口无异常，退出后端口无残留。
 
-未在本机实测：Windows x64 安装包（必须在 Windows runner 或 CI 构建）、真实 Apple Developer ID
-签名/公证、自动更新、真实供应商 API 调用（使用测试 key 验证的是启动链路，不验证远端模型响应）。
+未实测：Windows 安装程序在真实 Windows 机器上的安装/启动（CI 仅完成构建与运行时 smoke test）、
+真实 Apple Developer ID 签名/公证、自动更新、真实供应商 API 调用（测试 key 仅验证启动链路）。
