@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 
 import pytest
@@ -64,7 +65,7 @@ def test_configure_dashscope_persists_secret_free_summary(isolated_config) -> No
     assert config_path.is_file()
     text = config_path.read_text(encoding="utf-8")
     assert "dashscope_api_key: sk-test-secret-value" in text
-    if config_path.stat().st_mode & 0o077:
+    if os.name != "nt" and config_path.stat().st_mode & 0o077:
         pytest.fail("config.yaml must not be readable by other users")
 
 
