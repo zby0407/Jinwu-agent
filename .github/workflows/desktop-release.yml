@@ -1,0 +1,391 @@
+# Desktop release pipeline for JW (金乌).
+#
+# Scope of the initial release:
+#   * macOS Apple Silicon (arm64) only, built on a native arm64 runner
+#   * Windows x64 only, built on a native x64 runner
+#   * unsigned installers: no code signing, no notarization, no Release publish
+#
+# Each job assembles the runtime (private CPython + Node.js + JW wheel + WebUI
+# standalone + project resources), smoke-tests it, then hands it to the Electron
+# shell's electron-builder targets. Installer artifacts and SHA256SUMS.txt are
+# uploaded; tag builds additionally produce a *draft* GitHub release that a human
+# must publish manually.
+#
+# Signing/notarization are deliberately not wired up yet: no certificate or
+# Apple ID is assumed to exist. See docs/desktop-packaging.md for the intended
+# secrets and the follow-up steps.
+
+name: desktop-release
+
+on:
+  workflow_dispatch:
+    inputs:
+      node_version:
+        description: "Exact Node.js LTS version bundled into the runtime"
+        required: false
+        default: "22.22.3"
+        type: string
+      build_unsigned_installers:
+        description: "Build unsigned installers with electron-builder"
+        required: false
+        default: true
+        type: boolean
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: desktop-release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  NODE_VERSION: ${{ github.event.inputs.node_version || '22.22.3' }}
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # macOS Apple Silicon (arm64)
+  # ---------------------------------------------------------------------------
+  build-macos:
+    name: macOS arm64 (unsigned)
+    # macos-15 is an Apple Silicon (arm64) runner. macos-14 is also arm64 but is
+    # deprecated and unsupported by GitHub Actions after 2026-11-02.
+    runs-on: macos-15
+    timeout-minutes: 120
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python 3.12 (driver interpreter)
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.11.6"
+          enable-cache: true
+
+      # Node.js here only builds the WebUI and the Electron shell. The runtime
+      # bundles its own verified Node.js distribution, so the installer never
+      # depends on the runner's Node version.
+      - name: Set up Node.js ${{ env.NODE_VERSION }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: webui/package-lock.json
+
+      - name: Verify Electron shell is present
+        run: |
+          set -euo pipefail
+          if [ ! -f desktop/package.json ]; then
+            echo "::error title=desktop shell missing::desktop/package.json not found. The Electron shell (desktop/**) must be implemented before a desktop release can be built; refusing to silently skip the installer build."
+            exit 1
+          fi
+          if [ ! -f desktop/package-lock.json ]; then
+            echo "::error title=desktop lockfile missing::desktop/package-lock.json is required so CI can install the Electron shell reproducibly with 'npm ci'. Generate it in desktop/ and commit it."
+            exit 1
+          fi
+          node -e "const p=require('./desktop/package.json'); const need=['test','dist:mac']; const miss=need.filter((s)=>!p.scripts||!p.scripts[s]); if(miss.length){console.error('::error title=missing npm scripts::desktop/package.json is missing required scripts: '+miss.join(', '));process.exit(1)}"
+
+      - name: Prepare log directory
+        run: mkdir -p packaging/dist/logs
+
+      - name: Build desktop runtime
+        env:
+          # Keep caches out of the workspace so only packaging/dist is a build output.
+          JW_BUILD_CACHE_DIR: ${{ runner.temp }}/jw-build-cache
+        run: |
+          set -o pipefail
+          python packaging/build_runtime.py --clean --node-version "$NODE_VERSION" 2>&1 | tee packaging/dist/logs/build-runtime-macos.log
+
+      - name: Smoke-test desktop runtime
+        run: |
+          set -o pipefail
+          python packaging/smoke_test.py 2>&1 | tee packaging/dist/logs/smoke-test-macos.log
+
+      # npm ci is required (lockfile is committed). Note: electron's postinstall
+      # downloads the platform binary from GitHub; do not use --ignore-scripts
+      # (the resulting Electron cannot run). If runner egress to GitHub is ever
+      # restricted, set ELECTRON_MIRROR to an internal mirror or pre-populate the
+      # electron cache instead of skipping scripts.
+      - name: Install Electron shell dependencies
+        working-directory: desktop
+        run: npm ci
+
+      - name: Electron shell unit tests
+        working-directory: desktop
+        run: |
+          set -o pipefail
+          npm test 2>&1 | tee "$GITHUB_WORKSPACE/packaging/dist/logs/desktop-test-macos.log"
+
+      # Unsigned build only. CSC_IDENTITY_AUTO_DISCOVERY=false stops
+      # electron-builder from probing for a developer identity that does not
+      # exist on CI runners.
+      - name: Build unsigned macOS installer
+        if: github.event.inputs.build_unsigned_installers != 'false'
+        working-directory: desktop
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"
+        run: |
+          set -o pipefail
+          npm run dist:mac 2>&1 | tee "$GITHUB_WORKSPACE/packaging/dist/logs/electron-builder-macos.log"
+
+      - name: Verify installer artifacts exist
+        if: github.event.inputs.build_unsigned_installers != 'false'
+        run: |
+          set -euo pipefail
+          count=$( (find desktop/release desktop/dist -type f \( -name '*.dmg' -o -name '*.zip' \) 2>/dev/null || true) | grep -v '/mac-' | wc -l | tr -d ' ')
+          if [ "$count" -eq 0 ]; then
+            echo "::error title=no macOS installer::electron-builder produced no .dmg/.zip installer. Expected output in desktop/release/ (or desktop/dist/). Check the electron-builder log artifact."
+            find desktop -maxdepth 3 -type d | sort
+            exit 1
+          fi
+          echo "found ${count} macOS installer artifact(s)"
+
+      - name: Upload macOS installers and update metadata
+        if: github.event.inputs.build_unsigned_installers != 'false'
+        uses: actions/upload-artifact@v4
+        with:
+          name: jw-desktop-macos-arm64-unsigned
+          path: |
+            desktop/release/*.dmg
+            desktop/release/*.zip
+            desktop/release/*.blockmap
+            desktop/release/*.yml
+            desktop/dist/*.dmg
+            desktop/dist/*.zip
+            desktop/dist/*.blockmap
+            desktop/dist/*.yml
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload failure logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: jw-desktop-macos-arm64-logs
+          path: |
+            packaging/dist/logs/**
+            desktop/release/*.log
+            desktop/npm-debug.log
+          if-no-files-found: ignore
+          retention-days: 14
+
+  # ---------------------------------------------------------------------------
+  # Windows x64
+  # ---------------------------------------------------------------------------
+  build-windows:
+    name: Windows x64 (unsigned)
+    runs-on: windows-latest
+    timeout-minutes: 120
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python 3.12 (driver interpreter)
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.11.6"
+          enable-cache: true
+
+      - name: Set up Node.js ${{ env.NODE_VERSION }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: webui/package-lock.json
+
+      - name: Verify Electron shell is present
+        run: |
+          set -euo pipefail
+          if [ ! -f desktop/package.json ]; then
+            echo "::error title=desktop shell missing::desktop/package.json not found. The Electron shell (desktop/**) must be implemented before a desktop release can be built; refusing to silently skip the installer build."
+            exit 1
+          fi
+          if [ ! -f desktop/package-lock.json ]; then
+            echo "::error title=desktop lockfile missing::desktop/package-lock.json is required so CI can install the Electron shell reproducibly with 'npm ci'. Generate it in desktop/ and commit it."
+            exit 1
+          fi
+          node -e "const p=require('./desktop/package.json'); const need=['test','dist:win']; const miss=need.filter((s)=>!p.scripts||!p.scripts[s]); if(miss.length){console.error('::error title=missing npm scripts::desktop/package.json is missing required scripts: '+miss.join(', '));process.exit(1)}"
+
+      - name: Prepare log directory
+        run: mkdir -p packaging/dist/logs
+
+      - name: Build desktop runtime
+        env:
+          JW_BUILD_CACHE_DIR: ${{ runner.temp }}/jw-build-cache
+        run: |
+          set -o pipefail
+          python packaging/build_runtime.py --clean --node-version "$NODE_VERSION" 2>&1 | tee packaging/dist/logs/build-runtime-windows.log
+
+      - name: Smoke-test desktop runtime
+        run: |
+          set -o pipefail
+          python packaging/smoke_test.py 2>&1 | tee packaging/dist/logs/smoke-test-windows.log
+
+      # npm ci is required (lockfile is committed). Note: electron's postinstall
+      # downloads the platform binary from GitHub; do not use --ignore-scripts
+      # (the resulting Electron cannot run). If runner egress to GitHub is ever
+      # restricted, set ELECTRON_MIRROR to an internal mirror or pre-populate the
+      # electron cache instead of skipping scripts.
+      - name: Install Electron shell dependencies
+        working-directory: desktop
+        run: npm ci
+
+      - name: Electron shell unit tests
+        working-directory: desktop
+        run: |
+          set -o pipefail
+          npm test 2>&1 | tee "$GITHUB_WORKSPACE/packaging/dist/logs/desktop-test-windows.log"
+
+      # Unsigned NSIS build. windows-latest has no code-signing certificate and
+      # electron-builder is told not to look for one.
+      - name: Build unsigned Windows installer
+        if: github.event.inputs.build_unsigned_installers != 'false'
+        working-directory: desktop
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"
+        run: |
+          set -o pipefail
+          npm run dist:win 2>&1 | tee "$GITHUB_WORKSPACE/packaging/dist/logs/electron-builder-windows.log"
+
+      - name: Verify installer artifacts exist
+        if: github.event.inputs.build_unsigned_installers != 'false'
+        run: |
+          set -euo pipefail
+          count=$( (find desktop/release desktop/dist -type f -name '*.exe' 2>/dev/null || true) | grep -v 'unpacked' | wc -l | tr -d ' ')
+          if [ "$count" -eq 0 ]; then
+            echo "::error title=no Windows installer::electron-builder produced no .exe installer. Expected output in desktop/release/ (or desktop/dist/). Check the electron-builder log artifact."
+            find desktop -maxdepth 3 -type d | sort
+            exit 1
+          fi
+          echo "found ${count} Windows installer artifact(s)"
+
+      - name: Upload Windows installers and update metadata
+        if: github.event.inputs.build_unsigned_installers != 'false'
+        uses: actions/upload-artifact@v4
+        with:
+          name: jw-desktop-windows-x64-unsigned
+          path: |
+            desktop/release/*.exe
+            desktop/release/*.zip
+            desktop/release/*.blockmap
+            desktop/release/*.yml
+            desktop/dist/*.exe
+            desktop/dist/*.zip
+            desktop/dist/*.blockmap
+            desktop/dist/*.yml
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload failure logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: jw-desktop-windows-x64-logs
+          path: |
+            packaging/dist/logs/**
+            desktop/release/*.log
+            desktop/npm-debug.log
+          if-no-files-found: ignore
+          retention-days: 14
+
+  # ---------------------------------------------------------------------------
+  # Checksums for everything that was uploaded
+  # ---------------------------------------------------------------------------
+  checksums:
+    name: SHA256SUMS
+    needs: [build-macos, build-windows]
+    if: needs.build-macos.result == 'success' && needs.build-windows.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Download installer artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: Generate SHA256SUMS.txt
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd artifacts
+          if [ -z "$(find . -type f ! -name 'SHA256SUMS.txt' -print -quit)" ]; then
+            echo "::error title=no artifacts::No installer artifacts were downloaded; refusing to produce an empty SHA256SUMS.txt."
+            exit 1
+          fi
+          find . -type f ! -name 'SHA256SUMS.txt' -printf '%P\0' \
+            | sort -z \
+            | xargs -0 sha256sum > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+
+      - name: Upload SHA256SUMS.txt
+        uses: actions/upload-artifact@v4
+        with:
+          name: jw-desktop-checksums
+          path: artifacts/SHA256SUMS.txt
+          if-no-files-found: error
+          retention-days: 14
+
+  # ---------------------------------------------------------------------------
+  # Draft release (tag pushes only). Never publishes directly; a human reviews
+  # the draft and publishes it, and only after signing/notarization is added.
+  # ---------------------------------------------------------------------------
+  draft-release:
+    name: Draft GitHub release
+    needs: [checksums]
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release-assets
+          merge-multiple: true
+
+      - name: Create draft release
+        uses: softprops/action-gh-release@v2
+        with:
+          draft: true
+          prerelease: false
+          generate_release_notes: true
+          fail_on_unmatched_files: false
+          files: |
+            release-assets/*.dmg
+            release-assets/*.zip
+            release-assets/*.exe
+            release-assets/*.blockmap
+            release-assets/*.yml
+            release-assets/SHA256SUMS.txt
+
+      # Follow-up (needs team decisions, NOT configured here):
+      #   * macOS: sign with Developer ID Application + notarize/stapler, then
+      #     publish the notarized dmg/zip only.
+      #   * Windows: sign the NSIS installer with an Authenticode certificate.
+      #   * Add the required secrets to the repository and document them in
+      #     docs/desktop-packaging.md before enabling these steps.
+      #   * Flip `draft: false` only after a human has verified signatures.

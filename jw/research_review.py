@@ -20,7 +20,8 @@ from typing import Any, Literal
 
 from filelock import FileLock
 
-_PROJECT_ROOT = Path(__file__).resolve().parents[1]
+from .runtime_layout import PROJECT_ROOT as _PROJECT_ROOT
+
 _SRC = _PROJECT_ROOT / "src"
 if str(_SRC) not in sys.path:
     sys.path.insert(0, str(_SRC))

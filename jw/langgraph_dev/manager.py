@@ -33,6 +33,7 @@ from jw.config import (
     MemoryControls,
     MemoryObservationTarget,
 )
+from jw.runtime_layout import langgraph_command as configured_langgraph_command
 
 logger = logging.getLogger(__name__)
 
@@ -80,11 +81,19 @@ class LanggraphRuntimePaths:
         )
 
 
-# Module-level runtime paths. Defaulted to the conventional
-# ``~/.config/jw/`` layout; tests override ``RUNTIME`` with
-# :meth:`LanggraphRuntimePaths.for_directory` to point at a temp dir
-# without touching the user's real home directory.
-DEFAULT_PID_DIR = Path.home() / ".config" / "jw"
+# Module-level runtime paths. Defaulted to the conventional config directory
+# (``XDG_CONFIG_HOME/jw`` or ``~/.config/jw``); tests override ``RUNTIME`` with
+# :meth:`LanggraphRuntimePaths.for_directory` to point at a temp dir without
+# touching the user's real home directory. The desktop supervisor sets
+# ``XDG_CONFIG_HOME`` inside its per-user data root.
+def _default_pid_dir() -> Path:
+    xdg = os.environ.get("XDG_CONFIG_HOME")
+    if xdg:
+        return Path(xdg).expanduser() / "jw"
+    return Path.home() / ".config" / "jw"
+
+
+DEFAULT_PID_DIR = _default_pid_dir()
 RUNTIME: LanggraphRuntimePaths = LanggraphRuntimePaths.for_directory(DEFAULT_PID_DIR)
 
 
@@ -118,7 +127,10 @@ _DEFAULT_PORT = 6174
 
 
 def _base_url(port: int = _DEFAULT_PORT) -> str:
-    return f"http://localhost:{port}"
+    # Always probe the loopback IPv4 address the server binds. ``localhost`` can
+    # resolve to ::1 first on some machines, which makes the parent process
+    # declare a healthy IPv4-only server unreachable and time it out.
+    return f"http://127.0.0.1:{port}"
 
 
 # Default rollover threshold for ``RUNTIME.log_file`` — once the log
@@ -323,9 +335,28 @@ def _langgraph_exe() -> str | None:
     return None
 
 
+def _langgraph_command() -> list[str] | None:
+    """Return the full LangGraph CLI argv, including an explicit bundle override.
+
+    A desktop bundle cannot rely on a console-script shebang after relocating a
+    private Python interpreter. The Electron supervisor therefore supplies
+    ``JW_LANGGRAPH_COMMAND_JSON`` (for example ``[python, "-m", "langgraph_cli"]``).
+    Source and pip installations keep the previous binary discovery behavior.
+    """
+    configured = configured_langgraph_command()
+    if configured is not None:
+        return configured
+    exe = _langgraph_exe()
+    return [exe] if exe is not None else None
+
+
 def is_langgraph_dev_available() -> bool:
-    """Check whether the ``langgraph`` CLI binary is available."""
-    return _langgraph_exe() is not None
+    """Check whether the LangGraph CLI can be invoked."""
+    try:
+        return _langgraph_command() is not None
+    except ValueError:
+        logger.exception("Invalid JW_LANGGRAPH_COMMAND_JSON configuration")
+        return False
 
 
 def is_langgraph_dev_running(
@@ -581,8 +612,11 @@ def start_langgraph_dev(
     """
     global _PROCESS
 
-    exe = _langgraph_exe()
-    if exe is None:
+    try:
+        command = _langgraph_command()
+    except ValueError as exc:
+        raise RuntimeError(f"Invalid LangGraph command configuration: {exc}") from exc
+    if command is None:
         raise FileNotFoundError(
             "langgraph CLI not found. Reinstall JW (langgraph-cli is "
             "a hard dependency): pip install -e '.[dev]'"
@@ -715,10 +749,10 @@ def start_langgraph_dev(
     sub_env["JW_DEPLOY_MODE"] = "full" if deploy_mode else "stripped"
 
     try:
-        logger.info("Starting langgraph dev with CLI: %s", exe)
+        logger.info("Starting langgraph dev with command: %s", command)
         proc = subprocess.Popen(
             [
-                exe,
+                *command,
                 "dev",
                 "--config",
                 str(config_file),

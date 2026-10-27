@@ -18,6 +18,7 @@ import { homedir } from "os";
 import { join, dirname, relative, resolve, sep } from "path";
 import { randomUUID } from "crypto";
 import { hasControlChar } from "@/lib/server/workspace";
+import { jwDataDir } from "@/lib/server/jwPaths";
 import type { ObsGraphData, ObsNode, ObsEdge } from "@/lib/observationGraph";
 
 // Re-export so memory API routes can share the workspace cross-origin guard.
@@ -31,9 +32,7 @@ function expandHome(p: string): string {
 }
 
 function globalDataDir(): string {
-  const env = process.env.agent_DATA_DIR;
-  if (env && env.trim()) return expandHome(env);
-  return join(homedir(), ".jw");
+  return jwDataDir();
 }
 
 /**
@@ -42,7 +41,11 @@ function globalDataDir(): string {
  * Does not touch the filesystem (the dir may not exist yet).
  */
 export function memoryDirPath(): string {
-  const env = process.env.agent_MEMORIES_DIR || process.env.agent_MEMORY_DIR;
+  const env =
+    process.env.JW_MEMORIES_DIR ||
+    process.env.JW_MEMORY_DIR ||
+    process.env.agent_MEMORIES_DIR ||
+    process.env.agent_MEMORY_DIR;
   if (env && env.trim()) return expandHome(env);
   return join(globalDataDir(), "memories");
 }

@@ -24,7 +24,6 @@ from __future__ import annotations
 
 import atexit
 import os
-import shutil
 import signal
 import subprocess
 import threading
@@ -35,12 +34,12 @@ import typer  # type: ignore[import-untyped]
 from rich.panel import Panel
 from rich.text import Text
 
+from .. import runtime_layout
 from ..stream.console import console
 
-# Local front-end build entrypoint (relative to this file).
-# webui.py is at <repository>/jw/deploy/webui.py, so parents[2]
-# reaches the repository root containing the embedded webui project.
-_WEBUI_DIST = Path(__file__).resolve().parents[2] / "webui" / "dist" / "server.js"
+# Front-end entrypoint. A source checkout falls back to the repository's
+# webui/dist; the desktop supervisor sets JW_WEBUI_DIST to the packaged build.
+_WEBUI_DIST = runtime_layout.webui_dist_file()
 _DEFAULT_WEBUI_PORT = 4716
 
 
@@ -104,18 +103,20 @@ def run_webui(config: Any, workspace_dir: str | None = None) -> None:
 
     # 3. Pre-flight the local front-end build and Node toolchain BEFORE starting
     # the server, so missing prerequisites fail fast with actionable guidance.
-    node = shutil.which("node")
+    node = runtime_layout.node_binary()
     if not node:
         console.print(
             Panel(
                 Text.from_markup(
-                    "[bold]Node.js was not found on PATH.[/bold]\n\n"
+                    "[bold]Node.js was not found.[/bold]\n\n"
                     "The WebUI front-end is served from the local build at\n"
                     f"[cyan]{_shorten(str(_WEBUI_DIST))}[/cyan]\n\n"
-                    "Install [bold]Node.js 24 LTS[/bold], run "
+                    "In a source checkout, install [bold]Node.js 24 LTS[/bold], run "
                     "[bold]npm run build[/bold] in the repository's webui directory, "
                     "then re-run [bold]jw[/bold] — or switch UI modes with "
-                    "[bold]jw config set ui_backend tui[/bold]."
+                    "[bold]jw config set ui_backend tui[/bold].\n"
+                    "In a desktop installation this means the bundled runtime is "
+                    "incomplete; reinstall the app."
                 ),
                 title="[bold red]WebUI unavailable[/bold red]",
                 border_style="red",

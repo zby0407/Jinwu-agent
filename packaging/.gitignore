@@ -1,0 +1,8 @@
+# Build output: the assembled desktop runtime and all caches/logs are generated
+# artefacts. They must never be committed — electron-builder copies them into the
+# installer, and CI rebuilds them from uv.lock/nodejs.org on every run.
+dist/
+
+# Python bytecode from running the packaging scripts.
+__pycache__/
+*.py[cod]

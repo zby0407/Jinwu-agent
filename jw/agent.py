@@ -603,7 +603,7 @@ def _maybe_swap_async_subagents(
                 name=name,
                 description=async_specs[name],
                 graph_id=name,
-                url=f"http://localhost:{port}",
+                url=f"http://127.0.0.1:{port}",
             )
             agent_specs[name] = spec
             out.append(spec)

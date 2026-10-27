@@ -7,19 +7,14 @@
 // managed through the SDK.
 
 import { promises as fs } from "fs";
-import { homedir } from "os";
 import { basename, dirname, join, relative, resolve, sep } from "path";
 import { createHash, randomUUID } from "crypto";
 import type { NextRequest } from "next/server";
 import { isCrossOriginRequest } from "@/lib/server/origin-guard.js";
 import { readRegisteredProjectInput } from "@/lib/server/project-inputs.js";
+import { jwConfigDir, workspaceSidecarPath } from "@/lib/server/jwPaths";
 
-export const WORKSPACE_SIDECAR = join(
-  homedir(),
-  ".config",
-  "jw",
-  "langgraph_dev.workspace.json"
-);
+export const WORKSPACE_SIDECAR = workspaceSidecarPath();
 
 interface WorkspaceSidecar {
   workspace?: unknown;
@@ -42,11 +37,7 @@ export interface WorkspaceBinding {
 export const WORKSPACE_BINDINGS_DIR =
   process.env.JW_WORKSPACE_BINDINGS_DIR ||
   process.env.agent_WORKSPACE_BINDINGS_DIR ||
-  join(
-    process.env.XDG_CONFIG_HOME || join(homedir(), ".config"),
-    "jw",
-    "workspace_bindings"
-  );
+  join(jwConfigDir(), "workspace_bindings");
 
 function bindingPath(threadId: string, baseWorkspace: string): string {
   const digest = createHash("sha256")

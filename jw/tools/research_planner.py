@@ -20,7 +20,8 @@ from pathlib import Path
 from threading import RLock
 from typing import Any
 
-_PROJECT_ROOT = Path(__file__).resolve().parents[2]
+from jw.runtime_layout import PROJECT_ROOT as _PROJECT_ROOT
+
 _SRC = _PROJECT_ROOT / "src"
 if str(_SRC) not in sys.path:
     sys.path.insert(0, str(_SRC))

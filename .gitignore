@@ -95,6 +95,7 @@ coverage/
 /docs/**
 !/docs/README.md
 !/docs/PROJECT_LAYOUT.md
+!/docs/desktop-packaging.md
 !/docs/guides/
 !/docs/guides/**
 !/docs/examples/

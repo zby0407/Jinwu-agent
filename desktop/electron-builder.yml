@@ -1,0 +1,95 @@
+# electron-builder 配置（金乌桌面外壳）
+#
+# 构建前置条件：先用仓库根目录的 packaging 脚本产出一份完整运行时
+# （packaging/dist/runtime/runtime-manifest.json 及随包的 python / node /
+# project / webui），再执行 `npm run dist:mac` 或 `npm run dist:win`。
+# 详见 desktop/README.md。
+
+appId: com.jinwu.agent
+productName: Jinwu
+copyright: Copyright © 2026 Jinwu
+
+directories:
+  output: dist
+  buildResources: build
+
+# 只打包主进程代码与最小资源；运行时通过 extraResources 注入，不进 asar。
+files:
+  - electron/**/*
+  - package.json
+  - '!**/*.map'
+  - '!**/*.md'
+  - '!**/test/**'
+
+asar: true
+npmRebuild: false
+
+# 随包运行时：仓库根 packaging 脚本产出后复制到应用 resources/runtime。
+# 该目录在开发机上可能尚不存在，属于预期情况（构建前必须由打包脚本生成）。
+extraResources:
+  - from: ../packaging/dist/runtime
+    to: runtime
+    filter:
+      - '**/*'
+
+mac:
+  category: public.app-category.productivity
+  target:
+    - target: dmg
+      arch:
+        - arm64
+    - target: zip
+      arch:
+        - arm64
+  artifactName: Jinwu-${version}-mac-${arch}.${ext}
+  # 初版不签名、不公证：本地无证书即可产出可运行的 .dmg/.zip。
+  # 用户首次打开需要「右键 → 打开」，或执行：
+  #   xattr -dr com.apple.quarantine /Applications/Jinwu.app
+  identity: null
+  hardenedRuntime: false
+  gatekeeperAssess: false
+  # 未来签名/公证预留（启用时取消注释并按需生成 entitlements 文件）：
+  #   hardening 与公证依赖有效 Developer ID 证书，本地无证书时保持 identity: null。
+  # entitlements: build/entitlements.mac.plist
+  # entitlementsInherit: build/entitlements.mac.plist
+  # notarize: false   # 设为 { teamId: "..." } 或 true 前请先配置 APPLE_ID / APPLE_APP_SPECIFIC_PASSWORD / APPLE_TEAM_ID
+  # extendInfo:
+  #   NSHumanReadableCopyright: Copyright © 2026 Jinwu
+
+dmg:
+  artifactName: Jinwu-${version}-mac-${arch}.dmg
+  title: ${productName} ${version}
+  window:
+    width: 640
+    height: 400
+  contents:
+    - x: 180
+      y: 190
+      type: file
+    - x: 460
+      y: 190
+      type: link
+      path: /Applications
+
+win:
+  target:
+    - target: nsis
+      arch:
+        - x64
+  artifactName: Jinwu-${version}-win-${arch}.${ext}
+  # 按当前用户安装、无需管理员权限。
+  requestedExecutionLevel: asInvoker
+
+nsis:
+  oneClick: false
+  perMachine: false
+  allowElevation: true
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: Jinwu
+  deleteAppDataOnUninstall: false
+  artifactName: Jinwu-${version}-win-${arch}.${ext}
+
+# 初版不上传制品；后续接入自动更新时再配置 publish。
+publish: null
