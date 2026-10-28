@@ -15,15 +15,20 @@ from jw.subagents.skill_registry import (
 
 @pytest.fixture(autouse=True)
 def _isolated_skill_settings(tmp_path, monkeypatch):
-    """Keep the user's real ``~/.jw/skill_settings.json`` out of these tests.
+    """Keep the machine's real skill state out of these tests.
 
-    ``skills_for_agent`` now consults the persistent skill switches, so an
-    unpatched ``DATA_DIR`` would let local toggles change the registry
-    assertions below.  Individual tests write into the returned directory.
+    ``skills_for_agent`` consults both the persistent skill switches
+    (``DATA_DIR``) and the user-installed skill tiers
+    (``USER_SKILLS_DIR`` / ``GLOBAL_SKILLS_DIR``), so an unpatched path would
+    let local toggles or locally installed skills change the registry
+    assertions below (the checkout's own ``workspace/skills`` is the default
+    workspace tier).  Individual tests write into the returned directory.
     """
 
     data_dir = tmp_path / "data"
     monkeypatch.setattr(paths, "DATA_DIR", data_dir)
+    monkeypatch.setattr(paths, "USER_SKILLS_DIR", tmp_path / "workspace-skills")
+    monkeypatch.setattr(paths, "GLOBAL_SKILLS_DIR", data_dir / "skills")
     return data_dir
 
 
