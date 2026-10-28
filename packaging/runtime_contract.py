@@ -288,6 +288,19 @@ def _check_executable(path: Path, report: CheckReport, label: str) -> None:
 # ---------------------------------------------------------------------------
 
 
+def wheel_skill_registry(python_dir: Path) -> Path | None:
+    """Return the registry that ships inside an installed ``jw`` wheel.
+
+    POSIX CPython installs the package into ``lib/python3.12/site-packages``
+    while the Windows embeddable build uses ``Lib/site-packages``, so both
+    layouts have to be searched.
+    """
+    matches = sorted(
+        Path(python_dir).glob("**/site-packages/jw/subagents/skill_registry.json")
+    )
+    return matches[0] if matches else None
+
+
 def check_runtime(
     root: Path,
     *,
@@ -471,16 +484,12 @@ def check_runtime(
     # before the package-data fix silently leaves the agent with zero skills.
     python_dir = root / "python"
     if python_dir.is_dir():
-        wheel_registries = sorted(
-            python_dir.glob(
-                "lib/python*/site-packages/jw/subagents/skill_registry.json"
-            )
-        )
-        if wheel_registries:
+        wheel_registry = wheel_skill_registry(python_dir)
+        if wheel_registry is not None:
             report.add(
                 "ok",
                 "wheel/jw/subagents/skill_registry.json",
-                str(wheel_registries[0]),
+                str(wheel_registry),
             )
         else:
             report.add(

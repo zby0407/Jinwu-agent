@@ -104,3 +104,37 @@ def test_langgraph_command_is_none_without_override(monkeypatch) -> None:
     monkeypatch.delenv("JW_LANGGRAPH_COMMAND_JSON", raising=False)
 
     assert runtime_layout.langgraph_command() is None
+
+
+def test_wheel_skill_registry_accepts_posix_and_windows_layouts(tmp_path) -> None:
+    """The wheel copy of the registry lives under ``site-packages``.
+
+    POSIX runtimes install into ``python/lib/python3.12/site-packages`` while
+    the Windows embeddable build uses ``python/Lib/site-packages``; the runtime
+    contract has to find the registry in both layouts.  Missing it on Windows
+    is what failed the desktop-release CI job that only ran on macOS before.
+    """
+
+    sys.path.insert(0, str(ROOT / "packaging"))
+    try:
+        import runtime_contract
+    finally:
+        sys.path.pop(0)
+
+    registry_rel = Path("jw") / "subagents" / "skill_registry.json"
+    layouts = {
+        "posix": Path("lib") / "python3.12" / "site-packages",
+        "windows": Path("Lib") / "site-packages",
+    }
+
+    for label, layout in layouts.items():
+        python_dir = tmp_path / label / "python"
+        registry = python_dir / layout / registry_rel
+        registry.parent.mkdir(parents=True)
+        registry.write_text("{}", encoding="utf-8")
+
+        found = runtime_contract.wheel_skill_registry(python_dir)
+        assert found == registry, label
+
+        registry.unlink()
+        assert runtime_contract.wheel_skill_registry(python_dir) is None, label
