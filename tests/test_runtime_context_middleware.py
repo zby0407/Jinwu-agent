@@ -194,9 +194,7 @@ def test_configured_subagent_middleware_includes_runtime_context(mock_model):
     _inject_subagent_middleware(subs)
 
     assert any(isinstance(m, RuntimeContextMiddleware) for m in subs[0]["middleware"])
-    assert any(
-        isinstance(m, KnowledgeContextMiddleware) for m in subs[0]["middleware"]
-    )
+    assert any(isinstance(m, KnowledgeContextMiddleware) for m in subs[0]["middleware"])
 
 
 def test_runtime_context_factory_returns_middleware():

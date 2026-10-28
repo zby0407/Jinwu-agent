@@ -102,8 +102,7 @@ def test_stage_context_prioritises_canonical_and_keeps_candidate_lead(store):
     assert packet["counts"]["canonical"] == 1
     assert packet["counts"]["candidate"] >= 1
     assert any(
-        item["kind"] == "valid_range"
-        and item["entry_id"] == canonical["id"]
+        item["kind"] == "valid_range" and item["entry_id"] == canonical["id"]
         for item in packet["constraints"]
     )
 
@@ -129,7 +128,9 @@ def test_unresolved_counterexample_marks_canonical_contested(store):
         store, "Flux transport", stage="evidence", run_id="evidence-run"
     )
 
-    target = next(entry for entry in packet["entries"] if entry["id"] == canonical["id"])
+    target = next(
+        entry for entry in packet["entries"] if entry["id"] == canonical["id"]
+    )
     assert target["usage_role"] == "contested_canonical"
     assert target["conflict_ids"]
     assert packet["open_conflicts"]
@@ -199,9 +200,7 @@ def test_middleware_reads_task_question_from_workspace(store, monkeypatch, tmp_p
         '{"research_question": "Flux transport in the polar field"}',
         encoding="utf-8",
     )
-    monkeypatch.setattr(
-        "jw.middleware.knowledge_context._task_workspace", lambda: base
-    )
+    monkeypatch.setattr("jw.middleware.knowledge_context._task_workspace", lambda: base)
     monkeypatch.setattr(
         "jw.middleware.knowledge_context.get_config",
         lambda: {"configurable": {"thread_id": "ctx-thread"}},
@@ -226,9 +225,7 @@ def test_middleware_injects_once_and_is_provider_agnostic(store, monkeypatch):
     middleware = KnowledgeContextMiddleware()
     request = _request("You are the solar-planner sub-agent.")
 
-    monkeypatch.setattr(
-        "jw.middleware.knowledge_context._task_workspace", lambda: None
-    )
+    monkeypatch.setattr("jw.middleware.knowledge_context._task_workspace", lambda: None)
     monkeypatch.setattr(
         "jw.middleware.knowledge_context.get_config",
         lambda: {"configurable": {"thread_id": "middleware-run"}},
@@ -256,4 +253,3 @@ def test_middleware_injects_once_and_is_provider_agnostic(store, monkeypatch):
     assert calls == [1]
     usage = service.usage_log(store, "middleware-run")
     assert usage["used_count"] == 1
-

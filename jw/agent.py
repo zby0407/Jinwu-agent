@@ -1252,9 +1252,7 @@ def _get_default_middleware(
     mw.append(create_runtime_context_middleware(workspace_dir=workspace_dir))
     # ``growth=True`` only on the main agent: it owns the throttled background
     # Wiki maintenance sweep. Sub-agents get the inject-only instance above.
-    mw.append(
-        create_knowledge_context_middleware(growth=not for_async_subagent)
-    )
+    mw.append(create_knowledge_context_middleware(growth=not for_async_subagent))
     if memory_controls.memory_enabled:
         mw.append(memory_middleware)
     if memory_controls.worker_needed(worker_target):
