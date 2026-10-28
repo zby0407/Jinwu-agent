@@ -2,21 +2,25 @@
 
 import { useCallback, useEffect, useState } from "react";
 import {
+  ArrowUpCircle,
+  Download,
   Loader2,
+  PackagePlus,
   Puzzle,
   RotateCw,
   Store,
   Trash2,
-  Download,
-  ArrowUpCircle,
   Upload,
-  Users,
-  CheckCircle2,
 } from "lucide-react";
+import { ToggleSwitch } from "@/components/ui/switch";
 import {
   SkillDetailDialog,
   type SkillDetailTarget,
 } from "@/app/components/SkillDetailDialog";
+import {
+  SkillInstallDialog,
+  type InstalledSkillResult,
+} from "@/app/components/SkillInstallDialog";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -27,6 +31,9 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 
+/** Per-skill in-flight action shown on the card. */
+type SkillBusy = "install" | "uninstall" | "update" | "toggle";
+
 interface SkillCard {
   name: string;
   title: string;
@@ -36,6 +43,8 @@ interface SkillCard {
   bundle?: string;
   assignment?: { shared: boolean; agents: string[] };
   adaptation?: { name?: string; reason?: string } | null;
+  /** Runtime on/off state persisted in DATA_DIR/skill_settings.json. */
+  enabled?: boolean;
 }
 
 interface CatalogSkill {
@@ -52,19 +61,6 @@ interface CatalogSkill {
   adaptation?: { name?: string; reason?: string } | null;
 }
 
-interface AgentGroup {
-  name: string;
-  title: string;
-  description: string;
-  skills: SkillCard[];
-}
-
-interface AgentProfile {
-  name: string;
-  title: string;
-  description: string;
-}
-
 interface LocalCandidate {
   name: string;
   title: string;
@@ -77,30 +73,33 @@ interface LocalCandidate {
 
 export function SkillsMarketplace() {
   const [other, setOther] = useState<SkillCard[]>([]);
-  const [agentGroups, setAgentGroups] = useState<AgentGroup[]>([]);
-  const [mainSkills, setMainSkills] = useState<SkillCard[]>([]);
-  const [supportAgents, setSupportAgents] = useState<AgentProfile[]>([]);
-  const [sharedSkills, setSharedSkills] = useState<SkillCard[]>([]);
+  // Names switched OFF by the user (persisted in DATA_DIR/skill_settings.json).
+  const [disabledSkills, setDisabledSkills] = useState<Set<string>>(new Set());
+  /** True once a switch was flipped in this session — the backend must reload. */
+  const [pendingRestart, setPendingRestart] = useState(false);
   const [localCandidates, setLocalCandidates] = useState<LocalCandidate[]>([]);
   const [importing, setImporting] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  // The official JWSkills catalog stays hidden behind the header button and
-  // is fetched lazily the first time the user opens it.
-  const [catalogOpen, setCatalogOpen] = useState(false);
+  // The built-in catalog is the only list of shipped Skills, so it starts
+  // expanded; the header button collapses it.
+  const [catalogOpen, setCatalogOpen] = useState(true);
   const [catalog, setCatalog] = useState<CatalogSkill[] | null>(null);
+  // "builtin" = shipped inside the app; those can only be browsed, not removed.
+  const [catalogSource, setCatalogSource] = useState<string | null>(null);
   const [catalogLoading, setCatalogLoading] = useState(false);
   const [catalogError, setCatalogError] = useState<string | null>(null);
   // Per-skill in-flight action, keyed by skill name.
-  const [busy, setBusy] = useState<
-    Record<string, "install" | "uninstall" | "update">
-  >({});
+  const [busy, setBusy] = useState<Record<string, SkillBusy>>({});
   // Skill whose detail dialog is open (null = closed).
   const [detail, setDetail] = useState<SkillDetailTarget | null>(null);
   const [uninstallTarget, setUninstallTarget] = useState<{
     name: string;
     title: string;
   } | null>(null);
+  const [installOpen, setInstallOpen] = useState(false);
+  /** Green line under the header after a successful import / uninstall. */
+  const [notice, setNotice] = useState<string | null>(null);
 
   const load = useCallback(async (_refresh = false) => {
     setLoading(true);
@@ -109,11 +108,11 @@ export function SkillsMarketplace() {
       const res = await fetch("/api/skills");
       const d = await res.json();
       if (!res.ok) throw new Error(d.error || "加载 Skills 失败");
-      setOther((d.skills ?? []) as SkillCard[]);
-      setAgentGroups((d.agents ?? []) as AgentGroup[]);
-      setMainSkills((d.mainSkills ?? []) as SkillCard[]);
-      setSupportAgents((d.supportAgentProfiles ?? []) as AgentProfile[]);
-      setSharedSkills((d.sharedSkills ?? []) as SkillCard[]);
+      const skills = (d.skills ?? []) as SkillCard[];
+      setOther(skills);
+      setDisabledSkills(
+        new Set(skills.filter((s) => s.enabled === false).map((s) => s.name))
+      );
       setLocalCandidates((d.localCandidates ?? []) as LocalCandidate[]);
     } catch (e) {
       setOther([]);
@@ -136,12 +135,17 @@ export function SkillsMarketplace() {
       const d = await res.json();
       if (!res.ok) throw new Error(d.error || "加载目录失败");
       setCatalog((d.skills ?? []) as CatalogSkill[]);
+      setCatalogSource(typeof d.source === "string" ? d.source : null);
     } catch (e) {
       setCatalog(null);
       setCatalogError(e instanceof Error ? e.message : "加载官方目录失败。");
     }
     setCatalogLoading(false);
   }, []);
+
+  useEffect(() => {
+    void loadCatalog();
+  }, [loadCatalog]);
 
   const toggleCatalog = () => {
     const opening = !catalogOpen;
@@ -205,6 +209,7 @@ export function SkillsMarketplace() {
         throw new Error(d.error || "卸载失败");
       }
       setOther((prev) => prev.filter((s) => s.name !== name));
+      setNotice(`已卸载技能「${name}」`);
       setCatalog((prev) =>
         prev
           ? prev.map((s) =>
@@ -254,19 +259,73 @@ export function SkillsMarketplace() {
     }
   };
 
+  // Optimistic on/off switch: flip locally, persist, revert on failure.
+  const toggleSkill = async (skill: SkillCard, enabled: boolean) => {
+    const name = skill.name;
+    setBusy((b) => ({ ...b, [name]: "toggle" }));
+    setError(null);
+    setDisabledSkills((prev) => {
+      const next = new Set(prev);
+      if (enabled) next.delete(name);
+      else next.add(name);
+      return next;
+    });
+    try {
+      const res = await fetch("/api/skills/toggle", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name, enabled }),
+      });
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}));
+        throw new Error(d.error || "切换技能开关失败");
+      }
+      // Skill sources are snapshotted into the graph when it is built, so the
+      // running backend keeps the old set until the desktop restarts it.
+      setPendingRestart(true);
+    } catch (e) {
+      setDisabledSkills((prev) => {
+        const next = new Set(prev);
+        if (enabled) next.add(name);
+        else next.delete(name);
+        return next;
+      });
+      setError(e instanceof Error ? e.message : "切换技能开关失败");
+    } finally {
+      setBusy((b) => {
+        const next = { ...b };
+        delete next[name];
+        return next;
+      });
+    }
+  };
+
   return (
     <div className="h-full overflow-y-auto">
       <div className="mx-auto max-w-[960px] px-4 py-5 sm:px-5 sm:py-6">
         <header className="mb-4 flex items-start justify-between gap-3">
           <div>
             <h2 className="text-xl font-semibold sm:text-2xl">
-              JW 子 Agent 技能编排
+              JW Skills
             </h2>
-            <p className="mt-1 text-sm leading-6 text-muted-foreground">
-              查看每个子 Agent 的实际技能边界，并将本地技能适配后导入项目。
-            </p>
           </div>
           <div className="flex items-center gap-1">
+            <button
+              type="button"
+              onClick={() => {
+                setNotice(null);
+                setInstallOpen(true);
+              }}
+              aria-label="安装 Skill"
+              title="从文件夹、ZIP 或本机路径安装自己的 Skill"
+              className="inline-flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring"
+            >
+              <PackagePlus
+                className="size-4"
+                aria-hidden="true"
+              />
+              安装技能
+            </button>
             <button
               type="button"
               onClick={importImproved}
@@ -330,6 +389,20 @@ export function SkillsMarketplace() {
           </p>
         )}
 
+        {notice && (
+          <p className="mb-4 text-sm text-emerald-600">{notice}</p>
+        )}
+
+        {pendingRestart && (
+          <p className="mb-4 inline-flex items-center gap-1 rounded-full border border-amber-500/40 bg-amber-500/10 px-2 py-0.5 text-[11px] text-amber-600">
+            <RotateCw
+              className="size-3"
+              aria-hidden="true"
+            />
+            已保存，重启金乌服务（⌘⇧K）后对运行生效
+          </p>
+        )}
+
         {catalogOpen && (
           <section className="mb-6">
             <h3 className="mb-2.5 text-xs font-semibold uppercase tracking-wider text-tertiary">
@@ -375,10 +448,24 @@ export function SkillsMarketplace() {
                         installed: s.installed,
                       })
                     }
-                    onInstall={() => install(s.name)}
-                    onUpdate={() => install(s.name, "update")}
-                    onUninstall={() =>
-                      setUninstallTarget({ name: s.name, title: s.title })
+                    onInstall={
+                      catalogSource === "builtin"
+                        ? undefined
+                        : () => install(s.name)
+                    }
+                    onUpdate={
+                      catalogSource === "builtin"
+                        ? undefined
+                        : () => install(s.name, "update")
+                    }
+                    onUninstall={
+                      catalogSource === "builtin"
+                        ? undefined
+                        : () =>
+                            setUninstallTarget({
+                              name: s.name,
+                              title: s.title,
+                            })
                     }
                   />
                 ))}
@@ -402,88 +489,6 @@ export function SkillsMarketplace() {
           </div>
         ) : (
           <div className="space-y-6">
-            {(sharedSkills.length > 0 || mainSkills.length > 0 || agentGroups.length > 0) && (
-              <section aria-label="子 Agent 技能分配">
-                <div className="mb-3 flex items-center justify-between gap-3">
-                  <div>
-                    <h3 className="text-sm font-semibold">JW 主 Agent</h3>
-                    <p className="mt-1 text-xs text-muted-foreground">
-                      主 Agent
-                      负责接收研究问题、选择路径并协调下面六个太阳科研子
-                      Agent；共享基础技能单独列出，并对所有角色生效。
-                    </p>
-                  </div>
-                  <Users
-                    className="size-5 text-[var(--brand)]"
-                    aria-hidden="true"
-                  />
-                </div>
-                {sharedSkills.length > 0 && (
-                  <div className="mb-3 rounded-lg border border-border/70 bg-muted/20 p-3">
-                    <div className="mb-2 text-xs font-medium text-muted-foreground">
-                      所有 Agent 共享
-                    </div>
-                    <div className="flex flex-wrap gap-2">
-                      {sharedSkills.map((skill) => (
-                        <SkillBadge
-                          key={skill.name}
-                          skill={skill}
-                          shared
-                        />
-                      ))}
-                    </div>
-                  </div>
-                )}
-                {mainSkills.length > 0 && (
-                  <div className="mb-3 rounded-lg border border-[var(--brand)]/20 bg-[var(--brand)]/5 p-3">
-                    <div className="mb-2 text-xs font-medium text-muted-foreground">
-                      主 Agent 编排级技能
-                    </div>
-                    <div className="flex flex-wrap gap-2">
-                      {mainSkills.map((skill) => (
-                        <SkillBadge key={`main-${skill.name}`} skill={skill} />
-                      ))}
-                    </div>
-                  </div>
-                )}
-                <div className="mb-2 text-xs font-medium text-muted-foreground">
-                  六个太阳科研子 Agent
-                </div>
-                <div className="border-[var(--brand)]/20 grid grid-cols-1 gap-3 border-l-2 pl-3 md:grid-cols-2">
-                  {agentGroups.map((group) => (
-                    <div
-                      key={group.name}
-                      className="rounded-lg border border-border bg-card p-3"
-                    >
-                      <div className="mb-1.5 flex items-center gap-2">
-                        <Users
-                          className="size-4 text-[var(--brand)]"
-                          aria-hidden="true"
-                        />
-                        <h4 className="font-medium">{group.title}</h4>
-                        <span className="font-mono text-[11px] text-muted-foreground">
-                          {group.name}
-                        </span>
-                        <span className="text-xs text-muted-foreground">
-                          {group.skills.length} 项专属技能
-                        </span>
-                      </div>
-                      <p className="mb-2 text-xs leading-5 text-muted-foreground">
-                        {group.description}
-                      </p>
-                      <div className="flex flex-wrap gap-2">
-                        {group.skills.map((skill) => (
-                          <SkillBadge
-                            key={`${group.name}-${skill.name}`}
-                            skill={skill}
-                          />
-                        ))}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </section>
-            )}
             {localCandidates.length > 0 && (
               <section
                 className="border-[var(--brand)]/40 bg-[var(--brand)]/5 rounded-lg border border-dashed p-3"
@@ -541,8 +546,11 @@ export function SkillsMarketplace() {
                         key={s.name}
                         title={s.title}
                         description={s.description}
+                        meta={s.title === s.name ? undefined : s.name}
                         installed
                         busy={busy[s.name]}
+                        enabled={!disabledSkills.has(s.name)}
+                        onToggle={(next) => toggleSkill(s, next)}
                         onOpen={() =>
                           setDetail({
                             name: s.name,
@@ -562,22 +570,9 @@ export function SkillsMarketplace() {
                 </div>
               </section>
             )}
-            {supportAgents.length > 0 && (
-              <div className="rounded-lg border border-border/70 bg-muted/20 p-3 text-xs text-muted-foreground">
-                <div className="mb-1 font-medium text-foreground">
-                  JW 主 Agent 的底层支持能力
-                </div>
-                <p className="leading-5">
-                  {supportAgents.map((agent) => agent.title).join("、")}
-                  。这些能力由 JW 主 Agent
-                  按需调用，不作为独立太阳科研角色展示。
-                </p>
-              </div>
-            )}
             {other.length === 0 &&
-              mainSkills.length === 0 &&
-              agentGroups.length === 0 &&
-              localCandidates.length === 0 && (
+              localCandidates.length === 0 &&
+              (catalog === null || catalog.length === 0) && (
                 <p className="text-sm text-muted-foreground">
                   尚未发现可用的 JW Skills。
                 </p>
@@ -586,6 +581,22 @@ export function SkillsMarketplace() {
         )}
       </div>
 
+      <SkillInstallDialog
+        open={installOpen}
+        onOpenChange={setInstallOpen}
+        onInstalled={(result: InstalledSkillResult) => {
+          setError(null);
+          setNotice(
+            result.overwritten
+              ? `已更新技能「${result.name}」（${result.files} 个文件），重启金乌服务（⌘⇧K）后进入 Agent 技能源`
+              : `已安装技能「${result.name}」（${result.files} 个文件），重启金乌服务（⌘⇧K）后进入 Agent 技能源`
+          );
+          // The agent's skill allowlist is frozen when the graph is built, so a
+          // freshly imported skill only reaches the runtime after a restart.
+          setPendingRestart(true);
+          void load(true);
+        }}
+      />
       <SkillDetailDialog
         skill={detail}
         onClose={() => setDetail(null)}
@@ -625,28 +636,6 @@ export function SkillsMarketplace() {
   );
 }
 
-function SkillBadge({
-  skill,
-  shared = false,
-}: {
-  skill: SkillCard;
-  shared?: boolean;
-}) {
-  return (
-    <span
-      className="inline-flex items-center gap-1 rounded-md border border-border bg-background px-2 py-1 text-xs"
-      title={skill.description}
-    >
-      <CheckCircle2
-        className="size-3 text-emerald-600"
-        aria-hidden="true"
-      />
-      {skill.title || skill.name}
-      {shared && <span className="text-muted-foreground">·共享</span>}
-    </span>
-  );
-}
-
 function SkillTile({
   title,
   description,
@@ -657,6 +646,8 @@ function SkillTile({
   latestVersion,
   updateAvailable,
   busy,
+  enabled,
+  onToggle,
   onOpen,
   onInstall,
   onUpdate,
@@ -670,7 +661,10 @@ function SkillTile({
   installedVersion?: string;
   latestVersion?: string;
   updateAvailable?: boolean;
-  busy?: "install" | "uninstall" | "update";
+  busy?: SkillBusy;
+  /** Runtime on/off state; omitted for catalog entries (nothing installed yet). */
+  enabled?: boolean;
+  onToggle?: (enabled: boolean) => void;
   onOpen?: () => void;
   onInstall?: () => void;
   onUpdate?: () => void;
@@ -712,8 +706,23 @@ function SkillTile({
           </p>
         </div>
       </button>
-      <div className="mt-2.5 flex items-center justify-end gap-2">
-        {installed && updateAvailable && (
+      <div
+        className={
+          onToggle || onUpdate || onInstall || onUninstall
+            ? "mt-2.5 flex items-center justify-end gap-2"
+            : "hidden"
+        }
+      >
+        {onToggle && typeof enabled === "boolean" && (
+          <ToggleSwitch
+            checked={enabled}
+            disabled={busy === "toggle"}
+            onChange={onToggle}
+            label={`${enabled ? "停用" : "启用"} ${title} 技能`}
+            className="mr-auto"
+          />
+        )}
+        {installed && updateAvailable && onUpdate && (
           <button
             type="button"
             onClick={onUpdate}
@@ -739,7 +748,7 @@ function SkillTile({
               : "更新"}
           </button>
         )}
-        {installed && !readOnly ? (
+        {installed && !readOnly && onUninstall ? (
           <button
             type="button"
             onClick={onUninstall}
@@ -759,7 +768,7 @@ function SkillTile({
             )}
             {busy === "uninstall" ? "正在移除…" : "卸载"}
           </button>
-        ) : (
+        ) : onInstall ? (
           <button
             type="button"
             onClick={onInstall}
@@ -779,7 +788,7 @@ function SkillTile({
             )}
             {busy === "install" ? "正在安装…" : "安装"}
           </button>
-        )}
+        ) : null}
       </div>
     </div>
   );

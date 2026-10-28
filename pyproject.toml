@@ -139,6 +139,7 @@ jw = [
     "flare_forecast/_frozen/**/*.py",
     "subagents/**/*.yaml",
     "subagents/**/skills/**/*",
+    "subagents/skill_registry.json",
     "langgraph_dev/*.json",
 ]
 

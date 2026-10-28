@@ -137,6 +137,40 @@ def _evidence_review_mode() -> str:
     return mode if mode in {"closed", "two_pass"} else "two_pass"
 
 
+def _filter_disabled_skills(declared_skills: Any) -> list[Any]:
+    """Drop user-disabled skills from an explicit yaml ``skills:`` list.
+
+    Registry-driven agents already get the toggle applied inside
+    ``skills_for_agent``; an explicit ``skills: [/skills/<name>]`` list used to
+    bypass it, so the user's on/off switch never reached those sub-agents.
+
+    Non-``/skills/`` entries and non-list values are returned untouched.  A
+    failure to read the toggle file (or to import the registry helpers) leaves
+    the declared list intact — an unreadable settings file must not silently
+    strip a sub-agent's skills.
+    """
+    if not isinstance(declared_skills, list) or not declared_skills:
+        return declared_skills
+
+    try:
+        from jw.backends import skill_name_from_virtual_path
+        from jw.skill_settings import disabled_skill_names
+
+        disabled = disabled_skill_names()
+    except (ImportError, OSError, ValueError):
+        return declared_skills
+    if not disabled:
+        return declared_skills
+
+    kept: list[Any] = []
+    for source in declared_skills:
+        name = skill_name_from_virtual_path(source) if isinstance(source, str) else None
+        if name is not None and name in disabled:
+            continue
+        kept.append(source)
+    return kept
+
+
 def load_subagents(
     config_path: Path | list[Path] | tuple[Path, ...],
     *,
@@ -316,7 +350,7 @@ def load_subagents(
                     assigned = []
                 subagent["skills"] = assigned or declared_skills
             else:
-                subagent["skills"] = declared_skills
+                subagent["skills"] = _filter_disabled_skills(declared_skills)
 
         if "tool_bundles" in spec or "tools" in spec:
             resolved: list[Any] = []

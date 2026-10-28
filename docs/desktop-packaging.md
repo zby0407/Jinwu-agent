@@ -38,6 +38,7 @@ runtime/
   python/                  # 可搬迁 CPython 3.12 + 锁定依赖 + JW wheel
   node/                    # 固定 Node.js LTS 发行包（自带，不依赖 runner/用户 Node）
   webui/dist/              # Next.js standalone 产物（server.js + traced node_modules + .next）
+  jw/subagents/            # 随包内置 Skills（core/solar 的 SKILL.md 包 + skill_registry.json）
   project/research/        # 白名单项目资源
   project/src/
   licenses/                # LICENSE / NOTICE / THIRD_PARTY_LICENSES.md / node-LICENSE.txt
@@ -139,11 +140,17 @@ Windows x64 上把第 3 步换成 `npm run dist:win`，其余相同（在 `windo
    standalone 内已包含 traced 依赖。
 5. **project 资源**：白名单 `research/`、`src/`；排除 `.env`、`.git`、`.venv*`、workspace、output(s)、
    tests、tmp、数据库、密钥、日志、缓存等。
-6. **licenses**：复制仓库根部存在的 `LICENSE`、`NOTICE`、`THIRD_PARTY_LICENSES.md`，
+6. **内置 Skills**：把仓库 `jw/subagents/`（`core`/`solar` 的 SKILL.md 包 + `skill_registry.json`）
+   复制到 `runtime/jw/subagents/`。WebUI 的技能页通过 `skillProjectRoots()` 逐层向上查找
+   `<root>/jw/subagents/<bundle>/skills/<skill>/SKILL.md`，而 wheel 内 site-packages 的那份对
+   Next.js 进程不可见；放在 runtime 根目录（距 `webui/dist` 两级）才能被找到，
+   registry JSON 同时提供主/子 Agent 归属与分组。缺少该目录时技能页为空。
+7. **licenses**：复制仓库根部存在的 `LICENSE`、`NOTICE`、`THIRD_PARTY_LICENSES.md`，
    并附带 Node.js 发行包自带的 `LICENSE`。
-7. **manifest + 自检**：写入 `runtime-manifest.json` 后，从**最终路径**逐项检查：
+8. **manifest + 自检**：写入 `runtime-manifest.json` 后，从**最终路径**逐项检查：
    路径存在、可执行、`<python> -c "import jw, langgraph_cli"`、`<python> -m jw --help`、
-   `sys.prefix` 指向 runtime 内部、Node 版本、WebUI `server.js`。任一失败则删除半成品 runtime 并以非 0 退出。
+   `sys.prefix` 指向 runtime 内部、Node 版本、WebUI `server.js`、`jw/subagents`
+   的 registry 与 `core`/`solar` skills。任一失败则删除半成品 runtime 并以非 0 退出。
 
 ### 3.2 无网络/离线环境（air-gapped）
 
@@ -307,6 +314,18 @@ PR 不触发发布；workflow 级权限为 `contents: read`，只有 draft relea
 - Windows 构建中修复了 `python -I` 忽略 `PYTHONIOENCODING` 导致的 cp1252 编码失败：
   自检命令显式使用 `-X utf8`，桌面注入的 Python 子进程也设置 `PYTHONUTF8=1` 与
   `PYTHONIOENCODING=utf-8`。
+- 后端健康检查窗口为 180 秒（`desktop/electron/lib/health.mjs` 的 `BACKEND_HEALTH_TIMEOUT_MS`）。
+  现场遇到过一次 `HEALTH_TIMEOUT`：site-packages 里的 `__pycache__` 被清空、同时机器在做打包与
+  wheel 构建，`langgraph dev` 的导入阶段耗时 131 秒（`langgraph_dev.log` 里
+  `Application started up in 5.153s` 的时间戳比进程启动晚约 130 秒），超过原 120 秒窗口被判失败，
+  而它随后其实已就绪。放宽到 180 秒后同机冷启动约 30–35 秒即可就绪。
+  注意此时 `start-failed` 清理只杀到自己 spawn 的 pid，`langgraph_cli dev` 派生出的监听进程
+  可能成为孤儿继续占用 6174；重新启动前先 `lsof -nP -iTCP:6174 -sTCP:LISTEN` 确认。
+- 离线重打包：electron-builder 会尝试重新下载 Electron 发行包，网络受限时失败
+  （`Client network socket disconnected before secure TLS connection was established`）。
+  可用本地已安装的 Electron 直接打包：
+  `npx electron-builder --mac --arm64 -c.mac.target=zip -c.electronDist=$PWD/node_modules/electron/dist`
+  （并把 `HOME` 指向工作区内可写目录以避开 `~/Library/Caches/electron` 的沙箱限制）。
 - 产物未签名、未公证；已使用金乌品牌图标。macOS 首次打开需右键 → 打开。
 - 已从 CI 产物 DMG 实际启动 macOS 应用：品牌 logo、首启向导、配置保存、后端/WebUI 启动正常，
   持续运行超过原 120 秒超时窗口无异常，退出后端口无残留。

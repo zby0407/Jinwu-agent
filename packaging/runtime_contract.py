@@ -288,6 +288,19 @@ def _check_executable(path: Path, report: CheckReport, label: str) -> None:
 # ---------------------------------------------------------------------------
 
 
+def wheel_skill_registry(python_dir: Path) -> Path | None:
+    """Return the registry that ships inside an installed ``jw`` wheel.
+
+    POSIX CPython installs the package into ``lib/python3.12/site-packages``
+    while the Windows embeddable build uses ``Lib/site-packages``, so both
+    layouts have to be searched.
+    """
+    matches = sorted(
+        Path(python_dir).glob("**/site-packages/jw/subagents/skill_registry.json")
+    )
+    return matches[0] if matches else None
+
+
 def check_runtime(
     root: Path,
     *,
@@ -440,6 +453,50 @@ def check_runtime(
                     report.add("fail", f"project/{name}", f"missing {sub}")
             if scan_project:
                 _scan_project(project_root, report)
+
+    skills_dir = root.joinpath("jw", "subagents")
+    if not skills_dir.is_dir():
+        report.add("fail", "jw/subagents", f"missing directory: {skills_dir}")
+    else:
+        registry = skills_dir / "skill_registry.json"
+        if registry.is_file():
+            report.add("ok", "jw/subagents/skill_registry.json", str(registry))
+        else:
+            report.add(
+                "fail",
+                "jw/subagents/skill_registry.json",
+                f"missing {registry}",
+            )
+        for bundle in ("core", "solar"):
+            bundle_skills = skills_dir / bundle / "skills"
+            if bundle_skills.is_dir():
+                report.add("ok", f"jw/subagents/{bundle}/skills", str(bundle_skills))
+            else:
+                report.add(
+                    "fail",
+                    f"jw/subagents/{bundle}/skills",
+                    f"missing {bundle_skills}",
+                )
+
+    # The installed wheel carries its own copy of the registry next to
+    # ``skill_registry.py`` (``REGISTRY_PATH``); the ``jw/subagents`` tree above
+    # is only what the Next.js side reads.  Both must exist: a wheel built
+    # before the package-data fix silently leaves the agent with zero skills.
+    python_dir = root / "python"
+    if python_dir.is_dir():
+        wheel_registry = wheel_skill_registry(python_dir)
+        if wheel_registry is not None:
+            report.add(
+                "ok",
+                "wheel/jw/subagents/skill_registry.json",
+                str(wheel_registry),
+            )
+        else:
+            report.add(
+                "fail",
+                "wheel/jw/subagents/skill_registry.json",
+                "missing skill_registry.json inside the Python site-packages",
+            )
 
     licenses_dir = root / "licenses"
     if not licenses_dir.is_dir():

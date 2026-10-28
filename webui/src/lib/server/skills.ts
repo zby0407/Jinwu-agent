@@ -38,9 +38,10 @@ export const SKILL_DIRS = [
   join(jwConfigDir(), "skills"),
 ];
 
-// Install guards.
-const MAX_SKILL_FILES = 300;
-const MAX_SKILL_BYTES = 25 * 1024 * 1024;
+// Install guards. Exported so user-supplied imports (skillImport.ts) enforce
+// the same limits as the official installer.
+export const MAX_SKILL_FILES = 300;
+export const MAX_SKILL_BYTES = 25 * 1024 * 1024;
 
 const GITHUB_HEADERS = {
   Accept: "application/vnd.github+json",

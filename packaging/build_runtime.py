@@ -12,6 +12,7 @@ Layout produced::
       python/                 # relocatable CPython 3.12 + locked deps + JW wheel
       node/                   # pinned Node.js LTS distribution
       webui/dist/             # Next.js standalone server (server.js + traced deps)
+      jw/subagents/           # shipped Skills (SKILL.md bundles + skill_registry.json)
       project/research/       # bundled project resources (allow-list)
       project/src/
       licenses/               # shipped license files
@@ -81,6 +82,13 @@ PYTHON_BOOTSTRAP_IGNORE = (
 )
 
 PROJECT_ALLOW_LIST = ("research", "src")
+# The WebUI's skill page (``webui/src/lib/server/builtinSkills.js``) discovers
+# the shipped Skills by walking candidate roots and reading
+# ``<root>/jw/subagents/<bundle>/skills/<skill>/SKILL.md``. One of those roots is
+# the runtime directory itself (``resolve(cwd, '..', '..')`` from
+# ``webui/dist``), so the Skills must land at ``<runtime>/jw/subagents`` — the
+# copy inside the wheel's site-packages is invisible to the WebUI.
+BUNDLED_SKILLS_PACKAGE_DIR = ("jw", "subagents")
 PROJECT_EXCLUDED_DIRS = {
     "__pycache__",
     ".git",
@@ -813,6 +821,28 @@ def prepare_project_resources(*, staging: Path, args: argparse.Namespace) -> Non
         )
 
 
+def prepare_bundled_skills(*, staging: Path) -> None:
+    """Copy the shipped Skills (``jw/subagents``) to ``<runtime>/jw/subagents``.
+
+    The WebUI shell has no access to the wheel's site-packages tree, so the
+    Skills bundle is published next to ``python/`` / ``webui/`` where
+    ``skillProjectRoots()`` already looks for ``jw/subagents``. The registry
+    JSON travels with it, so the skill page can also resolve agent assignments.
+    """
+    source = REPO_ROOT.joinpath(*BUNDLED_SKILLS_PACKAGE_DIR)
+    if not source.is_dir():
+        raise BuildError(f"required bundled skills directory is missing: {source}")
+    registry = source / "skill_registry.json"
+    if not registry.is_file():
+        raise BuildError(f"required skill registry is missing: {registry}")
+    skills_root = source / "core" / "skills"
+    if not skills_root.is_dir():
+        raise BuildError(f"required bundled skills are missing: {skills_root}")
+    target = staging.joinpath(*BUNDLED_SKILLS_PACKAGE_DIR)
+    log(f"copying bundled skills ({dir_size_mib(source):.1f} MiB)")
+    shutil.copytree(source, target, symlinks=True, ignore=_project_ignore)
+
+
 def prepare_licenses(*, staging: Path, node_root: Path | None) -> None:
     licenses = staging / "licenses"
     licenses.mkdir(parents=True, exist_ok=True)
@@ -1156,6 +1186,9 @@ def main(argv: list[str] | None = None) -> int:
         log("== project resources ==")
         prepare_project_resources(staging=staging, args=args)
 
+        log("== bundled skills ==")
+        prepare_bundled_skills(staging=staging)
+
         log("== licenses ==")
         prepare_licenses(staging=staging, node_root=staging / "node")
 
@@ -1195,7 +1228,8 @@ def main(argv: list[str] | None = None) -> int:
             f"jw {manifest['jwVersion']} / webui {manifest['webuiVersion']}"
         )
         log(
-            "  layout: python/ node/ webui/dist/ project/{research,src}/ licenses/ "
+            "  layout: python/ node/ webui/dist/ jw/subagents/ "
+            "project/{research,src}/ licenses/ "
             f"{MANIFEST_FILENAME}"
         )
         return 0

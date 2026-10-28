@@ -73,6 +73,75 @@ def _main_skill_sources() -> list[str]:
     return skills_for_agent("JW")
 
 
+# ``deepagents`` expands every ``SkillsMiddleware`` source with a single
+# ``backend.ls(source)`` and treats the result as skill *directories*, so a
+# source must be the parent directory of skill dirs.  One source per skill
+# (``/skills/<name>``) therefore loads nothing at all; the aggregate root is
+# the only shape that works.  The per-agent allowlist is enforced inside the
+# backend instead — see ``jw.backends.ScopedSkillsBackend``.
+SKILLS_ROOT_SOURCE = "/skills/"
+
+
+def _skill_names_from_sources(sources: object) -> list[str]:
+    """Extract bare skill names from ``/skills/<name>`` sources, deduped."""
+    from .backends import skill_name_from_virtual_path
+
+    names: list[str] = []
+    for source in sources or ():  # type: ignore[union-attr]
+        name = skill_name_from_virtual_path(str(source))
+        if name and name not in names:
+            names.append(name)
+    return names
+
+
+def _scoped_skills_backend(skills_backend, skill_sources):
+    """Wrap a skills backend so only ``skill_sources`` stay discoverable.
+
+    ``skills_backend`` is either a backend instance (CLI path) or a lazy
+    backend factory taking the tool runtime (web path); both are supported.
+    The wrapper is not a ``BackendProtocol`` so ``_resolve_backend`` passes the
+    instance through untouched and calls the factory normally.
+    """
+    from deepagents.backends.protocol import BackendProtocol
+
+    from .backends import ScopedSkillsBackend
+
+    allowed = _skill_names_from_sources(skill_sources)
+    if callable(skills_backend) and not isinstance(skills_backend, BackendProtocol):
+
+        def _scoped_factory(*args, **kwargs):
+            return ScopedSkillsBackend(skills_backend(*args, **kwargs), allowed)
+
+        return _scoped_factory
+
+    return ScopedSkillsBackend(skills_backend, allowed)
+
+
+def _install_scoped_skills_middleware(spec: dict, skills_backend) -> None:
+    """Turn a subagent spec's raw ``skills`` list into a scoped ``SkillsMiddleware``.
+
+    ``deepagents`` would otherwise build ``SkillsMiddleware(sources=spec["skills"])``
+    over the *shared* agent backend — one source per skill, which loads nothing,
+    and no per-agent allowlist.  Here the allowlist lives in the backend view
+    (``_scoped_skills_backend``) and the middleware reads the aggregate root.
+    """
+    declared = spec.pop("skills", None)
+    sources = [str(source) for source in declared or ()]
+    if not sources:
+        return
+
+    from deepagents.middleware.skills import SkillsMiddleware
+
+    middleware = spec.setdefault("middleware", [])
+    middleware.insert(
+        0,
+        SkillsMiddleware(
+            backend=_scoped_skills_backend(skills_backend, sources),
+            sources=[SKILLS_ROOT_SOURCE],
+        ),
+    )
+
+
 def _positive_call_limit(value: object, fallback: int | None) -> int | None:
     """Normalize a configured call budget; zero disables the limit."""
     if isinstance(value, bool):
@@ -411,6 +480,7 @@ def _inject_subagent_middleware(
     workspace_dir: str | Path | None = None,
     cfg=None,
     chat_model=None,
+    skills_backend=None,
 ) -> None:
     """Ensure every subagent gets error handling and context management middleware.
 
@@ -421,6 +491,13 @@ def _inject_subagent_middleware(
     *chat_model*, when provided, is forwarded to the subagents'
     ``create_context_editing_middleware`` so the pure ``create_cli_agent``
     path doesn't fall back to the global-writing ``_ensure_chat_model()``.
+
+    *skills_backend*, when provided, makes each spec's declared ``skills`` list
+    authoritative: the spec entry is converted into a scoped ``SkillsMiddleware``
+    over the aggregate skills root (see ``_scoped_skills_backend``) and the raw
+    ``skills`` key is dropped.  When it is ``None`` the declared list is left in
+    place for ``deepagents`` to consume — that path is what the standalone
+    async-subagent factory uses, where no backend exists yet.
     """
     from .middleware import (
         AutomaticExperimentTerminalGuardMiddleware,
@@ -511,23 +588,32 @@ def _inject_subagent_middleware(
         # capability filtering and can disable thinking for forced tool calls.
         middleware.append(QwenToolCompatibilityMiddleware(default_model=cfg.model))
         sa.setdefault("middleware", []).extend(middleware)
+        if skills_backend is not None:
+            _install_scoped_skills_middleware(sa, skills_backend)
 
 
-def _ensure_general_purpose_subagent(subs: list[dict]) -> None:
-    """Materialize DeepAgents' default subagent so our middleware wraps it."""
+def _ensure_general_purpose_subagent(
+    subs: list[dict], *, skill_sources: list[str] | None = None
+) -> None:
+    """Materialize DeepAgents' default subagent so our middleware wraps it.
+
+    *skill_sources*, when provided, is the already-filtered skill allowlist the
+    general-purpose subagent may load (assigned + installed - disabled).  It is
+    converted into a scoped ``SkillsMiddleware`` by
+    ``_inject_subagent_middleware``.  When omitted (the standalone async-subagent
+    factory path, which has no backend yet) no ``skills`` key is added, so
+    DeepAgents does not fall back to an unscoped catalog.
+    """
     from deepagents.middleware.subagents import GENERAL_PURPOSE_SUBAGENT
 
     name = GENERAL_PURPOSE_SUBAGENT["name"]
     if any(sa.get("name") == name for sa in subs):
         return
 
-    subs.insert(
-        0,
-        {
-            **GENERAL_PURPOSE_SUBAGENT,
-            "skills": list(DEFAULT_SKILL_SOURCES),
-        },
-    )
+    spec = {**GENERAL_PURPOSE_SUBAGENT}
+    if skill_sources:
+        spec["skills"] = list(skill_sources)
+    subs.insert(0, spec)
 
 
 def _maybe_swap_async_subagents(
@@ -720,7 +806,8 @@ def _build_base_kwargs(
         tool_registry=tool_registry,
         tool_bundles=get_tool_bundles(),
     )
-    _ensure_general_purpose_subagent(subs)
+    skill_sources = _main_skill_sources()
+    _ensure_general_purpose_subagent(subs, skill_sources=skill_sources)
     _validate_agent_harness(
         subs,
         tool_bundles=get_tool_bundles(),
@@ -728,7 +815,11 @@ def _build_base_kwargs(
         middleware=base_middleware,
     )
     _inject_subagent_middleware(
-        subs, workspace_dir=workspace_dir, cfg=cfg, chat_model=chat_model
+        subs,
+        workspace_dir=workspace_dir,
+        cfg=cfg,
+        chat_model=chat_model,
+        skills_backend=base_backend,
     )
     subs = _maybe_swap_async_subagents(subs, base_middleware, cfg=cfg)
     subs = _apply_agent_model_overrides(subs, cfg=cfg)
@@ -740,7 +831,11 @@ def _build_base_kwargs(
         "subagents": subs,
         "middleware": base_middleware,
         "system_prompt": _configured_system_prompt(cfg),
-        "skills": _main_skill_sources(),
+        # Skills are mounted by the scoped ``SkillsMiddleware`` injected in
+        # ``_get_default_middleware`` (aggregate source + per-agent allowlist).
+        # Leaving this set would make deepagents build a second, unscoped
+        # ``SkillsMiddleware`` from per-skill sources, which loads nothing.
+        "skills": None,
     }
 
 
@@ -801,7 +896,8 @@ def load_mcp_and_build_kwargs(
         tool_bundles=get_tool_bundles(),
     )
 
-    _ensure_general_purpose_subagent(subs)
+    skill_sources = _main_skill_sources()
+    _ensure_general_purpose_subagent(subs, skill_sources=skill_sources)
     _validate_agent_harness(
         subs,
         tool_bundles=get_tool_bundles(),
@@ -809,7 +905,11 @@ def load_mcp_and_build_kwargs(
         middleware=base_middleware,
     )
     _inject_subagent_middleware(
-        subs, workspace_dir=workspace_dir, cfg=cfg, chat_model=chat_model
+        subs,
+        workspace_dir=workspace_dir,
+        cfg=cfg,
+        chat_model=chat_model,
+        skills_backend=base_backend,
     )
 
     # Inject MCP tools into subagents by name
@@ -830,7 +930,11 @@ def load_mcp_and_build_kwargs(
         "subagents": subs,
         "middleware": base_middleware,
         "system_prompt": _configured_system_prompt(cfg),
-        "skills": _main_skill_sources(),
+        # Skills are mounted by the scoped ``SkillsMiddleware`` injected in
+        # ``_get_default_middleware`` (aggregate source + per-agent allowlist).
+        # Leaving this set would make deepagents build a second, unscoped
+        # ``SkillsMiddleware`` from per-skill sources, which loads nothing.
+        "skills": None,
     }
 
 
@@ -1104,6 +1208,12 @@ def _get_default_middleware(
         allowed_tools: Optional exact tool boundary for a deployed specialist.
             The async factory derives this from the same resolved YAML
             capability bundles used by the synchronous sub-agent.
+        skills_backend: Backend (or lazy backend factory) to mount skills on.
+            It is wrapped in ``ScopedSkillsBackend`` so only ``skill_sources``
+            are discoverable.
+        skill_sources: ``/skills/<name>`` sources this agent may load.  The
+            middleware itself is built over the aggregate root
+            (``SKILLS_ROOT_SOURCE``) with the list applied as an allowlist.
     """
     from .middleware import (
         AutomaticExperimentTerminalGuardMiddleware,
@@ -1115,6 +1225,7 @@ def _get_default_middleware(
         QwenToolCompatibilityMiddleware,
         ResearchReviewOrchestrationMiddleware,
         ResearchRouterMiddleware,
+        SkillReceiptMiddleware,
         TaskCancellationMiddleware,
         TaskWorkspaceMiddleware,
         ToolErrorHandlerMiddleware,
@@ -1129,7 +1240,6 @@ def _get_default_middleware(
         create_tool_selector_middleware,
         default_memory_scheduler,
         load_fallback_chain,
-        SkillReceiptMiddleware,
     )
 
     cfg = cfg if cfg is not None else _ensure_config()
@@ -1195,6 +1305,7 @@ def _get_default_middleware(
         # ASGI event loop.  Suppress the built-in instance at graph creation
         # and place the equivalent middleware immediately after preparation.
         from deepagents.middleware.skills import SkillsMiddleware
+
         from .subagents.skill_registry import skill_receipt_for_sources
 
         # Keep a model-visible and machine-readable receipt next to the
@@ -1205,7 +1316,16 @@ def _get_default_middleware(
                 skill_receipt_for_sources(memory_source_agent, skill_sources)
             )
         )
-        mw.append(SkillsMiddleware(backend=skills_backend, sources=skill_sources))
+        mw.append(
+            SkillsMiddleware(
+                # One source per skill loads NOTHING: deepagents treats every
+                # source as a directory *containing* skill dirs.  Use the
+                # aggregate root and keep the per-agent allowlist inside the
+                # backend view instead.
+                backend=_scoped_skills_backend(skills_backend, skill_sources),
+                sources=[SKILLS_ROOT_SOURCE],
+            )
+        )
     mw.extend(
         [
             *([TaskCancellationMiddleware()] if for_async_subagent else []),
@@ -1551,9 +1671,15 @@ def create_cli_agent(
 
     # Delegate middleware construction to the single source of truth so the
     # CLI agent never drifts from the default chain. Anything CLI-specific
-    # (e.g. ``HumanInTheLoopMiddleware``) is appended below.
+    # (e.g. ``HumanInTheLoopMiddleware``) is appended below.  The scoped
+    # SkillsMiddleware is built here too: without explicit skills wiring the
+    # CLI agent had no skill catalog at all.
     mw: list[AgentMiddleware] = _get_default_middleware(
-        workspace_dir=workspace_dir, cfg=cfg, chat_model=chat_model
+        workspace_dir=workspace_dir,
+        cfg=cfg,
+        chat_model=chat_model,
+        skills_backend=be,
+        skill_sources=_main_skill_sources(),
     )
 
     # HITL on main agent only — passing `interrupt_on=` to create_deep_agent

@@ -143,8 +143,8 @@ npm ci
 npm test
 
 # 4) 打包（本机无签名证书）
-npm run dist:mac   # macOS arm64：Jinwu-0.3.1-mac-arm64.dmg / .zip
-npm run dist:win   # Windows x64：Jinwu-0.3.1-win-x64.exe
+npm run dist:mac   # macOS arm64：Jinwu-0.3.2-mac-arm64.dmg / .zip
+npm run dist:win   # Windows x64：Jinwu-0.3.2-win-x64.exe
 ```
 
 - `extraResources` 会把仓库根 `packaging/dist/runtime` 复制到应用 `resources/runtime`；该目录在开发机上可能尚不存在，属于预期情况。

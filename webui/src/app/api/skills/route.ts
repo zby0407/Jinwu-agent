@@ -14,6 +14,7 @@ import {
   readSkillTopology,
   skillProjectRoots,
 } from "@/lib/server/builtinSkills.js";
+import { readDisabledSkills } from "@/lib/server/skillSettings";
 
 // SKILL_DIRS (the global ~/.jw/skills tier + legacy ~/.config
 // fallback) is the single source of truth, shared with the install route.
@@ -26,6 +27,17 @@ interface SkillCard {
   description: string;
   dir: string;
   source: "installed" | "builtin";
+  /** Runtime switch state (`DATA_DIR/skill_settings.json`); false = 已停用，
+   *  agent 运行时不会加载该 skill。 */
+  enabled?: boolean;
+}
+
+/** Stamp the shared on/off state onto a skill card (GET output only). */
+function withEnabled<T extends { name: string }>(
+  skill: T,
+  disabled: Set<string>
+): T & { enabled: boolean } {
+  return { ...skill, enabled: !disabled.has(skill.name) };
 }
 
 // Minimal frontmatter parse — we only need name + description. Avoids pulling
@@ -109,6 +121,9 @@ async function readSkills(): Promise<SkillCard[]> {
 export async function GET() {
   try {
     const skills = await readSkills();
+    // Read the shared on/off state exactly once, then stamp it onto every
+    // skill card the UI renders (the remote catalog is intentionally untouched).
+    const disabled = await readDisabledSkills();
     const projectRoots = skillProjectRoots();
     let bundled: Awaited<ReturnType<typeof readBundledSkills>> = [];
     let localCandidates: Awaited<ReturnType<typeof readLocalSkillCandidates>> =
@@ -144,11 +159,25 @@ export async function GET() {
       }
     }
     return NextResponse.json({
-      skills,
-      sharedSkills: bundled.filter((skill) => skill.assignment?.shared),
-      agents: buildPrimaryAgentGroups(topology.primaryAgents, byAgent),
+      skills: skills.map((skill) => withEnabled(skill, disabled)),
+      sharedSkills: bundled
+        .filter((skill) => skill.assignment?.shared)
+        .map((skill) => withEnabled(skill, disabled)),
+      agents: buildPrimaryAgentGroups(topology.primaryAgents, byAgent).map(
+        (group: {
+          name: string;
+          title: string;
+          description: string;
+          skills: SkillCard[];
+        }) => ({
+          ...group,
+          skills: group.skills.map((skill) => withEnabled(skill, disabled)),
+        })
+      ),
       mainAgent: topology.mainAgent,
-      mainSkills: byAgent.get("JW") || [],
+      mainSkills: (byAgent.get("JW") || []).map((skill) =>
+        withEnabled(skill, disabled)
+      ),
       primaryAgents: topology.primaryAgents.map((agent) => agent.name),
       primaryAgentProfiles: topology.primaryAgents,
       supportAgents: topology.supportAgents.map((agent) => agent.name),

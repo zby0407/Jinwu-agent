@@ -12,6 +12,17 @@ def test_package_data_includes_nested_bundle_agents_and_skills() -> None:
     assert "subagents/**/skills/**/*" in patterns
 
 
+def test_package_data_includes_the_skill_registry() -> None:
+    """The WebUI skill page reads ``jw/subagents/skill_registry.json`` to place
+    each bundled Skill under its owning Agent; without it the page lists Skills
+    with no assignment (and Python's registry loses its role scoping)."""
+    pyproject = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    patterns = set(pyproject["tool"]["setuptools"]["package-data"]["jw"])
+
+    assert "subagents/skill_registry.json" in patterns
+    assert (ROOT / "jw" / "subagents" / "skill_registry.json").is_file()
+
+
 def test_bundle_manifests_have_their_declared_skills() -> None:
     import yaml
 
