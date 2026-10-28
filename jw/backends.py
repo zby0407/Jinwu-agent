@@ -9,12 +9,13 @@ import re
 import shlex
 import sys
 import uuid
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from pathlib import Path
 
 import tree_sitter_bash
 from deepagents.backends import FilesystemBackend, LocalShellBackend
 from deepagents.backends.protocol import (
+    PERMISSION_DENIED,
     BackendProtocol,
     EditResult,
     ExecuteResponse,
@@ -23,6 +24,7 @@ from deepagents.backends.protocol import (
     GlobResult,
     GrepResult,
     LsResult,
+    ReadResult,
     WriteResult,
 )
 from tree_sitter import Language, Node, Parser
@@ -1554,6 +1556,201 @@ class MergedSkillsBackend(BackendProtocol):
 
     def upload_files(self, files: list[tuple[str, bytes]]) -> list[FileUploadResponse]:
         return self._primary.upload_files(files)
+
+
+# ---------------------------------------------------------------------------
+# Per-agent skill allowlist view
+# ---------------------------------------------------------------------------
+
+#: Virtual root that every skill directory is mounted under.
+SKILLS_VIRTUAL_ROOT = "/skills"
+
+
+def normalize_skills_virtual_path(path: str) -> str:
+    """Return ``path`` as a ``/``-anchored, slash-collapsed virtual path."""
+    if not path:
+        return "/"
+    return "/" + str(path).strip("/")
+
+
+def is_skills_root_path(path: str) -> bool:
+    """Whether ``path`` is the aggregate skills root (``/skills`` or ``/skills/``)."""
+    return normalize_skills_virtual_path(path) == SKILLS_VIRTUAL_ROOT
+
+
+def skill_name_from_virtual_path(path: str) -> str | None:
+    """Return the skill directory name of a ``/skills/<name>[/...]`` path.
+
+    ``None`` means the path does not point *inside* a skill directory — it is
+    either the skills root itself or an unrelated workspace path — so callers
+    must not scope it.
+    """
+    prefix = SKILLS_VIRTUAL_ROOT + "/"
+    normalized = normalize_skills_virtual_path(path)
+    if not normalized.startswith(prefix):
+        return None
+    return normalized[len(prefix) :].split("/", 1)[0] or None
+
+
+def _normalize_skill_names(names: Iterable[str] | None) -> frozenset[str]:
+    """Normalize skill names or ``/skills/<name>`` sources to bare names."""
+    normalized: set[str] = set()
+    for name in names or ():
+        candidate = str(name).strip().strip("/")
+        candidate = candidate.removeprefix("skills/").split("/", 1)[0]
+        if candidate:
+            normalized.add(candidate)
+    return frozenset(normalized)
+
+
+class ScopedSkillsBackend:
+    """Allowlist-restricted view over a skills-capable backend.
+
+    ``deepagents``' ``SkillsMiddleware`` treats every entry of ``sources`` as a
+    directory *containing* skill directories and only ever calls two backend
+    APIs to discover them: ``ls()`` on the source and ``download_files()`` for
+    the ``SKILL.md`` files found there.  Passing one source per skill
+    (``/skills/<name>``) therefore discovers nothing at all — the only working
+    source shape is the aggregate root ``/skills/``.
+
+    Since the aggregate root sees every installed skill, the per-agent
+    allowlist (registry assignment + user installs - toggled-off skills) has
+    to be enforced *inside* the backend instead of by trimming the source list.
+    This view filters:
+
+    * ``ls``/``als`` on the skills root — hides skill directories not allowed;
+    * ``download_files``/``adownload_files`` — denies disallowed ``SKILL.md``;
+    * ``read``/``aread``, ``glob``/``aglob``, ``grep``/``agrep`` — never expose
+      content of a skill directory outside the allowlist.
+
+    Everything else is delegated to ``inner`` through ``__getattr__``.  The
+    class is intentionally **not** a ``BackendProtocol`` subclass and is only
+    ever handed to ``SkillsMiddleware`` as its backend: ``protocol._resolve_backend``
+    returns a non-protocol, non-callable object unchanged, while inheriting the
+    protocol would shadow the delegated methods with ``NotImplementedError``.
+    """
+
+    def __init__(self, inner: BackendProtocol, allowed: Iterable[str] | None):
+        self._inner = inner
+        self._allowed = _normalize_skill_names(allowed)
+
+    # -- introspection ---------------------------------------------------
+
+    @property
+    def inner(self) -> BackendProtocol:
+        """The wrapped backend."""
+        return self._inner
+
+    @property
+    def allowed(self) -> frozenset[str]:
+        """Skill directory names this view may expose."""
+        return self._allowed
+
+    def __getattr__(self, name: str):
+        # Only reached for attributes this view does not define itself.
+        if name.startswith("__"):
+            raise AttributeError(name)
+        inner = self.__dict__.get("_inner")
+        if inner is None:  # pragma: no cover - partially built object
+            raise AttributeError(name)
+        return getattr(inner, name)
+
+    def __repr__(self) -> str:  # pragma: no cover - debugging aid
+        return f"ScopedSkillsBackend(allowed={sorted(self._allowed)!r})"
+
+    # -- scoping helpers -------------------------------------------------
+
+    def _path_allowed(self, path: str) -> bool:
+        name = skill_name_from_virtual_path(path)
+        return name is None or name in self._allowed
+
+    def _entry_allowed(self, entry: Mapping) -> bool:
+        return self._path_allowed(str(entry.get("path") or ""))
+
+    def _scope_error(self, path: str) -> str:
+        return (
+            f"{PERMISSION_DENIED}: '{path}' is not available to this agent "
+            "(skill not assigned or disabled)"
+        )
+
+    def _filter_ls_result(self, path: str, result: LsResult) -> LsResult:
+        if not is_skills_root_path(path) or result.error:
+            return result
+        return LsResult(
+            entries=[e for e in (result.entries or []) if self._entry_allowed(e)]
+        )
+
+    # -- read-style operations -------------------------------------------
+
+    def ls(self, path: str = "/") -> LsResult:
+        return self._filter_ls_result(path, self._inner.ls(path))
+
+    async def als(self, path: str = "/") -> LsResult:
+        return self._filter_ls_result(path, await self._inner.als(path))
+
+    def download_files(self, paths: list[str]) -> list[FileDownloadResponse]:
+        indexes = [i for i, p in enumerate(paths) if self._path_allowed(p)]
+        delegated = self._inner.download_files([paths[i] for i in indexes])
+        responses: list[FileDownloadResponse] = [
+            FileDownloadResponse(path=p, error=PERMISSION_DENIED) for p in paths
+        ]
+        for index, response in zip(indexes, delegated, strict=False):
+            responses[index] = response
+        return responses
+
+    async def adownload_files(self, paths: list[str]) -> list[FileDownloadResponse]:
+        indexes = [i for i, p in enumerate(paths) if self._path_allowed(p)]
+        delegated = await self._inner.adownload_files([paths[i] for i in indexes])
+        responses: list[FileDownloadResponse] = [
+            FileDownloadResponse(path=p, error=PERMISSION_DENIED) for p in paths
+        ]
+        for index, response in zip(indexes, delegated, strict=False):
+            responses[index] = response
+        return responses
+
+    def read(self, file_path: str, offset: int = 0, limit: int = 2000) -> ReadResult:
+        if not self._path_allowed(file_path):
+            return ReadResult(error=self._scope_error(file_path))
+        return self._inner.read(file_path, offset, limit)
+
+    async def aread(
+        self, file_path: str, offset: int = 0, limit: int = 2000
+    ) -> ReadResult:
+        if not self._path_allowed(file_path):
+            return ReadResult(error=self._scope_error(file_path))
+        return await self._inner.aread(file_path, offset, limit)
+
+    def glob(self, pattern: str, path: str | None = None) -> GlobResult:
+        result = self._inner.glob(pattern, path)
+        return GlobResult(
+            error=result.error,
+            matches=[m for m in (result.matches or []) if self._entry_allowed(m)],
+        )
+
+    async def aglob(self, pattern: str, path: str | None = None) -> GlobResult:
+        result = await self._inner.aglob(pattern, path)
+        return GlobResult(
+            error=result.error,
+            matches=[m for m in (result.matches or []) if self._entry_allowed(m)],
+        )
+
+    def grep(
+        self, pattern: str, path: str | None = None, glob: str | None = None
+    ) -> GrepResult:
+        result = self._inner.grep(pattern, path, glob)
+        return GrepResult(
+            error=result.error,
+            matches=[m for m in (result.matches or []) if self._entry_allowed(m)],
+        )
+
+    async def agrep(
+        self, pattern: str, path: str | None = None, glob: str | None = None
+    ) -> GrepResult:
+        result = await self._inner.agrep(pattern, path, glob)
+        return GrepResult(
+            error=result.error,
+            matches=[m for m in (result.matches or []) if self._entry_allowed(m)],
+        )
 
 
 _READ_ONLY_MOUNT_COMMANDS = frozenset(
