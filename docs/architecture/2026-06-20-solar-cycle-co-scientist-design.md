@@ -657,7 +657,7 @@
 本子系统采用「横向知识库 + 专职知识管理子Agent」的混合结构：
 
 - **横向知识基础设施（LLM Wiki）**：持久化存储、检索、溯源能力的共享资源，被主智能体和全部科研流程子Agent共同消费。它不是任何一个子Agent的私有产物，而是全系统 grounding 与可溯源的事实来源。
-- **知识管理子Agent（第6个子Agent）**：作为「知识管家」，负责文献与数据摄取、检索响应、从研究运行产出候选知识、执行晋升与废弃生命周期、维护溯源日志。它不参与规划→数据→实验→假设→审查的线性科研流程，而是横向贯穿于整个系统。
+- **知识管理子Agent（第6个子Agent）**：作为「知识管家」，负责文献与数据摄取、检索响应、从研究运行产出候选知识、执行晋升与废弃生命周期、维护溯源日志。它不参与规划→数据→实验→假设→审查的线性科研流程，而是横向贯穿于整个系统。当前实现中，`solar-knowledge` 子 Agent 只读检索；候选写回、显式复现证据登记、晋升与废弃由主 Agent 调用 `kb_*` 工具并经确定性门禁执行。
 
 之所以采用混合结构而非把知识管理完全塞进某一个线性子Agent，是因为知识具有横向属性：研究规划需要历史路线，数据子Agent需要数据源说明，实验子Agent需要实验范式，假设子Agent需要机制 grounding，审查子Agent需要 canonical 判据与反例库。若把知识管理塞进其中任一子Agent，其他子Agent都将失去稳定的知识入口。因此，知识库作为横向基础设施被共享，同时由专职知识管理子Agent统一维护，保证知识的一致性、可审查性和可积累性。
 
@@ -676,7 +676,7 @@
 
 ### 4.9.3知识库构成与条目分类
 
-知识库条目按内容性质分为两大类、七个子类型：
+知识库条目按内容性质分为两大类、八个类型：
 
 **领域知识库类：**
 
@@ -694,6 +694,7 @@
 | --- | --- | --- |
 | finding | 历史研究运行的发现 | 「SC21–SC25回测中极区前兆与下一周期峰值相关系数约0.7」 |
 | counterexample | 积累的反例 | 「cycle X 在去除F10.7后预测失效，提示代理指标依赖」 |
+| lesson | 技术失败、执行陷阱与可复用修复经验；不构成科学发现 | 「沙箱导出失败：检查 host 后端退出码」 |
 
 ### 4.9.4知识条目 Schema
 
@@ -702,7 +703,7 @@
 | 字段 | 说明 |
 | --- | --- |
 | id | 唯一标识，格式 `kb_<type>_<slug>_<seq>` |
-| type | concept / mechanism / data_source / experiment_paradigm / hypothesis_template / finding / counterexample |
+| type | concept / mechanism / data_source / experiment_paradigm / hypothesis_template / finding / counterexample / lesson |
 | title | 一句话标题 |
 | content | 结构化正文（定义、机制、支持证据、反证、当前现状、可检验预测等，按 type 不同选用子字段） |
 | source_type | literature / textbook / dataset_doc / historical_run / expert / derived |
@@ -745,10 +746,7 @@
    来源包括：外部文献与教科书（由知识管理子Agent或人工导入）、数据集文档、专家输入、历史研究运行结束后的 findings 与反例、失败实验经验。所有摄取产物初始状态均为 candidate，且必须带 source_type 与 source_ref。
 
 2. **晋升 Promote（审核门）**  
-   candidate 晋升为 canonical 必须满足以下任一条件：
-   - **跨运行复现**：同一条发现在至少 2 次独立研究运行中被复现，且无反例；
-
-   晋升时必须记录晋升理由与支持 run_id，并写入 provenance 字段。
+   candidate 晋升为 canonical 必须同时满足：同一发现至少有 2 个独立研究运行登记了显式复现证据（`entry_reproduction_evidence`，含 run_id 与可追踪 evidence_ref），且不存在未解决的 counterexample 冲突。普通阅读/检索产生的 provenance 只证明“使用过”，不能作为复现证据。晋升时必须记录晋升理由与支持 run_id，并写入 provenance 字段。
 
 3. **废弃/修正 Deprecate**  
    当出现以下情况时，旧条目进入 deprecated 或 superseded 状态：
@@ -796,6 +794,107 @@
 - 过时或被否决的条目不删除，必须保留并注明废弃原因与替代关系。
 - 每条结论都应能追溯到所使用的知识条目，形成可复现的知识依据链。
 - 领域知识库中的数值与物理关系必须来自权威来源，禁止由大模型自行编造。
+
+### 4.9.10阶段感知的知识上下文（P1）
+
+LLM Wiki 不再依赖各子Agent“记得查库”。宿主在规划、数据、实验设计、实验结果、假设与证据审查六个阶段调用统一的 `KnowledgeContextMiddleware`，从任务绑定问题生成一个冻结的 `knowledge-context-v1` 包，并注入该阶段模型的系统提示。主智能体与只读 `solar-knowledge` 子Agent不自动注入，仍通过显式工具检索。
+
+上下文包遵循以下确定性规则：
+
+- **状态优先**：canonical 始终排在 candidate 之前；candidate 只保留少量名额作为 provisional lead，不能冒充既定知识。
+- **阶段排序**：不同阶段按条目类型分配优先级（规划重 mechanism/data_source，数据重 data_source，实验设计重 experiment_paradigm，结果与审查重 finding/counterexample/lesson）。
+- **适用域**：`valid_range` 原样进入上下文约束；检索可按 `valid_range` 过滤，agent 不得把条目外推到范围之外。
+- **冲突可见**：与未解决 counterexample 关联的 canonical 条目标记为 `contested_canonical`，必须显式陈述冲突，不能当作 settled knowledge。
+- **范围有界**：每次最多 10 条，默认 6 条；条目正文做分类型摘录，完整内容仍通过 `kb_read` 获取。
+- **使用回执**：每个被选入上下文的条目写一条 `purpose=stage_context:<stage>` 的 provenance，只证明“使用过”，不构成复现证据；`kb_log(run_id)` 可导出本轮 `entries_used`/`entries_proposed`。
+- **失败显式**：知识库不可用、无匹配条目或只有 candidate 时，注入 `unavailable`/`empty`/`candidate_only` 包并写明 gap，不静默省略。
+- **证据边界**：Wiki 上下文只约束术语、机制假设和适用范围，不能替代观测数据、实验结果或文献证据。
+
+各阶段可通过 `kb_context(stage, query, valid_range, limit)` 获取同一结构的上下文包；数据与实验专家额外获得只读 `knowledge-base-context` 工具 bundle。宿主注入由 `JW_KNOWLEDGE_CONTEXT=0` 关闭，便于离线回归。
+
+### 4.9.11确定性成长任务队列（P2 基础）
+
+Wiki 的成长由 `kb_growth_jobs` 队列驱动，而不是让 Agent 自由改写知识。每个任务有
+`job_type`、幂等键、租约（`lease_until`）、尝试预算与审计结果；崩溃或重复触发不会
+重复应用同一次工作。任务类型：
+
+- `seed_sync`：补齐内置 Wiki seed，只插入缺失条目，绝不覆盖既有条目或复活废弃条目。
+- `health_check`：只读盘点陈旧候选（无复现证据）、从未被引用的 canonical、孤立条目、
+  未解决冲突、未蒸馏来源与 `proposal_only` 补丁，并给出可执行建议清单；不改写任何条目。
+- `distill_queue`：对“仍缺 Wiki 条目”的首选缓存来源排序，作为任务绑定
+  `lit_bind_task → lit_fetch → lit_distill`（逐字引文接地）流程的输入；队列本身不蒸馏、
+  不写 Wiki。
+- `feed_sync`：联网增量刷新单个文献订阅（仅在显式请求时运行）。
+
+`kb_growth(action="cycle")` 按当天 UTC 日期桶幂等地排队并运行 seed_sync/health_check/
+distill_queue；同一天重复调用跳过已完成任务。`kb_growth(action="status")` 返回任务看板，
+`kb_growth(action="feed_sync", feed_id=...)` 触发单个订阅刷新。该工具只暴露给主 Agent
+（`KB_TOOLS`），只读的 `knowledge-base-context` bundle 不包含它，确保数据/实验专家
+只能消费知识、不能触发成长写入。
+
+### 4.9.12run 后主张编译器（post-run compiler）
+
+实验 finalize 的写回不再按 `run_id + title` 建条。`knowledge_base.compiler` 为每条写入
+主张计算稳定的 **claim 指纹**（`claim_key` = entry_type + 归一化后的主张实质：finding/
+counterexample 取 `research_frame.primary_question` + `interpretation_policy.primary_estimand`
++ `claim_scope`，lesson 取真实 `failure_mode` + task），并写入 `provenance.claim_key`：
+
+- 首次出现的 claim → 建 candidate，同时登记本次 run 的 `entry_reproduction_evidence`
+  （`evidence_ref` 形如 `run://<run_id>/record.json#sha256:<record_sha256>`）。
+- 同一 claim 被**另一个 run** 复现 → 不新建条目，同一 candidate 追加一条复现证据；两个
+  独立 run 的可追溯证据齐备时立即调用既有 `promote()` 晋升门（`auto_rule=cross_run_reproduction`）。
+- 冲突仍未解决时 `promote()` 返回 `promotion_blocked_by_conflict`，条目不晋升。
+- 同一 run 重复 finalize → `already_recorded`，幂等；已 canonical 的 claim 不再改写内容。
+- 缺少 design 实质字段时退回 run 级隔离（绝不跨 run 合并不同主张）。
+
+实现要点：`store.find_entry_by_claim_key()` 只匹配 candidate/canonical（废弃/被取代条目
+不会被悄悄复活）；`compile_run_claim()` 返回 `decision` ∈ {created, already_recorded,
+promoted, promotion_not_ready, promotion_blocked_by_conflict, already_canonical}。
+
+历史 run 回填由 `kb_growth(action="compile")` 触发：`backfill_knowledge_writeback()` 按
+修改时间倒序重放已 finalize 的 run，把旧写回留下的 run 级 orphan candidate 合并成
+claim-keyed 条目并补齐跨运行证据。回填是一次性维护动作，不进每日例行扫描（新 run 在
+finalize 时已自动编译）。
+
+### 4.9.13 宿主驱动的自动成长与冲突裁决
+
+**自动触发（宿主负责，不依赖 Agent 自觉）。** 成长队列此前只能被 Agent 主动调用
+`kb_growth` 触发，实际上从不运行。现在由 `KnowledgeContextMiddleware` 在 `after_agent` /
+`aafter_agent` 结束时调用 `trigger_growth()`：只有主 Agent 的实例带 `growth=True`
+（专家链的实例是纯注入，子 Agent 无法启动维护），实际扫描在 daemon 线程里跑，
+绝不阻塞或中断本轮对话。
+
+- 节流：进程级 `_GROWTH_LAST_STARTED` + `JW_KB_AUTO_GROWTH_INTERVAL`（默认 3600 秒），
+  同一窗口内只跑一次；`trigger_growth(force=True)` 供运维/测试强制触发。
+- 关断：`JW_KB_AUTO_GROWTH=0` 关闭（测试环境固定关闭）。
+- 幂等：任务按 `(job_type, 当日 UTC 桶)` 唯一，重复触发只是 `already_done`，不会重复应用。
+- 失败隔离：任何异常只写入 `_GROWTH_LAST_RESULT = {"status": "error", ...}` 并记日志，
+  不向上抛，因此成长失败永远不影响一轮研究。
+
+**成长指标（可观测）。** `growth.derive_metrics(usage_raw_counts(conn))` 从既有 provenance /
+复现证据 / 文献表聚合出四个比率，`growth_metrics(store)` 是它的 store 版本：
+
+| 指标 | 定义 | 用途 |
+| --- | --- | --- |
+| `reuse_rate` | 被真正读取过的条目 / 全部条目 | Wiki 是否被研究中实际使用 |
+| `injection_rate` | `stage_context:*` 读取 / 全部读取 | 有多少使用是宿主注入而非 Agent 临时查询 |
+| `promotion_precision` | 带 ≥2 独立 run 证据的 canonical / canonical 总数 | 晋升门是否真的在拦无证据主张 |
+| `distillation_conversion` | 已蒸馏来源 / 应蒸馏来源 | 文献是否真的转成了知识 |
+
+**冲突裁决（有审计、不改晋升门）。** `service.adjudicate_conflict()` 是唯一处理
+counterexample-vs-canonical 冲突的路径，三种决定：
+
+- `uphold_canonical`：保留既有结论，把反例条目置为 deprecated；
+- `overturn_canonical`：把 canonical 主张置为 deprecated，反例仍须自己通过跨运行复现门；
+- `defer`：只记录"已复核"，冲突保持未解决并继续阻断晋升。
+
+裁决记录写入 `entry_conflict_adjudications`（`(candidate, canonical, decision)` 幂等），
+`service.conflicts()` 返回的每个冲突对携带其 `adjudications`，供 UI 展示复核历史。裁决
+**不会**直接晋升任何条目，也不删除任何条目：它只决定"哪条主张继续有效"。
+
+**审查入口。** `GET /api/kb/growth` 返回队列状态与指标；`GET /api/kb/conflicts` 返回未解决
+冲突及复核历史；`POST /api/kb/conflicts` 提交裁决。管理面板"成长与冲突"标签页展示指标、
+待裁决冲突（含三种裁决按钮）与后台任务列表。
 
 ---
 

@@ -360,6 +360,119 @@ class TestUsageApi(HttpApiTestCase):
         self.assertEqual(recent[0]["run_id"], "run-2")
 
 
+class TestGrowthAndConflictApi(HttpApiTestCase):
+    def test_growth_endpoint_reports_metrics_and_jobs(self):
+        body = self.client.get("/api/kb/growth").json()
+        self.assertEqual(body["status"], "ok")
+        self.assertEqual(body["jobs"], [])
+        self.assertIn("reuse_rate", body["metrics"])
+        self.assertIn("promotion_precision", body["metrics"])
+
+    def test_growth_endpoint_lists_jobs_after_a_cycle(self):
+        from knowledge_base import growth
+
+        growth.run_growth_cycle(self.store, bucket="2026-10-28")
+        body = self.client.get("/api/kb/growth").json()
+        self.assertEqual(len(body["jobs"]), 3)
+        self.assertTrue(all(job["status"] == "done" for job in body["jobs"]))
+
+    def test_conflicts_endpoint_lists_pairs_with_titles(self):
+        canonical = service.propose(
+            self.store,
+            entry_type="finding",
+            title="既有结论",
+            content={"statement": "极区场强度可预测下一周振幅", "run_id": "run-1"},
+            source_type="historical_run",
+            source_ref="run://run-1",
+            confidence="medium",
+        )["entry"]["id"]
+        for run_id in ("run-1", "run-2"):
+            service.record_reproduction(
+                self.store,
+                canonical,
+                run_id=run_id,
+                evidence_ref=f"run://{run_id}/record.json",
+            )
+        service.promote(self.store, canonical, reason="two runs")
+        counter = service.propose(
+            self.store,
+            entry_type="counterexample",
+            title="反例",
+            content={"statement": "另一周未复现该关系", "run_id": "run-c"},
+            source_type="historical_run",
+            source_ref="run://run-c",
+            confidence="low",
+        )["entry"]["id"]
+        related = self.store.get_entry(counter)
+        related["related_ids"] = [canonical]
+        self.store.update_entry(related, changed_by="test", reason="link")
+
+        body = self.client.get("/api/kb/conflicts").json()
+        self.assertEqual(body["count"], 1)
+        row = body["conflicts"][0]
+        self.assertEqual(row["candidate_title"], "反例")
+        self.assertEqual(row["canonical_title"], "既有结论")
+        self.assertEqual(row["adjudications"], [])
+
+    def test_conflict_adjudication_endpoint_records_decision(self):
+        canonical = service.propose(
+            self.store,
+            entry_type="finding",
+            title="既有结论",
+            content={"statement": "claim", "run_id": "run-1"},
+            source_type="historical_run",
+            source_ref="run://run-1",
+            confidence="medium",
+        )["entry"]["id"]
+        for run_id in ("run-1", "run-2"):
+            service.record_reproduction(
+                self.store,
+                canonical,
+                run_id=run_id,
+                evidence_ref=f"run://{run_id}/record.json",
+            )
+        service.promote(self.store, canonical, reason="two runs")
+        counter = service.propose(
+            self.store,
+            entry_type="counterexample",
+            title="反例",
+            content={"statement": "counter", "run_id": "run-c"},
+            source_type="historical_run",
+            source_ref="run://run-c",
+            confidence="low",
+        )["entry"]["id"]
+        related = self.store.get_entry(counter)
+        related["related_ids"] = [canonical]
+        self.store.update_entry(related, changed_by="test", reason="link")
+
+        resp = self.client.post(
+            "/api/kb/conflicts",
+            json={
+                "candidate_id": counter,
+                "canonical_id": canonical,
+                "decision": "uphold_canonical",
+                "rationale": "counterexample measured a different quantity",
+            },
+        )
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.json()["decision"], "uphold_canonical")
+        self.assertEqual(self.store.get_entry(counter)["status"], "deprecated")
+        self.assertEqual(self.client.get("/api/kb/conflicts").json()["count"], 0)
+
+    def test_conflict_adjudication_rejects_missing_rationale(self):
+        resp = self.client.post(
+            "/api/kb/conflicts",
+            json={
+                "candidate_id": "kb_counterexample_x_001",
+                "canonical_id": "kb_finding_y_001",
+                "decision": "defer",
+                "rationale": "",
+            },
+        )
+        self.assertEqual(resp.status_code, 400)
+        self.assertIn("error", resp.json())
+
+
 class TestRemovedApprovalApi(HttpApiTestCase):
     def test_legacy_approval_queue_endpoint_is_not_registered(self):
         self.assertEqual(self.client.get("/api/kb/review_queue").status_code, 404)

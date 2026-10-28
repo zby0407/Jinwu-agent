@@ -10,7 +10,7 @@ Entry shape (stored as one row in ``entries``, JSON text in ``content`` /
     {
         "id": "kb_<type>_<slug>_<seq>",
         "type": "concept" | "mechanism" | "data_source" | "experiment_paradigm"
-                | "hypothesis_template" | "finding" | "counterexample",
+                | "hypothesis_template" | "finding" | "counterexample" | "lesson",
         "title": str,
         "content": {...},                # per-type sub-fields, see CONTENT_FIELDS
         "source_type": "literature" | "textbook" | "dataset_doc"
@@ -41,6 +41,7 @@ ENTRY_TYPES = {
     "hypothesis_template",
     "finding",
     "counterexample",
+    "lesson",
 }
 SOURCE_TYPES = {
     "literature",
@@ -108,11 +109,16 @@ CONTENT_FIELDS: dict[str, dict[str, Any]] = {
         "optional": ("effect_size", "uncertainty"),
         "list_fields": set(),
     },
+    "lesson": {
+        "required": ("statement", "run_id"),
+        "optional": ("failure_mode", "remediation", "uncertainty"),
+        "list_fields": set(),
+    },
 }
 
 _ENTRY_ID_PATTERN = re.compile(
     r"^kb_(?P<type>concept|mechanism|data_source|experiment_paradigm|"
-    r"hypothesis_template|finding|counterexample)"
+    r"hypothesis_template|finding|counterexample|lesson)"
     r"_(?P<slug>[A-Za-z0-9][A-Za-z0-9_-]{0,127})_(?P<seq>\d{3,})$"
 )
 

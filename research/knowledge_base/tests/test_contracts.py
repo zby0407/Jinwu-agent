@@ -63,6 +63,13 @@ class TestEntrySchema(unittest.TestCase):
             "hypothesis_template": {"structure": "s", "example": "e", "applicable_when": "a"},
             "finding": {"statement": "s", "run_id": "run_1", "effect_size": "e", "uncertainty": "u"},
             "counterexample": {"statement": "s", "run_id": "run_1"},
+            "lesson": {
+                "statement": "s",
+                "run_id": "run_1",
+                "failure_mode": "f",
+                "remediation": "r",
+                "uncertainty": "u",
+            },
         }
         for entry_type in sorted(ENTRY_TYPES):
             with self.subTest(entry_type=entry_type):

@@ -352,7 +352,10 @@ def test_experiment_agent_maps_results_to_the_registered_models_and_rules():
 
 def test_solar_data_requires_hash_bound_inputs_before_discovery():
     text = _read("jw/subagents/solar/solar_data.yaml")
-    assert "tool_bundles: [solar-features, knowledge-base-literature]" in text
+    assert (
+        "tool_bundles: [solar-features, knowledge-base-literature, "
+        "knowledge-base-context]" in text
+    )
     assert "deterministic_data_context" in text
     assert "do not call `solar_data_open_context` again" in text
     assert "Only paths in `eligible_inputs`" in text
@@ -432,6 +435,7 @@ def test_hypothesis_agent_reads_wiki_before_generating_candidates():
     }
     assert readonly_tools == {
         "kb_query",
+        "kb_context",
         "kb_read",
         "lit_bundle_build",
         "lit_bundle_read",

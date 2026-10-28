@@ -22,7 +22,7 @@ import os
 import sqlite3
 import threading
 from contextlib import contextmanager
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -83,6 +83,37 @@ CREATE TABLE IF NOT EXISTS provenance_log (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   run_id TEXT, agent TEXT, entry_id TEXT, purpose TEXT, ts TEXT
 );
+CREATE TABLE IF NOT EXISTS entry_reproduction_evidence (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  entry_id TEXT NOT NULL,
+  run_id TEXT NOT NULL,
+  evidence_ref TEXT NOT NULL,
+  method TEXT NOT NULL DEFAULT '',
+  scope TEXT NOT NULL DEFAULT '',
+  recorded_at TEXT NOT NULL,
+  recorded_by TEXT NOT NULL,
+  UNIQUE (entry_id, run_id),
+  FOREIGN KEY (entry_id) REFERENCES entries(id)
+);
+CREATE INDEX IF NOT EXISTS idx_entry_reproduction_entry
+  ON entry_reproduction_evidence(entry_id, recorded_at);
+CREATE TABLE IF NOT EXISTS kb_growth_jobs (
+  job_id TEXT PRIMARY KEY,
+  job_type TEXT NOT NULL,
+  idempotency_key TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'pending',
+  lease_until TEXT,
+  attempts INTEGER NOT NULL DEFAULT 0,
+  max_attempts INTEGER NOT NULL DEFAULT 3,
+  payload TEXT NOT NULL DEFAULT '{}',
+  result TEXT NOT NULL DEFAULT '{}',
+  last_error TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  UNIQUE (job_type, idempotency_key)
+);
+CREATE INDEX IF NOT EXISTS idx_kb_growth_jobs_status
+  ON kb_growth_jobs(status, job_type, created_at);
 CREATE TABLE IF NOT EXISTS lit_sources (
   source_id TEXT PRIMARY KEY,
   title TEXT, authors TEXT, year INTEGER, doi TEXT, url TEXT,
@@ -190,6 +221,20 @@ CREATE TABLE IF NOT EXISTS wiki_candidate_patches (
   FOREIGN KEY (source_id) REFERENCES lit_sources(source_id),
   FOREIGN KEY (impact_id) REFERENCES lit_entry_impacts(id)
 );
+CREATE TABLE IF NOT EXISTS entry_conflict_adjudications (
+  adjudication_id TEXT PRIMARY KEY,
+  candidate_id TEXT NOT NULL,
+  canonical_id TEXT NOT NULL,
+  decision TEXT NOT NULL,
+  rationale TEXT NOT NULL,
+  judge_run_id TEXT NOT NULL DEFAULT '',
+  evidence_ref TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL,
+  created_by TEXT NOT NULL,
+  UNIQUE(candidate_id, canonical_id, decision),
+  FOREIGN KEY (candidate_id) REFERENCES entries(id),
+  FOREIGN KEY (canonical_id) REFERENCES entries(id)
+);
 CREATE VIRTUAL TABLE IF NOT EXISTS entries_fts USING fts5(id UNINDEXED, title, content);
 """
 
@@ -216,6 +261,18 @@ def utc_now() -> str:
     """ISO-8601 UTC timestamp used for all rows."""
 
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+
+def _iso_add_seconds(iso_ts: str, seconds: int) -> str:
+    """Shift an ISO-8601 UTC timestamp; used for job leases and staleness."""
+
+    try:
+        moment = datetime.fromisoformat(iso_ts)
+    except ValueError:
+        moment = datetime.now(timezone.utc)
+    if moment.tzinfo is None:
+        moment = moment.replace(tzinfo=timezone.utc)
+    return (moment + timedelta(seconds=int(seconds))).isoformat(timespec="seconds")
 
 
 def literature_content_fingerprint(record: dict[str, Any]) -> str:
@@ -280,6 +337,107 @@ def _content_text(entry: dict[str, Any]) -> str:
             else:
                 parts.append(str(value))
     return " ".join(parts)
+
+
+def usage_raw_counts(conn: sqlite3.Connection) -> dict[str, Any]:
+    """Raw counters behind the growth dashboard.
+
+    Everything here is a cheap aggregate over provenance/evidence tables so
+    the dashboard can be refreshed on every sweep without scanning entry
+    bodies.
+    """
+
+    def _scalar(sql: str, params: tuple[Any, ...] = ()) -> int:
+        # A read-only connection may predate a migration (e.g. opened against a
+        # database written by an older build). Missing table => count 0 rather
+        # than failing the whole dashboard.
+        try:
+            row = conn.execute(sql, params).fetchone()
+        except sqlite3.OperationalError:
+            return 0
+        return int(row["n"]) if row else 0
+
+    canonical = _scalar("SELECT COUNT(*) AS n FROM entries WHERE status = 'canonical'")
+    candidate = _scalar("SELECT COUNT(*) AS n FROM entries WHERE status = 'candidate'")
+    deprecated = _scalar(
+        "SELECT COUNT(*) AS n FROM entries WHERE status = 'deprecated'"
+    )
+    reads_total = _scalar("SELECT COUNT(*) AS n FROM provenance_log")
+    distinct_reads = _scalar(
+        "SELECT COUNT(DISTINCT entry_id) AS n FROM provenance_log WHERE entry_id != ''"
+    )
+    distinct_runs = _scalar(
+        "SELECT COUNT(DISTINCT run_id) AS n FROM provenance_log WHERE run_id != ''"
+    )
+    canonical_read = _scalar(
+        "SELECT COUNT(DISTINCT p.entry_id) AS n FROM provenance_log p "
+        "JOIN entries e ON e.id = p.entry_id WHERE e.status = 'canonical'"
+    )
+    injected_reads = _scalar(
+        "SELECT COUNT(*) AS n FROM provenance_log WHERE purpose LIKE 'stage_context:%'"
+    )
+    injected_entries = _scalar(
+        "SELECT COUNT(DISTINCT entry_id) AS n FROM provenance_log "
+        "WHERE purpose LIKE 'stage_context:%' AND entry_id != ''"
+    )
+    evidence_rows = _scalar("SELECT COUNT(*) AS n FROM entry_reproduction_evidence")
+    evidence_entries = _scalar(
+        "SELECT COUNT(DISTINCT entry_id) AS n FROM entry_reproduction_evidence"
+    )
+    ready_entries = _scalar(
+        "SELECT COUNT(*) AS n FROM ("
+        "  SELECT entry_id FROM entry_reproduction_evidence"
+        "  WHERE run_id != '' AND evidence_ref != ''"
+        "  GROUP BY entry_id HAVING COUNT(DISTINCT run_id) >= 2)"
+    )
+    promoted = _scalar(
+        "SELECT COUNT(*) AS n FROM entries WHERE status = 'canonical' "
+        "AND json_extract(provenance, '$.auto_rule') IS NOT NULL"
+    )
+    promoted_with_evidence = _scalar(
+        "SELECT COUNT(*) AS n FROM entries e WHERE e.status = 'canonical' "
+        "AND json_extract(e.provenance, '$.auto_rule') IS NOT NULL "
+        "AND (SELECT COUNT(DISTINCT r.run_id) "
+        "     FROM entry_reproduction_evidence r "
+        "     WHERE r.entry_id = e.id AND r.run_id != '' "
+        "     AND r.evidence_ref != '') >= 2"
+    )
+    preferred_sources = _scalar(
+        "SELECT COUNT(*) AS n FROM lit_sources "
+        "WHERE is_preferred = 1 AND is_retracted = 0"
+    )
+    distilled_sources = _scalar(
+        "SELECT COUNT(*) AS n FROM lit_sources "
+        "WHERE is_preferred = 1 AND is_retracted = 0 "
+        "AND distilled_entry_id IS NOT NULL AND distilled_entry_id != ''"
+    )
+    return {
+        "entries": {
+            "canonical": canonical,
+            "candidate": candidate,
+            "deprecated": deprecated,
+            "total": canonical + candidate + deprecated,
+        },
+        "reads": {
+            "total": reads_total,
+            "distinct_entries": distinct_reads,
+            "distinct_runs": distinct_runs,
+            "canonical_entries_read": canonical_read,
+            "injected_total": injected_reads,
+            "injected_entries": injected_entries,
+        },
+        "reproduction": {
+            "evidence_rows": evidence_rows,
+            "evidence_entries": evidence_entries,
+            "promotion_ready_entries": ready_entries,
+            "auto_promoted_canonical": promoted,
+            "promoted_with_evidence": promoted_with_evidence,
+        },
+        "literature": {
+            "preferred_sources": preferred_sources,
+            "distilled_sources": distilled_sources,
+        },
+    }
 
 
 class KnowledgeStore:
@@ -676,6 +834,26 @@ class KnowledgeStore:
         ).fetchone()
         return self._row_to_entry(row) if row else None
 
+    def find_entry_by_claim_key(self, claim_key: str) -> dict[str, Any] | None:
+        """Locate the live entry carrying a stable claim fingerprint.
+
+        The post-run compiler stores ``provenance.claim_key`` so one scientific
+        claim reproduced by another run lands on the *same* entry instead of
+        creating parallel orphans the promotion gate can never merge.
+        Deprecated/superseded entries are ignored: a retired claim must not
+        silently absorb new evidence.
+        """
+
+        row = self._conn.execute(
+            "SELECT * FROM entries "
+            "WHERE json_extract(provenance, '$.claim_key') = ? "
+            "AND status IN ('candidate', 'canonical') "
+            "ORDER BY CASE status WHEN 'canonical' THEN 0 ELSE 1 END, "
+            "created_at LIMIT 1",
+            (claim_key,),
+        ).fetchone()
+        return self._row_to_entry(row) if row else None
+
     def next_seq(self, prefix: str) -> int:
         """Next sequence number for an id prefix like ``kb_concept_sun_``."""
 
@@ -884,14 +1062,6 @@ class KnowledgeStore:
         ).fetchall()
         return [dict(row) for row in rows]
 
-    def distinct_run_ids(self, entry_id: str) -> list[str]:
-        rows = self._conn.execute(
-            "SELECT DISTINCT run_id FROM provenance_log "
-            "WHERE entry_id = ? AND run_id IS NOT NULL AND run_id != ''",
-            (entry_id,),
-        ).fetchall()
-        return [row["run_id"] for row in rows]
-
     def entries_proposed_by_run(self, run_id: str) -> list[dict[str, Any]]:
         rows = self._conn.execute(
             "SELECT * FROM entries WHERE json_extract(provenance, '$.run_id') = ? "
@@ -899,6 +1069,375 @@ class KnowledgeStore:
             (run_id,),
         ).fetchall()
         return [self._row_to_entry(row) for row in rows]
+
+    # ------------------------------------------------------------------
+    # explicit reproduction evidence (promotion gate input)
+    # ------------------------------------------------------------------
+    @_locked
+    def add_reproduction_evidence(
+        self,
+        *,
+        entry_id: str,
+        run_id: str,
+        evidence_ref: str,
+        method: str,
+        scope: str,
+        recorded_by: str,
+    ) -> dict[str, Any]:
+        """Record one independent run that produced evidence for an entry.
+
+        ``provenance_log`` only says an entry was read. This table is the
+        promotion gate's sole source of reproduction evidence.
+        """
+
+        recorded_at = utc_now()
+        self._conn.execute(
+            "INSERT OR IGNORE INTO entry_reproduction_evidence "
+            "(entry_id, run_id, evidence_ref, method, scope, recorded_at, recorded_by) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (
+                entry_id,
+                run_id,
+                evidence_ref,
+                method,
+                scope,
+                recorded_at,
+                recorded_by,
+            ),
+        )
+        self._conn.commit()
+        row = self._conn.execute(
+            "SELECT * FROM entry_reproduction_evidence "
+            "WHERE entry_id = ? AND run_id = ?",
+            (entry_id, run_id),
+        ).fetchone()
+        return dict(row) if row else {}
+
+    def list_reproduction_evidence(self, entry_id: str) -> list[dict[str, Any]]:
+        rows = self._conn.execute(
+            "SELECT * FROM entry_reproduction_evidence "
+            "WHERE entry_id = ? ORDER BY recorded_at, id",
+            (entry_id,),
+        ).fetchall()
+        return [dict(row) for row in rows]
+
+    def distinct_reproduction_run_ids(self, entry_id: str) -> list[str]:
+        rows = self._conn.execute(
+            "SELECT DISTINCT run_id FROM entry_reproduction_evidence "
+            "WHERE entry_id = ? AND run_id != '' AND evidence_ref != '' "
+            "ORDER BY run_id",
+            (entry_id,),
+        ).fetchall()
+        return [str(row["run_id"]) for row in rows]
+
+    # ------------------------------------------------------------------
+    # growth metrics (see ``growth.growth_metrics`` for the derived rates)
+    # ------------------------------------------------------------------
+    def usage_raw_counts(self) -> dict[str, Any]:
+        return usage_raw_counts(self._conn)
+
+    # ------------------------------------------------------------------
+    # conflict adjudications
+    # ------------------------------------------------------------------
+    @_locked
+    def record_conflict_adjudication(
+        self,
+        *,
+        candidate_id: str,
+        canonical_id: str,
+        decision: str,
+        rationale: str,
+        judge_run_id: str = "",
+        evidence_ref: str = "",
+        created_by: str = "",
+    ) -> dict[str, Any]:
+        """Record one conflict decision; idempotent per (pair, decision)."""
+
+        adjudication_id = (
+            "adj_"
+            + hashlib.sha256(
+                f"{candidate_id}:{canonical_id}:{decision}".encode()
+            ).hexdigest()[:20]
+        )
+        self._conn.execute(
+            "INSERT OR IGNORE INTO entry_conflict_adjudications ("
+            "adjudication_id, candidate_id, canonical_id, decision, rationale, "
+            "judge_run_id, evidence_ref, created_at, created_by"
+            ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                adjudication_id,
+                candidate_id,
+                canonical_id,
+                decision,
+                rationale,
+                judge_run_id,
+                evidence_ref,
+                utc_now(),
+                created_by,
+            ),
+        )
+        self._conn.commit()
+        row = self._conn.execute(
+            "SELECT * FROM entry_conflict_adjudications WHERE adjudication_id = ?",
+            (adjudication_id,),
+        ).fetchone()
+        return dict(row) if row else {}
+
+    def list_conflict_adjudications(
+        self, *, candidate_id: str = "", canonical_id: str = ""
+    ) -> list[dict[str, Any]]:
+        sql = "SELECT * FROM entry_conflict_adjudications"
+        clauses: list[str] = []
+        params: list[Any] = []
+        if candidate_id:
+            clauses.append("candidate_id = ?")
+            params.append(candidate_id)
+        if canonical_id:
+            clauses.append("canonical_id = ?")
+            params.append(canonical_id)
+        if clauses:
+            sql += " WHERE " + " AND ".join(clauses)
+        sql += " ORDER BY created_at, adjudication_id"
+        return [dict(row) for row in self._conn.execute(sql, tuple(params))]
+
+    # ------------------------------------------------------------------
+    # growth jobs (deterministic maintenance/compilation queue)
+    # ------------------------------------------------------------------
+    @_locked
+    def create_growth_job(
+        self,
+        *,
+        job_type: str,
+        idempotency_key: str,
+        payload: dict[str, Any] | None = None,
+        max_attempts: int = 3,
+    ) -> dict[str, Any]:
+        """Enqueue one growth job; idempotent per ``(job_type, key)``.
+
+        A finished job is never requeued by the same key: re-running a
+        periodic sweep must use a fresh key (for example a date bucket).
+        """
+
+        now = utc_now()
+        identity = f"{job_type}:{idempotency_key}".encode()
+        job_id = f"kbjob_{job_type}_{hashlib.sha256(identity).hexdigest()[:24]}"
+        self._conn.execute(
+            "INSERT OR IGNORE INTO kb_growth_jobs "
+            "(job_id, job_type, idempotency_key, status, payload, "
+            " max_attempts, created_at, updated_at) "
+            "VALUES (?, ?, ?, 'pending', ?, ?, ?, ?)",
+            (
+                job_id,
+                job_type,
+                idempotency_key,
+                json.dumps(payload or {}, ensure_ascii=False),
+                int(max_attempts),
+                now,
+                now,
+            ),
+        )
+        self._conn.commit()
+        return self.get_growth_job(job_id) or {}
+
+    def get_growth_job(self, job_id: str) -> dict[str, Any] | None:
+        row = self._conn.execute(
+            "SELECT * FROM kb_growth_jobs WHERE job_id = ?", (job_id,)
+        ).fetchone()
+        return self._decode_growth_job(row) if row else None
+
+    def list_growth_jobs(
+        self,
+        *,
+        status: str = "",
+        job_type: str = "",
+        limit: int = 50,
+    ) -> list[dict[str, Any]]:
+        sql = "SELECT * FROM kb_growth_jobs WHERE 1 = 1"
+        params: list[Any] = []
+        if status:
+            sql += " AND status = ?"
+            params.append(status)
+        if job_type:
+            sql += " AND job_type = ?"
+            params.append(job_type)
+        sql += " ORDER BY created_at DESC, job_id LIMIT ?"
+        params.append(max(1, min(int(limit), 500)))
+        rows = self._conn.execute(sql, params).fetchall()
+        return [self._decode_growth_job(row) for row in rows]
+
+    @_locked
+    def claim_growth_job(
+        self, job_id: str, *, lease_seconds: int = 600
+    ) -> dict[str, Any] | None:
+        """Lease one runnable job; expired leases become claimable again."""
+
+        row = self._conn.execute(
+            "SELECT * FROM kb_growth_jobs WHERE job_id = ?", (job_id,)
+        ).fetchone()
+        if row is None:
+            return None
+        job = self._decode_growth_job(row)
+        now = utc_now()
+        lease_expired = bool(job.get("lease_until")) and str(job["lease_until"]) < now
+        if job["status"] != "pending" and not (
+            job["status"] == "running" and lease_expired
+        ):
+            return None
+        if int(job.get("attempts", 0)) >= int(job.get("max_attempts", 3)):
+            return None
+        self._conn.execute(
+            "UPDATE kb_growth_jobs SET status = 'running', attempts = attempts + 1, "
+            "lease_until = ?, updated_at = ? WHERE job_id = ?",
+            (
+                _iso_add_seconds(now, lease_seconds),
+                now,
+                job_id,
+            ),
+        )
+        self._conn.commit()
+        return self.get_growth_job(job_id)
+
+    @_locked
+    def finish_growth_job(
+        self,
+        job_id: str,
+        *,
+        result: dict[str, Any] | None = None,
+        error: str = "",
+    ) -> dict[str, Any] | None:
+        """Mark a leased job done, or requeue/fail it on error."""
+
+        job = self.get_growth_job(job_id)
+        if job is None:
+            return None
+        now = utc_now()
+        if error:
+            attempts = int(job.get("attempts", 0))
+            max_attempts = int(job.get("max_attempts", 3))
+            status = "failed" if attempts >= max_attempts else "pending"
+            self._conn.execute(
+                "UPDATE kb_growth_jobs SET status = ?, last_error = ?, "
+                "lease_until = NULL, result = ?, updated_at = ? WHERE job_id = ?",
+                (
+                    status,
+                    error[:2000],
+                    json.dumps(result or {}, ensure_ascii=False),
+                    now,
+                    job_id,
+                ),
+            )
+        else:
+            self._conn.execute(
+                "UPDATE kb_growth_jobs SET status = 'done', last_error = '', "
+                "lease_until = NULL, result = ?, updated_at = ? WHERE job_id = ?",
+                (json.dumps(result or {}, ensure_ascii=False), now, job_id),
+            )
+        self._conn.commit()
+        return self.get_growth_job(job_id)
+
+    def _decode_growth_job(self, row: sqlite3.Row) -> dict[str, Any]:
+        job = dict(row)
+        for key, fallback in (("payload", {}), ("result", {})):
+            raw = job.get(key)
+            if isinstance(raw, str) and raw:
+                try:
+                    job[key] = json.loads(raw)
+                except json.JSONDecodeError:
+                    job[key] = fallback
+            elif raw is None:
+                job[key] = fallback
+        return job
+
+    def count_undistilled_lit_sources(self) -> int:
+        row = self._conn.execute(
+            "SELECT COUNT(*) AS n FROM lit_sources "
+            "WHERE is_preferred = 1 AND is_retracted = 0 "
+            "AND (distilled_entry_id IS NULL OR distilled_entry_id = '')"
+        ).fetchone()
+        return int(row["n"]) if row else 0
+
+    def list_distill_queue(self, *, limit: int = 10) -> list[dict[str, Any]]:
+        """Preferred, non-retracted cached sources that still lack a Wiki entry."""
+
+        rows = self._conn.execute(
+            "SELECT source_id, title, year, provider, publication_date, url, doi "
+            "FROM lit_sources "
+            "WHERE is_preferred = 1 AND is_retracted = 0 "
+            "AND (distilled_entry_id IS NULL OR distilled_entry_id = '') "
+            "ORDER BY COALESCE(publication_date, '') DESC, "
+            "COALESCE(year, 0) DESC, source_id LIMIT ?",
+            (max(1, min(int(limit), 100)),),
+        ).fetchall()
+        return [dict(row) for row in rows]
+
+    def list_stale_candidates(self, *, days: int = 30) -> list[dict[str, Any]]:
+        """Candidates older than ``days`` with no explicit reproduction evidence."""
+
+        cutoff = _iso_add_seconds(utc_now(), -max(1, int(days)) * 86_400)
+        rows = self._conn.execute(
+            "SELECT e.id, e.type, e.title, e.created_at, e.source_ref "
+            "FROM entries e "
+            "WHERE e.status = 'candidate' AND e.created_at < ? "
+            "AND NOT EXISTS ("
+            "  SELECT 1 FROM entry_reproduction_evidence r WHERE r.entry_id = e.id"
+            ") "
+            "ORDER BY e.created_at",
+            (cutoff,),
+        ).fetchall()
+        return [dict(row) for row in rows]
+
+    def list_unread_canonical(self) -> list[dict[str, Any]]:
+        """Canonical entries that have never been read by any agent/run."""
+
+        rows = self._conn.execute(
+            "SELECT e.id, e.type, e.title, e.updated_at "
+            "FROM entries e "
+            "WHERE e.status = 'canonical' "
+            "AND NOT EXISTS ("
+            "  SELECT 1 FROM provenance_log p WHERE p.entry_id = e.id"
+            ") "
+            "ORDER BY e.updated_at DESC",
+        ).fetchall()
+        return [dict(row) for row in rows]
+
+    def list_orphan_entries(self) -> list[dict[str, Any]]:
+        """Active entries with no related_ids and no incoming related links."""
+
+        rows = self._conn.execute(
+            "SELECT id, type, title, related_ids FROM entries "
+            "WHERE status IN ('candidate', 'canonical')",
+        ).fetchall()
+        referenced: set[str] = set()
+        orphans: list[dict[str, Any]] = []
+        parsed: list[tuple[dict[str, Any], list[str]]] = []
+        for row in rows:
+            item = dict(row)
+            raw = item.get("related_ids")
+            links: list[str] = []
+            if isinstance(raw, str) and raw:
+                try:
+                    value = json.loads(raw)
+                    links = (
+                        [str(entry) for entry in value]
+                        if isinstance(value, list)
+                        else []
+                    )
+                except json.JSONDecodeError:
+                    links = []
+            elif isinstance(raw, list):
+                links = [str(entry) for entry in raw]
+            parsed.append((item, links))
+            referenced.update(links)
+        for item, links in parsed:
+            if not links and str(item["id"]) not in referenced:
+                orphans.append(
+                    {
+                        "id": item["id"],
+                        "type": item["type"],
+                        "title": item["title"],
+                    }
+                )
+        return orphans
 
     # ------------------------------------------------------------------
     # lit_sources (plan §5.3 literature cache)

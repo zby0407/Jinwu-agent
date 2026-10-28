@@ -18,7 +18,7 @@
   "properties": {
     "id": {
       "type": "string",
-      "pattern": "^kb_(concept|mechanism|data_source|experiment_paradigm|hypothesis_template|finding|counterexample)_[A-Za-z0-9][A-Za-z0-9_-]{0,127}_[0-9]{3,}$"
+      "pattern": "^kb_(concept|mechanism|data_source|experiment_paradigm|hypothesis_template|finding|counterexample|lesson)_[A-Za-z0-9][A-Za-z0-9_-]{0,127}_[0-9]{3,}$"
     },
     "type": {
       "type": "string",
@@ -29,7 +29,8 @@
         "experiment_paradigm",
         "hypothesis_template",
         "finding",
-        "counterexample"
+        "counterexample",
+        "lesson"
       ]
     },
     "title": {"type": "string", "minLength": 1, "maxLength": 500},
@@ -164,6 +165,25 @@
               "statement": {"type": "string", "minLength": 1},
               "run_id": {"type": "string", "minLength": 1},
               "effect_size": {"type": "string"},
+              "uncertainty": {"type": "string"}
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {"properties": {"type": {"const": "lesson"}}},
+      "then": {
+        "properties": {
+          "content": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["statement", "run_id"],
+            "properties": {
+              "statement": {"type": "string", "minLength": 1},
+              "run_id": {"type": "string", "minLength": 1},
+              "failure_mode": {"type": "string"},
+              "remediation": {"type": "string"},
               "uncertainty": {"type": "string"}
             }
           }

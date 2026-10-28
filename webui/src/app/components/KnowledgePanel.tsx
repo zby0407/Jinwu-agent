@@ -2,10 +2,12 @@
 
 import { useEffect, useMemo, useState } from "react";
 import {
+  AlertTriangle,
   BookOpen,
   ChevronRight,
   ExternalLink,
   FileSearch,
+  Gauge,
   Library,
   Loader2,
   RefreshCw,
@@ -14,8 +16,11 @@ import {
 import { MarkdownContent } from "@/app/components/MarkdownContent";
 import { cn } from "@/lib/utils";
 import {
+  adjudicateKbConflict,
   fetchKbBuiltInWiki,
+  fetchKbConflicts,
   fetchKbEntry,
+  fetchKbGrowth,
   fetchKbLiteratureDeltas,
   fetchKbLiteratureFeeds,
   fetchKbSources,
@@ -23,7 +28,9 @@ import {
   type KbBuiltInCatalogEntry,
   type KbBuiltInTaskBundle,
   type KbBuiltInWiki,
+  type KbConflictRow,
   type KbEntryDetail,
+  type KbGrowthDashboard,
   type KbLiteratureDelta,
   type KbLiteratureFeed,
   type KbSourceSummary,
@@ -62,6 +69,7 @@ const TYPE_LABELS: Record<string, string> = {
   hypothesis_template: "模板",
   finding: "发现",
   counterexample: "反例",
+  lesson: "执行经验",
 };
 
 const FIELD_LABELS: Record<string, string> = {
@@ -81,6 +89,8 @@ const FIELD_LABELS: Record<string, string> = {
   usage: "在假设阶段如何使用",
   evidence: "证据",
   caveats: "注意事项",
+  failure_mode: "失败模式",
+  remediation: "修复或规避方法",
 };
 
 const DELTA_LABELS: Record<string, string> = {
@@ -492,13 +502,225 @@ function ResearchSources({
   );
 }
 
+const DECISION_LABELS: Record<string, string> = {
+  uphold_canonical: "维持既有结论",
+  overturn_canonical: "推翻既有结论",
+  defer: "暂缓，继续收集证据",
+};
+
+const JOB_LABELS: Record<string, string> = {
+  seed_sync: "内置知识同步",
+  health_check: "健康检查",
+  distill_queue: "文献蒸馏队列",
+  feed_sync: "来源订阅同步",
+  compile_runs: "运行主张编译",
+};
+
+function MetricCard({
+  label,
+  value,
+  hint,
+}: {
+  label: string;
+  value: string;
+  hint: string;
+}) {
+  return (
+    <div className="rounded-lg border border-border bg-background p-3">
+      <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+        {label}
+      </p>
+      <p className="mt-1 text-xl font-semibold tabular-nums">{value}</p>
+      <p className="mt-1 text-xs text-muted-foreground">{hint}</p>
+    </div>
+  );
+}
+
+function percent(value: number | undefined): string {
+  if (value === undefined || Number.isNaN(value)) return "—";
+  return `${Math.round(value * 100)}%`;
+}
+
+function GrowthBoard({
+  growth,
+  conflicts,
+  loading,
+  error,
+  onAdjudicate,
+}: {
+  growth: KbGrowthDashboard | null;
+  conflicts: KbConflictRow[];
+  loading: boolean;
+  error: string | null;
+  onAdjudicate: (
+    row: KbConflictRow,
+    decision: "uphold_canonical" | "overturn_canonical" | "defer"
+  ) => Promise<void>;
+}) {
+  if (loading) return <Loading text="正在读取 Wiki 成长状态…" />;
+  if (error) {
+    return <p className="py-8 text-sm text-[var(--color-error)]">{error}</p>;
+  }
+  const metrics = growth?.metrics ?? {};
+  const counts = metrics.counts ?? {};
+  const entries = (counts.entries ?? {}) as Record<string, number>;
+  const reproduction = (counts.reproduction ?? {}) as Record<string, number>;
+  const jobs = growth?.jobs ?? [];
+  const failedJobs = jobs.filter((job) => job.status === "failed");
+
+  return (
+    <div className="space-y-8">
+      <section>
+        <h2 className="flex items-center gap-2 text-sm font-semibold">
+          <Gauge className="size-4 text-[var(--brand)]" aria-hidden="true" />
+          成长指标
+        </h2>
+        <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <MetricCard
+            label="复用率"
+            value={percent(metrics.reuse_rate)}
+            hint="被研究运行实际读取过的知识条目占比"
+          />
+          <MetricCard
+            label="注入命中率"
+            value={percent(metrics.injection_rate)}
+            hint="读取中由宿主按阶段主动注入的比例"
+          />
+          <MetricCard
+            label="晋升精度"
+            value={percent(metrics.promotion_precision)}
+            hint="晋升条目中具备跨运行复现证据的比例"
+          />
+          <MetricCard
+            label="蒸馏转化率"
+            value={percent(metrics.distillation_conversion)}
+            hint="已获取文献中被蒸馏为知识条目的比例"
+          />
+        </div>
+        <p className="mt-3 text-xs text-muted-foreground">
+          条目 {entries.total ?? 0} 条（既有结论 {entries.canonical ?? 0}、
+          候选 {entries.candidate ?? 0}、已停用 {entries.deprecated ?? 0}）；
+          跨运行复现晋升 {reproduction.auto_promoted_canonical ?? 0} 条。
+        </p>
+      </section>
+
+      <section>
+        <h2 className="flex items-center gap-2 text-sm font-semibold">
+          <AlertTriangle
+            className="size-4 text-[var(--color-error)]"
+            aria-hidden="true"
+          />
+          待裁决的证据冲突（{conflicts.length}）
+        </h2>
+        <p className="mt-1 text-xs text-muted-foreground">
+          冲突会阻断相关条目的晋升。裁决只决定哪一条主张继续有效，晋升仍然需要跨运行复现证据。
+        </p>
+        {conflicts.length === 0 ? (
+          <p className="mt-3 rounded-lg border border-border bg-muted/10 p-3 text-sm text-muted-foreground">
+            当前没有未解决冲突。
+          </p>
+        ) : (
+          <ul className="mt-3 space-y-3">
+            {conflicts.map((row) => (
+              <li
+                key={`${row.candidate_id}:${row.canonical_id}`}
+                className="rounded-lg border border-border p-3"
+              >
+                <p className="text-sm">
+                  <span className="font-medium">{row.candidate_title}</span>
+                  <span className="mx-2 text-muted-foreground">与</span>
+                  <span className="font-medium">{row.canonical_title}</span>
+                  <span className="ml-2 text-muted-foreground">冲突</span>
+                </p>
+                <p className="mt-1 font-mono text-[11px] text-muted-foreground">
+                  {row.candidate_id} → {row.canonical_id}
+                </p>
+                {row.adjudications.length > 0 && (
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    已复核 {row.adjudications.length} 次（最近：
+                    {DECISION_LABELS[row.adjudications.at(-1)?.decision ?? ""] ??
+                      row.adjudications.at(-1)?.decision}
+                    ）
+                  </p>
+                )}
+                <div className="mt-2 flex flex-wrap gap-2">
+                  {(
+                    [
+                      "uphold_canonical",
+                      "overturn_canonical",
+                      "defer",
+                    ] as const
+                  ).map((decision) => (
+                    <button
+                      key={decision}
+                      type="button"
+                      onClick={() => void onAdjudicate(row, decision)}
+                      className="rounded-md border border-border px-2.5 py-1.5 text-xs transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    >
+                      {DECISION_LABELS[decision]}
+                    </button>
+                  ))}
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+
+      <section>
+        <h2 className="text-sm font-semibold">后台成长任务</h2>
+        <p className="mt-1 text-xs text-muted-foreground">
+          每轮研究结束后由宿主按节流策略自动排队，按日期分桶保证幂等；失败会自动重试，超过上限后停下等待人工处理。
+        </p>
+        {failedJobs.length > 0 && (
+          <p className="mt-2 text-xs text-[var(--color-error)]">
+            {failedJobs.length} 个任务已失败：
+            {failedJobs.map((job) => job.last_error || job.job_type).join("；")}
+          </p>
+        )}
+        <ul className="mt-3 divide-y divide-border rounded-lg border border-border">
+          {jobs.length === 0 && (
+            <li className="p-3 text-sm text-muted-foreground">
+              还没有执行过成长任务。
+            </li>
+          )}
+          {jobs.map((job) => (
+            <li
+              key={job.job_id}
+              className="flex items-center justify-between gap-3 p-3 text-sm"
+            >
+              <span className="min-w-0 truncate">
+                {JOB_LABELS[job.job_type] ?? job.job_type}
+              </span>
+              <span
+                className={cn(
+                  "shrink-0 rounded px-1.5 py-0.5 text-[11px]",
+                  job.status === "failed"
+                    ? "bg-[var(--color-error)]/10 text-[var(--color-error)]"
+                    : job.status === "done"
+                      ? "bg-muted text-muted-foreground"
+                      : "bg-accent text-foreground"
+                )}
+              >
+                {job.status} · {job.attempts}
+              </span>
+            </li>
+          ))}
+        </ul>
+      </section>
+    </div>
+  );
+}
+
 export function KnowledgePanel({
   refreshSignal = 0,
 }: {
   refreshSignal?: number;
 }) {
   const [wiki, setWiki] = useState<KbBuiltInWiki | null>(null);
-  const [viewMode, setViewMode] = useState<"wiki" | "sources">("wiki");
+  const [viewMode, setViewMode] = useState<"wiki" | "sources" | "growth">(
+    "wiki"
+  );
   const [selectedTask, setSelectedTask] = useState("all");
   const [selectedEntryId, setSelectedEntryId] = useState<string | null>(null);
   const [search, setSearch] = useState("");
@@ -515,6 +737,10 @@ export function KnowledgePanel({
   >([]);
   const [sourcesLoading, setSourcesLoading] = useState(false);
   const [sourcesError, setSourcesError] = useState<string | null>(null);
+  const [growth, setGrowth] = useState<KbGrowthDashboard | null>(null);
+  const [conflicts, setConflicts] = useState<KbConflictRow[]>([]);
+  const [growthLoading, setGrowthLoading] = useState(false);
+  const [growthError, setGrowthError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -613,6 +839,54 @@ export function KnowledgePanel({
       cancelled = true;
     };
   }, [selectedFeedId, viewMode, refreshKey, refreshSignal]);
+
+  useEffect(() => {
+    if (viewMode !== "growth") return;
+    let cancelled = false;
+    setGrowthLoading(true);
+    setGrowthError(null);
+    Promise.all([fetchKbGrowth(), fetchKbConflicts(50)])
+      .then(([dashboard, conflictList]) => {
+        if (cancelled) return;
+        setGrowth(dashboard);
+        setConflicts(conflictList.conflicts);
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setGrowthError("无法读取 Wiki 成长状态。");
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setGrowthLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [viewMode, refreshKey, refreshSignal]);
+
+  async function adjudicateConflict(
+    row: KbConflictRow,
+    decision: "uphold_canonical" | "overturn_canonical" | "defer"
+  ) {
+    const rationale =
+      typeof window === "undefined"
+        ? ""
+        : (window.prompt("请写下裁决依据（会记入审计）：") ?? "").trim();
+    if (!rationale) return;
+    try {
+      await adjudicateKbConflict({
+        candidate_id: row.candidate_id,
+        canonical_id: row.canonical_id,
+        decision,
+        rationale,
+      });
+      setRefreshKey((key) => key + 1);
+    } catch (err) {
+      setGrowthError(
+        err instanceof Error ? err.message : "裁决提交失败，请重试。"
+      );
+    }
+  }
 
   const taskBundles = useMemo(
     () =>
@@ -722,13 +996,16 @@ export function KnowledgePanel({
               "sources",
               literatureTotal ? `研究来源（${literatureTotal}）` : "研究来源",
             ],
+            ["growth", "成长与冲突"],
           ].map(([mode, label]) => (
             <button
               key={mode}
               type="button"
               role="tab"
               aria-selected={viewMode === mode}
-              onClick={() => setViewMode(mode as "wiki" | "sources")}
+              onClick={() =>
+                setViewMode(mode as "wiki" | "sources" | "growth")
+              }
               className={cn(
                 "rounded-t-md px-3 py-2 text-sm transition-colors",
                 viewMode === mode
@@ -802,7 +1079,17 @@ export function KnowledgePanel({
         )}
       </header>
 
-      {viewMode === "sources" ? (
+      {viewMode === "growth" ? (
+        <main className="min-h-0 flex-1 overflow-y-auto px-5 py-7 sm:px-8 lg:px-12 lg:py-10">
+          <GrowthBoard
+            growth={growth}
+            conflicts={conflicts}
+            loading={growthLoading}
+            error={growthError}
+            onAdjudicate={adjudicateConflict}
+          />
+        </main>
+      ) : viewMode === "sources" ? (
         <main className="min-h-0 flex-1 overflow-y-auto px-5 py-7 sm:px-8 lg:px-12 lg:py-10">
           <ResearchSources
             feed={activeFeed}

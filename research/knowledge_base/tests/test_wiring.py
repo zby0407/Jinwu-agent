@@ -6,6 +6,7 @@ db 用临时目录隔离（JW_DATA_DIR / JW_KB_EXPORT_DIR），不碰真实
 
 from __future__ import annotations
 
+import json
 import os
 import shutil
 import sys
@@ -334,7 +335,13 @@ class TestFinalizeWriteback(WiringTestCase):
         req = exp_helpers.request(task_name="unit_kb_writeback")
         run_id, attempt_id = exp_helpers.create_ready_run(req)
         self.addCleanup(lambda: TestExperimentGroundingGate._cleanup_run(run_id))
-        exp_service.execute(run_id, attempt_id)
+        executed = exp_service.execute(run_id, attempt_id)
+        exit_code = executed.get("execution_facts", {}).get("host_process_exit_code")
+        if exit_code not in (None, 0):
+            self.skipTest(
+                f"experiment sandbox unavailable in this environment "
+                f"(host exit {exit_code})"
+            )
         preview = exp_service.verify(run_id, attempt_id, None)
         self.assertEqual(preview["status"], "assessment_required")
         verified = exp_service.verify(run_id, attempt_id, exp_helpers.assessment())
@@ -387,6 +394,55 @@ class TestFinalizeWriteback(WiringTestCase):
         )
         self.assertEqual(skipped["status"], "skipped")
         self.assertEqual(skipped["entry_ids"], [])
+
+    def test_technical_failure_writes_lesson_not_finding(self):
+        from automatic_experiment import service as exp_service
+
+        root = Path(self.tmp) / "fake_failure_run"
+        root.mkdir(parents=True, exist_ok=True)
+        (root / "record.json").write_text(
+            json.dumps(
+                {
+                    "task": "执行参数扫描",
+                    "run_id": "fake_run_failure",
+                    "outcome": "technical_failure",
+                    "outcome_reason": "沙箱进程以非零状态退出。",
+                },
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
+        state = {
+            "run_id": "fake_run_failure",
+            "outcome": "technical_failure",
+            "last_error": "沙箱进程以非零状态退出。",
+        }
+        result = exp_service._knowledge_writeback(root, state)
+        self.assertEqual(result["status"], "ok", result)
+        stored = self.read_entry(result["entry_ids"][0])
+        self.assertEqual(stored["type"], "lesson")
+        self.assertEqual(stored["source_type"], "historical_run")
+        self.assertEqual(stored["content"]["run_id"], "fake_run_failure")
+        self.assertEqual(
+            stored["content"]["failure_mode"], "沙箱进程以非零状态退出。"
+        )
+
+        # 写回仍幂等，且不会生成 scientific finding。
+        again = exp_service._knowledge_writeback(root, state)
+        self.assertEqual(again["entry_ids"], result["entry_ids"])
+        self.assertIsNone(
+            self.store_query(
+                "SELECT id FROM entries WHERE type = 'finding' "
+                "AND source_ref = 'fake_run_failure'"
+            )
+        )
+
+    def store_query(self, sql: str):
+        store = KnowledgeStore()
+        try:
+            return store._conn.execute(sql).fetchone()
+        finally:
+            store.close()
 
 
 if __name__ == "__main__":

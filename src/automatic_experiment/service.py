@@ -111,9 +111,7 @@ def _compact_execution_input_previews(
                 marker = b"\n...[preview middle omitted]...\n"
                 head_size = (maximum - len(marker)) // 2
                 tail_size = maximum - len(marker) - head_size
-                selected_bytes = (
-                    encoded[:head_size] + marker + encoded[-tail_size:]
-                )
+                selected_bytes = encoded[:head_size] + marker + encoded[-tail_size:]
             else:
                 selected_bytes = encoded
             selected = selected_bytes.decode("utf-8", errors="ignore")
@@ -811,7 +809,10 @@ def _design_repair_guide(issues: list[dict[str, Any]]) -> dict[str, Any]:
                 "candidate_vs_candidate requirement"
             ),
         }
-    if "reader-facing design fields must use the user's chinese language" in issue_messages:
+    if (
+        "reader-facing design fields must use the user's chinese language"
+        in issue_messages
+    ):
         named_paths: list[str] = []
         for row in issues:
             message = str(row.get("message") or "")
@@ -3740,15 +3741,19 @@ def verify(
 _KB_WRITEBACK_TYPES = {
     "completed_interpretable": "finding",
     "scientific_null": "counterexample",
-    "technical_failure": "finding",
+    # Technical failures are reusable execution lessons, never scientific
+    # findings. Keeping them in a separate type prevents run-log noise and
+    # failed executions from being promoted as evidence.
+    "technical_failure": "lesson",
 }
 
 
 def _knowledge_writeback(root: Path, state: dict[str, Any]) -> dict[str, Any]:
-    """方案 §5.4 #4：finalize 后把 findings/反例/失败经验写回知识库候选。
+    """方案 §5.4 #4 / §4.9.12：finalize 后把已核验主张编译进知识库。
 
-    候选以 ``source_type=historical_run``、``source_ref=run_id``、
-    ``confidence=low`` 走正常 ``kb_propose`` 流程（status=candidate，R2）。
+    通过 ``knowledge_base.compiler`` 走稳定 claim 指纹：同一科学主张被另一个
+    run 复现时落到同一 candidate 并自动登记 ``entry_reproduction_evidence``；
+    两个独立 run 的可追溯证据齐备时立即执行既有晋升门（冲突阻断保留）。
     知识库不可用时静默降级，绝不影响 finalize 主流程。
     """
 
@@ -3761,12 +3766,15 @@ def _knowledge_writeback(root: Path, state: dict[str, Any]) -> dict[str, Any]:
             "reason": f"outcome {outcome!r} 无写回映射",
         }
     try:
-        from knowledge_base import service as kb_service
+        from knowledge_base import compiler as kb_compiler
         from knowledge_base.store import KnowledgeStore
 
         run_id = str(state["run_id"])
         record = (
             read_json(root / "record.json") if (root / "record.json").is_file() else {}
+        )
+        design = (
+            read_json(root / "design.json") if (root / "design.json").is_file() else {}
         )
         assessment = record.get("scientific_assessment") or {}
         narrative = assessment.get("report_narrative") or {}
@@ -3781,42 +3789,133 @@ def _knowledge_writeback(root: Path, state: dict[str, Any]) -> dict[str, Any]:
             statement = f"运行 {run_id} 以 {outcome} 结束；未留下可用的科学陈述。"
         task_text = str(record.get("task") or "")
         title = (f"[{outcome}] {task_text[:80]}").strip() or f"run {run_id} {outcome}"
-        content: dict[str, Any] = {
-            "statement": statement[:2_000],
-            "run_id": run_id,
-        }
+
+        content_extra: dict[str, Any] = {}
+        substance: dict[str, Any] = {}
+        if entry_type == "lesson":
+            failure_mode = str(
+                record.get("outcome_reason") or state.get("last_error") or ""
+            ).strip()
+            if failure_mode:
+                content_extra["failure_mode"] = failure_mode[:1_000]
+            # 同一失败模式在独立 run 重复出现即为同一 lesson，可跨运行累积。
+            substance = {"failure_mode": failure_mode, "task": task_text}
+        else:
+            frame = design.get("research_frame") or {}
+            policy = design.get("interpretation_policy") or {}
+            substance = {
+                "primary_question": frame.get("primary_question", ""),
+                "primary_estimand": policy.get("primary_estimand", ""),
+                "claim_scope": frame.get("claim_scope", ""),
+            }
+            if not any(str(value or "").strip() for value in substance.values()):
+                # 缺少 design 实质字段时退回 run 级隔离，绝不跨 run 合并主张。
+                substance = {"task": task_text, "run_id": run_id}
         limitations = narrative.get("limitations")
         if isinstance(limitations, list) and limitations:
-            content["uncertainty"] = "; ".join(str(item) for item in limitations[:3])[
-                :1_000
-            ]
+            content_extra["uncertainty"] = "; ".join(
+                str(item) for item in limitations[:3]
+            )[:1_000]
+
+        record_sha = str(record.get("record_sha256") or "").strip()
+        evidence_ref = (
+            f"run://{run_id}/record.json#sha256:{record_sha}"
+            if record_sha
+            else f"run://{run_id}/record.json"
+        )
         store = KnowledgeStore()
         try:
-            existing = store.find_entry_by_source(run_id, title)
-            if existing is not None:
-                # finalize 可重入：同一 run 重复写回不得重复建条。
-                return {"status": "ok", "entry_ids": [existing["id"]]}
-            result = kb_service.propose(
+            # finalize 可重入：同一 run 重复写回不得重复建条。
+            legacy = store.find_entry_by_source(run_id, title)
+            if legacy is not None:
+                return {"status": "ok", "entry_ids": [legacy["id"]]}
+            result = kb_compiler.compile_run_claim(
                 store,
                 entry_type=entry_type,
                 title=title,
-                content=content,
-                source_type="historical_run",
-                source_ref=run_id,
+                statement=statement[:2_000],
+                substance=substance,
+                run_id=run_id,
+                evidence_ref=evidence_ref,
                 confidence="low",
                 agent="automatic_experiment",
-                run_id=run_id,
+                content_extra=content_extra,
             )
-            return {"status": "ok", "entry_ids": [result["entry"]["id"]]}
         finally:
             store.close()
-    except Exception as exc:  # noqa: BLE001
+        if result.get("status") != "ok":
+            return result
+        return {
+            "status": "ok",
+            "entry_ids": result["entry_ids"],
+            "decision": result.get("decision", ""),
+            "claim_key": result.get("claim_key", ""),
+            "supporting_run_ids": result.get("supporting_run_ids", []),
+        }
+    except Exception as exc:
         return {
             "status": "failed",
             "entry_ids": [],
             "reason": "knowledge_base_writeback_failed",
             "error_type": type(exc).__name__,
         }
+
+
+def backfill_knowledge_writeback(
+    *, limit: int = 50, runs_dir: Path | None = None
+) -> dict[str, Any]:
+    """Compile finalized runs that predate the post-run compiler.
+
+    Scans finished runs newest-first and replays ``_knowledge_writeback``. The
+    compiler is idempotent per (claim, run), so replaying an already-compiled
+    run records nothing new; replaying runs that were written back under the
+    old run-scoped key is how existing orphans get merged into claim-keyed
+    entries and can finally hold cross-run reproduction evidence.
+
+    ``runs_dir`` defaults to the active experiment ``runs/**`` root; it is
+    injectable so maintenance jobs and tests never guess at the workspace.
+    """
+
+    scanned = 0
+    decisions: dict[str, int] = {}
+    entry_ids: set[str] = set()
+    failures: list[dict[str, str]] = []
+    base = Path(runs_dir) if runs_dir is not None else runs_root()
+    states = sorted(
+        base.glob("*/state.json"),
+        key=lambda path: path.stat().st_mtime_ns,
+        reverse=True,
+    )
+    for state_path in states:
+        if scanned >= max(1, int(limit)):
+            break
+        root = state_path.parent
+        if not (root / "entry_result.json").is_file():
+            continue
+        try:
+            state = read_json(state_path)
+        except (OSError, ValueError) as exc:
+            failures.append({"run_dir": root.name, "error": str(exc)})
+            continue
+        if state.get("phase") != "report_finalized":
+            continue
+        scanned += 1
+        result = _knowledge_writeback(root, state)
+        decision = str(result.get("decision") or result.get("status") or "unknown")
+        decisions[decision] = decisions.get(decision, 0) + 1
+        for entry_id in result.get("entry_ids", []):
+            entry_ids.add(str(entry_id))
+        if result.get("status") == "failed":
+            failures.append(
+                {"run_dir": root.name, "error": str(result.get("reason") or "failed")}
+            )
+    return {
+        "status": "ok",
+        "scanned": scanned,
+        "decisions": decisions,
+        "entry_ids": sorted(entry_ids),
+        "failures": failures[:20],
+    }
 
 
 def finalize(run_id: str) -> dict[str, Any]:

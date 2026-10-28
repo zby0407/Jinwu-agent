@@ -29,3 +29,5 @@ jobs:
         run: uv sync --dev --extra solar
       - name: Run pytest
         run: uv run pytest -v --timeout=30
+      - name: Run knowledge-base wiring tests
+        run: uv run pytest -v --timeout=30 --import-mode=importlib research/knowledge_base/tests

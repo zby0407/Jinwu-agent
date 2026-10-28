@@ -41,10 +41,11 @@ class ToolContextTests(unittest.TestCase):
         self._tmp = tempfile.mkdtemp(prefix="kb-toolctx-")
         self._old_env = {
             key: os.environ.get(key)
-            for key in ("JW_DATA_DIR", "JW_KB_EXPORT_DIR")
+            for key in ("JW_DATA_DIR", "JW_KB_EXPORT_DIR", "JW_KB_AUTO_SEED")
         }
         os.environ["JW_DATA_DIR"] = self._tmp
         os.environ["JW_KB_EXPORT_DIR"] = str(Path(self._tmp) / "export")
+        os.environ["JW_KB_AUTO_SEED"] = "0"
         kb_tools._STORE = None
         kb_tools._DISTILL_BINDINGS.clear()
         kb_tools._ACTIVE_DISTILL_BINDINGS.clear()
@@ -180,6 +181,42 @@ class ToolContextTests(unittest.TestCase):
         self.assertEqual(result.get("decision"), "promotion_not_ready", result)
         entry = kb_tools._get_store().get_entry(entry_id)
         self.assertEqual(entry["status"], "candidate")
+
+    def test_kb_record_reproduction_enables_promotion(self) -> None:
+        entry_id = self._propose()
+        for run_id in ("run-a", "run-b"):
+            recorded = json.loads(
+                kb_tools.kb_record_reproduction.invoke(
+                    {
+                        "entry_id": entry_id,
+                        "run_id": run_id,
+                        "evidence_ref": f"runs/{run_id}/report.md",
+                    }
+                )
+            )
+            self.assertEqual(recorded["decision"], "recorded", recorded)
+        result = json.loads(
+            kb_tools.kb_promote.invoke(
+                {"entry_id": entry_id, "reason": "两个独立运行复现"}
+            )
+        )
+        self.assertEqual(result["decision"], "promoted", result)
+        self.assertEqual(result["supporting_run_ids"], ["run-a", "run-b"])
+
+    def test_get_store_seeds_builtin_wiki_once(self) -> None:
+        os.environ["JW_KB_AUTO_SEED"] = "1"
+        store = kb_tools._get_store()
+        canonical = store.count_by("status").get("canonical", 0)
+        self.assertGreaterEqual(canonical, 27)
+        first_count = store._conn.execute(
+            "SELECT COUNT(*) FROM entries"
+        ).fetchone()[0]
+        stats = kb_tools.ensure_builtin_wiki(store)
+        self.assertEqual(stats["inserted"], 0)
+        self.assertEqual(
+            store._conn.execute("SELECT COUNT(*) FROM entries").fetchone()[0],
+            first_count,
+        )
 
 if __name__ == "__main__":
     unittest.main()

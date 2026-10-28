@@ -23,6 +23,11 @@ solar-knowledge 子 Agent 的四条流程；条目写作、蒸馏、冲突、晋
 
 其他 agent/用户问知识时：
 
+0. 科研阶段（规划/数据/实验/假设/审查）由宿主自动注入 `knowledge-context-v1`，无需你
+   再为这些阶段代查；宿主按阶段、状态、冲突与 valid_range 选择条目并写使用回执。
+   若需要主动构造同结构上下文，用 `kb_context(stage, query, valid_range?, limit?)`，
+   不要自己拼 `kb_search` 结果。它返回 canonical 优先的冻结包，candidate 只作 provisional lead，
+   contested canonical 必须按未决冲突处理。
 1. `kb_search(query, type?, status?, confidence?)` 检索；默认只回 canonical+candidate。
 2. 对要引用的条目 `kb_read(entry_id, agent="solar-knowledge", run_id, purpose)` 取全文——
    读取即溯源，purpose 写清用途（grounding / review / conflict-check）。
@@ -77,32 +82,77 @@ solar-knowledge 子 Agent 的四条流程；条目写作、蒸馏、冲突、晋
 3. 补丁仅保存为 `proposal_only`，不自动应用；如果目标版本已变化，重新生成提案，不做自动合并。
 4. 撤稿事件保留原来源和影响链，并直接阻断受影响条目的 grounding；禁止静默删除。
 
-运行产出路径：实验 finalize 会自动把 findings/反例/失败经验写回为 candidate
-（source_type=historical_run, confidence=low）。你的职责是用 `kb_search(status="candidate")`
-定期盘点这些候选；达到跨运行复现条件后由确定性晋升门处理。
+运行产出路径：实验 finalize 会自动把可解释结果写回为 finding、零结果写回为
+counterexample、技术失败写回为 lesson（均为 candidate，source_type=historical_run）。
+你的职责是用 `kb_search(status="candidate")` 定期盘点这些候选；只有主 Agent 通过
+`kb_record_reproduction` 登记至少两个带可定位证据的独立 run 后，确定性晋升门才会考虑晋升。
+存在未解决冲突时晋升必须被阻断。
 
 手工编辑回导：`kb_import(path)` 校验并回写 `knowledge_base/<type>/<id>.md`（版本 +1）。
 
 ## 流程 3：健康巡检
 
-可被 /schedule 定期触发。用 `kb_search` 结构化过滤盘点：
+巡检现在由确定性成长任务承担，不再靠模型即兴盘点。
 
-- 长期未引用的 canonical（provenance_log 无近期 read）→ 建议复核 valid_range 是否过期。
-- 孤证 candidate（创建 >N 天、无新证据、未晋升）→ 建议补证据，证据不足时继续保留 candidate。
-- valid_range 明显过期的条目 → 生成维护建议清单给人。
-- 旧文献蒸馏缺少 task-bound relevance 时保持 grounding blocked，须重新摄取有效来源。
+**自动运行**：宿主（主 Agent 的 knowledge-context 中间件）在每轮对话结束时会按节流策略
+自动触发一次维护周期（默认每小时 1 次，`JW_KB_AUTO_GROWTH` 关闭 / `JW_KB_AUTO_GROWTH_INTERVAL`
+调间隔）。因此每日 `seed_sync / health_check / distill_queue` 不需要你主动调用；子 Agent
+无法启动维护扫描。
+
+**手动补触发**：需要立刻执行、或想强制重跑时调用 `kb_growth(action="cycle")`。它按日期
+桶幂等地排队并运行 `seed_sync`（补齐内置 seed，不覆盖既有条目）、`health_check`、
+`distill_queue` 三个任务，每个任务都有租约、尝试预算和 `kb_growth_jobs` 审计行；同一天
+重复调用只会跳过已完成任务。
+
+**看指标**：`kb_growth(action="status")` 返回队列看板 + 四个成长指标——`reuse_rate`
+（被真正读过的条目占比）、`injection_rate`（宿主阶段注入占全部读取的比例）、
+`promotion_precision`（canonical 中带跨运行证据的比例）、`distillation_conversion`
+（已获取文献中被蒸馏的比例）。这些指标用来判断 Wiki 是否真的在被用，而不是只涨条目数。
+
+`health_check` 结果给出可执行清单（只报告，不改写）：
+
+- 长期未引用的 canonical（provenance_log 无 read）→ 建议复核 valid_range 是否过期。
+- 孤证 candidate（创建 >N 天、无复现证据、未晋升）→ 建议用 `kb_record_reproduction`
+  补证据，或废弃，或保留为已记录缺口。
+- 未解决的 counterexample 冲突 → 阻断相关晋升，需用新证据裁决。
+- 尚未蒸馏的缓存来源数 → 交给 `distill_queue`。
 - `proposal_only` 文献补丁只用于提示应重新蒸馏哪些字段，不直接改写 Wiki。
 - 撤稿来源对应的影响记录与条目保持 grounding blocked，直到新证据通过正常摄取路径形成新版本。
-- 巡检只报告证据缺口，不生成等待批准的状态。
 
-## 流程 4：知识使用报告
+`distill_queue` 只排序“仍缺 Wiki 条目”的首选缓存来源，绝不自行蒸馏：蒸馏必须走
+任务绑定的 `lit_bind_task → lit_fetch → lit_distill`（逐字引文接地）流程。
+`kb_growth(action="feed_sync", feed_id=...)` 才会联网增量刷新单个订阅。
+`kb_growth(action="status")` 返回最近任务看板。
+
+实验 finalize 会自动编译主张：`knowledge_base.compiler` 用稳定 claim 指纹（问题 +
+primary estimand + claim scope，lesson 用 failure_mode）判断“是否同一主张”。同一主张被
+另一个 run 复现时落到**同一条** candidate 并追加复现证据，两个独立 run 齐备即自动过
+晋升门；冲突未解决则阻断。你通常不需要手工建条——只有缺少 design 实质字段、或需要
+补充文献/概念类知识时才用 `kb_propose`。
+
+历史 run 回填用 `kb_growth(action="compile", limit=N)`：按时间倒序重放已 finalize 的 run，
+把旧写回留下的 run 级孤证候选合并成 claim-keyed 条目并补齐跨运行证据。这是按需一次性
+动作，不在每日巡检里。
+
+## 流程 4：知识使用报告与冲突裁决
 
 每轮研究结束：`kb_log(run_id)` 输出该轮读了哪些条目、产出了哪些候选，附进主 agent
-的总结；未决冲突用 `kb_conflicts()` 列出并提示规划侧把冲突当研究问题。
+的总结；未决冲突用 `kb_conflicts()` 列出并提示规划侧把冲突当研究问题。维护队列的
+总体进度用 `kb_growth(action="status")` 查看。
+
+冲突必须显式裁决，否则会一直阻断相关条目的晋升。`kb_adjudicate_conflict` 只做三件事
+之一，且必须有 `rationale`（WebUI 的"成长与冲突"标签页也能提交）：
+
+- `uphold_canonical`：既有结论成立，把反例条目置为 deprecated。
+- `overturn_canonical`：既有结论被推翻，把它置为 deprecated；反例**仍需自己**补齐
+  两个独立 run 的复现证据才可能晋升。
+- `defer`：只记录已复核，冲突保持未解决并继续阻断晋升。
+
+裁决不删除任何条目、不直接晋升任何条目——它只决定哪一条主张继续有效。
 
 ## 参考文件
 
-- `references/entry-writing.md` — 条目写作规范（七类条目的 content 字段与质量线）
+- `references/entry-writing.md` — 条目写作规范（八类条目的 content 字段与质量线）
 - `references/distillation.md` — 蒸馏规范（quote 契约、字段取舍、预算）
 - `references/conflict-handling.md` — 冲突处理（R5 落地）
 - `references/promotion-criteria.md` — 晋升标准（跨运行复现；DOI 不是晋升证据）

@@ -6,6 +6,7 @@ from unittest.mock import MagicMock, patch
 
 from langchain_core.messages import SystemMessage
 
+from jw.middleware.knowledge_context import KnowledgeContextMiddleware
 from jw.middleware.runtime_context import (
     RuntimeContextMiddleware,
     create_runtime_context_middleware,
@@ -123,6 +124,25 @@ def test_default_middleware_includes_runtime_context(
 )
 @patch("jw.agent._ensure_chat_model")
 @patch("jw.agent._ensure_config")
+def test_default_middleware_includes_knowledge_context(
+    mock_config, mock_model, mock_tool_selector
+):
+    mock_config.return_value = _mock_config()
+    mock_model.return_value = MagicMock(profile={"max_input_tokens": 200_000})
+
+    from jw.agent import _get_default_middleware
+
+    middleware = _get_default_middleware()
+
+    assert any(isinstance(m, KnowledgeContextMiddleware) for m in middleware)
+
+
+@patch(
+    "jw.middleware.create_tool_selector_middleware",
+    return_value=[MagicMock(), MagicMock()],
+)
+@patch("jw.agent._ensure_chat_model")
+@patch("jw.agent._ensure_config")
 def test_async_subagent_middleware_includes_runtime_context(
     mock_config, mock_model, mock_tool_selector
 ):
@@ -174,6 +194,9 @@ def test_configured_subagent_middleware_includes_runtime_context(mock_model):
     _inject_subagent_middleware(subs)
 
     assert any(isinstance(m, RuntimeContextMiddleware) for m in subs[0]["middleware"])
+    assert any(
+        isinstance(m, KnowledgeContextMiddleware) for m in subs[0]["middleware"]
+    )
 
 
 def test_runtime_context_factory_returns_middleware():
