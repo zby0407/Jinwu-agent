@@ -970,22 +970,48 @@ def search_literature(
 # ----------------------------------------------------------------------
 # bounded topic subscriptions
 # ----------------------------------------------------------------------
+_LLM_WIKI_SUFFIX = (
+    Path("jw")
+    / "subagents"
+    / "solar"
+    / "skills"
+    / "solar-cycle"
+    / "references"
+    / "llm_wiki"
+)
+
+
+def _llm_wiki_dir_candidates() -> list[Path]:
+    """Possible locations of the packaged ``llm_wiki`` reference tree.
+
+    Source checkout: ``<repo>/src/knowledge_base`` → ``<repo>/jw/...``.
+    Packaged desktop runtime: ``<runtime>/project/src/knowledge_base`` while
+    the ``jw`` package lives at ``<runtime>/jw`` (not ``<runtime>/project/jw``),
+    so the old ``parents[2]`` anchor pointed at a directory that never exists.
+    Walk the ancestors and let the first existing directory win.
+    """
+
+    here = Path(__file__).resolve()
+    candidates: list[Path] = []
+    for parent in here.parents:
+        candidate = parent / _LLM_WIKI_SUFFIX
+        if candidate not in candidates:
+            candidates.append(candidate)
+    return candidates
+
+
 def default_literature_feeds_path() -> Path:
     override = os.getenv("JW_LITERATURE_FEEDS_PATH", "").strip()
     if override:
         return Path(override).expanduser()
-    return (
-        Path(__file__).resolve().parents[2]
-        / "jw"
-        / "subagents"
-        / "solar"
-        / "skills"
-        / "solar-cycle"
-        / "references"
-        / "llm_wiki"
-        / "_meta"
-        / "literature_feeds.json"
-    )
+    candidates = _llm_wiki_dir_candidates()
+    for candidate in candidates:
+        path = candidate / "_meta" / "literature_feeds.json"
+        if path.is_file():
+            return path
+    # Fall back to the source-checkout layout so diagnostics point at the
+    # expected file even when nothing resolves.
+    return candidates[0] / "_meta" / "literature_feeds.json"
 
 
 def load_literature_feeds(path: str | Path | None = None) -> dict[str, Any]:
