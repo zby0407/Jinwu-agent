@@ -135,7 +135,7 @@ _CAPABILITIES = (
     ),
     CapabilitySpec(
         "knowledge",
-        "Read or maintain the solar-cycle knowledge base under its decision gates.",
+        "Read the solar-cycle Wiki and prepare maintenance gaps; gated writes stay with the main Agent.",
         specialists=("solar-knowledge",),
         tool_bundles=("knowledge-base",),
     ),

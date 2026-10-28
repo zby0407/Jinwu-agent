@@ -6,6 +6,7 @@ db 用临时目录隔离（JW_DATA_DIR / JW_KB_EXPORT_DIR），不碰真实
 
 from __future__ import annotations
 
+import json
 import os
 import shutil
 import sys
@@ -46,8 +47,7 @@ class WiringTestCase(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.mkdtemp(prefix="kb_wiring_test_")
         self._old_env = {
-            key: os.environ.get(key)
-            for key in ("JW_DATA_DIR", "JW_KB_EXPORT_DIR")
+            key: os.environ.get(key) for key in ("JW_DATA_DIR", "JW_KB_EXPORT_DIR")
         }
         os.environ["JW_DATA_DIR"] = str(Path(self.tmp) / "data")
         os.environ["JW_KB_EXPORT_DIR"] = str(Path(self.tmp) / "export")
@@ -58,7 +58,9 @@ class WiringTestCase(unittest.TestCase):
             store,
             entry_type="concept",
             title="极区磁场前兆",
-            content={"definition": "极区磁场在极小期附近的强度可作为下一活动周振幅的前兆。"},
+            content={
+                "definition": "极区磁场在极小期附近的强度可作为下一活动周振幅的前兆。"
+            },
             source_type="expert",
             source_ref="expert:reviewer-a",
             confidence="medium",
@@ -133,7 +135,7 @@ def make_hyp_request(**overrides):
                 "locator": "knowledge_base/concepts/polar_precursor.json",
                 "content_notes": "极区磁场与下一周振幅存在对应关系",
                 "experiment_summary": None,
-            }
+            },
         ],
         "prior_hypotheses": [],
         "max_candidates": 4,
@@ -334,7 +336,20 @@ class TestFinalizeWriteback(WiringTestCase):
         req = exp_helpers.request(task_name="unit_kb_writeback")
         run_id, attempt_id = exp_helpers.create_ready_run(req)
         self.addCleanup(lambda: TestExperimentGroundingGate._cleanup_run(run_id))
-        exp_service.execute(run_id, attempt_id)
+        # 本用例验证的是 finalize 写回契约，不是沙箱本身。沙箱后端按平台分化
+        # （macOS seatbelt / Linux bubblewrap / Windows WSL bridge）：缺少后端或
+        # 宿主拒绝执行时 execute() 返回非零退出码，不支持该平台时直接抛
+        # ExecutionError。两种情况都跳过，而不是假装写回契约已被验证。
+        try:
+            executed = exp_service.execute(run_id, attempt_id)
+        except Exception as exc:  # backend availability is environmental
+            self.skipTest(f"experiment sandbox unavailable in this environment: {exc}")
+        exit_code = executed.get("execution_facts", {}).get("host_process_exit_code")
+        if exit_code not in (None, 0):
+            self.skipTest(
+                f"experiment sandbox unavailable in this environment "
+                f"(host exit {exit_code})"
+            )
         preview = exp_service.verify(run_id, attempt_id, None)
         self.assertEqual(preview["status"], "assessment_required")
         verified = exp_service.verify(run_id, attempt_id, exp_helpers.assessment())
@@ -359,9 +374,7 @@ class TestFinalizeWriteback(WiringTestCase):
         second = again["knowledge_writeback"]
         self.assertEqual(second["status"], "ok")
         self.assertEqual(second["entry_ids"], writeback["entry_ids"])
-        self.assertEqual(
-            self.read_entry(writeback["entry_ids"][0])["version"], 1
-        )
+        self.assertEqual(self.read_entry(writeback["entry_ids"][0])["version"], 1)
 
     def test_writeback_maps_null_to_counterexample_and_skips_others(self):
         from automatic_experiment import service as exp_service
@@ -387,6 +400,53 @@ class TestFinalizeWriteback(WiringTestCase):
         )
         self.assertEqual(skipped["status"], "skipped")
         self.assertEqual(skipped["entry_ids"], [])
+
+    def test_technical_failure_writes_lesson_not_finding(self):
+        from automatic_experiment import service as exp_service
+
+        root = Path(self.tmp) / "fake_failure_run"
+        root.mkdir(parents=True, exist_ok=True)
+        (root / "record.json").write_text(
+            json.dumps(
+                {
+                    "task": "执行参数扫描",
+                    "run_id": "fake_run_failure",
+                    "outcome": "technical_failure",
+                    "outcome_reason": "沙箱进程以非零状态退出。",
+                },
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
+        state = {
+            "run_id": "fake_run_failure",
+            "outcome": "technical_failure",
+            "last_error": "沙箱进程以非零状态退出。",
+        }
+        result = exp_service._knowledge_writeback(root, state)
+        self.assertEqual(result["status"], "ok", result)
+        stored = self.read_entry(result["entry_ids"][0])
+        self.assertEqual(stored["type"], "lesson")
+        self.assertEqual(stored["source_type"], "historical_run")
+        self.assertEqual(stored["content"]["run_id"], "fake_run_failure")
+        self.assertEqual(stored["content"]["failure_mode"], "沙箱进程以非零状态退出。")
+
+        # 写回仍幂等，且不会生成 scientific finding。
+        again = exp_service._knowledge_writeback(root, state)
+        self.assertEqual(again["entry_ids"], result["entry_ids"])
+        self.assertIsNone(
+            self.store_query(
+                "SELECT id FROM entries WHERE type = 'finding' "
+                "AND source_ref = 'fake_run_failure'"
+            )
+        )
+
+    def store_query(self, sql: str):
+        store = KnowledgeStore()
+        try:
+            return store._conn.execute(sql).fetchone()
+        finally:
+            store.close()
 
 
 if __name__ == "__main__":

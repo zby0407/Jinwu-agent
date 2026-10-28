@@ -430,6 +430,7 @@ def _inject_subagent_middleware(
         TaskCancellationMiddleware,
         ToolErrorHandlerMiddleware,
         create_context_editing_middleware,
+        create_knowledge_context_middleware,
         create_memory_lifecycle_middleware,
         create_memory_middleware,
         create_runtime_context_middleware,
@@ -478,6 +479,7 @@ def _inject_subagent_middleware(
             # ``_ensure_chat_model()`` fallback (when ``chat_model=None``).
             create_context_editing_middleware(chat_model),
             create_runtime_context_middleware(workspace_dir=workspace_dir),
+            create_knowledge_context_middleware(),
             ToolErrorHandlerMiddleware(),
             ContextOverflowMapperMiddleware(),
         ]
@@ -1119,6 +1121,7 @@ def _get_default_middleware(
         VirtualPathCodeGuardMiddleware,
         create_code_interpreter_middleware,
         create_context_editing_middleware,
+        create_knowledge_context_middleware,
         create_memory_lifecycle_middleware,
         create_memory_middleware,
         create_runtime_context_middleware,
@@ -1247,6 +1250,9 @@ def _get_default_middleware(
     if cfg.enable_scheduler and not for_async_subagent:
         mw.append(create_scheduler_middleware())
     mw.append(create_runtime_context_middleware(workspace_dir=workspace_dir))
+    # ``growth=True`` only on the main agent: it owns the throttled background
+    # Wiki maintenance sweep. Sub-agents get the inject-only instance above.
+    mw.append(create_knowledge_context_middleware(growth=not for_async_subagent))
     if memory_controls.memory_enabled:
         mw.append(memory_middleware)
     if memory_controls.worker_needed(worker_target):

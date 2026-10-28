@@ -9,7 +9,10 @@ logging, and the promotion review gate implemented in
 from __future__ import annotations
 
 import json
+import logging
+import os
 import sys
+import threading
 from typing import Any
 
 from jw.runtime_layout import PROJECT_ROOT as _PROJECT_ROOT
@@ -22,20 +25,50 @@ from langchain_core.runnables import RunnableConfig  # noqa: E402
 from langchain_core.tools import tool  # noqa: E402
 
 from jw.tools.registry import register_tool_bundle  # noqa: E402
-from knowledge_base import literature, service  # noqa: E402
+from knowledge_base import context as knowledge_context  # noqa: E402
+from knowledge_base import growth, literature, service  # noqa: E402
+from knowledge_base.seed import ensure_builtin_wiki  # noqa: E402
 from knowledge_base.store import KnowledgeStore  # noqa: E402
 
+logger = logging.getLogger(__name__)
+
 _STORE: KnowledgeStore | None = None
+_STORE_LOCK = threading.Lock()
 _DISTILL_BINDINGS: dict[str, dict[str, Any]] = {}
 _ACTIVE_DISTILL_BINDINGS: dict[str, str] = {}
 
 
+def _auto_seed_enabled() -> bool:
+    return os.getenv("JW_KB_AUTO_SEED", "1").strip().lower() not in {
+        "0",
+        "false",
+        "no",
+        "off",
+    }
+
+
 def _get_store() -> KnowledgeStore:
-    """Shared store (lazy so importing tools never touches the real db)."""
+    """Shared store; seed missing built-in Wiki pages exactly once."""
 
     global _STORE
     if _STORE is None:
-        _STORE = KnowledgeStore()
+        with _STORE_LOCK:
+            if _STORE is None:
+                store = KnowledgeStore()
+                if _auto_seed_enabled():
+                    try:
+                        stats = ensure_builtin_wiki(store)
+                        if stats["inserted"] or stats["errors"]:
+                            logger.info(
+                                "Built-in Wiki seed: inserted=%s skipped=%s errors=%s",
+                                stats["inserted"],
+                                stats["skipped"],
+                                stats["errors"],
+                            )
+                    except Exception:
+                        # Seeding must never prevent knowledge retrieval.
+                        logger.warning("Built-in Wiki seed failed", exc_info=True)
+                _STORE = store
     return _STORE
 
 
@@ -120,7 +153,7 @@ def kb_query(
     Args:
         query: Keyword query (Chinese and English supported); empty lists all.
         type: Optional entry type filter (concept/mechanism/data_source/
-            experiment_paradigm/hypothesis_template/finding/counterexample).
+            experiment_paradigm/hypothesis_template/finding/counterexample/lesson).
         status: Optional status filter (candidate/canonical/deprecated/superseded).
         confidence: Optional confidence filter (high/medium/low).
         valid_range: Optional substring filter on the entry's valid range.
@@ -137,6 +170,54 @@ def kb_query(
         valid_range=valid_range,
         limit=limit,
     )
+
+
+@tool(parse_docstring=True)
+def kb_context(
+    stage: str,
+    query: str = "",
+    valid_range: str = "",
+    limit: int = 6,
+    config: RunnableConfig = None,
+) -> str:
+    """Build the smallest stage-relevant Wiki context for the current task.
+
+    This is the preferred entry point for a research stage. It returns a
+    bounded packet instead of a raw search list: canonical entries are ranked
+    ahead of candidates, entry types are prioritised for the stage, unresolved
+    counterexamples mark canonical entries as contested, and every selected
+    entry carries its applicability range and a knowledge-usage receipt.
+
+    Wiki context constrains terminology and scope; it is not observational or
+    experimental evidence. Use ``kb_read`` only when the full entry text is
+    genuinely needed.
+
+    Args:
+        stage: One of planning, data, hypothesis, experiment_design,
+            experiment_result, evidence.
+        query: Exact research question or focused stage question.
+        valid_range: Optional applicability substring (e.g. "SC21-SC25").
+        limit: Maximum number of entries (1-10, default 6).
+
+    Returns:
+        JSON string with a frozen ``knowledge-context-v1`` packet.
+    """
+    try:
+        ctx_agent, ctx_run_id = _run_context(config)
+        return _ok(
+            knowledge_context.build_knowledge_context(
+                _get_store(),
+                query,
+                stage=stage,
+                valid_range=valid_range,
+                limit=limit,
+                agent=ctx_agent,
+                run_id=ctx_run_id,
+                record_usage=True,
+            )
+        )
+    except Exception as exc:  # noqa: BLE001
+        return _err(str(exc))
 
 
 @tool(parse_docstring=True)
@@ -157,7 +238,7 @@ def kb_search(
     Args:
         query: Keyword query (Chinese and English supported); empty lists all.
         type: Optional entry type filter (concept/mechanism/data_source/
-            experiment_paradigm/hypothesis_template/finding/counterexample).
+            experiment_paradigm/hypothesis_template/finding/counterexample/lesson).
         status: Optional status filter (candidate/canonical/deprecated/superseded).
         confidence: Optional confidence filter (high/medium/low).
         valid_range: Optional substring filter on the entry's valid range.
@@ -232,7 +313,7 @@ def kb_propose(
 
     Args:
         type: Entry type (concept/mechanism/data_source/experiment_paradigm/
-            hypothesis_template/finding/counterexample).
+            hypothesis_template/finding/counterexample/lesson).
         title: One-sentence title.
         content: Structured content object with the per-type sub-fields
             (e.g. concept requires ``definition``; finding requires
@@ -271,22 +352,66 @@ def kb_propose(
 
 
 @tool(parse_docstring=True)
+def kb_record_reproduction(
+    entry_id: str,
+    run_id: str,
+    evidence_ref: str,
+    method: str = "",
+    scope: str = "",
+    config: RunnableConfig = None,
+) -> str:
+    """Attach one independent run's evidence to a candidate entry.
+
+    Reading an entry is usage, not reproduction. Only records created here can
+    satisfy the promotion gate, and each record needs a traceable evidence
+    locator (report, artifact, result file, or hash-bound receipt).
+
+    Args:
+        entry_id: Candidate entry id.
+        run_id: Independent research run that produced the evidence.
+        evidence_ref: Traceable report/artifact/result locator.
+        method: Optional method or analysis fingerprint.
+        scope: Optional sample or applicability scope.
+
+    Returns:
+        JSON string with the recorded reproduction evidence or an error.
+    """
+    try:
+        ctx_agent, _ = _run_context(config)
+        return _ok(
+            service.record_reproduction(
+                _get_store(),
+                entry_id,
+                run_id=run_id,
+                evidence_ref=evidence_ref,
+                method=method,
+                scope=scope,
+                recorded_by=ctx_agent,
+            )
+        )
+    except Exception as exc:  # noqa: BLE001
+        return _err(str(exc))
+
+
+@tool(parse_docstring=True)
 def kb_promote(
     entry_id: str,
     reason: str,
     config: RunnableConfig = None,
 ) -> str:
-    """Run the cross-run evidence gate for a candidate entry.
+    """Run the explicit cross-run evidence gate for a candidate entry.
 
-    Promotes to canonical only when the finding was reproduced in at least two
-    distinct run ids. A DOI proves source identity but never scientific support.
+    Promotes to canonical only when at least two distinct runs have been
+    recorded with traceable evidence via ``kb_record_reproduction``. Reads are
+    never reproduction evidence. An unresolved conflict blocks promotion.
 
     Args:
         entry_id: Candidate entry id to promote.
         reason: Promotion justification based on cross-run reproduction.
 
     Returns:
-        JSON string with the gate decision (promoted or promotion_not_ready).
+        JSON string with the gate decision (promoted, promotion_not_ready, or
+        promotion_blocked_by_conflict).
     """
     try:
         return _ok(service.promote(_get_store(), entry_id, reason=reason))
@@ -326,10 +451,57 @@ def kb_conflicts(entry_id: str = "") -> str:
         entry_id: Optional entry id to filter conflicts involving it.
 
     Returns:
-        JSON string with unresolved conflict records.
+        JSON string with unresolved conflict records, each carrying any
+        adjudications already recorded for the pair.
     """
     try:
         return _ok(service.conflicts(_get_store(), entry_id=entry_id))
+    except Exception as exc:  # noqa: BLE001
+        return _err(str(exc))
+
+
+@tool(parse_docstring=True)
+def kb_adjudicate_conflict(
+    candidate_id: str,
+    canonical_id: str,
+    decision: str,
+    rationale: str,
+    evidence_ref: str = "",
+    config: RunnableConfig = None,
+) -> str:
+    """Resolve one counterexample-vs-canonical conflict.
+
+    Args:
+        candidate_id: The counterexample entry id from kb_conflicts.
+        canonical_id: The canonical entry id it contradicts.
+        decision: uphold_canonical / overturn_canonical / defer.
+        rationale: Why this decision is justified (required).
+        evidence_ref: Optional traceable locator supporting the decision.
+
+    Returns:
+        JSON string with the recorded decision and the retired entry id.
+    """
+    try:
+        agent, run_id = _run_context(config)
+        store = _get_store()
+        result = service.adjudicate_conflict(
+            store,
+            candidate_id=candidate_id,
+            canonical_id=canonical_id,
+            decision=decision,
+            rationale=rationale,
+            judge_run_id=run_id,
+            evidence_ref=evidence_ref,
+            agent=agent or "main",
+        )
+        if result.get("retired_entry_id"):
+            store.log_provenance(
+                run_id=run_id,
+                agent=agent or "main",
+                entry_id=str(result["retired_entry_id"]),
+                purpose=f"conflict_adjudication:{decision}",
+            )
+        return _ok(result)
     except Exception as exc:  # noqa: BLE001
         return _err(str(exc))
 
@@ -347,6 +519,61 @@ def kb_log(run_id: str) -> str:
     """
     try:
         return _ok(service.usage_log(_get_store(), run_id))
+    except Exception as exc:  # noqa: BLE001
+        return _err(str(exc))
+
+
+@tool(parse_docstring=True)
+def kb_growth(action: str = "cycle", feed_id: str = "", limit: int = 10) -> str:
+    """Run or inspect the deterministic Wiki growth queue.
+
+    Growth is job-based, idempotent, and auditable — never a free-form agent
+    rewrite. ``cycle`` enqueues and runs today's maintenance sweep (seed sync,
+    health check, distill-queue refresh); repeating it the same day skips
+    finished jobs. ``feed_sync`` additionally refreshes one literature feed
+    (network). ``compile`` backfills the post-run claim compiler over already
+    finalized experiment runs, merging run-scoped orphans into claim-keyed
+    entries and accumulating cross-run reproduction evidence. ``status`` returns
+    the recent job dashboard.
+
+    Args:
+        action: ``cycle`` (default), ``status``, ``feed_sync``, or ``compile``.
+        feed_id: Literature feed id, required for ``feed_sync``.
+        limit: Distill-queue size for ``cycle`` (1-50), or the number of runs
+            to replay for ``compile`` (1-200).
+
+    Returns:
+        JSON string with per-job outcomes, or the queue dashboard.
+    """
+    try:
+        store = _get_store()
+        normalized = str(action or "cycle").strip().lower()
+        if normalized == "status":
+            return _ok(growth.growth_status(store, limit=max(1, min(limit, 100))))
+        if normalized == "cycle":
+            return _ok(growth.run_growth_cycle(store, distill_limit=limit))
+        if normalized == "feed_sync":
+            if not feed_id.strip():
+                return _err("feed_sync requires feed_id")
+            return _ok(
+                growth.run_growth_cycle(
+                    store,
+                    feed_ids=[feed_id.strip()],
+                    run_feed_sync=True,
+                )
+            )
+        if normalized == "compile":
+            return _ok(
+                growth.run_growth_cycle(
+                    store,
+                    compile_limit=max(1, min(limit, 200)),
+                    run_compile_runs=True,
+                )
+            )
+        return _err(
+            f"unknown kb_growth action {action!r}; "
+            "expected cycle/status/feed_sync/compile"
+        )
     except Exception as exc:  # noqa: BLE001
         return _err(str(exc))
 
@@ -744,7 +971,7 @@ def lit_distill(
     Args:
         source_id: Cached source id (from ``lit_search``).
         entry_type: Entry type (concept/mechanism/data_source/
-            experiment_paradigm/hypothesis_template/finding/counterexample).
+            experiment_paradigm/hypothesis_template/finding/counterexample/lesson).
         title: One-sentence title for the distilled entry.
         content: Mapping of content fields to evidence objects or
             ``"evidence_gap"``.
@@ -787,12 +1014,16 @@ def lit_distill(
 
 KB_TOOLS = [
     kb_search,
+    kb_context,
     kb_read,
     kb_propose,
+    kb_record_reproduction,
     kb_promote,
     kb_deprecate,
     kb_conflicts,
+    kb_adjudicate_conflict,
     kb_log,
+    kb_growth,
     kb_import,
     lit_feed_catalog,
     lit_feed_sync,
@@ -809,12 +1040,14 @@ KB_TOOLS = [
 
 KB_READONLY_TOOLS = [
     kb_query,
+    kb_context,
     kb_read,
     lit_bundle_build,
     lit_bundle_read,
 ]
 KB_INSPECTION_TOOLS = [
     kb_query,
+    kb_context,
     kb_read,
     lit_bundle_read,
 ]
@@ -824,6 +1057,10 @@ KB_LITERATURE_TOOLS = [
     lit_fetch,
     lit_bundle_build,
     lit_bundle_read,
+]
+KB_CONTEXT_TOOLS = [
+    kb_context,
+    kb_log,
 ]
 
 register_tool_bundle("knowledge-base", KB_TOOLS)
@@ -842,10 +1079,24 @@ register_tool_bundle(
     KB_LITERATURE_TOOLS,
     include_in_main=False,
 )
+register_tool_bundle(
+    "knowledge-base-context",
+    KB_CONTEXT_TOOLS,
+    include_in_main=False,
+)
 
 __all__ = [
+    "KB_CONTEXT_TOOLS",
     "KB_INSPECTION_TOOLS",
     "KB_LITERATURE_TOOLS",
     "KB_READONLY_TOOLS",
     "KB_TOOLS",
-] + [t.name for t in (*KB_TOOLS, *KB_READONLY_TOOLS, *KB_INSPECTION_TOOLS)]
+] + [
+    t.name
+    for t in (
+        *KB_TOOLS,
+        *KB_READONLY_TOOLS,
+        *KB_INSPECTION_TOOLS,
+        *KB_CONTEXT_TOOLS,
+    )
+]

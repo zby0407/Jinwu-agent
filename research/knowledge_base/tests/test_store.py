@@ -41,6 +41,19 @@ def propose_concept(store, title="极区磁场前兆", **overrides):
     return service.propose(store, **params)
 
 
+def record_reproductions(store, entry_id, run_ids):
+    for run_id in run_ids:
+        service.record_reproduction(
+            store,
+            entry_id,
+            run_id=run_id,
+            evidence_ref=f"runs/{run_id}/report.md",
+            method="fixed test protocol",
+            scope="test scope",
+            recorded_by="test",
+        )
+
+
 class TestLiteratureSchemaMigration(unittest.TestCase):
     def test_legacy_lit_sources_is_upgraded_and_backfilled(self):
         tmp = tempfile.mkdtemp(prefix="kb_migration_test_")
@@ -261,13 +274,21 @@ class TestPromotionGate(StoreTestCase):
             source_ref="run_A",
             confidence="low",
         )["entry"]
-        service.read(self.store, entry["id"], run_id="run_B", purpose="compare")
+        record_reproductions(self.store, entry["id"], ("run_A", "run_B"))
         result = service.promote(self.store, entry["id"], reason="两次独立运行复现")
         self.assertEqual(result["decision"], "promoted")
         self.assertEqual(result["auto_rule"], "cross_run_reproduction")
         self.assertEqual(result["entry_status"], "canonical")
         promoted = self.store.get_entry(entry["id"])
         self.assertEqual(promoted["status"], "canonical")
+        self.assertEqual(promoted["provenance"]["supporting_run_ids"], ["run_A", "run_B"])
+        self.assertEqual(
+            [
+                item["run_id"]
+                for item in promoted["provenance"]["reproduction_evidence"]
+            ],
+            ["run_A", "run_B"],
+        )
 
     def test_literature_with_doi_stays_candidate_without_reproduction(self):
         entry = propose_concept(
@@ -286,7 +307,47 @@ class TestPromotionGate(StoreTestCase):
         entry = propose_concept(self.store, title="单次运行条目")["entry"]
         result = service.promote(self.store, entry["id"], reason="孤证")
         self.assertEqual(result["decision"], "promotion_not_ready")
+        self.assertEqual(
+            result["reason"], "insufficient_reproduction_evidence"
+        )
         self.assertEqual(self.store.get_entry(entry["id"])["status"], "candidate")
+
+    def test_reads_never_count_as_reproduction(self):
+        entry = propose_concept(self.store, title="只被阅读的条目")["entry"]
+        service.read(self.store, entry["id"], run_id="read_run_1", purpose="grounding")
+        service.read(self.store, entry["id"], run_id="read_run_2", purpose="comparison")
+        result = service.promote(self.store, entry["id"], reason="被多次阅读")
+        self.assertEqual(result["decision"], "promotion_not_ready")
+        self.assertEqual(result["supporting_run_ids"], [])
+        self.assertEqual(result["evidence_count"], 0)
+        self.assertEqual(self.store.get_entry(entry["id"])["status"], "candidate")
+
+    def test_reproduction_evidence_is_idempotent_and_requires_locator(self):
+        entry = propose_concept(self.store, title="复现证据幂等")["entry"]
+        first = service.record_reproduction(
+            self.store,
+            entry["id"],
+            run_id="run_A",
+            evidence_ref="runs/run_A/report.md",
+        )
+        second = service.record_reproduction(
+            self.store,
+            entry["id"],
+            run_id="run_A",
+            evidence_ref="runs/run_A/report.md",
+        )
+        self.assertEqual(first["decision"], "recorded")
+        self.assertEqual(second["decision"], "already_recorded")
+        self.assertEqual(
+            len(self.store.list_reproduction_evidence(entry["id"])), 1
+        )
+        with self.assertRaises(ContractError) as ctx:
+            service.record_reproduction(
+                self.store, entry["id"], run_id="run_B", evidence_ref="  "
+            )
+        self.assertEqual(
+            ctx.exception.error_code, "reproduction_evidence_ref_missing"
+        )
 
     def test_promote_non_candidate_rejected(self):
         entry = service.propose(
@@ -298,7 +359,7 @@ class TestPromotionGate(StoreTestCase):
             source_ref="run_A",
             confidence="low",
         )["entry"]
-        service.read(self.store, entry["id"], run_id="run_B", purpose="compare")
+        record_reproductions(self.store, entry["id"], ("run_A", "run_B"))
         service.promote(self.store, entry["id"], reason="两次独立运行复现")
         with self.assertRaises(ContractError):
             service.promote(self.store, entry["id"], reason="重复晋升")
@@ -398,6 +459,22 @@ class TestConflictsAndLog(StoreTestCase):
         self.assertEqual(
             self.store.get_entry(result["entry"]["id"])["status"], "candidate"
         )
+
+        # 即使复现证据充分，未解决冲突也必须阻断双方中候选方的晋升。
+        record_reproductions(
+            self.store, result["entry"]["id"], ("run_X", "run_Y")
+        )
+        blocked = service.promote(
+            self.store, result["entry"]["id"], reason="两次独立运行复现反例"
+        )
+        self.assertEqual(blocked["decision"], "promotion_blocked_by_conflict")
+        self.assertEqual(blocked["reason"], "unresolved_conflict")
+        self.assertEqual(len(blocked["conflicts"]), 1)
+        self.assertEqual(
+            self.store.get_entry(result["entry"]["id"])["status"], "candidate"
+        )
+        self.assertEqual(self.store.get_entry(canonical["id"])["status"], "canonical")
+        self.assertEqual(service.conflicts(self.store)["count"], 1)
 
     def test_non_counterexample_propose_has_no_conflict(self):
         canonical = propose_concept(self.store, title="基线概念")["entry"]

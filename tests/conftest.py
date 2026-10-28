@@ -112,6 +112,31 @@ def sample_events():
     ]
 
 
+@pytest.fixture(autouse=True)
+def _reset_knowledge_growth_state():
+    """Keep the Wiki's background growth sweep out of unrelated tests.
+
+    The main agent triggers one throttled maintenance sweep at turn end. A test
+    that merely builds or drives the main agent must never spawn that thread —
+    it would open the developer's real knowledge store. Disable it by default
+    and always clear the process-wide throttle so a test that enables it cannot
+    leak into the next one.
+    """
+    from jw.middleware.knowledge_context import _reset_growth_state
+
+    previous = os.environ.get("JW_KB_AUTO_GROWTH")
+    os.environ["JW_KB_AUTO_GROWTH"] = "0"
+    _reset_growth_state()
+    try:
+        yield
+    finally:
+        _reset_growth_state()
+        if previous is None:
+            os.environ.pop("JW_KB_AUTO_GROWTH", None)
+        else:
+            os.environ["JW_KB_AUTO_GROWTH"] = previous
+
+
 @pytest.fixture
 def tmp_workspace(tmp_path):
     """Provide a temporary workspace directory path."""

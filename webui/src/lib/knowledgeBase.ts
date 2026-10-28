@@ -349,6 +349,61 @@ export interface KbUsageRow {
   entry_title: string | null;
 }
 
+export interface KbGrowthJob {
+  job_id: string;
+  job_type: string;
+  status: "pending" | "running" | "done" | "failed" | string;
+  attempts: number;
+  last_error: string;
+  updated_at: string;
+  result: Record<string, unknown>;
+}
+
+export interface KbGrowthMetrics {
+  status?: string;
+  counts?: {
+    entries?: Record<string, number>;
+    reproduction?: Record<string, number>;
+    distillation?: Record<string, number>;
+    [key: string]: unknown;
+  };
+  reuse_rate?: number;
+  injection_rate?: number;
+  promotion_precision?: number;
+  distillation_conversion?: number;
+  reads_per_run?: number;
+  [key: string]: unknown;
+}
+
+export interface KbGrowthDashboard {
+  status: string;
+  jobs: KbGrowthJob[];
+  metrics: KbGrowthMetrics;
+}
+
+export interface KbConflictAdjudication {
+  adjudication_id: string;
+  decision: "uphold_canonical" | "overturn_canonical" | "defer" | string;
+  rationale: string;
+  created_at: string;
+  created_by: string;
+}
+
+export interface KbConflictRow {
+  candidate_id: string;
+  candidate_title: string;
+  canonical_id: string;
+  canonical_title: string;
+  status: string;
+  adjudications: KbConflictAdjudication[];
+}
+
+export interface KbConflictList {
+  status: string;
+  count: number;
+  conflicts: KbConflictRow[];
+}
+
 function kbRequest(path: string): {
   url: string;
   headers: Record<string, string>;
@@ -521,4 +576,22 @@ export async function fetchKbGraph(limit = 200): Promise<KbGraph> {
 export async function fetchKbUsage(runId = ""): Promise<KbUsageRow[]> {
   const qs = runId ? `?run_id=${encodeURIComponent(runId)}` : "";
   return kbFetch<KbUsageRow[]>(`/api/kb/usage${qs}`);
+}
+
+export async function fetchKbGrowth(): Promise<KbGrowthDashboard> {
+  return kbFetch<KbGrowthDashboard>("/api/kb/growth");
+}
+
+export async function fetchKbConflicts(limit = 50): Promise<KbConflictList> {
+  return kbFetch<KbConflictList>(`/api/kb/conflicts?limit=${limit}`);
+}
+
+export async function adjudicateKbConflict(input: {
+  candidate_id: string;
+  canonical_id: string;
+  decision: "uphold_canonical" | "overturn_canonical" | "defer";
+  rationale: string;
+  evidence_ref?: string;
+}): Promise<{ status: string; decision: string; retired_entry_id: string }> {
+  return kbSend("/api/kb/conflicts", "POST", input);
 }

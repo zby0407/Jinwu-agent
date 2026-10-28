@@ -66,14 +66,22 @@ def test_knowledge_base_readonly_bundle_exposes_no_mutation_tools() -> None:
     allowed = _bundle_allowlist("knowledge-base-readonly")
 
     assert allowed == frozenset(
-        {"kb_query", "kb_read", "lit_bundle_build", "lit_bundle_read"}
+        {
+            "kb_query",
+            "kb_context",
+            "kb_read",
+            "lit_bundle_build",
+            "lit_bundle_read",
+        }
     )
     assert allowed.isdisjoint(
         {
             "kb_propose",
             "kb_promote",
             "kb_deprecate",
+            "kb_adjudicate_conflict",
             "kb_import",
+            "kb_growth",
             "lit_fetch",
             "lit_distill",
         }
@@ -83,8 +91,28 @@ def test_knowledge_base_readonly_bundle_exposes_no_mutation_tools() -> None:
 def test_evidence_knowledge_inspection_bundle_cannot_build_bundles() -> None:
     allowed = _bundle_allowlist("knowledge-base-inspection")
 
-    assert allowed == frozenset({"kb_query", "kb_read", "lit_bundle_read"})
+    assert allowed == frozenset(
+        {"kb_query", "kb_context", "kb_read", "lit_bundle_read"}
+    )
     assert "lit_bundle_build" not in allowed
+    assert "kb_growth" not in allowed
+    assert "kb_adjudicate_conflict" not in allowed
+
+
+def test_context_bundle_is_read_only() -> None:
+    allowed = _bundle_allowlist("knowledge-base-context")
+
+    assert allowed == frozenset({"kb_context", "kb_log"})
+    assert allowed.isdisjoint(
+        {
+            "kb_propose",
+            "kb_promote",
+            "kb_deprecate",
+            "kb_adjudicate_conflict",
+            "kb_import",
+            "kb_growth",
+        }
+    )
 
 
 def test_contract_allowlist_blocks_disallowed_tool_at_execution() -> None:

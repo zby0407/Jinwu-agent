@@ -205,6 +205,7 @@ _DEFAULT_SCHEMA = """# Wiki 结构
 - `hypothesis_template`：可复用的假设结构及适用条件
 - `finding`：来自可追溯运行的可复用结果
 - `counterexample`：削弱或限定已有主张的证据
+- `lesson`：技术失败、执行陷阱或可复用修复经验；不构成科学发现
 
 ## 生命周期
 

@@ -62,6 +62,15 @@ except ImportError:  # packaged installs without the literature module
     default_literature_feeds_path = None  # type: ignore[assignment]
     load_literature_feeds = None  # type: ignore[assignment]
 
+try:
+    from knowledge_base import growth as kb_growth
+    from knowledge_base import service as kb_service
+    from knowledge_base.store import KnowledgeStore
+except ImportError:  # packaged installs without the knowledge_base package
+    kb_growth = None  # type: ignore[assignment]
+    kb_service = None  # type: ignore[assignment]
+    KnowledgeStore = None  # type: ignore[assignment]
+
 
 _NO_STORE = {"Cache-Control": "no-store"}
 _ENTRY_LIST_COLUMNS = (
@@ -513,7 +522,8 @@ def _fetch_overview() -> dict[str, Any]:
         historical_findings = int(
             conn.execute(
                 "SELECT COUNT(*) FROM entries "
-                "WHERE type = 'finding' AND source_type = 'historical_run'"
+                "WHERE type IN ('finding', 'lesson') "
+                "AND source_type = 'historical_run'"
             ).fetchone()[0]
         )
         related_rows = conn.execute(
@@ -955,7 +965,8 @@ def _fetch_graph(limit: int) -> dict[str, Any]:
             "SELECT id, type, title, status, confidence, source_type, "
             "related_ids, provenance FROM entries "
             "WHERE status IN ('candidate', 'canonical') "
-            "AND NOT (type = 'finding' AND source_type = 'historical_run') "
+            "AND NOT (type IN ('finding', 'lesson') "
+            "AND source_type = 'historical_run') "
             "ORDER BY CASE status WHEN 'canonical' THEN 0 ELSE 1 END, "
             "updated_at DESC LIMIT ?",
             (limit,),
@@ -1432,6 +1443,147 @@ async def list_wiki_candidate_patches(request: Request) -> JSONResponse:
     )
 
 
+def _fetch_growth() -> dict[str, Any]:
+    """Growth dashboard: queue state plus derived usage/growth rates."""
+
+    conn = _connect_ro()
+    if conn is None:
+        return {"status": "ok", "jobs": [], "metrics": {}}
+    try:
+        from knowledge_base.store import usage_raw_counts
+
+        try:
+            rows = conn.execute(
+                "SELECT job_id, job_type, status, attempts, last_error, "
+                "updated_at, result FROM kb_growth_jobs "
+                "ORDER BY updated_at DESC LIMIT 50"
+            ).fetchall()
+        except sqlite3.OperationalError:
+            # Older databases predate the growth queue; the panel still shows
+            # the entry/usage metrics until the next store open migrates it.
+            rows = []
+        jobs = [
+            {
+                "job_id": row["job_id"],
+                "job_type": row["job_type"],
+                "status": row["status"],
+                "attempts": row["attempts"],
+                "last_error": row["last_error"],
+                "updated_at": row["updated_at"],
+                "result": _parse_json(row["result"], {}),
+            }
+            for row in rows
+        ]
+        metrics = (
+            kb_growth.derive_metrics(usage_raw_counts(conn))
+            if kb_growth is not None
+            else {}
+        )
+        return {"status": "ok", "jobs": jobs, "metrics": metrics}
+    finally:
+        conn.close()
+
+
+def _fetch_conflicts(limit: int) -> dict[str, Any]:
+    """Unresolved counterexample-vs-canonical conflicts with adjudications."""
+
+    conn = _connect_ro()
+    if conn is None:
+        return {"status": "ok", "count": 0, "conflicts": []}
+    try:
+        rows = conn.execute(
+            "SELECT c.id AS candidate_id, c.title AS candidate_title, "
+            "c.related_ids AS related_ids, c.updated_at AS candidate_updated_at "
+            "FROM entries c WHERE c.type = 'counterexample' "
+            "AND c.status = 'candidate' ORDER BY c.updated_at DESC LIMIT ?",
+            (max(limit, 1),),
+        ).fetchall()
+        items: list[dict[str, Any]] = []
+        for row in rows:
+            for related_id in _parse_json(row["related_ids"], []) or []:
+                target = conn.execute(
+                    "SELECT id, title, status FROM entries WHERE id = ?",
+                    (str(related_id),),
+                ).fetchone()
+                if target is None or target["status"] != "canonical":
+                    continue
+                try:
+                    adjudications = [
+                        dict(item)
+                        for item in conn.execute(
+                            "SELECT adjudication_id, decision, rationale, "
+                            "created_at, created_by "
+                            "FROM entry_conflict_adjudications "
+                            "WHERE candidate_id = ? AND canonical_id = ? "
+                            "ORDER BY created_at",
+                            (row["candidate_id"], target["id"]),
+                        )
+                    ]
+                except sqlite3.OperationalError:
+                    adjudications = []
+                items.append(
+                    {
+                        "candidate_id": row["candidate_id"],
+                        "candidate_title": row["candidate_title"],
+                        "canonical_id": target["id"],
+                        "canonical_title": target["title"],
+                        "status": "unresolved",
+                        "adjudications": adjudications,
+                    }
+                )
+                if len(items) >= limit:
+                    break
+            if len(items) >= limit:
+                break
+        return {"status": "ok", "count": len(items), "conflicts": items}
+    finally:
+        conn.close()
+
+
+async def get_growth(request: Request) -> JSONResponse:
+    """Return the Wiki growth dashboard (queue state + derived rates)."""
+
+    return _json(await asyncio.to_thread(_fetch_growth))
+
+
+async def list_conflicts(request: Request) -> JSONResponse:
+    """Return unresolved evidence conflicts for review."""
+
+    limit = min(_clamp_limit(request.query_params.get("limit")), 200)
+    return _json(await asyncio.to_thread(_fetch_conflicts, limit))
+
+
+async def adjudicate_conflict(request: Request) -> JSONResponse:
+    """Record a review decision on one conflict pair."""
+
+    try:
+        body = await request.json()
+    except (json.JSONDecodeError, ValueError):
+        return _json({"error": "request body must be JSON"}, status_code=400)
+    if kb_service is None or KnowledgeStore is None:
+        return _json({"error": "knowledge_base unavailable"}, status_code=503)
+    try:
+        result = await asyncio.to_thread(
+            lambda: _adjudicate(body),
+        )
+    except Exception as exc:  # surface contract errors as 400
+        return _json({"error": str(exc)}, status_code=400)
+    return _json(result)
+
+
+def _adjudicate(body: dict[str, Any]) -> dict[str, Any]:
+    with KnowledgeStore() as store:
+        return kb_service.adjudicate_conflict(
+            store,
+            candidate_id=str(body.get("candidate_id") or ""),
+            canonical_id=str(body.get("canonical_id") or ""),
+            decision=str(body.get("decision") or ""),
+            rationale=str(body.get("rationale") or ""),
+            evidence_ref=str(body.get("evidence_ref") or ""),
+            agent="webui",
+        )
+
+
 async def get_source(request: Request) -> JSONResponse:
     """Return raw-source metadata and its compiled Wiki entries."""
 
@@ -1481,4 +1633,7 @@ KB_ROUTES = [
     Route("/api/kb/sources/{source_id:path}", get_source, methods=["GET"]),
     Route("/api/kb/graph", get_graph, methods=["GET"]),
     Route("/api/kb/usage", list_usage, methods=["GET"]),
+    Route("/api/kb/growth", get_growth, methods=["GET"]),
+    Route("/api/kb/conflicts", list_conflicts, methods=["GET"]),
+    Route("/api/kb/conflicts", adjudicate_conflict, methods=["POST"]),
 ]

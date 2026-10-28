@@ -36,6 +36,12 @@ from .memory_lifecycle import (
     default_memory_scheduler,
 )
 from .model_fallback import ModelFallbackMiddleware, load_fallback_chain
+from .knowledge_context import (
+    KnowledgeContextMiddleware,
+    create_knowledge_context_middleware,
+    growth_state,
+    trigger_growth,
+)
 from .qwen_compat import (
     QwenToolCompatibilityMiddleware,
     QwenToolSchemaError,
@@ -69,6 +75,7 @@ __all__ = [
     "ContractToolAllowlistMiddleware",
     "JWMemoryLifecycleMiddleware",
     "JWMemoryMiddleware",
+    "KnowledgeContextMiddleware",
     "ModelFallbackMiddleware",
     "Question",
     "QwenToolCompatibilityMiddleware",
@@ -87,11 +94,14 @@ __all__ = [
     "compute_context_editing_trigger",
     "create_code_interpreter_middleware",
     "create_context_editing_middleware",
+    "create_knowledge_context_middleware",
     "create_memory_lifecycle_middleware",
     "create_memory_middleware",
     "create_runtime_context_middleware",
     "create_scheduler_middleware",
     "create_tool_selector_middleware",
+    "growth_state",
+    "trigger_growth",
     "default_memory_scheduler",
     "disable_thinking",
     "configure_qwen_thinking",

@@ -184,28 +184,108 @@ def _detect_conflicts(
 
 
 # ----------------------------------------------------------------------
-# promote (cross-run evidence gate, §4.9.6)
+# promote (explicit cross-run reproduction gate, §4.9.6)
 # ----------------------------------------------------------------------
-def _supporting_run_ids(store: KnowledgeStore, entry: dict[str, Any]) -> list[str]:
-    run_ids = set(store.distinct_run_ids(entry["id"]))
-    content_run = entry.get("content", {}).get("run_id")
-    if isinstance(content_run, str) and content_run.strip():
-        run_ids.add(content_run.strip())
-    provenance_run = entry.get("provenance", {}).get("run_id")
-    if isinstance(provenance_run, str) and provenance_run.strip():
-        run_ids.add(provenance_run.strip())
-    return sorted(run_ids)
+def record_reproduction(
+    store: KnowledgeStore,
+    entry_id: str,
+    *,
+    run_id: str,
+    evidence_ref: str,
+    method: str = "",
+    scope: str = "",
+    recorded_by: str = "",
+) -> dict[str, Any]:
+    """Attach one independent run's evidence to a candidate entry.
+
+    ``kb_read``/``provenance_log`` records usage, never reproduction. Only
+    records in ``entry_reproduction_evidence`` can support promotion, and each
+    record must name both the producing run and a traceable evidence locator.
+    Recording is idempotent per ``(entry_id, run_id)``.
+    """
+
+    entry = store.get_entry(entry_id)
+    if entry is None:
+        raise ContractError(
+            f"entry not found: {entry_id!r}",
+            error_code="entry_not_found",
+            field_path="entry_id",
+            suggestion="先用 kb_search 检索有效条目 id。",
+        )
+    if entry["status"] != "candidate":
+        raise ContractError(
+            f"reproduction evidence can only be attached to candidates "
+            f"(current: {entry['status']})",
+            error_code="reproduction_requires_candidate",
+            field_path="entry_id",
+            suggestion="只有 candidate 需要积累复现证据；canonical 变更走审核/废弃流程。",
+        )
+    normalized_run_id = " ".join(str(run_id or "").split())
+    normalized_evidence_ref = " ".join(str(evidence_ref or "").split())
+    if not normalized_run_id:
+        raise ContractError(
+            "run_id is required",
+            error_code="reproduction_run_id_missing",
+            field_path="run_id",
+            suggestion="提供产生该证据的独立研究运行 id。",
+        )
+    if not normalized_evidence_ref:
+        raise ContractError(
+            "evidence_ref is required",
+            error_code="reproduction_evidence_ref_missing",
+            field_path="evidence_ref",
+            suggestion="提供可定位证据：运行报告、artifact 路径、结果文件或带哈希的回执。",
+        )
+    normalized_method = " ".join(str(method or "").split())[:1_000]
+    normalized_scope = " ".join(str(scope or "").split())[:1_000]
+    existing = next(
+        (
+            row
+            for row in store.list_reproduction_evidence(entry_id)
+            if row["run_id"] == normalized_run_id
+        ),
+        None,
+    )
+    if existing is not None:
+        return {
+            "status": "ok",
+            "decision": "already_recorded",
+            "entry_id": entry_id,
+            "reproduction": existing,
+        }
+    record = store.add_reproduction_evidence(
+        entry_id=entry_id,
+        run_id=normalized_run_id,
+        evidence_ref=normalized_evidence_ref[:2_000],
+        method=normalized_method,
+        scope=normalized_scope,
+        recorded_by=str(recorded_by or "")[:200],
+    )
+    return {
+        "status": "ok",
+        "decision": "recorded",
+        "entry_id": entry_id,
+        "reproduction": record,
+    }
 
 
-def _auto_rule(
-    store: KnowledgeStore, entry: dict[str, Any]
-) -> tuple[str | None, list[str]]:
-    """First satisfied §4.9.6 auto rule, plus the supporting run_id list."""
+def _reproduction_evidence(
+    store: KnowledgeStore, entry_id: str
+) -> tuple[list[str], list[dict[str, Any]]]:
+    records = [
+        record
+        for record in store.list_reproduction_evidence(entry_id)
+        if str(record.get("run_id") or "").strip()
+        and str(record.get("evidence_ref") or "").strip()
+    ]
+    run_ids = store.distinct_reproduction_run_ids(entry_id)
+    return run_ids, records
 
-    run_ids = _supporting_run_ids(store, entry)
-    if len(run_ids) >= 2:
-        return "cross_run_reproduction", run_ids
-    return None, run_ids
+
+def _auto_rule(run_ids: list[str]) -> str | None:
+    """The §4.9.6 auto rule satisfied by explicit reproduction evidence."""
+
+    return "cross_run_reproduction" if len(run_ids) >= 2 else None
 
 
 def promote(
@@ -216,9 +296,10 @@ def promote(
 ) -> dict[str, Any]:
     """Run the promotion gate for a candidate.
 
-    Cross-run reproduction promotes the entry to canonical. Otherwise the
-    entry remains a candidate and the response reports that promotion evidence
-    is not ready; no approval queue is created.
+    Promotion requires at least two distinct runs recorded in
+    ``entry_reproduction_evidence``, each with a traceable evidence locator.
+    Reads are not evidence. Any unresolved conflict involving the entry blocks
+    promotion until it is adjudicated.
     """
 
     entry = store.get_entry(entry_id)
@@ -244,14 +325,31 @@ def promote(
             suggestion="说明晋升理由（跨运行复现证据及其可追溯来源）。",
         )
 
-    rule, run_ids = _auto_rule(store, entry)
+    unresolved = conflicts(store, entry_id=entry_id)["conflicts"]
+    run_ids, evidence = _reproduction_evidence(store, entry_id)
+    if unresolved:
+        return {
+            "status": "ok",
+            "decision": "promotion_blocked_by_conflict",
+            "entry_id": entry_id,
+            "entry_status": "candidate",
+            "reason": "unresolved_conflict",
+            "conflicts": unresolved,
+            "supporting_run_ids": run_ids,
+            "evidence_count": len(evidence),
+        }
+
+    rule = _auto_rule(run_ids)
     if rule is None:
         return {
             "status": "ok",
             "decision": "promotion_not_ready",
             "entry_id": entry_id,
             "entry_status": "candidate",
+            "reason": "insufficient_reproduction_evidence",
             "supporting_run_ids": run_ids,
+            "evidence_count": len(evidence),
+            "required_run_count": 2,
         }
 
     check_status_transition(entry["status"], "canonical")
@@ -264,11 +362,18 @@ def promote(
         "promote_reason": reason,
         "auto_rule": rule,
         "supporting_run_ids": run_ids,
+        "reproduction_evidence": [
+            {
+                "run_id": record["run_id"],
+                "evidence_ref": record["evidence_ref"],
+                "method": record["method"],
+                "scope": record["scope"],
+            }
+            for record in evidence
+        ],
         "promoted_at": now,
     }
-    store.update_entry(
-        entry, changed_by="cross-run-evidence-gate", reason="promote"
-    )
+    store.update_entry(entry, changed_by="cross-run-evidence-gate", reason="promote")
     entry["export_path"] = _export(store, entry)
     return {
         "status": "ok",
@@ -277,6 +382,7 @@ def promote(
         "entry_id": entry_id,
         "entry_status": "canonical",
         "supporting_run_ids": run_ids,
+        "evidence_count": len(evidence),
         "entry": entry,
     }
 
@@ -353,10 +459,17 @@ def deprecate(
 # unresolved evidence conflicts (R5)
 # ----------------------------------------------------------------------
 def conflicts(store: KnowledgeStore, entry_id: str = "") -> dict[str, Any]:
-    """List counterexamples linked to canonical entries."""
+    """List counterexamples linked to canonical entries.
+
+    Each item carries any adjudications already recorded for the pair, so a
+    reviewer can see that a conflict was examined even while it is still
+    unresolved (``defer`` does not clear it).
+    """
 
     items: list[dict[str, Any]] = []
-    for candidate in store.search(entry_type="counterexample", status="candidate", limit=500):
+    for candidate in store.search(
+        entry_type="counterexample", status="candidate", limit=500
+    ):
         for related_id in candidate.get("related_ids", []):
             target = store.get_entry(str(related_id))
             if target is None or target.get("status") != "canonical":
@@ -369,9 +482,130 @@ def conflicts(store: KnowledgeStore, entry_id: str = "") -> dict[str, Any]:
                     "canonical_id": target["id"],
                     "status": "unresolved",
                     "reason": "new evidence is required before either claim can be promoted",
+                    "adjudications": store.list_conflict_adjudications(
+                        candidate_id=candidate["id"],
+                        canonical_id=target["id"],
+                    ),
                 }
             )
     return {"status": "ok", "count": len(items), "conflicts": items}
+
+
+CONFLICT_DECISIONS = ("uphold_canonical", "overturn_canonical", "defer")
+
+
+def adjudicate_conflict(
+    store: KnowledgeStore,
+    *,
+    candidate_id: str,
+    canonical_id: str,
+    decision: str,
+    rationale: str,
+    judge_run_id: str = "",
+    evidence_ref: str = "",
+    agent: str = "",
+) -> dict[str, Any]:
+    """Resolve one counterexample-vs-canonical conflict.
+
+    ``uphold_canonical`` keeps the established claim and retires the
+    counterexample; ``overturn_canonical`` retires the canonical claim so the
+    counterexample can go through the normal reproduction gate; ``defer`` only
+    records that the pair was reviewed and leaves it unresolved.
+
+    Nothing is deleted and no claim is promoted directly: adjudication only
+    changes *which* claim is still standing, and promotion keeps requiring
+    cross-run reproduction evidence.
+    """
+
+    if decision not in CONFLICT_DECISIONS:
+        raise ContractError(
+            f"unsupported conflict decision: {decision!r}",
+            error_code="conflict_decision_invalid",
+            field_path="decision",
+            suggestion="decision 取 uphold_canonical / overturn_canonical / defer。",
+        )
+    if not rationale.strip():
+        raise ContractError(
+            "conflict adjudication rationale is required",
+            error_code="conflict_rationale_missing",
+            field_path="rationale",
+            suggestion="说明依据（新证据、统计口径差异、样本不足等）。",
+        )
+    candidate = store.get_entry(candidate_id)
+    if candidate is None:
+        raise ContractError(
+            f"entry not found: {candidate_id!r}",
+            error_code="entry_not_found",
+            field_path="candidate_id",
+            suggestion="先用 kb_conflicts 获取有效的冲突对。",
+        )
+    canonical = store.get_entry(canonical_id)
+    if canonical is None:
+        raise ContractError(
+            f"entry not found: {canonical_id!r}",
+            error_code="entry_not_found",
+            field_path="canonical_id",
+            suggestion="先用 kb_conflicts 获取有效的冲突对。",
+        )
+    if candidate["type"] != "counterexample":
+        raise ContractError(
+            f"{candidate_id} is not a counterexample",
+            error_code="conflict_candidate_invalid",
+            field_path="candidate_id",
+            suggestion="只有 counterexample 类型可以裁决冲突。",
+        )
+    if canonical.get("status") != "canonical":
+        raise ContractError(
+            f"{canonical_id} is not canonical",
+            error_code="conflict_canonical_invalid",
+            field_path="canonical_id",
+            suggestion="冲突对另一端必须是 canonical 条目。",
+        )
+    if canonical_id not in {str(item) for item in candidate.get("related_ids", [])}:
+        raise ContractError(
+            f"{candidate_id} does not reference {canonical_id}",
+            error_code="conflict_pair_invalid",
+            field_path="canonical_id",
+            suggestion="两条目之间必须已存在 related_ids 关联。",
+        )
+
+    record = store.record_conflict_adjudication(
+        candidate_id=candidate_id,
+        canonical_id=canonical_id,
+        decision=decision,
+        rationale=rationale.strip(),
+        judge_run_id=judge_run_id,
+        evidence_ref=evidence_ref,
+        created_by=agent,
+    )
+
+    retired = ""
+    if decision == "uphold_canonical":
+        deprecate(
+            store,
+            candidate_id,
+            reason=f"conflict adjudicated against counterexample: {rationale.strip()}",
+            agent=agent,
+        )
+        retired = candidate_id
+    elif decision == "overturn_canonical":
+        deprecate(
+            store,
+            canonical_id,
+            reason=f"conflict adjudicated against canonical claim: {rationale.strip()}",
+            agent=agent,
+        )
+        retired = canonical_id
+
+    return {
+        "status": "ok",
+        "decision": decision,
+        "candidate_id": candidate_id,
+        "canonical_id": canonical_id,
+        "retired_entry_id": retired,
+        "conflict_resolved": decision != "defer",
+        "adjudication_id": record.get("adjudication_id", ""),
+    }
 
 
 def propose_literature_patch(

@@ -1,6 +1,6 @@
 # 条目写作规范
 
-七类条目的 content 子字段（schema 强制，写别的字段会被 contract 拒收）：
+八类条目的 content 子字段（schema 强制，写别的字段会被 contract 拒收）：
 
 | type | 必填 | 可选 |
 | --- | --- | --- |
@@ -11,6 +11,7 @@
 | hypothesis_template | structure | example, applicable_when |
 | finding | statement, run_id | effect_size, uncertainty |
 | counterexample | statement, run_id | effect_size, uncertainty |
+| lesson | statement, run_id | failure_mode, remediation, uncertainty |
 
 写作线：
 
