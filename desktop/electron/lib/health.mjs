@@ -5,7 +5,10 @@
  */
 
 export const BACKEND_HEALTH_PATH = '/ok';
-export const BACKEND_HEALTH_TIMEOUT_MS = 120_000;
+// 冷启动实测：字节码缓存失效（首次 import 整个 jw 包）叠加 CPU 争抢时，
+// langgraph dev 的导入阶段曾达到 131 秒，120 秒窗口会把仍然健康的启动判为失败，
+// 因此后端窗口放宽到 180 秒；前端在本地只需十余秒，保持 90 秒。
+export const BACKEND_HEALTH_TIMEOUT_MS = 180_000;
 export const WEBUI_HEALTH_TIMEOUT_MS = 90_000;
 export const HEALTH_INTERVAL_MS = 500;
 export const HEALTH_PROBE_TIMEOUT_MS = 2_000;

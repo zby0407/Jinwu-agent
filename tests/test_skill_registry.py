@@ -1,11 +1,30 @@
 import json
 from pathlib import Path
 
+import pytest
+
+from jw import paths
+from jw.skill_settings import set_skill_enabled
 from jw.subagents.skill_registry import (
     load_skill_registry,
     skill_assignment_receipt,
+    skill_receipt_for_sources,
     skills_for_agent,
 )
+
+
+@pytest.fixture(autouse=True)
+def _isolated_skill_settings(tmp_path, monkeypatch):
+    """Keep the user's real ``~/.jw/skill_settings.json`` out of these tests.
+
+    ``skills_for_agent`` now consults the persistent skill switches, so an
+    unpatched ``DATA_DIR`` would let local toggles change the registry
+    assertions below.  Individual tests write into the returned directory.
+    """
+
+    data_dir = tmp_path / "data"
+    monkeypatch.setattr(paths, "DATA_DIR", data_dir)
+    return data_dir
 
 
 def test_skill_registry_assigns_shared_and_role_specific_skills():
@@ -118,3 +137,113 @@ def test_skill_assignment_receipt_is_machine_readable_and_reports_missing_files(
     assert receipt["skill_count"] == 3
     assert receipt["missing"] == ["/skills/missing-skill"]
     assert receipt["status"] == "partial"
+
+
+SOLAR_AGENTS = (
+    "solar-planner",
+    "solar-data",
+    "solar-hypothesis",
+    "solar-experiment",
+    "solar-evidence",
+    "solar-knowledge",
+)
+
+
+def test_disabling_a_shared_skill_hides_it_from_every_solar_agent():
+    set_skill_enabled("verification-before-completion", False)
+
+    for agent in SOLAR_AGENTS:
+        assert "/skills/verification-before-completion" not in skills_for_agent(agent)
+    # Other shared entries keep their place and order.
+    assert skills_for_agent("debug-agent") == [
+        "/skills/scientific-writing",
+        "/skills/scientific-visualization",
+    ]
+
+
+def test_disabling_a_shared_skill_hides_it_from_the_main_agent():
+    before = skills_for_agent("JW")
+    assert "/skills/verification-before-completion" in before
+
+    set_skill_enabled("verification-before-completion", False)
+
+    assert skills_for_agent("JW") == [
+        source
+        for source in before
+        if source != "/skills/verification-before-completion"
+    ]
+
+
+def test_disabling_a_main_section_skill_hides_it_from_the_main_agent():
+    before = skills_for_agent("JW")
+    assert "/skills/jw-release-export-qa" in before
+
+    set_skill_enabled("jw-release-export-qa", False)
+
+    after = skills_for_agent("JW")
+    assert "/skills/jw-release-export-qa" not in after
+    assert after == [s for s in before if s != "/skills/jw-release-export-qa"]
+    # The main-agent-only removal must not touch role scoping.
+    assert "/skills/solar-flare-forecasting" not in after
+
+
+def test_disabling_a_role_scoped_skill_only_affects_its_assignees():
+    before_data = skills_for_agent("solar-data")
+    before_experiment = skills_for_agent("solar-experiment")
+    assert "/skills/solar-flare-forecasting" in before_experiment
+    assert "/skills/solar-flare-forecasting" not in before_data
+
+    set_skill_enabled("solar-flare-forecasting", False)
+
+    assert skills_for_agent("solar-data") == before_data
+    assert skills_for_agent("solar-experiment") == [
+        s for s in before_experiment if s != "/skills/solar-flare-forecasting"
+    ]
+
+
+def test_real_enabling_restores_the_source():
+    before = skills_for_agent("solar-data")
+    set_skill_enabled("solar-evidence-figure-production", False)
+    assert skills_for_agent("solar-data") != before
+
+    set_skill_enabled("solar-evidence-figure-production", True)
+    assert skills_for_agent("solar-data") == before
+
+
+def test_skills_for_agent_accepts_an_injected_disabled_set():
+    assert skills_for_agent("debug-agent", disabled={"scientific-writing"}) == [
+        "/skills/verification-before-completion",
+        "/skills/scientific-visualization",
+    ]
+
+
+def test_receipt_records_the_disabled_sources_of_that_agent():
+    set_skill_enabled("verification-before-completion", False)
+    set_skill_enabled("solar-flare-forecasting", False)
+
+    receipt = skill_assignment_receipt("solar-experiment")
+
+    assert receipt["disabled"] == [
+        "/skills/solar-flare-forecasting",
+        "/skills/verification-before-completion",
+    ]
+    assert "/skills/solar-flare-forecasting" not in receipt["skills"]
+    assert "/skills/verification-before-completion" not in receipt["skills"]
+    assert receipt["skill_count"] == len(receipt["skills"])
+    assert receipt["status"] == "ok"
+
+
+def test_receipt_disabled_is_empty_when_nothing_is_toggled_off():
+    assert skill_assignment_receipt("solar-data")["disabled"] == []
+
+
+def test_sources_receipt_does_not_report_disabled_sources_as_missing():
+    receipt = skill_receipt_for_sources(
+        "solar-experiment",
+        ["/skills/solar-flare-forecasting"],
+        disabled={"solar-flare-forecasting"},
+    )
+
+    assert receipt["missing"] == []
+    assert receipt["status"] == "ok"
+    assert receipt["disabled"] == ["/skills/solar-flare-forecasting"]

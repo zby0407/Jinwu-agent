@@ -43,6 +43,8 @@ workspace/
 !webui/src/app/api/workspace/
 !webui/src/app/api/workspace/**
 skills/
+!webui/src/app/api/skills/
+!webui/src/app/api/skills/**
 !jw/skills/
 !jw/subagents/*/skills/
 !jw/subagents/*/skills/**

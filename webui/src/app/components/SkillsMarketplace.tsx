@@ -2,6 +2,8 @@
 
 import { useCallback, useEffect, useState } from "react";
 import {
+  Bot,
+  Layers,
   Loader2,
   Puzzle,
   RotateCw,
@@ -11,8 +13,10 @@ import {
   ArrowUpCircle,
   Upload,
   Users,
-  CheckCircle2,
+  Wrench,
 } from "lucide-react";
+import { cn } from "@/lib/utils";
+import { ToggleSwitch } from "@/components/ui/switch";
 import {
   SkillDetailDialog,
   type SkillDetailTarget,
@@ -27,6 +31,9 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 
+/** Per-skill in-flight action shown on the card. */
+type SkillBusy = "install" | "uninstall" | "update" | "toggle";
+
 interface SkillCard {
   name: string;
   title: string;
@@ -36,6 +43,8 @@ interface SkillCard {
   bundle?: string;
   assignment?: { shared: boolean; agents: string[] };
   adaptation?: { name?: string; reason?: string } | null;
+  /** Runtime on/off state persisted in DATA_DIR/skill_settings.json. */
+  enabled?: boolean;
 }
 
 interface CatalogSkill {
@@ -81,6 +90,16 @@ export function SkillsMarketplace() {
   const [mainSkills, setMainSkills] = useState<SkillCard[]>([]);
   const [supportAgents, setSupportAgents] = useState<AgentProfile[]>([]);
   const [sharedSkills, setSharedSkills] = useState<SkillCard[]>([]);
+  const [mainAgent, setMainAgent] = useState<AgentProfile>({
+    name: "JW",
+    title: "JW 主 Agent",
+    description: "",
+  });
+  // Names switched OFF by the user. Kept as a set so the same skill rendered in
+  // several Agent groups flips everywhere at once.
+  const [disabledSkills, setDisabledSkills] = useState<Set<string>>(new Set());
+  /** True once a switch was flipped in this session — the backend must reload. */
+  const [pendingRestart, setPendingRestart] = useState(false);
   const [localCandidates, setLocalCandidates] = useState<LocalCandidate[]>([]);
   const [importing, setImporting] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -92,9 +111,7 @@ export function SkillsMarketplace() {
   const [catalogLoading, setCatalogLoading] = useState(false);
   const [catalogError, setCatalogError] = useState<string | null>(null);
   // Per-skill in-flight action, keyed by skill name.
-  const [busy, setBusy] = useState<
-    Record<string, "install" | "uninstall" | "update">
-  >({});
+  const [busy, setBusy] = useState<Record<string, SkillBusy>>({});
   // Skill whose detail dialog is open (null = closed).
   const [detail, setDetail] = useState<SkillDetailTarget | null>(null);
   const [uninstallTarget, setUninstallTarget] = useState<{
@@ -109,11 +126,28 @@ export function SkillsMarketplace() {
       const res = await fetch("/api/skills");
       const d = await res.json();
       if (!res.ok) throw new Error(d.error || "加载 Skills 失败");
+      const groups = (d.agents ?? []) as AgentGroup[];
       setOther((d.skills ?? []) as SkillCard[]);
-      setAgentGroups((d.agents ?? []) as AgentGroup[]);
+      setAgentGroups(groups);
       setMainSkills((d.mainSkills ?? []) as SkillCard[]);
       setSupportAgents((d.supportAgentProfiles ?? []) as AgentProfile[]);
       setSharedSkills((d.sharedSkills ?? []) as SkillCard[]);
+      if (d.mainAgent?.name) {
+        setMainAgent({
+          name: d.mainAgent.name,
+          title: d.mainAgent.title || "JW 主 Agent",
+          description: d.mainAgent.description || "",
+        });
+      }
+      const allSkills: SkillCard[] = [
+        ...((d.skills ?? []) as SkillCard[]),
+        ...((d.sharedSkills ?? []) as SkillCard[]),
+        ...((d.mainSkills ?? []) as SkillCard[]),
+        ...groups.flatMap((group) => group.skills ?? []),
+      ];
+      setDisabledSkills(
+        new Set(allSkills.filter((s) => s.enabled === false).map((s) => s.name))
+      );
       setLocalCandidates((d.localCandidates ?? []) as LocalCandidate[]);
     } catch (e) {
       setOther([]);
@@ -254,17 +288,87 @@ export function SkillsMarketplace() {
     }
   };
 
+  // Optimistic on/off switch: flip locally, persist, revert on failure.
+  const toggleSkill = async (skill: SkillCard, enabled: boolean) => {
+    const name = skill.name;
+    setBusy((b) => ({ ...b, [name]: "toggle" }));
+    setError(null);
+    setDisabledSkills((prev) => {
+      const next = new Set(prev);
+      if (enabled) next.delete(name);
+      else next.add(name);
+      return next;
+    });
+    try {
+      const res = await fetch("/api/skills/toggle", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name, enabled }),
+      });
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}));
+        throw new Error(d.error || "切换技能开关失败");
+      }
+      // Skill sources are snapshotted into the graph when it is built, so the
+      // running backend keeps the old set until the desktop restarts it.
+      setPendingRestart(true);
+    } catch (e) {
+      setDisabledSkills((prev) => {
+        const next = new Set(prev);
+        if (enabled) next.add(name);
+        else next.delete(name);
+        return next;
+      });
+      setError(e instanceof Error ? e.message : "切换技能开关失败");
+    } finally {
+      setBusy((b) => {
+        const next = { ...b };
+        delete next[name];
+        return next;
+      });
+    }
+  };
+
+  const groupedSkills = [
+    ...sharedSkills,
+    ...mainSkills,
+    ...agentGroups.flatMap((group) => group.skills ?? []),
+  ];
+  const claimedSkillNames = new Set(groupedSkills.map((s) => s.name));
+  // 支持 Agent（写作、数据分析、调试…）同样会按 registry 拿到技能源；它们的
+  // 专属技能不出现在上面六组里，若不单独列出就会变成「看不见也开关不了」。
+  const supportSkillGroups = supportAgents
+    .map((agent) => ({
+      ...agent,
+      skills: other.filter(
+        (skill) =>
+          skill.source === "builtin" &&
+          !claimedSkillNames.has(skill.name) &&
+          (skill.assignment?.agents ?? []).includes(agent.name)
+      ),
+    }))
+    .filter((agent) => agent.skills.length > 0);
+  const visibleSkillCount = new Set(
+    [
+      ...groupedSkills,
+      ...supportSkillGroups.flatMap((agent) => agent.skills),
+    ].map((s) => s.name)
+  ).size;
+  const disabledSkillCount = new Set(
+    groupedSkills.filter((s) => disabledSkills.has(s.name)).map((s) => s.name)
+  ).size;
+  const enabledSkillCount = visibleSkillCount - disabledSkillCount;
+  const hasSkillGroups =
+    sharedSkills.length > 0 || mainSkills.length > 0 || agentGroups.length > 0;
+
   return (
     <div className="h-full overflow-y-auto">
       <div className="mx-auto max-w-[960px] px-4 py-5 sm:px-5 sm:py-6">
         <header className="mb-4 flex items-start justify-between gap-3">
           <div>
             <h2 className="text-xl font-semibold sm:text-2xl">
-              JW 子 Agent 技能编排
+              JW Skills
             </h2>
-            <p className="mt-1 text-sm leading-6 text-muted-foreground">
-              查看每个子 Agent 的实际技能边界，并将本地技能适配后导入项目。
-            </p>
           </div>
           <div className="flex items-center gap-1">
             <button
@@ -402,87 +506,69 @@ export function SkillsMarketplace() {
           </div>
         ) : (
           <div className="space-y-6">
-            {(sharedSkills.length > 0 || mainSkills.length > 0 || agentGroups.length > 0) && (
-              <section aria-label="子 Agent 技能分配">
-                <div className="mb-3 flex items-center justify-between gap-3">
-                  <div>
-                    <h3 className="text-sm font-semibold">JW 主 Agent</h3>
-                    <p className="mt-1 text-xs text-muted-foreground">
-                      主 Agent
-                      负责接收研究问题、选择路径并协调下面六个太阳科研子
-                      Agent；共享基础技能单独列出，并对所有角色生效。
-                    </p>
-                  </div>
-                  <Users
-                    className="size-5 text-[var(--brand)]"
-                    aria-hidden="true"
-                  />
+            {hasSkillGroups && (
+              <>
+                <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
+                  <span>{visibleSkillCount} 个内置技能</span>
+                  <span className="text-emerald-600">{enabledSkillCount} 启用</span>
+                  {disabledSkillCount > 0 && <span>{disabledSkillCount} 已停用</span>}
+                  {pendingRestart && (
+                    <span className="inline-flex items-center gap-1 rounded-full border border-amber-500/40 bg-amber-500/10 px-2 py-0.5 text-[11px] text-amber-600">
+                      <RotateCw className="size-3" aria-hidden="true" />
+                      已保存，重启金乌服务（⌘⇧K）后对运行生效
+                    </span>
+                  )}
                 </div>
                 {sharedSkills.length > 0 && (
-                  <div className="mb-3 rounded-lg border border-border/70 bg-muted/20 p-3">
-                    <div className="mb-2 text-xs font-medium text-muted-foreground">
-                      所有 Agent 共享
-                    </div>
-                    <div className="flex flex-wrap gap-2">
-                      {sharedSkills.map((skill) => (
-                        <SkillBadge
-                          key={skill.name}
-                          skill={skill}
-                          shared
-                        />
-                      ))}
-                    </div>
-                  </div>
+                  <SkillGroupSection
+                    title="共享基础技能"
+                    Icon={Layers}
+                    skills={sharedSkills}
+                    disabled={disabledSkills}
+                    busy={busy}
+                    onToggle={toggleSkill}
+                    onOpen={setDetail}
+                  />
                 )}
                 {mainSkills.length > 0 && (
-                  <div className="mb-3 rounded-lg border border-[var(--brand)]/20 bg-[var(--brand)]/5 p-3">
-                    <div className="mb-2 text-xs font-medium text-muted-foreground">
-                      主 Agent 编排级技能
-                    </div>
-                    <div className="flex flex-wrap gap-2">
-                      {mainSkills.map((skill) => (
-                        <SkillBadge key={`main-${skill.name}`} skill={skill} />
-                      ))}
-                    </div>
-                  </div>
+                  <SkillGroupSection
+                    title={mainAgent.title || "JW 主 Agent"}
+                    name={mainAgent.name}
+                    Icon={Bot}
+                    skills={mainSkills}
+                    disabled={disabledSkills}
+                    busy={busy}
+                    onToggle={toggleSkill}
+                    onOpen={setDetail}
+                  />
                 )}
-                <div className="mb-2 text-xs font-medium text-muted-foreground">
-                  六个太阳科研子 Agent
-                </div>
-                <div className="border-[var(--brand)]/20 grid grid-cols-1 gap-3 border-l-2 pl-3 md:grid-cols-2">
-                  {agentGroups.map((group) => (
-                    <div
-                      key={group.name}
-                      className="rounded-lg border border-border bg-card p-3"
-                    >
-                      <div className="mb-1.5 flex items-center gap-2">
-                        <Users
-                          className="size-4 text-[var(--brand)]"
-                          aria-hidden="true"
-                        />
-                        <h4 className="font-medium">{group.title}</h4>
-                        <span className="font-mono text-[11px] text-muted-foreground">
-                          {group.name}
-                        </span>
-                        <span className="text-xs text-muted-foreground">
-                          {group.skills.length} 项专属技能
-                        </span>
-                      </div>
-                      <p className="mb-2 text-xs leading-5 text-muted-foreground">
-                        {group.description}
-                      </p>
-                      <div className="flex flex-wrap gap-2">
-                        {group.skills.map((skill) => (
-                          <SkillBadge
-                            key={`${group.name}-${skill.name}`}
-                            skill={skill}
-                          />
-                        ))}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </section>
+                {agentGroups.map((group) => (
+                  <SkillGroupSection
+                    key={group.name}
+                    title={group.title}
+                    name={group.name}
+                    Icon={Users}
+                    skills={group.skills}
+                    disabled={disabledSkills}
+                    busy={busy}
+                    onToggle={toggleSkill}
+                    onOpen={setDetail}
+                  />
+                ))}
+                {supportSkillGroups.map((group) => (
+                  <SkillGroupSection
+                    key={group.name}
+                    title={group.title || group.name}
+                    name={group.name}
+                    Icon={Wrench}
+                    skills={group.skills}
+                    disabled={disabledSkills}
+                    busy={busy}
+                    onToggle={toggleSkill}
+                    onOpen={setDetail}
+                  />
+                ))}
+              </>
             )}
             {localCandidates.length > 0 && (
               <section
@@ -562,18 +648,6 @@ export function SkillsMarketplace() {
                 </div>
               </section>
             )}
-            {supportAgents.length > 0 && (
-              <div className="rounded-lg border border-border/70 bg-muted/20 p-3 text-xs text-muted-foreground">
-                <div className="mb-1 font-medium text-foreground">
-                  JW 主 Agent 的底层支持能力
-                </div>
-                <p className="leading-5">
-                  {supportAgents.map((agent) => agent.title).join("、")}
-                  。这些能力由 JW 主 Agent
-                  按需调用，不作为独立太阳科研角色展示。
-                </p>
-              </div>
-            )}
             {other.length === 0 &&
               mainSkills.length === 0 &&
               agentGroups.length === 0 &&
@@ -625,25 +699,140 @@ export function SkillsMarketplace() {
   );
 }
 
-function SkillBadge({
+function SkillGroupSection({
+  title,
+  name,
+  Icon,
+  skills,
+  disabled,
+  busy,
+  onToggle,
+  onOpen,
+}: {
+  title: string;
+  name?: string;
+  Icon: typeof Users;
+  skills: SkillCard[];
+  disabled: Set<string>;
+  busy: Record<string, SkillBusy>;
+  onToggle: (skill: SkillCard, enabled: boolean) => void;
+  onOpen: (target: SkillDetailTarget) => void;
+}) {
+  const enabledCount = skills.filter((s) => !disabled.has(s.name)).length;
+  return (
+    <section aria-label={`${title} 技能`}>
+      <div className="mb-2.5 flex items-center gap-2">
+        <span className="flex size-6 shrink-0 items-center justify-center rounded-md bg-[var(--brand)]/10 text-[var(--brand)]">
+          <Icon
+            className="size-3.5"
+            aria-hidden="true"
+          />
+        </span>
+        <h3 className="truncate text-sm font-semibold">{title}</h3>
+        {name && (
+          <code className="shrink-0 font-mono text-[11px] text-muted-foreground">
+            {name}
+          </code>
+        )}
+        <span className="ml-auto shrink-0 text-[11px] text-muted-foreground">
+          {enabledCount}/{skills.length} 启用
+        </span>
+      </div>
+      <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2 xl:grid-cols-3">
+        {skills.map((skill) => (
+          <SkillToggleCard
+            key={`${name ?? "group"}-${skill.name}`}
+            skill={skill}
+            enabled={!disabled.has(skill.name)}
+            busy={busy[skill.name]}
+            onToggle={onToggle}
+            onOpen={() =>
+              onOpen({
+                name: skill.name,
+                title: skill.title || skill.name,
+                description: skill.description,
+                installed: skill.source === "installed",
+              })
+            }
+          />
+        ))}
+      </div>
+    </section>
+  );
+}
+
+/** One skill card: title + id + description on the left, on/off switch right. */
+function SkillToggleCard({
   skill,
-  shared = false,
+  enabled,
+  busy,
+  onToggle,
+  onOpen,
 }: {
   skill: SkillCard;
-  shared?: boolean;
+  enabled: boolean;
+  busy?: SkillBusy;
+  onToggle: (skill: SkillCard, enabled: boolean) => void;
+  onOpen: () => void;
 }) {
+  const label = (skill.title || "").trim() || skill.name;
+  // The registry usually ships no human title, so ``title === name``; showing
+  // both lines would just duplicate the identifier on every card.
+  const showAlias = label !== skill.name;
   return (
-    <span
-      className="inline-flex items-center gap-1 rounded-md border border-border bg-background px-2 py-1 text-xs"
-      title={skill.description}
+    <article
+      className={cn(
+        "flex flex-col gap-2 rounded-xl border p-3 transition-colors",
+        enabled
+          ? "border-border bg-card hover:border-[var(--brand)]/40"
+          : "border-dashed border-border/70 bg-muted/20"
+      )}
     >
-      <CheckCircle2
-        className="size-3 text-emerald-600"
-        aria-hidden="true"
-      />
-      {skill.title || skill.name}
-      {shared && <span className="text-muted-foreground">·共享</span>}
-    </span>
+      <div className="flex items-start justify-between gap-2">
+        <button
+          type="button"
+          onClick={onOpen}
+          className="min-w-0 flex-1 rounded-md text-left focus-visible:ring-2 focus-visible:ring-ring"
+          title="查看技能详情"
+        >
+          <span
+            className={cn(
+              "block truncate text-sm font-medium",
+              !enabled && "text-muted-foreground"
+            )}
+          >
+            {label}
+          </span>
+          {showAlias && (
+            <span className="mt-0.5 block truncate font-mono text-[11px] text-muted-foreground">
+              {skill.name}
+            </span>
+          )}
+        </button>
+        <ToggleSwitch
+          checked={enabled}
+          disabled={busy === "toggle"}
+          onChange={(next) => onToggle(skill, next)}
+          label={`${enabled ? "停用" : "启用"} ${label} 技能`}
+        />
+      </div>
+      <p className="line-clamp-2 min-h-10 text-xs leading-5 text-muted-foreground">
+        {skill.description || "暂无说明。"}
+      </p>
+      <div className="mt-auto flex items-center gap-1.5 text-[11px] text-muted-foreground">
+        {skill.bundle && (
+          <span className="rounded border border-border px-1.5 py-px font-mono">
+            {skill.bundle}
+          </span>
+        )}
+        {skill.source === "installed" && (
+          <span className="rounded border border-border px-1.5 py-px">
+            已安装
+          </span>
+        )}
+        <span className="ml-auto">{enabled ? "已启用" : "已停用"}</span>
+      </div>
+    </article>
   );
 }
 
@@ -670,7 +859,7 @@ function SkillTile({
   installedVersion?: string;
   latestVersion?: string;
   updateAvailable?: boolean;
-  busy?: "install" | "uninstall" | "update";
+  busy?: SkillBusy;
   onOpen?: () => void;
   onInstall?: () => void;
   onUpdate?: () => void;

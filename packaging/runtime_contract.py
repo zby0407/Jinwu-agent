@@ -441,6 +441,54 @@ def check_runtime(
             if scan_project:
                 _scan_project(project_root, report)
 
+    skills_dir = root.joinpath("jw", "subagents")
+    if not skills_dir.is_dir():
+        report.add("fail", "jw/subagents", f"missing directory: {skills_dir}")
+    else:
+        registry = skills_dir / "skill_registry.json"
+        if registry.is_file():
+            report.add("ok", "jw/subagents/skill_registry.json", str(registry))
+        else:
+            report.add(
+                "fail",
+                "jw/subagents/skill_registry.json",
+                f"missing {registry}",
+            )
+        for bundle in ("core", "solar"):
+            bundle_skills = skills_dir / bundle / "skills"
+            if bundle_skills.is_dir():
+                report.add("ok", f"jw/subagents/{bundle}/skills", str(bundle_skills))
+            else:
+                report.add(
+                    "fail",
+                    f"jw/subagents/{bundle}/skills",
+                    f"missing {bundle_skills}",
+                )
+
+    # The installed wheel carries its own copy of the registry next to
+    # ``skill_registry.py`` (``REGISTRY_PATH``); the ``jw/subagents`` tree above
+    # is only what the Next.js side reads.  Both must exist: a wheel built
+    # before the package-data fix silently leaves the agent with zero skills.
+    python_dir = root / "python"
+    if python_dir.is_dir():
+        wheel_registries = sorted(
+            python_dir.glob(
+                "lib/python*/site-packages/jw/subagents/skill_registry.json"
+            )
+        )
+        if wheel_registries:
+            report.add(
+                "ok",
+                "wheel/jw/subagents/skill_registry.json",
+                str(wheel_registries[0]),
+            )
+        else:
+            report.add(
+                "fail",
+                "wheel/jw/subagents/skill_registry.json",
+                "missing skill_registry.json inside the Python site-packages",
+            )
+
     licenses_dir = root / "licenses"
     if not licenses_dir.is_dir():
         report.add("fail", "licenses", f"missing directory: {licenses_dir}")

@@ -3,10 +3,16 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Iterable
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any
+
+from .. import skill_settings
 
 REGISTRY_PATH = Path(__file__).with_name("skill_registry.json")
+
+# Agent names that receive the registry's ``main`` (orchestration) section.
+_MAIN_AGENT_ALIASES = frozenset({"JW", "jw", "main-agent"})
 
 
 def load_skill_registry(path: Path = REGISTRY_PATH) -> dict[str, Any]:
@@ -25,10 +31,12 @@ def load_skill_registry(path: Path = REGISTRY_PATH) -> dict[str, Any]:
     return data
 
 
-def skills_for_agent(agent_name: str, *, path: Path = REGISTRY_PATH) -> list[str]:
+def _assigned_skill_names(agent_name: str, path: Path = REGISTRY_PATH) -> list[str]:
+    """Bare skill names assigned to ``agent_name``, de-duplicated in order."""
+
     registry = load_skill_registry(path)
     names = list(registry.get("shared", []))
-    if agent_name in {"JW", "jw", "main-agent"}:
+    if agent_name in _MAIN_AGENT_ALIASES:
         main = registry.get("main", [])
         if isinstance(main, list):
             names.extend(x for x in main if isinstance(x, str))
@@ -36,7 +44,45 @@ def skills_for_agent(agent_name: str, *, path: Path = REGISTRY_PATH) -> list[str
     if isinstance(assigned, list):
         names.extend(x for x in assigned if isinstance(x, str))
     # Stable order and no duplicate middleware sources.
-    return [f"/skills/{name}" for name in dict.fromkeys(names)]
+    return list(dict.fromkeys(names))
+
+
+def skills_for_agent(
+    agent_name: str,
+    *,
+    path: Path = REGISTRY_PATH,
+    disabled: set[str] | None = None,
+) -> list[str]:
+    """Return the ``/skills/<name>`` sources the agent should actually get.
+
+    User-disabled skills (``<DATA_DIR>/skill_settings.json``, see
+    :mod:`jw.skill_settings`) are removed here.  This function is the single
+    choke point shared by the main agent and every registry-driven sub-agent,
+    so one toggle covers all of them.  ``disabled`` injects the decision set
+    for tests; by default it is read from the settings file.
+    """
+
+    names = _assigned_skill_names(agent_name, path)
+    enabled = skill_settings.filter_enabled(names, disabled=disabled)
+    return [f"/skills/{name}" for name in enabled]
+
+
+def disabled_skill_sources_for_agent(
+    agent_name: str,
+    *,
+    path: Path = REGISTRY_PATH,
+    disabled: set[str] | None = None,
+) -> list[str]:
+    """Return the sorted ``/skills/<name>`` sources withheld from the agent."""
+
+    excluded = (
+        skill_settings.disabled_skill_names() if disabled is None else set(disabled)
+    )
+    return sorted(
+        f"/skills/{name}"
+        for name in _assigned_skill_names(agent_name, path)
+        if name in excluded
+    )
 
 
 def skill_assignment_receipt(
@@ -44,6 +90,7 @@ def skill_assignment_receipt(
     *,
     path: Path = REGISTRY_PATH,
     skill_roots: Iterable[Path] | None = None,
+    disabled: set[str] | None = None,
 ) -> dict[str, Any]:
     """Return a deterministic, JSON-safe receipt for an agent's skill sources.
 
@@ -52,7 +99,10 @@ def skill_assignment_receipt(
     missing ``SKILL.md`` files before a graph is built.  Callers can persist it
     alongside a run manifest or inject it into runtime diagnostics.
     """
-    sources = skills_for_agent(agent_name, path=path)
+    sources = skills_for_agent(agent_name, path=path, disabled=disabled)
+    withheld = disabled_skill_sources_for_agent(
+        agent_name, path=path, disabled=disabled
+    )
     if skill_roots is None:
         # A registry in ``jw/subagents`` is accompanied by bundle-local skill
         # roots (``core/skills``, ``solar/skills``, ...).  For test or exported
@@ -82,6 +132,10 @@ def skill_assignment_receipt(
         "skills": sources,
         "skill_count": len(sources),
         "missing": missing,
+        # Sources withheld by the user's skill switches.  Recorded so evidence
+        # review can tell "this agent never had the skill" apart from
+        # "this skill was toggled off".
+        "disabled": withheld,
         "status": status,
     }
 
@@ -92,6 +146,7 @@ def skill_receipt_for_sources(
     *,
     path: Path = REGISTRY_PATH,
     skill_roots: Iterable[Path] | None = None,
+    disabled: set[str] | None = None,
 ) -> dict[str, Any]:
     """Build a receipt from the exact sources handed to middleware.
 
@@ -103,8 +158,12 @@ def skill_receipt_for_sources(
         agent_name,
         path=path,
         skill_roots=skill_roots,
+        disabled=disabled,
     )
-    missing = [source for source in source_list if source not in base_receipt["skills"]]
+    # A user-disabled source is a known source that merely was not handed to
+    # middleware; it must not be reported as missing evidence.
+    known = set(base_receipt["skills"]) | set(base_receipt["disabled"])
+    missing = [source for source in source_list if source not in known]
     missing.extend(
         source for source in base_receipt["missing"] if source in source_list
     )
