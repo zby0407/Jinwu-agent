@@ -322,6 +322,9 @@ _BLOCKING_CODES: frozenset[IssueCode] = frozenset(
         IssueCode.CONTRACT_UNDERSPECIFIED,
         IssueCode.USER_DECISION_REQUIRED,
         IssueCode.POLICY_BLOCK,
+        # Two sources disagreeing on the same measurement cannot be resolved by
+        # the kernel, so the merged row is not usable until a human decides.
+        IssueCode.CROSS_SOURCE_CONFLICT,
     }
 )
 
