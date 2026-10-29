@@ -514,6 +514,22 @@ class SourceRecord:
     discovered_via: str = ""
     notes: tuple[str, ...] = ()
     failure_reason: str = ""
+    identifier: str = ""
+    format_hint: str = ""
+    relevance: float = 0.5
+    trust: float = 0.5
+
+    def priority(self) -> float:
+        """Rank for the acquisition queue: role and trust first, then relevance."""
+        role_bonus = {
+            SourceRole.PRIMARY_PUBLISHED: 0.30,
+            SourceRole.SUPPLEMENT: 0.24,
+            SourceRole.CATALOG: 0.18,
+            SourceRole.FIGURE_DIGITIZED: 0.10,
+            SourceRole.AUTHORED_TABLE: 0.06,
+            SourceRole.UNKNOWN: 0.0,
+        }.get(self.role, 0.0)
+        return round(role_bonus + 0.5 * self.trust + 0.5 * self.relevance, 6)
 
     def to_dict(self) -> dict[str, Any]:
         return _jsonable(asdict(self))
@@ -539,6 +555,10 @@ class SourceRecord:
             discovered_via=str(raw.get("discovered_via") or ""),
             notes=tuple(raw.get("notes") or ()),
             failure_reason=str(raw.get("failure_reason") or ""),
+            identifier=str(raw.get("identifier") or ""),
+            format_hint=str(raw.get("format_hint") or ""),
+            relevance=float(raw.get("relevance", 0.5) or 0.0),
+            trust=float(raw.get("trust", 0.5) or 0.0),
         )
 
 
