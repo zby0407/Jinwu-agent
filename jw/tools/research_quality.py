@@ -11,6 +11,11 @@ from typing import Any
 from langchain_core.runnables import RunnableConfig
 from langchain_core.tools import tool
 
+from jw.research.authoring.analysis_claim import (
+    analysis_claim_authoring_contract,
+    analysis_claim_structure_issues,
+    analysis_claim_tool_arguments_schema,
+)
 from jw.workspaces import workspace_root_from_config
 from research_quality.contracts import validate_analysis_claim_contract
 
@@ -48,7 +53,16 @@ def _atomic_write(path: Path, payload: dict[str, Any]) -> None:
             pass
 
 
-@tool(parse_docstring=True)
+@tool(
+    args_schema=analysis_claim_tool_arguments_schema(),
+    description=(
+        "Validate and persist a complete stage-specific AnalysisClaimContractV1. "
+        "Use all 20 fields in the exposed schema; get_analysis_claim returns its "
+        "authoring contract even when no saved claim exists. Planning and design "
+        "describe proposed methods, not invented results. Recording never accepts "
+        "a stage or replaces independent review. Legacy JSON strings remain supported."
+    ),
+)
 def research_quality_record_analysis_claim(
     stage: str,
     contract: dict[str, Any] | str,
@@ -68,6 +82,7 @@ def research_quality_record_analysis_claim(
         A task-local receipt and the normalized contract.
     """
 
+    raw = None
     try:
         raw = json.loads(contract) if isinstance(contract, str) else contract
         normalized = validate_analysis_claim_contract(raw)
@@ -100,6 +115,8 @@ def research_quality_record_analysis_claim(
                 "status": "error",
                 "error_type": type(exc).__name__,
                 "message": str(exc),
+                "structure_issues": analysis_claim_structure_issues(raw),
+                "authoring_contract": analysis_claim_authoring_contract(),
             },
             ensure_ascii=False,
         )
@@ -122,12 +139,24 @@ def research_quality_get_analysis_claim(
     try:
         path = _path(stage, config)
         if not path.is_file():
-            return json.dumps({"ok": True, "status": "missing"})
+            return json.dumps(
+                {
+                    "ok": True,
+                    "status": "missing",
+                    "authoring_contract": analysis_claim_authoring_contract(),
+                },
+                ensure_ascii=False,
+            )
         normalized = validate_analysis_claim_contract(
             json.loads(path.read_text(encoding="utf-8"))
         )
         return json.dumps(
-            {"ok": True, "status": "available", "contract": normalized},
+            {
+                "ok": True,
+                "status": "available",
+                "contract": normalized,
+                "authoring_contract": analysis_claim_authoring_contract(),
+            },
             ensure_ascii=False,
         )
     except Exception as exc:

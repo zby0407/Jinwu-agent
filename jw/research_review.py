@@ -21,7 +21,6 @@ from typing import Any, Literal
 from filelock import FileLock
 
 from .report_contract import REPORT_TEMPLATE, validate_report_fields
-
 from .runtime_layout import PROJECT_ROOT as _PROJECT_ROOT
 
 _SRC = _PROJECT_ROOT / "src"
@@ -32,14 +31,14 @@ from jw.research_protocols import (  # noqa: E402
     B1_FLARE_CASE_DATA_PRODUCT,
     B1_FLARE_CASE_DATASET_IDS,
     B1_FLARE_CASE_PROTOCOL,
-    SILSO_CYCLE_EXTREMA_DATA_PRODUCT,
-    SILSO_CYCLE_DESCRIPTIVE_DATA_PRODUCT,
-    SILSO_CYCLE_PHASE_PROTOCOL,
-    SILSO_GNBB2_ANNUAL_PROTOCOL,
-    SILSO_CYCLE_SENSITIVITY_PROTOCOL,
     SILSO_CYCLE_ASSOCIATIONS_PROTOCOL,
-    SOLAR_POLAR_PRECURSOR_DATA_PRODUCT,
+    SILSO_CYCLE_DESCRIPTIVE_DATA_PRODUCT,
+    SILSO_CYCLE_EXTREMA_DATA_PRODUCT,
+    SILSO_CYCLE_PHASE_PROTOCOL,
+    SILSO_CYCLE_SENSITIVITY_PROTOCOL,
+    SILSO_GNBB2_ANNUAL_PROTOCOL,
     SOLAR_CYCLE_26_FORECAST_BACKTEST_DATA_PRODUCT,
+    SOLAR_POLAR_PRECURSOR_DATA_PRODUCT,
     detect_analysis_protocol,
     plan_dataset_selection_conflicts_protocol,
     required_data_product_for_protocol,
@@ -1452,6 +1451,9 @@ class ResearchReviewStore:
             ]
             candidates.extend(self._receipted_solar_data_outputs(receipt_paths))
             candidates.extend(self._task_manifest_inputs())
+            from jw.literature_full_text import verified_full_text_sources
+
+            candidates.extend(verified_full_text_sources(self.workspace_root))
         elif stage == "hypothesis":
             run = self._latest_run_root("hypothesis/runs")
             if run is not None:
@@ -3366,7 +3368,8 @@ class ResearchReviewStore:
                 SILSO_CYCLE_SENSITIVITY_PROTOCOL,
                 SILSO_CYCLE_ASSOCIATIONS_PROTOCOL,
             }:
-                from jw.tools.c_stage import receipt_defect as c_receipt_defect, NAMES
+                from jw.tools.c_stage import NAMES
+                from jw.tools.c_stage import receipt_defect as c_receipt_defect
 
                 defect = c_receipt_defect(
                     self.workspace_root, self.task_id, manifest_by_ref, required_product

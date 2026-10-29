@@ -15,6 +15,7 @@ ALLOWED_IMPORTS = {
     "decimal",
     "fractions",
     "functools",
+    "hashlib",
     "itertools",
     "json",
     "math",
@@ -27,6 +28,7 @@ ALLOWED_IMPORTS = {
     "pyarrow",
     "pathlib",
     "random",
+    "re",
     "scipy",
     "sklearn",
     "statistics",
@@ -122,6 +124,10 @@ FILE_ACCESS_ATTRIBUTES = {
     "load",
     "save",
 }
+IN_MEMORY_IO_IMPORTS = frozenset({"StringIO", "BytesIO"})
+SYS_METADATA_IMPORTS = frozenset({"version_info"})
+SCIENTIFIC_VERSION_MODULES = frozenset({"numpy", "scipy", "pandas"})
+IN_MEMORY_READER_MODULES = frozenset({"numpy", "scipy", "pandas", "xarray", "astropy"})
 TEMPORAL_PREDICTION_MARKERS = re.compile(
     r"(?:predict|forecast|backtest|loocv|time[-_ ]series|early[-_ ]rise|"
     r"预测|回测|留一|前\s*\d+\s*个?月|早期上升)",
@@ -144,6 +150,10 @@ class CodeVisitor(ast.NodeVisitor):
         self.path_object_names: set[str] = set()
         self.trusted_helper_parameters: dict[str, set[str]] = {}
         self.path_scope_stack: list[set[str]] = []
+        self.buffer_constructor_names: set[str] = set()
+        self.scientific_version_names: set[str] = set()
+        self.scientific_reader_names: set[str] = set()
+        self.relative_path_constants: set[str] = set()
 
     @staticmethod
     def _subscript_key(node: ast.AST) -> str | None:
@@ -206,9 +216,30 @@ class CodeVisitor(ast.NodeVisitor):
             isinstance(node, ast.BinOp)
             and isinstance(node.op, ast.Div)
             and self._is_trusted_path_expr(node.left)
-            and isinstance(node.right, ast.Constant)
-            and isinstance(node.right.value, str)
+            and (
+                (
+                    isinstance(node.right, ast.Constant)
+                    and isinstance(node.right.value, str)
+                )
+                or (
+                    isinstance(node.right, ast.Name)
+                    and node.right.id in self.relative_path_constants
+                )
+            )
         )
+
+    def _is_memory_buffer(self, node: ast.AST) -> bool:
+        return (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Name)
+            and node.func.id in self.buffer_constructor_names
+        )
+
+    def _invalidate_import_aliases(self, names: list[str]) -> None:
+        for name in names:
+            self.buffer_constructor_names.discard(name)
+            self.scientific_version_names.discard(name)
+            self.scientific_reader_names.discard(name)
 
     @staticmethod
     def _assigned_names(node: ast.Assign | ast.AnnAssign) -> list[str]:
@@ -294,12 +325,34 @@ class CodeVisitor(ast.NodeVisitor):
     def visit_Import(self, node: ast.Import) -> None:
         for alias in node.names:
             self._check_module(alias.name, node.lineno)
+            bound = alias.asname or alias.name.split(".", 1)[0]
+            if alias.name in SCIENTIFIC_VERSION_MODULES:
+                self.scientific_version_names.add(bound)
+            if alias.name in IN_MEMORY_READER_MODULES:
+                self.scientific_reader_names.add(bound)
         self.generic_visit(node)
 
     def visit_ImportFrom(self, node: ast.ImportFrom) -> None:
         if node.level:
             self.errors.append(f"line {node.lineno}: relative imports are not allowed")
-        self._check_module(node.module or "", node.lineno)
+        if (
+            not node.level
+            and node.module == "io"
+            and all(alias.name in IN_MEMORY_IO_IMPORTS for alias in node.names)
+        ):
+            self.imports.add("io")
+            self.buffer_constructor_names.update(
+                alias.asname or alias.name for alias in node.names
+            )
+        elif (
+            not node.level
+            and node.module == "sys"
+            and all(alias.name in SYS_METADATA_IMPORTS for alias in node.names)
+        ):
+            # Expose immutable Python-version metadata, not the sys module.
+            self.imports.add("sys")
+        else:
+            self._check_module(node.module or "", node.lineno)
         self.generic_visit(node)
 
     def visit_Call(self, node: ast.Call) -> None:
@@ -345,7 +398,16 @@ class CodeVisitor(ast.NodeVisitor):
                     f"line {node.lineno}: context['input_files'][input_id] is a list; "
                     "select one Path or use context['input_path_by_id'][input_id]"
                 )
-            elif inspected is not None and not self._is_trusted_path_expr(inspected):
+            elif (
+                inspected is not None
+                and not self._is_trusted_path_expr(inspected)
+                and not (
+                    isinstance(node.func, ast.Attribute)
+                    and isinstance(node.func.value, ast.Name)
+                    and node.func.value.id in self.scientific_reader_names
+                    and self._is_memory_buffer(inspected)
+                )
+            ):
                 self.errors.append(
                     f"line {node.lineno}: file access paths must derive from "
                     "context['input_path_by_id'], context['input_files'][...][index], "
@@ -359,15 +421,50 @@ class CodeVisitor(ast.NodeVisitor):
         self.generic_visit(node)
 
     def visit_Attribute(self, node: ast.Attribute) -> None:
-        if node.attr.startswith("__") and node.attr not in {"__name__"}:
+        safe_version = (
+            node.attr == "__version__"
+            and isinstance(node.value, ast.Name)
+            and node.value.id in self.scientific_version_names
+        )
+        if node.attr.startswith("__") and node.attr != "__name__" and not safe_version:
             self.errors.append(
                 f"line {node.lineno}: dunder attribute access is not allowed"
             )
         self.generic_visit(node)
 
+    def visit_Name(self, node: ast.Name) -> None:
+        if isinstance(node.ctx, ast.Store):
+            self._invalidate_import_aliases([node.id])
+        self.generic_visit(node)
+
+    def visit_arg(self, node: ast.arg) -> None:
+        self._invalidate_import_aliases([node.arg])
+        self.generic_visit(node)
+
     def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
         if node.name == "run_experiment":
             self.has_entrypoint = True
+        self._invalidate_import_aliases([node.name])
+        alias_state = {
+            name: set(getattr(self, name))
+            for name in (
+                "buffer_constructor_names",
+                "scientific_version_names",
+                "scientific_reader_names",
+            )
+        }
+        self._invalidate_import_aliases(
+            [
+                argument.arg
+                for argument in (
+                    *node.args.posonlyargs,
+                    *node.args.args,
+                    *node.args.kwonlyargs,
+                )
+            ]
+            + ([node.args.vararg.arg] if node.args.vararg else [])
+            + ([node.args.kwarg.arg] if node.args.kwarg else [])
+        )
         self.path_scope_stack.append(
             set(self.trusted_helper_parameters.get(node.name, set()))
         )
@@ -375,6 +472,8 @@ class CodeVisitor(ast.NodeVisitor):
             self.generic_visit(node)
         finally:
             self.path_scope_stack.pop()
+            for name, aliases in alias_state.items():
+                setattr(self, name, aliases)
 
     def visit_AsyncFunctionDef(self, node: ast.AsyncFunctionDef) -> None:
         if node.name == "run_experiment":
@@ -392,6 +491,37 @@ class CodeVisitor(ast.NodeVisitor):
 
     def prepare_trusted_helper_paths(self, tree: ast.AST) -> None:
         """Prove helper path parameters from every call in run_experiment."""
+
+        # Only un-rebound literal constants can extend a trusted context Path.
+        # Arbitrary expressions, absolute paths, traversal and runtime names do
+        # not acquire trust through this additional proof rule.
+        bindings: dict[str, int] = {}
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Store):
+                bindings[node.id] = bindings.get(node.id, 0) + 1
+            elif isinstance(node, ast.arg):
+                bindings[node.arg] = bindings.get(node.arg, 0) + 1
+            elif isinstance(node, (ast.Import, ast.ImportFrom)):
+                for alias in node.names:
+                    name = alias.asname or alias.name.split(".", 1)[0]
+                    bindings[name] = bindings.get(name, 0) + 1
+        for node in ast.walk(tree):
+            if not isinstance(node, (ast.Assign, ast.AnnAssign)):
+                continue
+            value = node.value
+            if not (isinstance(value, ast.Constant) and isinstance(value.value, str)):
+                continue
+            suffix = value.value
+            if (
+                not suffix
+                or suffix.startswith("/")
+                or any(c in suffix for c in ("\\", ":", "\x00"))
+                or any(part in {"", ".", ".."} for part in suffix.split("/"))
+            ):
+                continue
+            self.relative_path_constants.update(
+                name for name in self._assigned_names(node) if bindings[name] == 1
+            )
 
         entrypoint = next(
             (
@@ -569,7 +699,68 @@ def _field_errors(
     return [f"{label} fields invalid: missing={missing}, unknown={unknown}"]
 
 
-def _validate_worker_return_literals(tree: ast.AST) -> list[str]:
+def _dynamic_worker_array_diagnostics(
+    expression: ast.AST | None,
+    assignments: dict[str, ast.AST],
+    entrypoint_nodes: list[ast.AST],
+    return_line: int,
+    fields: set[str],
+    label: str,
+) -> list[str]:
+    """Explain dynamic empty-list construction without treating it as coverage."""
+    value = _resolve_static(expression, assignments)
+    if not isinstance(value, ast.List) or value.elts:
+        return []
+    aliases = {
+        name
+        for name in assignments
+        if _resolve_static(ast.Name(id=name, ctx=ast.Load()), assignments) is value
+    }
+    mutations = [
+        node
+        for node in entrypoint_nodes
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and isinstance(node.func.value, ast.Name)
+        and node.func.value.id in aliases
+        and node.func.attr in {"append", "extend", "insert"}
+        and node.lineno < return_line
+    ]
+    if not mutations:
+        return []
+    errors = [
+        f"{label} starts as an empty list and is populated dynamically; "
+        "loop/append construction does not statically prove required output "
+        "coverage. Use an explicit list of complete dictionary literals."
+    ]
+    for mutation in mutations:
+        item_label = f"{label} dynamic {mutation.func.attr} at line {mutation.lineno}"
+        if mutation.func.attr != "append" or len(mutation.args) != 1:
+            errors.append(
+                f"{item_label} is not a statically declared worker record list"
+            )
+            continue
+        row = _literal_dict(mutation.args[0])
+        if row is None:
+            errors.append(f"{item_label} must supply a complete dictionary literal")
+            continue
+        errors.extend(_field_errors(row, fields, item_label))
+        measurement_value = row.get("value")
+        if (
+            "name" in fields
+            and isinstance(measurement_value, ast.Constant)
+            and measurement_value.value is None
+        ):
+            errors.append(
+                f"{item_label}.value is null; runtime measurements require finite "
+                "numbers. Preserve unavailable evidence without inventing a value."
+            )
+    return errors
+
+
+def _validate_worker_return_literals(
+    tree: ast.AST, *, dynamic_unproven_fields: set[str] | None = None
+) -> list[str]:
     entrypoint = next(
         (
             node
@@ -621,6 +812,17 @@ def _validate_worker_return_literals(tree: ast.AST) -> list[str]:
             errors.append(f"{label}.execution_completed must be True")
 
         measurements = _resolve_static(row.get("measurements"), assignments)
+        if "measurements" in (dynamic_unproven_fields or set()):
+            errors.extend(
+                _dynamic_worker_array_diagnostics(
+                    row.get("measurements"),
+                    assignments,
+                    entrypoint_nodes,
+                    return_node.lineno,
+                    {"name", "value", "unit", "role", "source_artifact"},
+                    f"{label}.measurements",
+                )
+            )
         if isinstance(measurements, ast.List):
             for index, item in enumerate(measurements.elts):
                 measurement = _literal_dict(_resolve_static(item, assignments) or item)
@@ -660,6 +862,25 @@ def _validate_worker_return_literals(tree: ast.AST) -> list[str]:
             errors.append(f"{label}.measurements must be an array")
 
         result_items = _resolve_static(row.get("result_items"), assignments)
+        if "result_items" in (dynamic_unproven_fields or set()):
+            errors.extend(
+                _dynamic_worker_array_diagnostics(
+                    row.get("result_items"),
+                    assignments,
+                    entrypoint_nodes,
+                    return_node.lineno,
+                    {
+                        "id",
+                        "display_name",
+                        "value_kind",
+                        "value",
+                        "unit",
+                        "role",
+                        "source_artifact",
+                    },
+                    f"{label}.result_items",
+                )
+            )
         if isinstance(result_items, ast.List):
             for index, item in enumerate(result_items.elts):
                 result_item = _literal_dict(_resolve_static(item, assignments) or item)
@@ -1148,9 +1369,21 @@ def scan_python(
                 "experiment.py must return the full worker result contract; "
                 f"missing markers: {missing_markers}"
             )
-        visitor.errors.extend(_validate_worker_return_literals(tree))
         measurements, results, artifacts, endpoints, estimands = _declared_worker_refs(
             tree
+        )
+        # These diagnostics only describe a coverage failure already rejected by
+        # the unchanged required-reference checks below. They grant no coverage
+        # and do not change acceptance of code whose declarations are complete.
+        dynamic_unproven_fields = set()
+        if (required_measurements or set()) - measurements:
+            dynamic_unproven_fields.add("measurements")
+        if (required_results or set()) - results:
+            dynamic_unproven_fields.add("result_items")
+        visitor.errors.extend(
+            _validate_worker_return_literals(
+                tree, dynamic_unproven_fields=dynamic_unproven_fields
+            )
         )
         measurement_contracts = _declared_worker_measurement_contracts(tree)
         result_contracts = _declared_worker_result_contracts(tree)

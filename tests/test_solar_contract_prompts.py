@@ -353,7 +353,7 @@ def test_experiment_agent_maps_results_to_the_registered_models_and_rules():
 def test_solar_data_requires_hash_bound_inputs_before_discovery():
     text = _read("jw/subagents/solar/solar_data.yaml")
     assert (
-        "tool_bundles: [solar-features, knowledge-base-literature, "
+        "tool_bundles: [solar-features, solar-acquisition, knowledge-base-literature, "
         "knowledge-base-context]" in text
     )
     assert "deterministic_data_context" in text

@@ -12,6 +12,10 @@ from langchain_core.runnables import RunnableConfig
 from langchain_core.tools import tool
 from pydantic import BaseModel, ConfigDict, Field
 
+from jw.research.authoring.review_verdict import (
+    ReviewNextOwner,
+    verdict_authoring_contract,
+)
 from jw.research_review import ALL_REVIEW_MODES, store_from_config
 from research_review.contracts import issue_fingerprint
 
@@ -158,7 +162,13 @@ class VerdictIssueInput(BaseModel):
     issue_id: str | None = None
     rule_id: str
     severity: Literal["critical", "major", "minor"]
-    claim_ref: str
+    claim_ref: str = Field(
+        description=(
+            "Stable field-level reference for this distinct defect. Each "
+            "rule_id/claim_ref/owner identity must be unique; a new issue_id "
+            "does not distinguish a duplicate identity."
+        )
+    )
     evidence_refs: list[str]
     owner: Literal[
         "solar-planner",
@@ -274,13 +284,19 @@ def _ok(payload: object) -> str:
     return json.dumps({"ok": True, "result": payload}, ensure_ascii=False)
 
 
-def _error(exc: Exception) -> str:
+def _error(exc: Exception, *, review_mode: str | None = None) -> str:
+    guide = (
+        {"verdict_authoring_contract": verdict_authoring_contract(review_mode)}
+        if review_mode in ALL_REVIEW_MODES
+        else {}
+    )
     return json.dumps(
         {
             "ok": False,
             "status": "error",
             "error_type": type(exc).__name__,
             "message": str(exc),
+            **guide,
         },
         ensure_ascii=False,
     )
@@ -476,7 +492,9 @@ def evidence_review_open_context(
     try:
         if review_mode not in ALL_REVIEW_MODES:
             raise ValueError(f"unsupported review_mode: {review_mode}")
-        return _ok(store_from_config(config).review_context(review_mode))
+        context = store_from_config(config).review_context(review_mode)
+        context["verdict_authoring_contract"] = verdict_authoring_contract(review_mode)
+        return _ok(context)
     except Exception as exc:
         return _error(exc)
 
@@ -580,7 +598,7 @@ def evidence_review_submit_verdict(
     accepted_claims: list[str] | str = "[]",
     blocked_claims: list[str] | str = "[]",
     carry_forward_limits: list[str] | str = "[]",
-    next_owner: str = "",
+    next_owner: ReviewNextOwner = "",
     config: RunnableConfig = None,
 ) -> str:
     """Persist a hash-bound review verdict without modifying producer artifacts.
@@ -594,7 +612,9 @@ def evidence_review_submit_verdict(
         accepted_claims: JSON list of accepted claim ids.
         blocked_claims: JSON list of blocked claim ids.
         carry_forward_limits: JSON list of limitations that final prose must retain.
-        next_owner: Producer responsible for a revise decision.
+        next_owner: Required and nonempty for revise. Use a mode-allowed producer
+            from open_context.verdict_authoring_contract; it must own at least
+            one issue. Leave empty only when no revision is requested.
 
     Returns:
         The persisted ReviewVerdictV2, including server-bound hashes and round.
@@ -617,7 +637,7 @@ def evidence_review_submit_verdict(
         )
         return _ok(verdict)
     except Exception as exc:
-        return _error(exc)
+        return _error(exc, review_mode=review_mode)
 
 
 @tool
@@ -733,7 +753,7 @@ def evidence_review_submit_round(
     accepted_claims: list[str] | str = "[]",
     blocked_claims: list[str] | str = "[]",
     carry_forward_limits: list[str] | str = "[]",
-    next_owner: str = "",
+    next_owner: ReviewNextOwner = "",
     config: RunnableConfig = None,
 ) -> str:
     """Persist one complete Evidence round through a single model tool call.
@@ -754,13 +774,19 @@ def evidence_review_submit_round(
             values; each claim_id plus claim_component pair must be unique.
         decision: accept, accept_with_limits, revise, or block.
         issues: Complete ReviewVerdictV2 issue rows; issues contain only producer-fixable defects.
+            Every rule_id/claim_ref/owner identity must be unique. Use a stable
+            field-level claim_ref for each distinct defect; changing issue_id
+            does not distinguish duplicate identities.
             Put no-action downstream limitations in carry_forward_limits instead,
             with an empty issues list for an otherwise acceptable artifact.
         accepted_claims: Exact target artifact claim ids accepted by the verdict.
             accept and accept_with_limits require at least one such id.
         blocked_claims: Blocked claim ids.
         carry_forward_limits: Limitations that downstream prose must retain.
-        next_owner: Producer responsible for a revise decision.
+        next_owner: Required and nonempty for revise, which also requires at
+            least one issue. Use a mode-allowed producer from
+            open_context.verdict_authoring_contract; it must own at least one
+            issue. Leave empty only when no revision is requested.
 
     Returns:
         All three persisted records and their shared round.
@@ -882,7 +908,7 @@ def evidence_review_submit_round(
             type(exc).__name__,
             exc,
         )
-        return _error(exc)
+        return _error(exc, review_mode=review_mode)
 
 
 @tool(parse_docstring=True)

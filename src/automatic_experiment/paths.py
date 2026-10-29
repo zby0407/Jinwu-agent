@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import csv
+import itertools
 import json
 import os
 import re
@@ -331,7 +332,6 @@ def _tabular_profile(path: Path) -> dict[str, Any] | None:
     suffix = path.suffix.lower()
     if suffix not in {".csv", ".tsv"}:
         return None
-    delimiter = "\t" if suffix == ".tsv" else ","
     if path.stat().st_size > TABULAR_PROFILE_MAX_BYTES:
         return {
             "kind": "tabular",
@@ -341,20 +341,60 @@ def _tabular_profile(path: Path) -> dict[str, Any] | None:
         }
     try:
         with path.open("r", encoding="utf-8-sig", newline="") as handle:
-            reader = csv.DictReader(handle, delimiter=delimiter)
-            columns = [str(value) for value in (reader.fieldnames or [])]
-            missing = {column: 0 for column in columns}
-            rows_scanned = 0
-            profile_complete = True
-            for row in reader:
-                if rows_scanned >= TABULAR_PROFILE_MAX_ROWS:
-                    profile_complete = False
-                    break
-                rows_scanned += 1
-                for column in columns:
-                    value = row.get(column)
-                    if value is None or not str(value).strip():
-                        missing[column] += 1
+            lines = list(handle)
+        first_content = 0
+        comment_lines = 0
+        while first_content < len(lines):
+            stripped = lines[first_content].strip()
+            if stripped and not stripped.startswith("#"):
+                break
+            comment_lines += int(stripped.startswith("#"))
+            first_content += 1
+        content = lines[first_content:]
+        delimiter = "\t" if suffix == ".tsv" else ","
+        delimiter_basis = "filename_default"
+        try:
+            delimiter = (
+                csv.Sniffer().sniff("".join(content[:32]), delimiters=",;\t").delimiter
+            )
+            delimiter_basis = "bounded_delimiter_detection"
+        except csv.Error:
+            pass
+        reader = csv.reader(content, delimiter=delimiter, strict=True)
+        first_row = next(reader, [])
+
+        def numeric_field(value: str) -> bool:
+            try:
+                float(value.strip())
+            except ValueError:
+                return False
+            return True
+
+        numeric_first_row = bool(first_row) and all(
+            numeric_field(value) for value in first_row
+        )
+        columns = (
+            [f"column_{index + 1}" for index in range(len(first_row))]
+            if numeric_first_row
+            else first_row
+        )
+        rows = itertools.chain((first_row,), reader) if numeric_first_row else reader
+        missing = dict.fromkeys(columns, 0)
+        rows_scanned = 0
+        ragged_rows = 0
+        profile_complete = True
+        for row in rows:
+            if not row:
+                continue
+            if rows_scanned >= TABULAR_PROFILE_MAX_ROWS:
+                profile_complete = False
+                break
+            rows_scanned += 1
+            ragged_rows += int(len(row) != len(columns))
+            for index, column in enumerate(columns):
+                value = row[index] if index < len(row) else None
+                if value is None or not value.strip():
+                    missing[column] += 1
     except (UnicodeError, csv.Error, OSError) as exc:
         return {
             "kind": "tabular",
@@ -370,6 +410,102 @@ def _tabular_profile(path: Path) -> dict[str, Any] | None:
         "row_count": rows_scanned if profile_complete else None,
         "rows_scanned": rows_scanned,
         "missing_value_counts": missing,
+        "delimiter": delimiter,
+        "delimiter_basis": delimiter_basis,
+        "leading_comment_lines_skipped": comment_lines,
+        "header_status": (
+            "absent_numeric_first_row" if numeric_first_row else "first_row_labels"
+        ),
+        "column_names_are_positional": numeric_first_row,
+        "column_semantics_verified": False,
+        "missing_value_definition": "empty or absent fields only; no sentinel semantics inferred",
+        "ragged_row_count": ragged_rows,
+        "field_count_consistent": ragged_rows == 0,
+    }
+
+
+def reinspect_snapshotted_tabular_inputs(
+    run_root: Path,
+    request: dict[str, Any],
+) -> dict[str, Any]:
+    """Recheck bounded CSV/TSV structure without rewriting a frozen snapshot.
+
+    This is a new read-only view, not a correction to the original profile or
+    scientific qualification. Both current source and immutable snapshot must
+    still match the original declared bytes and SHA before any profiling.
+    """
+    manifest_path = run_root / "input_snapshot.json"
+    manifest_sha256 = file_sha256(manifest_path)
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    references = {row["id"]: row for row in request["input_refs"]}
+    snapshot_root = (run_root / "inputs").resolve(strict=True)
+    files = []
+    for input_row in manifest.get("inputs", []):
+        for row in input_row.get("files", []):
+            relative = _safe_relative_path(row["path"])
+            if relative.suffix.lower() not in {".csv", ".tsv"}:
+                continue
+            reference = references.get(input_row["id"])
+            if (
+                reference is None
+                or input_row.get("source_path") != reference["path"]
+                or relative.parts[0] != input_row["id"]
+                or len(relative.parts) < 2
+                or type(row.get("size_bytes")) is not int
+                or row["size_bytes"] < 0
+                or not isinstance(row.get("sha256"), str)
+                or re.fullmatch("[a-f0-9]{64}", row["sha256"]) is None
+            ):
+                raise PathPolicyError("invalid snapshotted tabular input identity")
+            candidate = snapshot_root / relative
+            _reject_special(candidate)
+            snapshot = candidate.resolve(strict=True)
+            if not _is_within(snapshot_root, snapshot):
+                raise PathPolicyError("snapshotted tabular input escaped its root")
+            source_root = resolve_input_reference(reference["path"])
+            inside = Path(*relative.parts[1:])
+            if source_root.is_file():
+                if inside.as_posix() != source_root.name:
+                    raise PathPolicyError("snapshotted tabular source name changed")
+                source = source_root
+            else:
+                source = source_root / inside
+                _reject_special(source)
+                if not _is_within(source_root.resolve(), source.resolve(strict=True)):
+                    raise PathPolicyError("snapshotted tabular source escaped its root")
+            for path in (source, snapshot):
+                if (
+                    not path.is_file()
+                    or path.stat().st_size != row["size_bytes"]
+                    or file_sha256(path) != row["sha256"]
+                ):
+                    raise PathPolicyError(
+                        "snapshotted tabular input does not match immutable bytes/SHA"
+                    )
+            profile = _tabular_profile(snapshot)
+            for path in (source, snapshot):
+                if file_sha256(path) != row["sha256"]:
+                    raise PathPolicyError("tabular input changed during reinspection")
+            files.append(
+                {
+                    "input_id": input_row["id"],
+                    "path": relative.as_posix(),
+                    "size_bytes": row["size_bytes"],
+                    "sha256": row["sha256"],
+                    "current_source_and_snapshot_hashes_match": True,
+                    "profile": profile,
+                }
+            )
+    if file_sha256(manifest_path) != manifest_sha256:
+        raise PathPolicyError("input snapshot changed during tabular reinspection")
+    return {
+        "schema_version": "automatic-experiment-tabular-structure-reinspection-v1",
+        "input_snapshot_file_sha256": manifest_sha256,
+        "original_input_snapshot_unchanged": True,
+        "scope": "snapshotted_csv_tsv_only",
+        "scientific_qualification_completed": False,
+        "column_semantics_verified": False,
+        "files": files,
     }
 
 

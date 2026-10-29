@@ -861,7 +861,7 @@ class QwenToolCompatibilityMiddleware(AgentMiddleware):
     def _atomic_empirical_plan_instruction(tool_name: str) -> str:
         return (
             f"Call {tool_name} exactly once now; it is the only available tool. "
-            "Return no prose. compact_plan_json must be a JSON string encoding "
+            "Return no prose. Prefer the structured JSON object form of compact_plan_json; the legacy JSON string form uses identical validation. Check every required nested field in the tool schema and planner brief. Use "
             "exactly these fields: scope with objective, population_or_period, "
             "boundaries, non_goals; subquestions with question, purpose, "
             "completion_evidence; evidence_gaps as strings; datasets with name, "

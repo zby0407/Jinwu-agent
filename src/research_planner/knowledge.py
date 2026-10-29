@@ -5,10 +5,15 @@ from __future__ import annotations
 import csv
 import hashlib
 import json
+import math
 import re
+import threading
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
+from datetime import UTC, datetime
+from email.utils import parsedate_to_datetime
 from pathlib import Path
 from typing import Any
 
@@ -21,6 +26,74 @@ OPENALEX_WORKS_URL = "https://api.openalex.org/works"
 MAX_REMOTE_BYTES = 512 * 1024
 MAX_LOCAL_EVIDENCE_BYTES = 2 * 1024 * 1024
 MAX_DATASET_BYTES = 8 * 1024 * 1024
+DEFAULT_SEARCH_COOLDOWN_SECONDS = 60
+_SEARCH_RATE_LIMIT_LOCK = threading.RLock()
+# Only transient transport state is retained, never query results or literature.
+# A caller must opt in with an isolated task/request key. Legacy callers do not
+# share this state, and expired keys are removed on the next scoped request.
+_SEARCH_RATE_LIMITS: dict[tuple[str, str], float] = {}
+
+
+def _cooldown_now() -> float:
+    return time.monotonic()
+
+
+def _retry_after_seconds(
+    value: object, *, now_utc: datetime | None = None
+) -> int | None:
+    if not isinstance(value, str) or not value.strip():
+        return None
+    value = value.strip()
+    if re.fullmatch(r"[0-9]{1,10}", value):
+        return int(value)
+    try:
+        parsed = parsedate_to_datetime(value)
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=UTC)
+        seconds = (parsed - (now_utc or datetime.now(UTC))).total_seconds()
+        return max(0, math.ceil(seconds))
+    except (TypeError, ValueError, OverflowError):
+        return None
+
+
+def _search_unavailable(
+    query: str,
+    diagnostic: str,
+    *,
+    failure_kind: str,
+    http_status: int | None = None,
+    network_request_performed: bool = True,
+    retry_after_seconds: int | None = None,
+) -> dict[str, Any]:
+    rate_limited = failure_kind in {"rate_limited", "rate_limit_cooldown"}
+    result = {
+        "schema_version": "research-planner-literature-search-v1",
+        "status": "unavailable",
+        "query": query,
+        "results": [],
+        "diagnostic": diagnostic[:500],
+        "failure_kind": failure_kind,
+        "http_status": http_status,
+        "network_request_performed": network_request_performed,
+        "evidence_scope": "discovery_metadata_only",
+        "full_text_retrieved": False,
+        "retry_after_seconds": retry_after_seconds,
+        "safe_next_action": (
+            "Do not immediately retry this provider, including with another query. "
+            "Honor retry_after_seconds without automatic sleep or retry; record the "
+            "literature evidence gap. Any later request must remain within the "
+            "current task's source policy and remaining budget. Do not fabricate citations."
+            if rate_limited
+            else "Record the evidence gap or retry only within authorized network "
+            "access and remaining budget; do not fabricate citations."
+        ),
+    }
+    if failure_kind == "rate_limit_cooldown":
+        result["upstream_http_status"] = 429
+        result["diagnostic_basis"] = (
+            "prior rate-limit response in the same task/request scope"
+        )
+    return result
 
 
 def _bounded_text(value: object, label: str, maximum: int) -> str:
@@ -164,6 +237,8 @@ def search_scholarly_literature(
     limit: object = 5,
     from_year: object | None = None,
     to_year: object | None = None,
+    *,
+    rate_limit_scope: str | None = None,
 ) -> dict[str, Any]:
     """Search OpenAlex metadata; fail closed instead of inventing references."""
 
@@ -175,12 +250,37 @@ def search_scholarly_literature(
         else None
     )
     end_year = (
-        _bounded_int(to_year, "to_year", 1600, 2200)
-        if to_year is not None
-        else None
+        _bounded_int(to_year, "to_year", 1600, 2200) if to_year is not None else None
     )
     if start_year is not None and end_year is not None and start_year > end_year:
         raise ContractError("from_year cannot be later than to_year")
+    if rate_limit_scope is not None and (
+        not isinstance(rate_limit_scope, str)
+        or not rate_limit_scope.strip()
+        or len(rate_limit_scope) > 200
+    ):
+        raise ContractError(
+            "rate_limit_scope must be a non-empty task key of at most 200 characters"
+        )
+    scope_key = (
+        (OPENALEX_WORKS_URL, rate_limit_scope) if rate_limit_scope is not None else None
+    )
+    if scope_key is not None:
+        with _SEARCH_RATE_LIMIT_LOCK:
+            now = _cooldown_now()
+            for expired in [
+                key for key, until in _SEARCH_RATE_LIMITS.items() if until <= now
+            ]:
+                del _SEARCH_RATE_LIMITS[expired]
+            until = _SEARCH_RATE_LIMITS.get(scope_key)
+            if until is not None:
+                return _search_unavailable(
+                    normalized_query,
+                    "Provider cooldown is active; this call made no network request.",
+                    failure_kind="rate_limit_cooldown",
+                    network_request_performed=False,
+                    retry_after_seconds=max(1, math.ceil(until - now)),
+                )
     params: dict[str, str | int] = {
         "search": normalized_query,
         "per-page": normalized_limit,
@@ -211,15 +311,42 @@ def search_scholarly_literature(
         if len(raw) > MAX_REMOTE_BYTES:
             raise ContractError("OpenAlex response exceeded 512 KiB")
         payload = json.loads(raw.decode("utf-8"))
+    except urllib.error.HTTPError as exc:
+        if exc.code == 429:
+            retry_after = _retry_after_seconds(
+                exc.headers.get("Retry-After") if exc.headers else None
+            )
+            cooldown = max(
+                1,
+                retry_after
+                if retry_after is not None
+                else DEFAULT_SEARCH_COOLDOWN_SECONDS,
+            )
+            if scope_key is not None:
+                with _SEARCH_RATE_LIMIT_LOCK:
+                    _SEARCH_RATE_LIMITS[scope_key] = max(
+                        _SEARCH_RATE_LIMITS.get(scope_key, 0),
+                        _cooldown_now() + cooldown,
+                    )
+            result = _search_unavailable(
+                normalized_query,
+                str(exc),
+                failure_kind="rate_limited",
+                http_status=429,
+                retry_after_seconds=cooldown,
+            )
+            result["retry_after_source"] = (
+                "header" if retry_after is not None else "default_cooldown"
+            )
+            result["server_retry_after_seconds"] = retry_after
+            return result
+        return _search_unavailable(
+            normalized_query, str(exc), failure_kind="http_error", http_status=exc.code
+        )
     except (OSError, UnicodeError, json.JSONDecodeError, urllib.error.URLError) as exc:
-        return {
-            "schema_version": "research-planner-literature-search-v1",
-            "status": "unavailable",
-            "query": normalized_query,
-            "results": [],
-            "diagnostic": str(exc)[:500],
-            "safe_next_action": "Record the evidence gap or retry with network access; do not fabricate citations.",
-        }
+        return _search_unavailable(
+            normalized_query, str(exc), failure_kind="network_unavailable"
+        )
     rows = payload.get("results") if isinstance(payload, dict) else None
     if not isinstance(rows, list):
         raise ContractError("OpenAlex returned an invalid result collection")
@@ -231,7 +358,9 @@ def search_scholarly_literature(
         authors: list[str] = []
         if isinstance(authorships, list):
             for authorship in authorships[:8]:
-                author = authorship.get("author") if isinstance(authorship, dict) else None
+                author = (
+                    authorship.get("author") if isinstance(authorship, dict) else None
+                )
                 name = author.get("display_name") if isinstance(author, dict) else None
                 if isinstance(name, str) and name.strip():
                     authors.append(name.strip())
@@ -275,11 +404,19 @@ def resolve_reference(reference: object) -> dict[str, Any]:
         doi = doi_match.group(0).rstrip(".,;)").lower()
         encoded_id = urllib.parse.quote(f"https://doi.org/{doi}", safe="")
         openalex_url = f"{OPENALEX_WORKS_URL}/{encoded_id}"
-        crossref_url = "https://api.crossref.org/works/" + urllib.parse.quote(doi, safe="")
+        crossref_url = "https://api.crossref.org/works/" + urllib.parse.quote(
+            doi, safe=""
+        )
         try:
             openalex = _fetch_json(openalex_url, "OpenAlex")
             crossref = _fetch_json(crossref_url, "Crossref")
-        except (OSError, UnicodeError, json.JSONDecodeError, urllib.error.URLError, ContractError) as exc:
+        except (
+            OSError,
+            UnicodeError,
+            json.JSONDecodeError,
+            urllib.error.URLError,
+            ContractError,
+        ) as exc:
             return {
                 "schema_version": "research-planner-reference-resolution-v1",
                 "status": "unavailable",
@@ -290,7 +427,9 @@ def resolve_reference(reference: object) -> dict[str, Any]:
                 "correction_status": "not_verified",
                 "diagnostic": str(exc)[:500],
             }
-        message = crossref.get("message") if isinstance(crossref.get("message"), dict) else {}
+        message = (
+            crossref.get("message") if isinstance(crossref.get("message"), dict) else {}
+        )
         relation = message.get("relation") if isinstance(message, dict) else {}
         relation_keys = set(relation) if isinstance(relation, dict) else set()
         correction_keys = sorted(
@@ -312,15 +451,26 @@ def resolve_reference(reference: object) -> dict[str, Any]:
             "authors": authors,
             "publication_year": openalex.get("publication_year"),
             "work_type": openalex.get("type"),
-            "retraction_status": "retracted" if bool(openalex.get("is_retracted")) else "not_flagged_by_openalex",
-            "correction_status": "linked_update" if correction_keys else "not_flagged_by_crossref",
+            "retraction_status": "retracted"
+            if bool(openalex.get("is_retracted"))
+            else "not_flagged_by_openalex",
+            "correction_status": "linked_update"
+            if correction_keys
+            else "not_flagged_by_crossref",
             "correction_relation_keys": correction_keys,
             "notice": "Registry metadata can miss late corrections; decisive claims still require primary-source review.",
         }
     parsed = urllib.parse.urlparse(normalized)
     if parsed.scheme in {"http", "https"} and parsed.netloc:
         canonical = urllib.parse.urlunparse(
-            (parsed.scheme.lower(), parsed.netloc.lower(), parsed.path or "/", "", parsed.query, "")
+            (
+                parsed.scheme.lower(),
+                parsed.netloc.lower(),
+                parsed.path or "/",
+                "",
+                parsed.query,
+                "",
+            )
         )
         return {
             "schema_version": "research-planner-reference-resolution-v1",
@@ -362,14 +512,18 @@ def extract_source_evidence(
     normalized_limit = _bounded_int(limit, "limit", 1, 10)
     normalized_relationship = _bounded_text(relationship, "relationship", 20)
     if normalized_relationship not in {"supports", "opposes", "limits", "context"}:
-        raise ContractError("relationship must be supports, opposes, limits, or context")
+        raise ContractError(
+            "relationship must be supports, opposes, limits, or context"
+        )
     if (source_text is None) == (local_path is None):
         raise ContractError("provide exactly one of source_text or local_path")
     locator_prefix = "provided_text"
     if local_path is not None:
         path = _safe_local_path(local_path, "local_path", MAX_LOCAL_EVIDENCE_BYTES)
         if path.suffix.lower() not in {".md", ".txt", ".json", ".csv"}:
-            raise ContractError("local_path must be a UTF-8 text, Markdown, JSON, or CSV file")
+            raise ContractError(
+                "local_path must be a UTF-8 text, Markdown, JSON, or CSV file"
+            )
         text = path.read_text(encoding="utf-8-sig")
         locator_prefix = path.relative_to(PROJECT_ROOT).as_posix()
     else:
@@ -402,7 +556,9 @@ def extract_source_evidence(
             "proposed_relationship": normalized_relationship,
             "verification_status": "candidate_only",
         }
-        for index, (score, start, end, passage) in enumerate(passages[:normalized_limit])
+        for index, (score, start, end, passage) in enumerate(
+            passages[:normalized_limit]
+        )
     ]
     return {
         "schema_version": "research-planner-evidence-extraction-v1",
@@ -426,12 +582,16 @@ def inspect_dataset(
 
     path = _safe_local_path(local_path, "local_path", MAX_DATASET_BYTES)
     normalized_limit = _bounded_int(sample_limit, "sample_limit", 1, 5_000)
-    expected = [] if expected_variables is None else [
-        _bounded_text(value, f"expected_variables[{index}]", 200)
-        for index, value in enumerate(
-            expected_variables if isinstance(expected_variables, list) else []
-        )
-    ]
+    expected = (
+        []
+        if expected_variables is None
+        else [
+            _bounded_text(value, f"expected_variables[{index}]", 200)
+            for index, value in enumerate(
+                expected_variables if isinstance(expected_variables, list) else []
+            )
+        ]
+    )
     if expected_variables is not None and not isinstance(expected_variables, list):
         raise ContractError("expected_variables must be an array")
     if len(expected) > 30 or len(expected) != len(set(expected)):
@@ -463,7 +623,9 @@ def inspect_dataset(
             payload = json.loads(path.read_text(encoding="utf-8-sig"))
             rows = payload.get("records") if isinstance(payload, dict) else payload
             if not isinstance(rows, list):
-                raise ContractError("JSON dataset must be an array or an object with a records array")
+                raise ContractError(
+                    "JSON dataset must be an array or an object with a records array"
+                )
             records = [row for row in rows[:normalized_limit] if isinstance(row, dict)]
         variables = sorted({str(key) for row in records for key in row})
     else:
@@ -505,7 +667,11 @@ def inspect_dataset(
         "unit_hints_from_headers": units,
         "time_field": normalized_time_field,
         "time_coverage_in_sample": (
-            {"minimum": min(time_values), "maximum": max(time_values), "basis": "lexical_sample"}
+            {
+                "minimum": min(time_values),
+                "maximum": max(time_values),
+                "basis": "lexical_sample",
+            }
             if time_values
             else None
         ),

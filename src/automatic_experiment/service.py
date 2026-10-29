@@ -54,6 +54,7 @@ from .paths import (
     PathPolicyError,
     fingerprint_input_references,
     fingerprint_input_snapshot,
+    reinspect_snapshotted_tabular_inputs,
     resolve_input_reference,
     snapshot_input_previews,
     snapshot_inputs,
@@ -2266,6 +2267,10 @@ def inspect_inputs(run_id: str) -> dict[str, Any]:
                     result["input_previews"]
                 )
             request = _load_request(root)
+            if state["phase"] in {"inputs_snapshotted", "design_validated"}:
+                result["tabular_structure_reinspection"] = (
+                    reinspect_snapshotted_tabular_inputs(root, request)
+                )
             result["remaining_run_seconds"] = _remaining_run_seconds(state, request)
             if state["phase"] == "report_finalized":
                 entry = _validated_finalized_entry(root, state)

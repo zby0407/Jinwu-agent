@@ -258,9 +258,7 @@ def bind_distill_task(
 ) -> dict[str, Any]:
     """Freeze the task-owned question/focus pair before literature work."""
 
-    question = _bounded_text(
-        research_question, "research_question", max_length=8000
-    )
+    question = _bounded_text(research_question, "research_question", max_length=8000)
     focus = _bounded_text(distill_focus, "distill_focus", max_length=500)
     question_focus_terms = _shared_terms(question, focus)
     if not question_focus_terms:
@@ -1263,7 +1261,7 @@ def fetch_literature(
     *,
     literature_dir: str | Path | None = None,
 ) -> dict[str, Any]:
-    """Write the cached source text to disk; idempotent per ``source_id``."""
+    """Write the cached abstract only; this never retrieves article full text."""
 
     requested_source_id = source_id
     row = store.resolve_lit_source(source_id)
@@ -1293,6 +1291,9 @@ def fetch_literature(
             "archive_path": str(archive_path),
             "text_length": len(text),
             "cached": True,
+            "evidence_scope": "abstract_only",
+            "full_text_retrieved": False,
+            "reading_level": "cached_metadata_and_abstract",
         }
     if not str(row.get("abstract") or "").strip():
         _fail(
@@ -1317,6 +1318,9 @@ def fetch_literature(
         "archive_path": str(archive_path),
         "text_length": len(text),
         "cached": False,
+        "evidence_scope": "abstract_only",
+        "full_text_retrieved": False,
+        "reading_level": "cached_metadata_and_abstract",
     }
 
 
@@ -1429,6 +1433,8 @@ def build_literature_task_bundle(
     )
     return {
         "status": "ok" if snapshots else "evidence_gap",
+        "evidence_scope": "abstract_only",
+        "full_text_retrieved": False,
         "bundle_id": bundle_id,
         "binding_id": bound["binding_id"],
         "research_question": bound["research_question"],
@@ -1437,7 +1443,10 @@ def build_literature_task_bundle(
         "required_anchor_phrases": anchors,
         "feed_ids": normalized_feed_ids,
         "source_count": len(snapshots),
-        "sources": snapshots,
+        "sources": [
+            {**source, "evidence_scope": "abstract_only", "full_text_retrieved": False}
+            for source in snapshots
+        ],
         "created_at": bundle.get("created_at", ""),
         "notice": (
             "This frozen bundle is task evidence, not reusable Wiki grounding. "
@@ -1468,7 +1477,12 @@ def read_literature_task_bundle(
         "research_question": bundle["research_question"],
         "focus": bundle["focus"],
         "source_count": len(bundle["source_snapshots"]),
-        "sources": bundle["source_snapshots"],
+        "sources": [
+            {**source, "evidence_scope": "abstract_only", "full_text_retrieved": False}
+            for source in bundle["source_snapshots"]
+        ],
+        "evidence_scope": "abstract_only",
+        "full_text_retrieved": False,
         "created_at": bundle["created_at"],
     }
 

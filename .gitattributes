@@ -3,3 +3,5 @@
 /projects/default/shared/data/** binary
 # Frozen scientific modules carry source hashes; preserve their original bytes.
 /jw/flare_forecast/_frozen/** -text whitespace=cr-at-eol
+# Windows checkouts pass this runner directly to Linux bash.
+/src/automatic_experiment/sandbox_runner.sh text eol=lf

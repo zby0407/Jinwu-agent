@@ -32,6 +32,12 @@ if str(_SRC) not in sys.path:
 from langchain_core.runnables import RunnableConfig  # noqa: E402
 from langchain_core.tools import tool  # noqa: E402
 
+from jw.research.authoring.portfolio_ranking import (  # noqa: E402
+    portfolio_ranking_authoring_contract,
+    portfolio_ranking_contract,
+    portfolio_ranking_structure_issues,
+    portfolio_ranking_tool_arguments_schema,
+)
 from jw.tools.registry import register_tool_bundle  # noqa: E402
 from jw.workspaces import (  # noqa: E402
     resolve_scoped_path,
@@ -1863,88 +1869,7 @@ def scientific_hypothesis_bind_request(
                 "frontier; eligible null_control sentinels are retained."
             ),
         }
-        brief["portfolio_ranking_contract"] = {
-            "schema_version": PORTFOLIO_RANKING_VERSION,
-            "separate_orders": ["scientific_support", "research_priority"],
-            "claim_types": [
-                "descriptive_relationship",
-                "predictive",
-                "mechanism_candidate",
-                "null_hypothesis",
-                "measurement_explanation",
-            ],
-            "required_top_level_fields": [
-                "schema_version",
-                "source_runs",
-                "hypothesis_groups",
-                "ranked_hypotheses",
-                "selected_next_experiment",
-            ],
-            "required_ranked_fields": [
-                "hypothesis_id",
-                "support_rank",
-                "research_priority_rank",
-                "claim_type",
-                "current_evidence_status",
-                "scientific_support",
-                "research_priority",
-                "data_sources_verified",
-                "support_evidence",
-                "opposing_evidence",
-                "out_of_sample_validation",
-                "effect_uncertainty",
-                "sensitivity",
-                "falsifiability",
-                "key_limitations",
-                "strongest_null_hypothesis",
-                "next_experiment",
-                "ranking_rationale",
-                "release_boundary",
-                "portfolio_role",
-                "portfolio_status",
-                "forecast_origin",
-                "forecast_receipt_ref",
-            ],
-            "portfolio_roles": [
-                "empirical_anchor",
-                "physical_precursor",
-                "physical_discriminator",
-                "challenger",
-            ],
-            "portfolio_statuses": [
-                "candidate_pending_test",
-                "active_top3",
-                "challenger_pool",
-                "rejected",
-                "blocked_by_data",
-            ],
-            "forecast_origins": [
-                "early_cycle",
-                "cycle_minimum",
-                "not_applicable",
-            ],
-            "evidence_dependency_rule": (
-                "Evidence from models or papers sharing the same underlying data "
-                "must use one dependency_group_id; shared data never creates "
-                "multiple independent support groups."
-            ),
-            "release_gates": [
-                "high support requires verified supporting evidence and sources",
-                "a predictive high requires out-of-sample performance that beats baseline",
-                "an interval crossing the null cannot receive high support",
-                "active_top3 contains at most three unique roles and excludes tested_no_skill",
-                "physical_discriminator receipts must contain axial_dipole_moment",
-            ],
-            "lifecycle_rule": (
-                "The archived negative interaction is rejected. A high-priority "
-                "null may remain in challenger_pool, but tested_no_skill, "
-                "blocked_by_data, and execution_failed cannot be active_top3."
-            ),
-            "priority_rule": (
-                "Negative, null, low-power, and insufficient results may receive "
-                "high research priority without increasing scientific support."
-            ),
-        }
+        brief["portfolio_ranking_contract"] = portfolio_ranking_contract()
         context = workspace_context_key(config)
         with _STATE_LOCK:
             existing = _STATES.get(context)
@@ -2773,6 +2698,7 @@ def scientific_hypothesis_get_draft(config: RunnableConfig = None) -> str:
         result = _draft_summary(state, request, config)
         result["draft"] = deepcopy(state.latest_draft)
         result["tail_review_scoring_guide"] = tail_review_scoring_guide()
+        result["portfolio_ranking_contract"] = portfolio_ranking_contract()
         return _ok(result)
     except Exception as exc:
         return _needs_revision(exc, state=state)
@@ -2916,9 +2842,19 @@ def scientific_hypothesis_review_tail(
         return _needs_revision(exc, state=state)
 
 
-@tool(parse_docstring=True)
+@tool(
+    args_schema=portfolio_ranking_tool_arguments_schema(),
+    description=(
+        "Persist complete claim-specific scientific-support and research-priority rankings. "
+        "ranking_json accepts the exposed full object schema or a legacy JSON string. "
+        "Read the complete portfolio_ranking_contract from bind_request or get_draft; "
+        "supply all scientific fields, exact enums, closed nested objects, declared IDs "
+        "and evidence links. A current independent tail review and complete current "
+        "candidate coverage remain mandatory. Recording is not independent acceptance."
+    ),
+)
 def scientific_hypothesis_rank_portfolio(
-    ranking_json: str, config: RunnableConfig = None
+    ranking_json: dict[str, Any] | str, config: RunnableConfig = None
 ) -> str:
     """Persist claim-specific scientific support and research-priority rankings.
 
@@ -2943,6 +2879,8 @@ def scientific_hypothesis_rank_portfolio(
     """
 
     state = _state(config)
+    payload = None
+    payload_decoded = False
     try:
         request = _require_active_request(state)
         draft = state.latest_draft
@@ -2956,7 +2894,10 @@ def scientific_hypothesis_rank_portfolio(
             raise ValueError(
                 "A current independent tail review is required before portfolio ranking."
             )
-        payload = json.loads(ranking_json)
+        payload = (
+            json.loads(ranking_json) if isinstance(ranking_json, str) else ranking_json
+        )
+        payload_decoded = True
         ranking = validate_portfolio_ranking(payload, state.evidence_register)
         live_ids = {
             candidate.get("id")
@@ -3008,9 +2949,14 @@ def scientific_hypothesis_rank_portfolio(
             }
         )
     except Exception as exc:
-        outcome = _needs_revision(exc, state=state, count_failure=True)
+        outcome = json.loads(_needs_revision(exc, state=state, count_failure=True))
+        outcome["authoring_contract"] = portfolio_ranking_authoring_contract()
+        outcome["structure_checked"] = payload_decoded
+        outcome["structure_issues"] = (
+            portfolio_ranking_structure_issues(payload) if payload_decoded else []
+        )
         _persist_state(config, state)
-        return outcome
+        return _ok(outcome)
 
 
 def _checkpoint_response(

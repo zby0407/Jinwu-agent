@@ -20,6 +20,12 @@ from pathlib import Path
 from threading import RLock
 from typing import Any
 
+from jw.research.authoring.empirical_plan import (
+    CompactEmpiricalPlanValidationError,
+    EmpiricalPlanToolArguments,
+    empirical_plan_authoring_contract,
+    validate_compact_empirical_plan,
+)
 from jw.runtime_layout import PROJECT_ROOT as _PROJECT_ROOT
 
 _SRC = _PROJECT_ROOT / "src"
@@ -1041,6 +1047,7 @@ def research_planner_get_brief(
         draft_state = _load_or_initialize_draft(requested, config)
         request = draft_state["request"]
         brief = build_planning_brief(request)
+        brief["empirical_plan_authoring_contract"] = empirical_plan_authoring_contract()
         sha = _bind_request(request, config)
         brief["instruction"] = (
             "For a fresh quantitative or observational published plan, supply the "
@@ -1440,55 +1447,15 @@ def _compact_empirical_plan_content(payload: dict[str, Any]) -> dict[str, Any]:
     planner contract.
     """
 
-    required = {
-        "scope",
-        "subquestions",
-        "evidence_gaps",
-        "datasets",
-        "stage_methods",
-        "evaluation_focus",
-    }
-    missing = sorted(required - set(payload))
-    unknown = sorted(set(payload) - required)
-    if missing or unknown:
-        raise ValueError(
-            "compact_plan_json must contain exactly "
-            f"{sorted(required)}; missing={missing}, unknown={unknown}"
-        )
+    validate_compact_empirical_plan(payload)
     scope = payload["scope"]
     subquestions = payload["subquestions"]
     gaps = payload["evidence_gaps"]
     datasets = payload["datasets"]
     stage_methods = payload["stage_methods"]
     evaluation_focus = payload["evaluation_focus"]
-    if not isinstance(scope, dict):
-        raise ValueError("scope must be an object")
-    if not isinstance(subquestions, list) or not subquestions:
-        raise ValueError("subquestions must be a non-empty array")
-    if not isinstance(gaps, list) or not gaps:
-        raise ValueError("evidence_gaps must be a non-empty array")
-    if not isinstance(datasets, list) or not datasets:
-        raise ValueError("datasets must be a non-empty array")
-    if not isinstance(stage_methods, dict):
-        raise ValueError("stage_methods must be an object")
-    if set(stage_methods) != set(_EMPIRICAL_ROUTE_STAGES):
-        raise ValueError(
-            "stage_methods must contain exactly: " + ", ".join(_EMPIRICAL_ROUTE_STAGES)
-        )
-    if not isinstance(evaluation_focus, list) or not evaluation_focus:
-        raise ValueError("evaluation_focus must be a non-empty array")
-
     question_items: list[dict[str, Any]] = []
     for index, item in enumerate(subquestions, 1):
-        if not isinstance(item, dict) or set(item) != {
-            "question",
-            "purpose",
-            "completion_evidence",
-        }:
-            raise ValueError(
-                "each subquestion must contain exactly question, purpose, and "
-                "completion_evidence"
-            )
         question_items.append(
             {
                 "id": f"Q{index}",
@@ -1499,21 +1466,7 @@ def _compact_empirical_plan_content(payload: dict[str, Any]) -> dict[str, Any]:
     question_ids = [item["id"] for item in question_items]
 
     dataset_items: list[dict[str, Any]] = []
-    dataset_fields = {
-        "name",
-        "purpose",
-        "required_variables",
-        "time_coverage_needed",
-        "cadence_needed",
-        "quality_requirements",
-    }
     for index, item in enumerate(datasets, 1):
-        if not isinstance(item, dict) or set(item) != dataset_fields:
-            raise ValueError(
-                "each dataset must contain exactly name, purpose, "
-                "required_variables, time_coverage_needed, cadence_needed, and "
-                "quality_requirements"
-            )
         dataset_items.append(
             {
                 "id": f"D{index}",
@@ -1552,8 +1505,6 @@ def _compact_empirical_plan_content(payload: dict[str, Any]) -> dict[str, Any]:
 
     state_items = []
     for index, gap in enumerate(gaps, 1):
-        if not isinstance(gap, str) or not gap.strip():
-            raise ValueError("every evidence gap must be non-empty text")
         state_items.append(
             {
                 "id": f"S{index}",
@@ -1601,8 +1552,6 @@ def _compact_empirical_plan_content(payload: dict[str, Any]) -> dict[str, Any]:
                 "terminal_status": "plan_complete",
             }
         method = stage_methods[stage]
-        if not isinstance(method, str) or not method.strip():
-            raise ValueError(f"stage_methods.{stage} must be non-empty text")
         route.append(
             {
                 "id": step_id,
@@ -1643,8 +1592,6 @@ def _compact_empirical_plan_content(payload: dict[str, Any]) -> dict[str, Any]:
             }
         )
         focus = evaluation_focus[(index - 1) % len(evaluation_focus)]
-        if not isinstance(focus, str) or not focus.strip():
-            raise ValueError("every evaluation_focus item must be non-empty text")
         evaluation_rules.append(
             {
                 "id": f"E{index}",
@@ -1727,9 +1674,9 @@ def _compact_empirical_plan_content(payload: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-@tool(parse_docstring=True)
+@tool(parse_docstring=True, args_schema=EmpiricalPlanToolArguments)
 def research_planner_create_empirical_plan(
-    compact_plan_json: str,
+    compact_plan_json: str | dict[str, Any],
     request_sha256: str = "",
     config: RunnableConfig = None,
 ) -> str:
@@ -1741,13 +1688,20 @@ def research_planner_create_empirical_plan(
     standard reviewed route and contract lifecycle fields.
 
     Args:
-        compact_plan_json: JSON object with scope, subquestions, evidence_gaps,
-            datasets, stage_methods, and evaluation_focus. stage_methods must
+        compact_plan_json: Prefer a structured JSON object, or a legacy JSON
+            string encoding that object. Read the complete closed-field schema
+            in get_brief.empirical_plan_authoring_contract before submission.
+            Exactly six top-level fields are allowed: scope, subquestions,
+            evidence_gaps, datasets, stage_methods, evaluation_focus. No extra
+            fields are allowed in any nested object. stage_methods must
             contain exactly data, hypothesis_generation, experiment_design,
             experiment_result, and hypothesis_update. Dataset items contain
             name, purpose, required_variables, time_coverage_needed,
             cadence_needed, and quality_requirements. Subquestions contain
-            question, purpose, and completion_evidence.
+            exactly question, purpose, and completion_evidence, without id or
+            depends_on. Do not add transitions, stop_rules or other host-owned
+            fields. Scientific stopping criteria belong in stage_methods and
+            evaluation_focus, which has one to five nonempty text checks.
         request_sha256: Optional bound request hash; defaults to the active request.
 
     Returns:
@@ -1756,9 +1710,11 @@ def research_planner_create_empirical_plan(
     started = time.perf_counter()
     parsed: object = None
     try:
-        parsed = json.loads(compact_plan_json)
-        if not isinstance(parsed, dict):
-            raise ValueError("compact_plan_json must encode one JSON object")
+        parsed = (
+            json.loads(compact_plan_json)
+            if isinstance(compact_plan_json, str)
+            else deepcopy(compact_plan_json)
+        )
         plan_content = _compact_empirical_plan_content(parsed)
         result = research_planner_submit_complete_draft.func(
             plan_content_json=json.dumps(plan_content, ensure_ascii=False),
@@ -1783,6 +1739,17 @@ def research_planner_create_empirical_plan(
             status="error",
             error=str(exc),
         )
+        if isinstance(exc, CompactEmpiricalPlanValidationError):
+            return _ok(
+                {
+                    "status": "error",
+                    "error_code": "COMPACT_PLAN_SCHEMA_INVALID",
+                    "error": str(exc),
+                    "validation_issues": exc.issues,
+                    "authoring_contract": empirical_plan_authoring_contract(),
+                    "instruction": "Repair all reported paths using the complete compact contract within the current budget. Do not add host-owned fields or invent scientific values. No active draft was changed by this structural validation failure.",
+                }
+            )
         return _err(str(exc))
 
 
