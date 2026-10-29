@@ -308,3 +308,37 @@ def test_fetch_writes_an_export_and_reports_network_failure_honestly(
     assert code == 1
     printed = json.loads(capsys.readouterr().out)
     assert printed["status"] == "error"
+
+
+def test_snapshot_search_pages_instead_of_keeping_the_first_page(
+    workspace, monkeypatch
+):
+    """A 400-paper cohort cannot be the top 200 results and still be a sample.
+
+    The fake transport answers two pages with distinct work ids; the tool must
+    ask for the second page rather than silently returning a truncated cohort.
+    """
+    from tests.research_influence.conftest import FakeTransport
+
+    def work(number: int) -> dict:
+        record = dict(OPENALEX_RECORD)
+        record["id"] = f"https://openalex.org/W{number}"
+        record["doi"] = f"https://doi.org/10.1000/page{number}"
+        record["title"] = f"Page work {number}"
+        return record
+
+    transport = FakeTransport()
+    transport.add("page=2", {"results": [work(201), work(202)]})
+    transport.add("api.openalex.org/works", {"results": [work(101), work(102)]})
+    monkeypatch.setattr(tools, "_transport", lambda *a, **k: transport)
+
+    payload = _load(
+        tools.infl_snapshot_search.invoke(
+            {"query": "supernova", "name": "paged", "limit": 4, "allow_network": True}
+        )
+    )
+    assert payload["status"] == "ok", payload
+    assert payload["pages_fetched"] == 2
+    assert payload["papers"] == 4
+    urls = [url for _, url in transport.calls]
+    assert any("page=2" in url for url in urls), urls

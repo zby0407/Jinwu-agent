@@ -87,8 +87,14 @@ def search_works(
     policy: ProviderPolicy,
     per_page: int = 25,
     filter_expression: str = "",
+    page: int = 1,
 ) -> ProviderResult:
-    """Search works, used to build cohorts and to match titles."""
+    """Search works, used to build cohorts and to match titles.
+
+    ``page`` exists because a cohort larger than one page needs paging, and a
+    builder that silently keeps the first page would look complete while being
+    a biased sample of whatever OpenAlex ranked highest.
+    """
     text = str(query or "").strip()
     if not text:
         return ProviderResult(
@@ -101,6 +107,8 @@ def search_works(
     ]
     if filter_expression:
         params.append(f"filter={quote(filter_expression, safe='')}")
+    if int(page or 1) > 1:
+        params.append(f"page={int(page)}")
     if policy.email:
         params.append(f"mailto={quote(policy.email, safe='')}")
     key, _ = credential("openalex", policy)

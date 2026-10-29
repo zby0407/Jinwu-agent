@@ -354,21 +354,38 @@ def infl_snapshot_search(
         if transport is None:
             return _result(status="error", error=refusal)
         policy = ProviderPolicy.from_environment()
-        result = search_works(
-            query, transport=transport, policy=policy, per_page=min(int(limit), 200)
-        )
-        if not result.ok:
-            return _result(
-                status="error",
-                error=f"openalex_{result.status.value}",
-                detail=result.note,
-                url=result.url,
+        wanted = max(1, int(limit))
+        records: list[dict[str, Any]] = []
+        statuses: dict[str, int] = {}
+        page = 1
+        pages_fetched = 0
+        while len(records) < wanted:
+            result = search_works(
+                query,
+                transport=transport,
+                policy=policy,
+                per_page=min(200, wanted - len(records)),
+                page=page,
             )
-        payload = result.payload or {}
-        records = []
-        for item in (payload.get("results") or [])[: int(limit)]:
-            parsed = dict(item)
-            records.append(parsed)
+            statuses[str(result.status.value)] = (
+                statuses.get(result.status.value, 0) + 1
+            )
+            if not result.ok:
+                if records:
+                    break
+                return _result(
+                    status="error",
+                    error=f"openalex_{result.status.value}",
+                    detail=result.note,
+                    url=result.url,
+                )
+            payload = result.payload or {}
+            page_records = [dict(item) for item in (payload.get("results") or [])]
+            if not page_records:
+                break
+            records.extend(page_records[: wanted - len(records)])
+            pages_fetched += 1
+            page += 1
         papers = []
         for parsed in records:
             work = _parse_work(parsed)
@@ -376,12 +393,11 @@ def infl_snapshot_search(
                 continue
             doi = str(work.get("doi") or "")
             access = decide_access(
-                doi,
-                rank_candidates(
-                    doi,
-                    candidates_from_openalex(work.get("locations") or ()),
-                    policy=AccessPolicy(allow_network=False),
-                ),
+                doi=doi,
+                # The parser flattens locations into placeholders; the
+                # candidate classifier needs the raw location mappings, so the
+                # recorded payload is what gets passed here.
+                candidates=candidates_from_openalex(parsed),
                 has_abstract=bool(work.get("abstract")),
                 has_metadata=True,
                 policy=AccessPolicy(allow_network=False),
@@ -398,7 +414,7 @@ def infl_snapshot_search(
             query=query,
             source="openalex",
             reference_year=int(reference_year or 0),
-            filters={"limit": int(limit)},
+            filters={"limit": int(limit), "pages_fetched": pages_fetched},
             notes=("metadata_only_snapshot",),
         )
         path = _cohort_dir(workspace) / f"{name.strip() or _slug(query)}.json"
@@ -409,6 +425,8 @@ def infl_snapshot_search(
             papers=len(snapshot.papers),
             reference_year=snapshot.reference_year,
             fingerprint=snapshot.fingerprint(),
+            pages_fetched=pages_fetched,
+            provider_statuses=statuses,
             missing={
                 field: sum(1 for paper in snapshot.papers if paper.missing.get(field))
                 for field in ("title", "abstract", "year", "doi", "venue", "authors")
