@@ -8,6 +8,7 @@ JSON serialization so partial writes cannot be mistaken for a completed result.
 from __future__ import annotations
 
 import argparse
+import faulthandler
 import importlib.util
 import json
 import math
@@ -27,7 +28,9 @@ LOCKED_SITE_PACKAGES = Path(
 
 
 def _load_module(path: Path):
-    spec = importlib.util.spec_from_file_location("automatic_experiment_user_code", path)
+    spec = importlib.util.spec_from_file_location(
+        "automatic_experiment_user_code", path
+    )
     if spec is None or spec.loader is None:
         raise RuntimeError("cannot load experiment.py")
     module = importlib.util.module_from_spec(spec)
@@ -57,8 +60,8 @@ def _basic_validate(payload: object) -> dict[str, Any]:
     }
     if set(payload) != expected:
         raise ValueError(
-            f"worker result fields mismatch; missing={sorted(expected-set(payload))}, "
-            f"unknown={sorted(set(payload)-expected)}"
+            f"worker result fields mismatch; missing={sorted(expected - set(payload))}, "
+            f"unknown={sorted(set(payload) - expected)}"
         )
     if payload["schema_version"] != WORKER_VERSION:
         raise ValueError(f"schema_version must be {WORKER_VERSION}")
@@ -81,7 +84,9 @@ def _basic_validate(payload: object) -> dict[str, Any]:
             _finite(value, f"result_items[{index}].value")
         elif kind == "count":
             if isinstance(value, bool) or not isinstance(value, int) or value < 0:
-                raise ValueError(f"result_items[{index}].value must be a non-negative integer")
+                raise ValueError(
+                    f"result_items[{index}].value must be a non-negative integer"
+                )
         elif kind == "boolean":
             if not isinstance(value, bool):
                 raise ValueError(f"result_items[{index}].value must be boolean")
@@ -98,7 +103,11 @@ def _basic_validate(payload: object) -> dict[str, Any]:
     return payload
 
 
-def main() -> int:
+def _runtime_marker(stage: str) -> None:
+    print(f"[jw-runtime] {stage}", file=sys.stderr, flush=True)
+
+
+def _run_main() -> int:
     parser = argparse.ArgumentParser(add_help=False)
     parser.add_argument("--experiment", required=True)
     parser.add_argument("--request", required=True)
@@ -108,7 +117,9 @@ def main() -> int:
     experiment_path = Path(args.experiment)
     request_path = Path(args.request)
     result_path = Path(args.result)
+    _runtime_marker("request_load_start")
     request = json.loads(request_path.read_text(encoding="utf-8"))
+    _runtime_marker("request_loaded")
     if not LOCKED_SITE_PACKAGES.is_dir():
         raise RuntimeError("locked site-packages mount is missing")
     sys.path.insert(0, str(LOCKED_SITE_PACKAGES))
@@ -120,6 +131,7 @@ def main() -> int:
         np.random.seed(seed)
     except ImportError:
         pass
+    _runtime_marker("runtime_imports_ready")
     context = {
         "run_id": request["run_id"],
         "attempt_id": request["attempt_id"],
@@ -143,7 +155,9 @@ def main() -> int:
                 relative = relative.removeprefix("inputs/")
             parts = Path(relative).parts
             if not parts or any(part in {"", ".", ".."} for part in parts):
-                raise ValueError("input manifest contains an unsafe sandbox-relative path")
+                raise ValueError(
+                    "input manifest contains an unsafe sandbox-relative path"
+                )
             paths.append(input_root.joinpath(*parts))
         input_files[str(row["id"])] = paths
     context["input_files"] = input_files
@@ -157,18 +171,37 @@ def main() -> int:
         )
         for row in request["prior_artifacts"]
     }
+    _runtime_marker("module_load_start")
     module = _load_module(experiment_path)
+    _runtime_marker("module_loaded")
     entrypoint = getattr(module, "run_experiment", None)
     if not callable(entrypoint):
         raise RuntimeError("experiment.py must define callable run_experiment(context)")
-    result = _basic_validate(entrypoint(context))
+    _runtime_marker("scientific_entrypoint_start")
+    returned = entrypoint(context)
+    _runtime_marker("scientific_entrypoint_returned")
+    result = _basic_validate(returned)
     temporary = result_path.with_suffix(".json.tmp")
     temporary.write_text(
-        json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True, allow_nan=False) + "\n",
+        json.dumps(
+            result, ensure_ascii=False, indent=2, sort_keys=True, allow_nan=False
+        )
+        + "\n",
         encoding="utf-8",
     )
     os.replace(temporary, result_path)
+    _runtime_marker("result_serialized")
     return 0
+
+
+def main() -> int:
+    _runtime_marker("worker_started")
+    faulthandler.enable(file=sys.stderr)
+    faulthandler.dump_traceback_later(60, repeat=False, file=sys.stderr)
+    try:
+        return _run_main()
+    finally:
+        faulthandler.cancel_dump_traceback_later()
 
 
 if __name__ == "__main__":

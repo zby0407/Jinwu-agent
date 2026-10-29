@@ -1,6 +1,6 @@
 solar-data:
   description: "太阳活动数据与特征工程：核验数据来源，切分活动周，并构造太阳黑子、F10.7 与极区磁场的物理可解释特征。"
-  tool_bundles: [solar-features, knowledge-base-literature, knowledge-base-context]
+  tool_bundles: [solar-features, solar-acquisition, knowledge-base-literature, knowledge-base-context]
   restrict_tools: true
   skills: ["/skills/"]
   system_prompt: |

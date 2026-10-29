@@ -24,6 +24,7 @@ from .research_review import RESEARCH_RELEASE_TOOLS, RESEARCH_REVIEW_TOOLS
 from .scientific_hypothesis import SCIENTIFIC_HYPOTHESIS_TOOLS
 from .search import fetch_webpage_content, tavily_search
 from .skill_manager import skill_manager
+from .solar_acquisition import SOLAR_ACQUISITION_TOOLS
 from .solar_feature import (
     SOLAR_FEATURE_TOOLS,
     audit_solar_data_quality,
@@ -38,7 +39,6 @@ from .solar_feature import (
 from .think import think_tool
 
 __all__ = [
-    "forecast_flare_24h",
     "AUTOMATIC_EXPERIMENT_TOOLS",
     "B1_FLARE_TOOLS",
     "KB_READONLY_TOOLS",
@@ -49,6 +49,7 @@ __all__ = [
     "RESEARCH_RELEASE_TOOLS",
     "RESEARCH_REVIEW_TOOLS",
     "SCIENTIFIC_HYPOTHESIS_TOOLS",
+    "SOLAR_ACQUISITION_TOOLS",
     "SOLAR_FEATURE_TOOLS",
     "TOOL_BUNDLE_ENTRY_POINT_GROUP",
     "ToolBundle",
@@ -57,15 +58,16 @@ __all__ = [
     "dataset_statistics",
     "engineer_solar_features",
     "fetch_webpage_content",
+    "forecast_flare_24h",
     "get_builtin_tool_registry",
     "get_main_agent_tools",
     "get_tool_bundles",
     "prepare_solar_cycle_26_readiness",
     "prepare_solar_experiment",
-    "run_solar_cycle_26_historical_forecast",
-    "run_b1_flare_case",
     "register_tool_bundle",
     "resolve_tool_bundles",
+    "run_b1_flare_case",
+    "run_solar_cycle_26_historical_forecast",
     "skill_manager",
     "solar_data_open_context",
     "tavily_search",

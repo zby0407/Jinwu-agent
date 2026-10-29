@@ -712,12 +712,46 @@ def _unsupported_reader_metric(
     return None
 
 
+def _numeric_cutoff_provenance_suggestion(basis_kind: str) -> str:
+    suggestions = {
+        "bounded_pragmatic_choice": (
+            "在本条判据的 basis_text 中复述反馈所列的缺失数值。"
+            "若它是自行预登记的有界约定，可保持 bounded_pragmatic_choice，"
+            "明确约定的具体理由、替代情景和结论边界；不要求将自行约定冒称用户要求或文献标准。"
+            "其他判据中的数值说明不能替代本条的说明，也不得用当前样本数事后反推最低门槛。"
+            "不能给出相应依据时，删除该硬阈值并保留限制。"
+        ),
+        "user_request": (
+            "在本条判据的 basis_text 中复述反馈所列的缺失数值，"
+            "并说明用户在哪一项要求中明确规定了它；不要将自行选择的阈值冒称用户要求。"
+            "不能确认该要求时，删除该硬阈值并保留限制。"
+        ),
+        "located_source": (
+            "在本条判据的 basis_text 中复述反馈所列的缺失数值，"
+            "说明已定位来源如何支持该阈值，并保留可核对的 source_refs；"
+            "不能定位支持时，删除该硬阈值并保留证据缺口。"
+        ),
+        "data_derived": (
+            "在本条判据的 basis_text 中复述反馈所列的缺失数值，"
+            "说明基于声明输入的推导方式及可核对的 source_refs；"
+            "不得用当前样本数反推最低通过门槛，无法推导时删除该阈值并报告限制。"
+        ),
+    }
+    return suggestions.get(
+        basis_kind,
+        "在本条判据的 basis_text 中复述反馈所列的缺失数值并说明其合法依据；"
+        "无法说明时删除该硬阈值并保留限制。",
+    )
+
+
 def _validate_numeric_cutoff_basis(
     statement: str,
     basis_kind: str,
     basis_text: str,
     label: str,
     source_refs: list[str] | None = None,
+    *,
+    criterion_id: str | None = None,
 ) -> None:
     cutoff_match = HARD_NUMERIC_CUTOFF.search(statement)
     if cutoff_match is None:
@@ -770,13 +804,13 @@ def _validate_numeric_cutoff_basis(
     basis_numbers = [float(value) for value in NUMBER_TOKEN.findall(basis_text)]
     if not cutoff_numbers or cutoff_numbers[-1] not in basis_numbers:
         raise ContractError(
-            f"{label}.basis_text must repeat the numeric cutoff and explain its provenance",
+            f"{label}.basis_text must repeat the numeric cutoff and explain its provenance; "
+            f"criterion_id={criterion_id!r}; cutoff_numbers={cutoff_numbers!r}; "
+            f"required_cutoff_numbers={cutoff_numbers[-1:]!r}; "
+            f"basis_numbers={basis_numbers!r}",
             error_code="numeric_cutoff_provenance_missing",
             field_path=f"{label}.basis_text",
-            suggestion=(
-                "只有用户或已提供资料明确给出该阈值时，才逐字引用并说明来源；"
-                "不得用当前样本数反推任意最低门槛，否则删除硬阈值并报告实际样本数。"
-            ),
+            suggestion=_numeric_cutoff_provenance_suggestion(basis_kind),
         )
 
 
@@ -1516,6 +1550,7 @@ def validate_request(payload: dict[str, Any]) -> dict[str, Any]:
             basis_text,
             label,
             _text_array(row["source_refs"], f"{label}.source_refs", 20),
+            criterion_id=row["id"],
         )
     _text_array(request["method_constraints"], "request.method_constraints", 20)
     request["resource_budget"] = normalize_budget(request["resource_budget"])
@@ -2630,7 +2665,12 @@ def validate_design(
                         ),
                     )
         _validate_numeric_cutoff_basis(
-            statement, basis_kind, basis_text, label, source_refs
+            statement,
+            basis_kind,
+            basis_text,
+            label,
+            source_refs,
+            criterion_id=criterion_id,
         )
         if (
             HARD_NUMERIC_CUTOFF.search(statement) is not None

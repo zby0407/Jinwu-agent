@@ -49,3 +49,24 @@ workspace/
 当前冻结输入包括 WDC-SILSO Version 2.0、MWO/WSO 极区场、WSO 当前极区场和 NOAA
 F10.7 月度数据。来源与许可证见
 [`projects/default/shared/DATA_LICENSES.md`](../projects/default/shared/DATA_LICENSES.md)。
+
+## 科研工具代码
+
+通用科研能力按用途组织，不把某一次任务的阶段接续、预算账本或设计版本带入主程序：
+
+| 位置 | 用途 |
+| --- | --- |
+| `jw/research/authoring/` | 规划、分析声明、候选排序和独审裁决的模型输入 Schema 与结构反馈；科研值仍由 Agent 提供 |
+| `jw/report_contract.py` | 科研报告必填章节、模板和释放前完整性检查 |
+| `jw/literature_full_text.py` | 有界公开论文获取、正文提取、任务绑定与来源校验 |
+| `jw/solar_acquisition.py`、`jw/tools/solar_acquisition.py` | 白名单太阳观测的有界获取；下载须有宿主注入的明确授权 |
+| `src/automatic_experiment/` | 通用输入快照、代码检查、隔离执行、事实验证和报告生成 |
+| `scripts/check_experiment_runtime.py` | 检查隔离执行环境；详见[运行环境说明](guides/automatic-experiment-runtime.md) |
+
+旧 B3 的 `fresh_*`、`step6_direct`、版本接续和专项计费中间件已从运行时代码中移除。
+新任务使用普通 CLI/TUI/WebUI 入口和原生科研角色；任务提示、观测、生成的科学代码、
+审查与结果保存在独立任务目录。切换模型使用现有模型配置和兼容层，
+不需要恢复旧任务的 driver。结构校验通过不能代替数据资格、科学独审或真实执行。
+
+交接项目时可使用[下一智能体的只读了解提示词](guides/read-only-project-introduction.md)。
+后续工作重心由用户另行指定，文档中的历史命令和待办不构成执行授权。

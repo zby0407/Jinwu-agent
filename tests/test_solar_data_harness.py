@@ -7,6 +7,15 @@ from pathlib import Path
 import pytest
 
 
+def _symlink_or_skip(link: Path, target: str, *, directory: bool = False) -> None:
+    try:
+        link.symlink_to(target, target_is_directory=directory)
+    except OSError as exc:
+        if getattr(exc, "winerror", None) == 1314:
+            pytest.skip("Windows symbolic-link privilege is unavailable")
+        raise
+
+
 class _FakeHarness:
     def __init__(self) -> None:
         self.calls: list[dict] = []
@@ -1001,7 +1010,7 @@ def test_data_agent_rejects_symlink_output_even_when_target_is_inside_workdir(
     target.parent.mkdir(parents=True)
     target.write_text("cycle,value\n24,115\n", encoding="utf-8")
     linked = target.with_name("linked.csv")
-    linked.symlink_to(target.name)
+    _symlink_or_skip(linked, target.name)
     _write_generated_output_receipt(tmp_path, "work/solar_data/target.csv")
     harness = _FakeHarness()
     monkeypatch.setattr(
@@ -1036,7 +1045,7 @@ def test_data_agent_rejects_output_reached_through_symlink_directory(
     real_dir.mkdir(parents=True)
     target = real_dir / "target.csv"
     target.write_text("cycle,value\n24,115\n", encoding="utf-8")
-    real_dir.with_name("linked").symlink_to(real_dir.name, target_is_directory=True)
+    _symlink_or_skip(real_dir.with_name("linked"), real_dir.name, directory=True)
     _write_generated_output_receipt(tmp_path, "work/solar_data/real/target.csv")
     harness = _FakeHarness()
     monkeypatch.setattr(
