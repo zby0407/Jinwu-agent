@@ -13,7 +13,6 @@ from typing import Any
 
 __all__ = [
     "build_report",
-    "duration_label",
     "format_interval",
 ]
 
@@ -27,26 +26,6 @@ SECTION_TITLES = (
     "7. 局限与无法评估的内容",
     "8. 复现命令",
 )
-
-
-def duration_label(seconds: object) -> str:
-    """A wall-clock duration as a bucket, because the exact value is noise.
-
-    The bundle is hashed for reproducibility, and a millisecond-precision
-    duration would make two identical runs look different. A reader still learns
-    the order of magnitude, which is all a duration can honestly say.
-    """
-    try:
-        value = float(seconds)  # type: ignore[arg-type]
-    except (TypeError, ValueError):
-        return str(seconds)
-    if value < 1:
-        return "< 1 秒"
-    if value < 10:
-        return "1–10 秒"
-    if value < 60:
-        return "10–60 秒"
-    return ">= 60 秒"
 
 
 def format_interval(low: float, median: float, high: float) -> str:
@@ -89,7 +68,6 @@ def build_report(
     files: Mapping[str, str] | None = None,
     started_at: str = "",
     finished_at: str = "",
-    wall_seconds: float | None = None,
     fingerprint: str = "",
 ) -> str:
     """Render the whole report from already-computed pieces."""
@@ -100,9 +78,10 @@ def build_report(
     if fingerprint:
         lines.append(f"- 运行指纹: `{fingerprint}`")
     if started_at:
+        # Instants are projected out of the content digest (they say when, not
+        # what), and the run's duration lives in metrics.json: a report that
+        # prints "0.06 s" would make two identical runs hash differently.
         lines.append(f"- 开始: {started_at}；完成: {finished_at}")
-    if wall_seconds is not None:
-        lines.append(f"- 耗时: {duration_label(wall_seconds)}")
     lines.append("")
 
     lines.extend(_section_overview(cohort_summary, metrics, model_card))
@@ -611,17 +590,16 @@ def _section_reproducibility(
         rows.append(["分位交叉修复次数", card.get("quantile_crossings", "")])
     if fingerprint:
         rows.append(["运行指纹", fingerprint])
-    for key in ("determinism", "wall_seconds", "cohort_fingerprint"):
+    for key in ("determinism", "cohort_fingerprint"):
         if key in metrics:
-            value = metrics[key]
-            rows.append(
-                [key, duration_label(value) if key == "wall_seconds" else value]
-            )
+            rows.append([key, metrics[key]])
     lines.extend(_table(["项", "值"], rows))
     lines.append("")
     lines.append(
-        "同一冻结快照 + 同一随机种子 => 同一条模型指纹、同一份指标；"
-        "manifest.json 里记录了每个产物的 sha256，改动任何一个文件都会被发现。"
+        "同一冻结快照 + 同一随机种子 => 同一条模型指纹、同一份指标。"
+        "本报告不含墙钟耗时（它在 metrics.json 里，且不进内容摘要）："
+        "耗时说明机器忙不忙，不说明结论。manifest.json 给每个产物两种摘要，"
+        "改动任何一个文件、或只改时间戳，都能被发现。"
     )
     lines.append("")
     lines.append(

@@ -532,7 +532,6 @@ def write_package(
         files=planned,
         started_at=started_at,
         finished_at=finished_at or utc_now(),
-        wall_seconds=wall_seconds,
         fingerprint=metrics.get("fingerprint", ""),
     )
     (root / "report.md").write_text(report_text, encoding="utf-8")

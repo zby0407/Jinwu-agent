@@ -31,7 +31,7 @@
 | 说明影响因素 | `explain.py`：每因素给观测值/参考值/Δ/95% CI/份额 | `test_explain.py`（15 例） |
 | 偏差识别要具体 | `bias.py`：十类审计，每类给方法+证据数字+结论+严重度 | `test_bias.py`（12 例）、`test_benchmark.py` 注入用例 |
 | 是否不公平/不稳定 | 时间右删失、缺失机制 MNAR、区间校准、排名稳定性、折间方差 | 基准报告 §3.3、§5.2、§6 |
-| 结果可复现 | 指纹排除墙钟与本地路径；`manifest.json` 每个产物给字节摘要与内容摘要，包指纹按内容摘要算；`determinism=1.0` | `test_benchmark.py::test_the_run_is_reproducible`、`test_workflow.py::test_the_package_fingerprint_survives_a_rerun` |
+| 结果可复现 | 指纹排除墙钟、本地路径与产物字节摘要；上传论文的身份取自正文而非 PDF 字节；`manifest.json` 每个产物给字节摘要与内容摘要，包指纹按内容摘要算；`determinism=1.0`，两个独立进程的指标指纹与包指纹逐字一致；`infl_verify` 可复核 | `test_workflow.py::test_the_package_fingerprint_survives_a_rerun`、`test_workflow.py::test_the_same_paper_resaved_is_still_the_same_paper`、`test_workflow.py::test_verify_catches_an_edited_table` |
 
 赛题特别指出“不应该只给出一个分数”。本实现里**没有**任何单点输出：
 

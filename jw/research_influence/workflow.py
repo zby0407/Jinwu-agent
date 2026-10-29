@@ -426,7 +426,6 @@ def run_influence(
         notes=notes,
         started_at=started_at,
         finished_at=utc_now(),
-        wall_seconds=elapsed,
         subject_ids=[item.paper_id for item in explanations],
     )
     metrics["package_fingerprint"] = package_fingerprint(package)
@@ -462,7 +461,12 @@ def paper_from_upload(path: str | Path, *, directory: str | Path) -> PaperRecord
     """Adopt one operator-supplied PDF as the top rung of the ladder."""
     fulltext = read_local_fulltext(path, directory=directory)
     digest = fulltext.sha256 or ""
-    paper_id = f"paper:local:{digest[7:19] or Path(path).stem}"
+    # Identity is the text, not the byte stream: PDF writers stamp a creation
+    # date into every export, so the same paper re-saved hashes differently and
+    # would look like a second paper. The byte digest is still recorded on the
+    # access attempt, which is where "which file" belongs.
+    text_digest = content_hash({"text": fulltext.text}) if fulltext.text.strip() else ""
+    paper_id = f"paper:local:{text_digest[7:19] or digest[7:19] or Path(path).stem}"
     attempt = AccessAttempt(
         route=AccessRoute.USER_SUPPLIED,
         provider="operator",

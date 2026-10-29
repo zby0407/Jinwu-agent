@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 
 import pytest
@@ -425,3 +426,44 @@ def test_verify_catches_a_manifest_edited_to_agree_with_edited_files(tmp_path, c
     report = verify_package(root)
     assert report["ok"] is False
     assert report["fingerprint_ok"] is False
+
+
+def test_the_same_paper_resaved_is_still_the_same_paper(tmp_path):
+    """PDF writers stamp a creation date, so byte identity is not paper identity.
+
+    Two exports of the same document differ in bytes. If the paper id were the
+    byte digest, a re-export would enter the cohort as a second paper, changing
+    the cohort fingerprint and making a documented run irreproducible.
+    """
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    def export(path: Path) -> Path:
+        figure = plt.figure(figsize=(8.5, 11))
+        figure.text(0.1, 0.95, "Photometric calibration of SNe Ia", fontsize=12)
+        figure.text(0.1, 0.90, "We measure 42 light curves.", fontsize=10)
+        figure.savefig(path)
+        plt.close(figure)
+        return path
+
+    first = paper_from_upload(export(tmp_path / "a.pdf"), directory=tmp_path / "s1")
+    # A re-export differs exactly here: the writer stamps the export moment.
+    raw = (tmp_path / "a.pdf").read_bytes()
+    stamp = re.search(rb"/CreationDate \(D:(\d{14})", raw)
+    assert stamp, "the fixture must carry a creation date to re-stamp"
+    shifted = raw.replace(b"D:" + stamp.group(1), b"D:20200101000000")
+    (tmp_path / "b.pdf").write_bytes(shifted)
+    second = paper_from_upload(tmp_path / "b.pdf", directory=tmp_path / "s2")
+    assert first.paper_id == second.paper_id
+    # The bytes are still recorded, because "which file" is a real question.
+    assert first.access.attempts[0].sha256 != second.access.attempts[0].sha256
+
+    other = tmp_path / "c.pdf"
+    figure = plt.figure(figsize=(8.5, 11))
+    figure.text(0.1, 0.95, "A different paper entirely", fontsize=12)
+    figure.savefig(other)
+    plt.close(figure)
+    third = paper_from_upload(other, directory=tmp_path / "s3")
+    assert third.paper_id != first.paper_id

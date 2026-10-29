@@ -117,6 +117,28 @@ LOCAL_PATH_KEYS: frozenset[str] = frozenset(
     {"fulltext_path", "source_paths", "path", "directory"}
 )
 
+#: Fields holding a *byte* digest of a local artefact. A PDF re-exported from the
+#: same text has different bytes, so these belong to the audit trail
+#: (``provenance.jsonl``) rather than to the record's content hash -- otherwise
+#: re-saving a paper would change the cohort fingerprint.
+BYTE_DIGEST_KEYS: frozenset[str] = frozenset({"sha256"})
+
+
+def _scrub_local_path(value: str) -> str:
+    """Collapse a ``file://`` URL to its content-addressed name.
+
+    Local paths appear inside values that cannot be dropped wholesale -- an
+    access attempt's ``url`` says which ladder rung produced the file, which is
+    evidence, while the directory it was staged in is not. The stored name is a
+    content digest, so it survives moving the workspace and changes when the
+    payload changes.
+    """
+    text = str(value)
+    if not text.startswith("file://"):
+        return text
+    name = text.rstrip("/").rsplit("/", 1)[-1]
+    return f"file://<local>/{name}"
+
 
 def _stable_payload(payload: Any) -> Any:
     """Recursively drop volatile timestamps so a hash can be reproduced."""
@@ -124,10 +146,14 @@ def _stable_payload(payload: Any) -> Any:
         return {
             str(key): _stable_payload(value)
             for key, value in payload.items()
-            if str(key) not in VOLATILE_KEYS and str(key) not in LOCAL_PATH_KEYS
+            if str(key) not in VOLATILE_KEYS
+            and str(key) not in LOCAL_PATH_KEYS
+            and str(key) not in BYTE_DIGEST_KEYS
         }
     if isinstance(payload, (list, tuple)):
         return [_stable_payload(item) for item in payload]
+    if isinstance(payload, str):
+        return _scrub_local_path(payload)
     return _jsonable(payload)
 
 

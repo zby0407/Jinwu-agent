@@ -23,6 +23,7 @@ from jw.research_influence.citation import (  # noqa: E402
     resolve_works,
 )
 from jw.research_influence.cohort import CohortSnapshot  # noqa: E402
+from jw.research_influence.package import verify_package  # noqa: E402
 from jw.research_influence.providers.base import ProviderPolicy  # noqa: E402
 from jw.research_influence.providers.crossref import (  # noqa: E402
     fetch_work as crossref_fetch,
@@ -221,8 +222,12 @@ def main() -> None:
     same_inputs = live_first.get("statuses") == live_second.get("statuses") and (
         live_first.get("with_data") == live_second.get("with_data")
     )
+    verified = verify_package(frozen1.package_dir)
     repro = {
         "frozen_snapshot": {
+            "verify_ok": verified["ok"],
+            "verified_artifacts": verified["checked"],
+            "verify_failed": verified["failed"],
             "metric_fingerprint_equal": frozen1.metrics.get("fingerprint")
             == frozen2.metrics.get("fingerprint"),
             "package_fingerprint_equal": frozen1.metrics.get("package_fingerprint")

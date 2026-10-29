@@ -252,13 +252,16 @@ MNAR 的判定也修过一次：五个桶里出现一个回落就判“证据不
 | 项 | 实测 |
 | --- | --- |
 | 同快照同种子两次运行 | `determinism = 1.0` |
-| 指标指纹 | `sha256:c7d02ef599c35d71291cd404a068190893636f29f73efef32891f69afbf9b096` |
-| 数据包指纹（内容级） | `sha256:324554f1e2b2396641acb75e409e9156b77c82630dde9f1df7a20cfba6adf257` |
+| 指标指纹 | `sha256:6d50914bd88f15108070bdc1f0f921f02f3ceee64bdb3b2f1d9bf276f28fd3dd` |
+| 数据包指纹（内容级） | `sha256:a1934d635f75e3264ee3bbabfebbcc3f3328af1421897ac4783a9b3949766921` |
 | 输出文件 | 15 个（papers/predictions/factors/comparators/importance/bias_audit.csv/bias_audit.md/model_card/metrics/provenance/citation/topics/report/readme/manifest） |
 | 模型拟合 | 1.8–3.5 s |
 | 整条管道 | 4–12 s |
 
-为保证这些哈希真的可比，修掉了三处会破坏指纹的缺陷：
+这两个哈希在两个**独立进程**里逐字节一致（`measure_benchmark.py` 连跑两次），
+不是靠同一个进程内缓存蒙对的。
+
+为保证这些哈希真的可比，修掉了六处会破坏指纹的缺陷：
 
 1. **墙钟时间进指纹**：`retrieved_at` 每次运行都不同，导致同一篇论文两次运行
    指纹不同。现在 `VOLATILE_KEYS`（`retrieved_at/created_at/decided_at/...`）
@@ -285,11 +288,24 @@ MNAR 的判定也修过一次：五个桶里出现一个回落就判“证据不
    | 只改写 `report.md` 里的时间戳 | 变 | 不变 | 只是重新盖了时间章 |
    | 改文件后顺手改 manifest 的摘要 | 一致 | 一致 | 包指纹对不上，仍判 drift |
 
+4. **上传 PDF 的字节被当成了论文身份**：`paper:local:<sha256前缀>` 让同一篇论文
+   重新导出一次就变成“另一篇”，队列指纹随之改变。现在身份取自**抽取出的正文**
+   （`content_hash({"text": fulltext.text})`），字节摘要仍记在访问回执与
+   `provenance.jsonl` 里，因为“用的是哪个文件”是另一个问题。
+5. **`file://` URL 里嵌着工作目录**：`_stable_payload` 原本只按*键名*丢路径，
+   而访问回执的 `url` 值本身就是 `file:///var/folders/...`。现在 `file://` 值被
+   折叠成 `file://<local>/<内容寻址文件名>`。
+6. **产物字节摘要进了记录指纹**：`sha256` 描述的是“这份文件”，不是“这篇论文说
+   了什么”；`BYTE_DIGEST_KEYS` 把它从内容指纹里排除（审计轨仍保留）。
+
+另外把墙钟耗时从报告正文移出（只留在 `metrics.json`，且不进摘要）：耗时说明机器
+忙不忙，不说明结论；先前按秒分桶仍会让“1–10 秒”和“< 1 秒”两次不同。
+
 **真实数据证据**（1202 篇天体物理队列，同一冻结快照、两次运行）：
 
 | 场景 | 指标指纹 | 包指纹 |
 | --- | --- | --- |
-| 冻结快照（离线，无网络补充） | 一致 | 一致（`sha256:3ccfca8a...`） |
+| 冻结快照（离线，无网络补充） | 一致 | 一致（`sha256:ecd2add5f4015ac7a6647bf0f1a020d5dd3315279c2a0dfe37e88a42bc066156`，14 个产物经 `infl_verify` 全部复核通过） |
 | 联网（引用网络在线补充） | 输入相同才一致 | 同左 |
 
 联网这一组故意留着：在线接口两次返回的引用状态可能不同（实测一次 `ok=2`、
