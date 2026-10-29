@@ -799,6 +799,7 @@ class PaperRecord:
     keywords: tuple[str, ...] = ()
     cited_by_count: int | None = None
     reference_count: int | None = None
+    counts_by_year: tuple[tuple[int, int], ...] = ()
     access_route: AccessRoute = AccessRoute.METADATA_ONLY
     access: AccessDecision | None = None
     fulltext_path: str = ""
@@ -870,6 +871,7 @@ class PaperRecord:
             "keywords": list(self.keywords),
             "cited_by_count": self.cited_by_count,
             "reference_count": self.reference_count,
+            "counts_by_year": [[year, count] for year, count in self.counts_by_year],
             "access_route": self.access_route.value,
             "access": self.access.to_dict() if self.access else None,
             "fulltext_path": self.fulltext_path,
@@ -919,6 +921,7 @@ class PaperRecord:
             reference_count=int(reference_count)
             if isinstance(reference_count, int)
             else None,
+            counts_by_year=_count_pairs(raw.get("counts_by_year")),
             access_route=_coerce_enum(
                 AccessRoute, raw.get("access_route"), AccessRoute.METADATA_ONLY
             ),
@@ -939,6 +942,23 @@ class PaperRecord:
             },
             notes=tuple(str(item) for item in raw.get("notes") or ()),
         )
+
+
+def _count_pairs(raw: Any) -> tuple[tuple[int, int], ...]:
+    """Parse ``counts_by_year`` pairs from JSON-ish input."""
+    if not isinstance(raw, (list, tuple)):
+        return ()
+    out: list[tuple[int, int]] = []
+    for item in raw:
+        if isinstance(item, (list, tuple)) and len(item) == 2:
+            year, count = item
+            if isinstance(year, int) and isinstance(count, int):
+                out.append((year, count))
+        elif isinstance(item, Mapping):
+            year, count = item.get("year"), item.get("cited_by_count")
+            if isinstance(year, int) and isinstance(count, int):
+                out.append((year, count))
+    return tuple(sorted(out))
 
 
 def merge_records(records: Iterable[PaperRecord]) -> tuple[PaperRecord, ...]:
