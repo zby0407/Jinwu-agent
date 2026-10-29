@@ -33,6 +33,7 @@ __all__ = [
     "OBSERVATION_COLUMNS",
     "FigurePackage",
     "PackageResult",
+    "refresh_manifest",
     "write_package",
 ]
 
@@ -238,26 +239,42 @@ def write_package(
     }
     result.counts = counts
 
-    manifest = _manifest(ledger, result, counts=counts, notes=notes)
-    result.files["manifest"] = _write_json(root / "run_manifest.json", manifest)
-    result.digests["manifest"] = file_digest(result.files["manifest"])
-    # The manifest lists digests; write it first, then refresh so it stays true.
-    manifest["artifacts"] = [
+    result.files["readme"] = _write_text(
+        root / "README_data.md", _readme(ledger, counts)
+    )
+    result.digests["readme"] = file_digest(result.files["readme"])
+
+    refresh_manifest(directory=root, ledger=ledger, result=result, notes=notes)
+    return result
+
+
+def refresh_manifest(
+    *,
+    directory: str | Path,
+    ledger: IntegrationLedger,
+    result: PackageResult,
+    notes: Sequence[str] = (),
+) -> str:
+    """Write the manifest last, so its digests match the files on disk.
+
+    Call this again after the run records a stage that the manifest reports,
+    e.g. once the package stage itself is complete.
+    """
+    root = Path(directory)
+    payload = _manifest(ledger, result, counts=dict(result.counts), notes=notes)
+    payload["artifacts"] = [
         {
             "role": role,
             "path": _relative(result.files.get(role, ""), root),
             "sha256": digest,
         }
-        for role, digest in sorted(digests.items())
+        for role, digest in sorted(result.digests.items())
+        if role != "manifest"
     ]
-    result.files["manifest"] = _write_json(root / "run_manifest.json", manifest)
-    result.digests["manifest"] = file_digest(result.files["manifest"])
-
-    result.files["readme"] = _write_text(
-        root / "README_data.md", _readme(ledger, counts)
-    )
-    result.digests["readme"] = file_digest(result.files["readme"])
-    return result
+    path = _write_json(root / "run_manifest.json", payload)
+    result.files["manifest"] = path
+    result.digests["manifest"] = file_digest(path)
+    return path
 
 
 # -- record rows ---------------------------------------------------------

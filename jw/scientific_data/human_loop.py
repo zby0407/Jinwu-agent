@@ -499,11 +499,23 @@ def apply_answers(
         else:
             updated_issues.append(issue)
 
+    # Answers must also leave the open queue, so the run can be finalised.
+    settled = queue
+    for answer in queue.answers:
+        if settled.for_request(answer.request_id) is None:
+            continue
+        settled = settled.answer(
+            answer.request_id,
+            answer.choice,
+            note=answer.note,
+            actor=answer.actor,
+        )
+
     return HumanResolution(
         records=tuple(repaired_records),
         issues=tuple(updated_issues),
         repairs=tuple(repairs),
-        queue=queue,
+        queue=settled,
         ignored=tuple(ignored),
     )
 
