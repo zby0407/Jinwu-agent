@@ -8,6 +8,14 @@ from pathlib import Path
 import re
 from typing import Any
 
+from jw.report_contract import (
+    REPORT_FIELDS,
+    REPORT_SUBFIELDS,
+    report_field_key,
+    report_sections,
+    validate_report_fields,
+)
+
 from .contracts import (
     ENTRY_RESULT_VERSION,
     HARD_NUMERIC_CUTOFF,
@@ -4000,7 +4008,150 @@ def _limitation_sentence(value: Any) -> str:
     return text
 
 
+def _with_required_report_fields(
+    report: str,
+    record: dict[str, Any],
+    design: dict[str, Any] | None,
+) -> str:
+    """Expose registered facts and explicit gaps without inventing scientific prose."""
+    design = design or {}
+    frame = (
+        (record.get("evidence_ledger") or {}).get("research_frame")
+        or design.get("research_frame")
+        or {}
+    )
+
+    def prose(value: Any) -> str:
+        return _scientific_reader_text(
+            _reader_facing_plan_text(str(value or ""), design)
+        ).strip()
+
+    fields = report_sections(report, include_code=True)
+    question = prose(
+        frame.get("primary_question")
+        or design.get("normalized_task")
+        or record.get("task")
+    )
+    decisions = design.get("method_decisions") or []
+    rationale = "\n".join(
+        f"- {prose(row.get('decision'))}：{prose(row.get('rationale'))}"
+        for row in decisions
+        if row.get("rationale")
+    )
+    stages = design.get("experiment_stages") or []
+    dependencies = list(
+        dict.fromkeys(
+            str(dep)
+            for stage in stages
+            for dep in (stage.get("execution") or {}).get("dependencies", [])
+        )
+    )
+    technique = "\n".join(
+        f"- {prose(row.get('decision'))}" for row in decisions if row.get("decision")
+    )
+    if dependencies:
+        technique += "\n登记的依赖：" + "、".join(dependencies) + "。"
+    sources = []
+    for row in (record.get("input_snapshot") or {}).get("inputs", []):
+        ref = row.get("source_path")
+        if isinstance(ref, str) and ref.strip():
+            sources.append(f"- [登记输入来源]({ref.replace(' ', '%20')})")
+    for row in frame.get("input_evidence", []):
+        if row.get("intended_use"):
+            sources.append(
+                f"- {prose(row['intended_use'])}；{prose(row.get('limitations'))}"
+            )
+    completed = {
+        row["stage_id"]
+        for row in record.get("stage_history", [])
+        if isinstance(row.get("stage_id"), str)
+    }
+    methods = prose(_method_summary(design, _narrative(record), completed or None))
+    comparisons = []
+    planned = {str(row.get("name")): row for row in design.get("measurement_plan", [])}
+    for row in design.get("paired_comparison_audits", []):
+        metric = planned.get(str(row.get("baseline_measurement")), {})
+        comparisons.append(
+            "- 登记的基线评价量："
+            + prose(
+                metric.get("display_name")
+                or metric.get("scientific_meaning")
+                or "对照条件的测量值"
+            )
+        )
+    metrics = "\n".join(
+        f"- {prose(row.get('display_name') or row.get('scientific_meaning'))}："
+        f"{prose(row.get('scientific_meaning'))}"
+        for row in design.get("measurement_plan", [])
+        if row.get("display_name") or row.get("scientific_meaning")
+    )
+    literature = prose(frame.get("literature_basis"))
+    defaults = {
+        "paper_title": "实验分析报告",
+        "problem_statement": question
+        or "研究问题尚未完整登记，当前无法判断所需验证范围。",
+        "rationale": rationale
+        or "当前记录未提供独立的创新论证与推导依据，不能据此主张创新或机制成立。",
+        "technical_details": technique.strip()
+        or "当前记录未完整登记技术栈和关键设置，尚不能声明实现已完整可复现。",
+        "datasets": "数据来源与使用权限以原始登记和资格核验为准；仅有输入不代表来源、许可或科学语义已合格。",
+        "source": "\n".join(sources)
+        or "当前记录没有可核验的历史数据来源，不能宣称数据依据已经落实。",
+        "target": "本次记录未单独登记拟采集数据的变量、时空覆盖及采样要求；新增观测前须明确这些特征，不能以既有输入冒充已采集的目标数据。",
+        "methods": "登记的实施方法：" + methods,
+        "experiments": prose(design.get("design_summary"))
+        or "当前尚无完整实验设计，不能将后续设想表述为已执行检验。",
+        "baselines": "\n".join(comparisons)
+        or "当前记录未登记独立基线比较；不据此主张优于基线，是否适用须在设计中说明。",
+        "metrics": metrics
+        or "当前记录尚未登记评估指标与判定依据，不能完成量化有效性评价。",
+        "results": "尚未取得可供科学解释的真实推导或执行结果，当前不能确认实验可行性。",
+        "references": (
+            "登记的文献依据（真实出处与阅读范围仍须核验）：\n\n" + literature
+        )
+        if literature
+        else "当前记录未登记可核验的参考论文；不补造作者、年份、标题或 DOI，也不据此主张文献支持。",
+    }
+    abstract = fields.get("paper_abstract", "当前未形成可报告的测量结果。")
+    defaults["paper_abstract"] = (
+        f"背景与问题：{question or defaults['problem_statement']}\n\n"
+        f"登记方法：{methods}\n\n{abstract}\n\n"
+        "预期结果：当前记录未单独登记事前预期；不以实际结果倒推或编造预期。"
+    )
+    fields.pop("paper_abstract", None)
+    output = ["# " + fields.get("paper_title", defaults["paper_title"]), ""]
+    for key, chinese, english, _ in REPORT_FIELDS:
+        if key == "paper_title":
+            continue
+        body = fields.get(key) or defaults[key]
+        if key in {"datasets", "experiments"}:
+            body = (
+                re.split(r"(?m)^###\s+", body, maxsplit=1)[0].strip() or defaults[key]
+            )
+        chinese = {"methods": "数据与方法", "results": "结果"}.get(key, chinese)
+        heading = "###" if key in REPORT_SUBFIELDS else "##"
+        label = chinese if chinese == english else f"{chinese}（{english}）"
+        output.extend([f"{heading} {label}", "", body, ""])
+    # Keep discussion, limitations and stop explanations from every render path.
+    for match in re.finditer(r"(?m)^## ([^\n]+)\n([\s\S]*?)(?=^## |\Z)", report):
+        if report_field_key(match[1]) is None:
+            output.extend([match[0].strip(), ""])
+    result = "\n".join(output).strip() + "\n"
+    validate_report_fields(result)
+    return result
+
+
 def render_report(
+    record: dict[str, Any],
+    response: dict[str, Any] | None = None,
+    design: dict[str, Any] | None = None,
+    report_assets: list[dict[str, Any]] | None = None,
+) -> str:
+    body = _render_report_body(record, response, design, report_assets)
+    return _with_required_report_fields(body, record, design)
+
+
+def _render_report_body(
     record: dict[str, Any],
     response: dict[str, Any] | None = None,
     design: dict[str, Any] | None = None,
@@ -4931,7 +5082,9 @@ def finalize_report(run_root: Path, record: dict[str, Any]) -> dict[str, Any]:
             report_assets=report_assets,
         )
     except Exception as error:
-        report = _emergency_main_report(record, design)
+        report = _with_required_report_fields(
+            _emergency_main_report(record, design), record, design,
+        )
         audit = (
             audit.rstrip()
             + "\n\n## 十一、主报告生成说明\n\n"

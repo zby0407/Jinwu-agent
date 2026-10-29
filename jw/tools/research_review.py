@@ -893,6 +893,11 @@ def research_release_prepare(
 ) -> str:
     """Checkpoint a coherent final report draft after integration acceptance.
 
+    Reports require Paper Title (H1), Paper Abstract, Problem Statement,
+    Rationale, Technical Details, Datasets with Source and Target, Methods,
+    Experiments with Baselines and Metrics, Results, and References.
+    Explain unavailable evidence instead of omitting or inventing it.
+
     Args:
         draft_markdown: Reader-facing report synthesized only from accepted claims.
         claim_citations: JSON list binding each material draft passage to one

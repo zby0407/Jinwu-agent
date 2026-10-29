@@ -20,6 +20,8 @@ from typing import Any, Literal
 
 from filelock import FileLock
 
+from .report_contract import REPORT_TEMPLATE, validate_report_fields
+
 from .runtime_layout import PROJECT_ROOT as _PROJECT_ROOT
 
 _SRC = _PROJECT_ROOT / "src"
@@ -4843,6 +4845,7 @@ class ResearchReviewStore:
         text = draft_markdown.strip()
         if not text:
             raise ValueError("draft_markdown must not be empty")
+        validate_report_fields(text)
         limits = sorted(set(verdict["carry_forward_limits"]))
         integration_claims = {
             claim["claim_id"]: claim for claim in integration["claims"]
@@ -5144,6 +5147,7 @@ class ResearchReviewStore:
                 "stage": "final_release",
                 "release_context": {
                     "claims": release_claims,
+                    "report_template": REPORT_TEMPLATE,
                     "required_limits": sorted(
                         set(integration_verdict["carry_forward_limits"])
                     ),
@@ -5185,6 +5189,7 @@ class ResearchReviewStore:
                 "issues": release_verdict["issues"],
                 "release_context": {
                     "claims": release_claims,
+                    "report_template": REPORT_TEMPLATE,
                     "required_limits": sorted(
                         set(integration_verdict["carry_forward_limits"])
                     ),
