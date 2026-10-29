@@ -11,7 +11,11 @@ import math
 from collections.abc import Mapping, Sequence
 from typing import Any
 
-__all__ = ["build_report", "format_interval"]
+__all__ = [
+    "build_report",
+    "duration_label",
+    "format_interval",
+]
 
 SECTION_TITLES = (
     "1. 运行概要",
@@ -23,6 +27,26 @@ SECTION_TITLES = (
     "7. 局限与无法评估的内容",
     "8. 复现命令",
 )
+
+
+def duration_label(seconds: object) -> str:
+    """A wall-clock duration as a bucket, because the exact value is noise.
+
+    The bundle is hashed for reproducibility, and a millisecond-precision
+    duration would make two identical runs look different. A reader still learns
+    the order of magnitude, which is all a duration can honestly say.
+    """
+    try:
+        value = float(seconds)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return str(seconds)
+    if value < 1:
+        return "< 1 秒"
+    if value < 10:
+        return "1–10 秒"
+    if value < 60:
+        return "10–60 秒"
+    return ">= 60 秒"
 
 
 def format_interval(low: float, median: float, high: float) -> str:
@@ -78,7 +102,7 @@ def build_report(
     if started_at:
         lines.append(f"- 开始: {started_at}；完成: {finished_at}")
     if wall_seconds is not None:
-        lines.append(f"- 耗时: {wall_seconds:.2f} 秒")
+        lines.append(f"- 耗时: {duration_label(wall_seconds)}")
     lines.append("")
 
     lines.extend(_section_overview(cohort_summary, metrics, model_card))
@@ -589,7 +613,10 @@ def _section_reproducibility(
         rows.append(["运行指纹", fingerprint])
     for key in ("determinism", "wall_seconds", "cohort_fingerprint"):
         if key in metrics:
-            rows.append([key, metrics[key]])
+            value = metrics[key]
+            rows.append(
+                [key, duration_label(value) if key == "wall_seconds" else value]
+            )
     lines.extend(_table(["项", "值"], rows))
     lines.append("")
     lines.append(

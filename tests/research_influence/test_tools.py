@@ -342,3 +342,31 @@ def test_snapshot_search_pages_instead_of_keeping_the_first_page(
     assert payload["papers"] == 4
     urls = [url for _, url in transport.calls]
     assert any("page=2" in url for url in urls), urls
+
+
+def test_verify_reports_drift_instead_of_trusting_the_manifest(workspace):
+    """`infl_verify` re-reads the files; the manifest alone proves nothing."""
+    _demo = _load(
+        tools.infl_snapshot_synthetic.invoke({"name": "demo", "count": 60, "seed": 3})
+    )
+    run = _load(
+        tools.infl_run.invoke(
+            {"cohort": "demo", "importance_repeats": 1, "importance_seeds": [0]}
+        )
+    )
+    assert run["status"] == "ok", run
+    run_id = run["run_id"]
+
+    clean = _load(tools.infl_verify.invoke({"run_id": run_id}))
+    assert clean["status"] == "ok", clean
+    assert clean["verification"]["ok"] is True
+    assert clean["verification"]["failed"] == []
+
+    package = Path(clean["verification"]["directory"])
+    target = package / "papers.csv"
+    target.write_text(
+        target.read_text(encoding="utf-8") + "tampered\n", encoding="utf-8"
+    )
+    drifted = _load(tools.infl_verify.invoke({"run_id": run_id}))
+    assert drifted["status"] == "drift"
+    assert "papers" in drifted["verification"]["failed"]

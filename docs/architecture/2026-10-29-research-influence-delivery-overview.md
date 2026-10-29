@@ -128,7 +128,13 @@
 工具面 `infl_*` 把这十阶段拆成可单独调用、可中途接管的一步步：
 `infl_capabilities / infl_cohorts / infl_snapshot_synthetic / infl_snapshot_search /
 infl_snapshot_import / infl_fetch_paper / infl_parse_pdf / infl_run / infl_status /
-infl_report / infl_bias / infl_explain / infl_package / infl_acquisition_request`。
+infl_report / infl_bias / infl_explain / infl_package / infl_verify /
+infl_acquisition_request`。
+
+`infl_verify` 是“可复现”这个说法的执行入口：它不信任 manifest，而是重新读盘、
+重算每个产物的字节摘要与内容摘要，再用自己验过的摘要重算包指纹。改一个 CSV 会被
+判 `drift`；只改写报告里的时间戳会看到 `bytes_ok=false, stable_ok=true`
+——两种漂移被分开报告，因为它们的含义不同。
 
 其中两个快照入口是分开的，因为它们服务于不同的环境：
 `infl_snapshot_search` 需要网络（默认拒绝），`infl_snapshot_import` **完全离线**，

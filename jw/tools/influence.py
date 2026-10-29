@@ -33,6 +33,7 @@ from jw.research_influence.cohort import (
     openalex_snapshot,
     synthetic_cohort,
 )
+from jw.research_influence.package import verify_package
 from jw.research_influence.paper import build_paper
 from jw.research_influence.providers.base import ProviderPolicy
 from jw.research_influence.providers.openalex import fetch_work, search_works
@@ -900,6 +901,34 @@ def infl_package(run_id: str, config: RunnableConfig = None) -> str:
                 "Each artefact's sha256 is in the manifest, so a modified CSV is "
                 "detectable without trusting the run."
             ),
+        )
+    except (OSError, ValueError, TypeError, KeyError, RuntimeError) as exc:
+        return _result(status="error", error=str(exc))
+
+
+@tool(parse_docstring=True)
+def infl_verify(run_id: str, config: RunnableConfig = None) -> str:
+    """Recompute a run's artefact digests and report any drift.
+
+    The manifest is written by the producer, so trusting it proves nothing. This
+    re-reads every file and checks the byte digest (any edit, including a
+    rewritten timestamp) and the stable digest (an edit that changes a finding),
+    then recomputes the package fingerprint from what it verified.
+
+    Args:
+        run_id: Run identifier returned by infl_run.
+        config: Runtime-injected task workspace configuration.
+
+    Returns:
+        JSON with `ok`, the failed roles, each artefact's verdict, and both the
+        claimed and the recomputed package fingerprint.
+    """
+    try:
+        workspace = _workspace(config)
+        directory = _run_dir(workspace, run_id) / "package"
+        report = verify_package(directory)
+        return _result(
+            status="ok" if report.get("ok") else "drift", verification=report
         )
     except (OSError, ValueError, TypeError, KeyError, RuntimeError) as exc:
         return _result(status="error", error=str(exc))

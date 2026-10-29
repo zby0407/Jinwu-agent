@@ -21,6 +21,7 @@ import csv
 import io
 import json
 import math
+import re
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -40,11 +41,14 @@ from .report import build_report
 __all__ = [
     "PACKAGE_SCHEMA",
     "STABLE_PLACEHOLDER",
+    "STABLE_TIME_PLACEHOLDER",
     "PackageResult",
     "package_fingerprint",
     "paper_rows",
     "provenance_rows",
     "stable_projection",
+    "stable_text",
+    "verify_package",
     "write_package",
 ]
 
@@ -54,6 +58,9 @@ PACKAGE_SCHEMA = "jw.research-influence.package/v1"
 #: sit.  A reader who opens ``report.md`` sees the real run id; the stable digest
 #: sees this placeholder, so two runs can be compared for equality of content.
 STABLE_PLACEHOLDER = "<run>"
+
+#: What ``stable_text`` prints where an instant used to be.
+STABLE_TIME_PLACEHOLDER = "<time>"
 
 #: Keys that carry *when*, *how long*, *which run* or *where on this disk* —
 #: never *what was found*.  They are kept in the delivered files and dropped
@@ -506,8 +513,6 @@ def write_package(
     cohort_summary = _cohort_summary(snapshot, papers, subject_ids)
     card_dict = card.to_dict() if card is not None else None
     provenance_summary = _provenance_summary(papers)
-    stable_metrics = stable_projection(metrics)
-    stable_card = stable_projection(card_dict) if card_dict is not None else None
 
     report_text = build_report(
         run_id=run_id,
@@ -532,31 +537,6 @@ def write_package(
     )
     (root / "report.md").write_text(report_text, encoding="utf-8")
 
-    # The same report with the wall clock blanked out.  Only its digest is kept:
-    # it answers "is this the same finding?" without pretending the run id and
-    # the duration are part of the finding.
-    stable_report_text = build_report(
-        run_id=STABLE_PLACEHOLDER,
-        reference_year=reference_year,
-        horizon=horizon,
-        cohort_summary=cohort_summary,
-        metrics=stable_metrics,
-        model_card=stable_card,
-        importances=importances,
-        explanations=explanations,
-        bias_report=bias_report,
-        provenance_summary=provenance_summary,
-        citations=citations,
-        topic_trends=topic_trends,
-        topic_positions=topic_positions or {},
-        notes=notes,
-        files=planned,
-        started_at="",
-        finished_at="",
-        wall_seconds=None,
-        fingerprint=stable_metrics.get("fingerprint", ""),
-    )
-
     (root / "README.md").write_text(
         _readme(run_id=run_id, files=planned, model=model is not None),
         encoding="utf-8",
@@ -574,19 +554,11 @@ def write_package(
     }
     digests: dict[str, str] = {}
     stable_digests: dict[str, str] = {}
-    stable_texts = {
-        "report": stable_report_text,
-        "readme": _readme(
-            run_id=STABLE_PLACEHOLDER, files=planned, model=model is not None
-        ),
-    }
     for role, name in planned.items():
         if role == "manifest":
             continue
         digests[role] = file_digest(root / name)
-        stable_digests[role] = _stable_file_digest(
-            root / name, stable_text=stable_texts.get(role, "")
-        )
+        stable_digests[role] = _stable_file_digest(root / name, run_id=run_id)
 
     content_fingerprint = content_hash(dict(sorted(stable_digests.items())))
     manifest = {
@@ -847,11 +819,36 @@ def stable_projection(payload: Any) -> Any:
     return _jsonable(payload)
 
 
-def _stable_file_digest(path: Path, *, stable_text: str = "") -> str:
+#: ISO-8601 instants, which record *when* a run happened.
+_ISO_INSTANT = re.compile(
+    r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})?"
+)
+
+
+def stable_text(text: str, *, run_id: str = "") -> str:
+    """What a rendered file says once the run it belongs to is projected out.
+
+    Recomputable from the file on disk plus the run id recorded in the manifest,
+    which is the point: a reader can check a stable digest instead of trusting
+    this module.  The projection only removes *identifiers of the run* — the run
+    id, instants, trailing whitespace — never a measurement.
+    """
+    projected = _ISO_INSTANT.sub(STABLE_TIME_PLACEHOLDER, str(text))
+    if run_id:
+        projected = projected.replace(run_id, STABLE_PLACEHOLDER)
+    lines = [line.rstrip() for line in projected.splitlines()]
+    return "\n".join(lines).strip() + "\n"
+
+
+def _stable_file_digest(path: Path, *, run_id: str = "") -> str:
     """Digest of what a file says, insensitive to when the run happened."""
-    if stable_text:
-        return content_hash({"text": stable_text})
     suffix = path.suffix.lower()
+    if suffix in {".md", ".markdown"}:
+        try:
+            body = path.read_text(encoding="utf-8")
+        except OSError:  # pragma: no cover - defensive
+            return file_digest(path)
+        return content_hash({"text": stable_text(body, run_id=run_id)})
     if suffix == ".json":
         try:
             payload = json.loads(path.read_text(encoding="utf-8"))
@@ -867,8 +864,8 @@ def _stable_file_digest(path: Path, *, stable_text: str = "") -> str:
         except (OSError, ValueError):  # pragma: no cover - defensive
             return file_digest(path)
         return content_hash(rows)
-    # CSV and Markdown bodies carry no wall-clock fields; their bytes are already
-    # a content digest, and re-parsing them would only risk float round-tripping.
+    # CSV bytes carry no run identifiers; re-parsing them would only risk
+    # float round-tripping, so the byte digest *is* the content digest.
     return file_digest(path)
 
 
@@ -882,3 +879,76 @@ def package_fingerprint(result: PackageResult) -> str:
     return content_hash(
         {role: digest for role, digest in sorted(digests.items()) if role != "manifest"}
     )
+
+
+def verify_package(directory: Path | str) -> dict[str, Any]:
+    """Recompute every digest a manifest claims and report any drift.
+
+    The manifest is written by the producer, so trusting it proves nothing. This
+    re-reads each artefact from disk and checks both digests: the byte digest
+    (any edit at all, including a rewritten timestamp) and the stable digest
+    (an edit that changes a finding). It also recomputes the package
+    fingerprint from the digests it just verified, so a manifest that was edited
+    to agree with edited files is still caught.
+
+    Args:
+        directory: The package directory containing ``manifest.json``.
+
+    Returns:
+        A dict with ``ok``, the checked and failed roles, the recomputed
+        ``package_fingerprint``, and a per-artefact verdict.
+    """
+    root = Path(directory)
+    manifest_path = root / "manifest.json"
+    if not manifest_path.is_file():
+        return {"ok": False, "error": f"no manifest at {manifest_path}"}
+    try:
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:  # pragma: no cover - defensive
+        return {"ok": False, "error": f"unreadable manifest: {exc}"}
+    run_id = str(manifest.get("run_id") or "")
+    rows: list[dict[str, Any]] = []
+    recomputed: dict[str, str] = {}
+    for artifact in manifest.get("artifacts") or []:
+        role = str(artifact.get("role") or "")
+        name = str(artifact.get("path") or "")
+        path = root / name
+        entry: dict[str, Any] = {"role": role, "path": name}
+        if not path.is_file():
+            entry.update({"status": "missing", "ok": False})
+            rows.append(entry)
+            continue
+        actual_bytes = file_digest(path)
+        actual_stable = _stable_file_digest(path, run_id=run_id)
+        recomputed[role] = actual_stable
+        bytes_ok = actual_bytes == artifact.get("sha256")
+        stable_ok = actual_stable == artifact.get("stable_sha256")
+        entry.update(
+            {
+                "bytes_ok": bytes_ok,
+                "stable_ok": stable_ok,
+                "status": "match" if bytes_ok and stable_ok else "drift",
+                "ok": bytes_ok and stable_ok,
+            }
+        )
+        if not bytes_ok:
+            entry["expected_sha256"] = artifact.get("sha256")
+            entry["actual_sha256"] = actual_bytes
+        if not stable_ok:
+            entry["expected_stable_sha256"] = artifact.get("stable_sha256")
+            entry["actual_stable_sha256"] = actual_stable
+        rows.append(entry)
+    claimed = str(manifest.get("package_fingerprint") or "")
+    recomputed_print = content_hash(dict(sorted(recomputed.items())))
+    failed = [row["role"] for row in rows if not row["ok"]]
+    return {
+        "ok": not failed and recomputed_print == claimed,
+        "directory": str(root),
+        "run_id": run_id,
+        "checked": len(rows),
+        "failed": failed,
+        "package_fingerprint_expected": claimed,
+        "package_fingerprint_recomputed": recomputed_print,
+        "fingerprint_ok": recomputed_print == claimed,
+        "artifacts": rows,
+    }

@@ -334,3 +334,94 @@ def test_a_missing_venue_is_not_counted_as_a_journal(tmp_path):
     text = (Path(result.directory) / "bare" / "report.md").read_text(encoding="utf-8")
     assert "| 有期刊信息 | 0 |" in text
     assert "| 有标题 | 3 |" in text
+
+
+def test_verify_recomputes_what_the_manifest_claims(tmp_path, cohort):
+    """Trusting the manifest proves nothing; re-reading the files does."""
+    from jw.research_influence.package import verify_package
+
+    result = run_influence(
+        workspace=tmp_path,
+        snapshot=cohort,
+        options=RunOptions(importance_repeats=1, importance_seeds=(0,), bootstrap=20),
+    )
+    report = verify_package(result.package_dir)
+    assert report["ok"] is True, report
+    assert report["failed"] == []
+    assert report["fingerprint_ok"] is True
+    assert report["checked"] == len(report["artifacts"])
+    assert (
+        report["package_fingerprint_expected"] == result.metrics["package_fingerprint"]
+    )
+
+
+def test_verify_catches_an_edited_table(tmp_path, cohort):
+    """An edited CSV is the case the manifest exists for."""
+    from jw.research_influence.package import verify_package
+
+    result = run_influence(
+        workspace=tmp_path,
+        snapshot=cohort,
+        options=RunOptions(importance_repeats=1, importance_seeds=(0,), bootstrap=20),
+    )
+    path = Path(result.package_dir) / "predictions.csv"
+    path.write_text(
+        path.read_text(encoding="utf-8").replace(",", ",", 1) + "tampered\n",
+        encoding="utf-8",
+    )
+    report = verify_package(result.package_dir)
+    assert report["ok"] is False
+    assert "predictions" in report["failed"]
+    row = next(item for item in report["artifacts"] if item["role"] == "predictions")
+    assert row["bytes_ok"] is False and row["stable_ok"] is False
+
+
+def test_verify_distinguishes_a_rewritten_timestamp_from_a_changed_finding(
+    tmp_path, cohort
+):
+    """Re-stamping a report is drift in bytes, not in content — say so."""
+    from jw.research_influence.package import verify_package
+
+    result = run_influence(
+        workspace=tmp_path,
+        snapshot=cohort,
+        options=RunOptions(importance_repeats=1, importance_seeds=(0,), bootstrap=20),
+    )
+    path = Path(result.package_dir) / "report.md"
+    text = path.read_text(encoding="utf-8")
+    stamped = text.replace("2026-", "2027-", 1)
+    assert stamped != text, "the report must contain an instant to rewrite"
+    path.write_text(stamped, encoding="utf-8")
+
+    report = verify_package(result.package_dir)
+    row = next(item for item in report["artifacts"] if item["role"] == "report")
+    assert row["bytes_ok"] is False
+    assert row["stable_ok"] is True
+    # The bytes no longer agree, so the package is not intact — but the finding
+    # survived the re-stamp, and the verdict says which of the two broke.
+    assert report["ok"] is False
+    assert report["fingerprint_ok"] is True
+
+
+def test_verify_catches_a_manifest_edited_to_agree_with_edited_files(tmp_path, cohort):
+    """A manifest that was rewritten alongside the files must still fail."""
+    from jw.research_influence.package import verify_package
+
+    result = run_influence(
+        workspace=tmp_path,
+        snapshot=cohort,
+        options=RunOptions(importance_repeats=1, importance_seeds=(0,), bootstrap=20),
+    )
+    root = Path(result.package_dir)
+    target = root / "importance.csv"
+    target.write_text("paper_id,feature,importance\nx,y,1.0\n", encoding="utf-8")
+    manifest = json.loads((root / "manifest.json").read_text(encoding="utf-8"))
+    for artifact in manifest["artifacts"]:
+        if artifact["role"] == "importance":
+            artifact["sha256"] = file_digest(target)
+            artifact["stable_sha256"] = file_digest(target)
+    (root / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+
+    report = verify_package(root)
+    assert report["ok"] is False
+    assert report["fingerprint_ok"] is False
