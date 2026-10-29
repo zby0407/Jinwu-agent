@@ -12,6 +12,7 @@ with ``allow_network=True``; a run always starts from evidence already on disk.
 
 from __future__ import annotations
 
+import bisect
 import json
 import math
 import time
@@ -20,7 +21,10 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from jw.scientific_data.documents import read_pdf_text
+
 from .bias import AUDITS, BiasReport, audit_bias
+
 from .cohort import (
     HORIZON_YEARS,
     CohortSnapshot,
@@ -37,6 +41,7 @@ from .contracts import (
     new_run_id,
     utc_now,
 )
+from .enrich import Enrichment, EnrichmentBatch, enrich_paper
 from .explain import (
     DEFAULT_BOOTSTRAP,
     DEFAULT_NEIGHBOURS,
@@ -47,6 +52,9 @@ from .explain import (
 )
 from .features import feature_matrix
 from .fulltext import read_local_fulltext
+from .metadata import apply_pdf_metadata, extract_pdf_metadata
+from .providers.base import ProviderPolicy
+from .transport import PoliteTransport, UrllibTransport
 from .model import (
     InfluenceModel,
     InsufficientTrainingData,
@@ -86,6 +94,9 @@ class RunOptions:
     subject_ids: tuple[str, ...] = ()
     max_subjects: int = 5
     package_name: str = "package"
+    enrich_uploads: bool = True
+    allow_network: bool = False
+    transport: object | None = None
     notes: tuple[str, ...] = ()
 
     def to_dict(self) -> dict[str, Any]:
@@ -191,6 +202,10 @@ def run_influence(
         )
     reference_year = settings.reference_year or evidence.reference_year
     uploaded = tuple(paper_from_upload(path, directory=directory) for path in uploads)
+    enrichment: EnrichmentBatch | None = None
+    if uploaded and settings.enrich_uploads:
+        enrichment = _enrich_uploads(uploaded, settings)
+        uploaded = enrichment.papers
     papers = tuple(evidence.papers) + uploaded
     snapshot_all = build_snapshot(
         papers,
@@ -209,6 +224,9 @@ def run_influence(
         "cohort_fingerprint": snapshot_all.fingerprint(),
         "synthetic": evidence.is_synthetic,
     }
+    if enrichment is not None:
+        stages["load"]["enrichment"] = enrichment.counts()
+        stages["load"]["enrichment_notes"] = list(enrichment.notes)
 
     # --- features -----------------------------------------------------------
     matrix = feature_matrix(
@@ -293,6 +311,7 @@ def run_influence(
             repeats=settings.importance_repeats,
             seeds=settings.importance_seeds,
         )
+        metrics["subject_percentiles"] = _subject_percentiles(predictions, subjects)
         stages["explain"] = {
             "state": "complete",
             "subjects": len(explanations),
@@ -417,13 +436,61 @@ def paper_from_upload(path: str | Path, *, directory: str | Path) -> PaperRecord
         license="user_supplied",
         note="supplied_by_operator",
     )
-    return build_paper(
+    paper = build_paper(
         paper_id=paper_id,
         doi=fulltext.doi,
         fulltext=fulltext,
         access=access,
         notes=("user_supplied_full_text",),
     )
+    return apply_pdf_metadata(paper, _pdf_metadata(paper.fulltext_path))
+
+
+def _pdf_metadata(path: str):
+    """Metadata candidates from an already stored PDF, never raising.
+
+    An uploaded file the reader cannot open must not abort the run: the paper
+    still exists, it just has fewer known fields.
+    """
+    if not path:
+        return extract_pdf_metadata(())
+    try:
+        pages = read_pdf_text(path).pages
+    except OSError:
+        return extract_pdf_metadata(())
+    except Exception:  # a broken PDF must not take the run down
+        return extract_pdf_metadata(())
+    return extract_pdf_metadata(pages)
+
+
+def _upload_transport(settings: "RunOptions"):
+    """The transport enrichment should use, or ``None`` when offline."""
+    if settings.transport is not None:
+        return settings.transport
+    if not settings.allow_network:
+        return None
+    return PoliteTransport(UrllibTransport())
+
+
+def _enrich_uploads(
+    uploaded: Sequence[PaperRecord], settings: "RunOptions"
+) -> EnrichmentBatch:
+    """Identify the uploads against the index, or say why it was skipped."""
+    transport = _upload_transport(settings)
+    if transport is None:
+        # Offline is a normal state, not an empty result: the papers stay in the
+        # run exactly as the text layer left them.
+        return EnrichmentBatch(
+            results=tuple(
+                Enrichment(paper=paper, status="skipped_offline") for paper in uploaded
+            ),
+            notes=("upload_enrichment_skipped:network_disabled",),
+        )
+    policy = ProviderPolicy.from_environment()
+    results = tuple(
+        enrich_paper(paper, transport=transport, policy=policy) for paper in uploaded
+    )
+    return EnrichmentBatch(results=results)
 
 
 def stages_of(directory: str | Path) -> Mapping[str, Any]:
@@ -456,6 +523,29 @@ def _subjects(
         key=lambda paper: (-(paper.cited_by_count or 0), paper.paper_id),
     )
     return ranked[: settings.max_subjects]
+
+
+def _subject_percentiles(
+    predictions: PredictionSet, subjects: Sequence[PaperRecord]
+) -> dict[str, float]:
+    """Where each analysed paper sits in the reference population.
+
+    A percentile of the *prediction*, not of the truth: it answers "does this
+    paper look like the top decile of this cohort", which is the question a
+    reader can act on before the citations exist.
+    """
+    medians = sorted(predictions.median)
+    index = {
+        paper_id: position for position, paper_id in enumerate(predictions.paper_ids)
+    }
+    out: dict[str, float] = {}
+    for paper in subjects:
+        position = index.get(paper.paper_id)
+        if position is None or not medians:
+            continue
+        below = bisect.bisect_right(medians, predictions.median[position])
+        out[paper.paper_id] = round(100.0 * below / len(medians), 1)
+    return out
 
 
 def _censored_ids(

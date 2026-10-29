@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 
 from jw.research_influence.cohort import build_snapshot, synthetic_cohort
-from jw.research_influence.contracts import file_digest
+from jw.research_influence.contracts import ConfidenceBand, file_digest
 from jw.research_influence.workflow import (
     RunOptions,
     load_run,
@@ -181,7 +181,13 @@ def test_uploaded_pdf_becomes_a_parsed_paper(tmp_path):
     assert paper.has_full_text
     assert paper.sections
     assert any(record.kind.value == "code" for record in paper.open_data)
-    assert paper.provenance_for("title") == ()
+    # Whatever the text layer offered is attributed to the text layer and
+    # carries a low confidence band: no index was consulted for this upload.
+    for field in ("title", "authors", "year"):
+        for entry in paper.provenance_for(field):
+            assert entry.provider == "pdf_text_layer"
+            assert entry.confidence in {ConfidenceBand.LOW, ConfidenceBand.UNVERIFIED}
+    assert all(entry.provider != "openalex" for entry in paper.provenance_for("venue"))
 
 
 def test_upload_participates_in_the_run(tmp_path, cohort):

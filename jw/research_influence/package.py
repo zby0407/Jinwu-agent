@@ -7,6 +7,7 @@ without trusting this code.
 
 from __future__ import annotations
 
+import bisect
 import csv
 import io
 import json
@@ -62,6 +63,7 @@ PREDICTION_COLUMNS = (
     "predicted_high",
     "interval_width",
     "window_status",
+    "cohort_percentile",
     "is_subject",
 )
 
@@ -223,6 +225,10 @@ def write_package(
 
     if predictions is not None:
         by_id = {paper.paper_id: paper for paper in papers}
+        # Where each paper sits in the reference population.  This is a rank of
+        # the prediction, not of the truth: it says "this paper looks like the
+        # top decile of this cohort", which is what a reader can act on.
+        medians = sorted(predictions.median)
         rows = []
         for index, paper_id in enumerate(predictions.paper_ids):
             paper = by_id.get(paper_id)
@@ -244,6 +250,9 @@ def write_package(
                     ),
                     "window_status": (
                         _window_status(paper, reference_year, horizon) if paper else ""
+                    ),
+                    "cohort_percentile": _percentile(
+                        medians, predictions.median[index]
                     ),
                     "is_subject": paper_id in subject_set,
                 }
@@ -469,6 +478,14 @@ def _censored(paper: PaperRecord, reference_year: Any) -> bool:
     if not year:
         return False
     return is_right_censored(paper, reference_year=year, horizon=3)
+
+
+def _percentile(sorted_values: Sequence[float], value: float) -> float:
+    """Share of the reference population at or below ``value``, in percent."""
+    if not sorted_values:
+        return 0.0
+    below = bisect.bisect_right(sorted_values, value)
+    return round(100.0 * below / len(sorted_values), 1)
 
 
 def _or_blank(value: Any) -> Any:

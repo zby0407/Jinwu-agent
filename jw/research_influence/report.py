@@ -255,6 +255,20 @@ def _section_predictions(
             "会被上抬到中位数并计数上报，不会出现“下界比中位数还高”的假区间。"
         )
         lines.append("")
+    percentiles = (metrics or {}).get("subject_percentiles") or {}
+    if percentiles:
+        lines.append("### 目标论文在本队列中的相对位置")
+        lines.append("")
+        for explanation in explanations:
+            percentile = percentiles.get(explanation.paper_id)
+            if percentile is None:
+                continue
+            lines.append(
+                f"- `{explanation.paper_id}`：预测中位数位于参照队列第 {percentile:.1f} 百分位"
+                "（按预测中位数排序，不是按真实被引；队列本身有偏，见第 5 节审计）。"
+            )
+        lines.append("")
+
     calibration = (metrics or {}).get("decile_calibration") or []
     if calibration:
         lines.append("### 分箱校准：模型在哪一段失准")
