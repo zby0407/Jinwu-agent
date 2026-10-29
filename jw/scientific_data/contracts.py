@@ -652,11 +652,31 @@ class ObservationRecord:
     field_map: Mapping[str, str] = field(default_factory=dict)
     flags: tuple[str, ...] = ()
     conflict: bool = False
+    # per-row labels that the domain uses as merge keys (band, classification...)
+    attributes: Mapping[str, str] = field(default_factory=dict)
 
     @property
     def merge_key(self) -> tuple[str, str, str]:
         """Canonical alignment key for this observation."""
         return (self.entity_id, self.observable, self.time)
+
+    def alignment_key(self, keys: Sequence[str] | None = None) -> tuple[str, ...]:
+        """Merge key under the contract's key list (defaults to the core three)."""
+        names = tuple(keys or ("entity_id", "observable", "time"))
+        values: dict[str, str] = {
+            "entity_id": self.entity_id,
+            "observable": self.observable,
+            "time": self.time,
+            # "time_key" is the domain-plugin spelling of the same axis.
+            "time_key": self.time,
+            "time_raw": self.time_raw,
+            "time_system": self.time_system,
+            "unit": self.unit,
+            "value_kind": str(self.value_kind),
+            "entity_label": self.attributes.get("label", ""),
+        }
+        values.update({str(key): str(value) for key, value in self.attributes.items()})
+        return tuple(values.get(name, "") for name in names)
 
     def to_dict(self) -> dict[str, Any]:
         payload = _jsonable(asdict(self))
@@ -695,6 +715,10 @@ class ObservationRecord:
             field_map=dict(raw.get("field_map") or {}),
             flags=tuple(str(item) for item in raw.get("flags") or ()),
             conflict=bool(raw.get("conflict")),
+            attributes={
+                str(key): str(value)
+                for key, value in (raw.get("attributes") or {}).items()
+            },
         )
 
 
