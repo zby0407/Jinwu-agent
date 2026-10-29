@@ -169,3 +169,85 @@ def test_paths_outside_the_workspace_are_refused(workspace):
     payload = _load(tools.infl_parse_pdf.invoke({"paths": ["/etc/hosts"]}))
     assert payload["status"] == "error"
     assert "path escaped the task workspace" in payload["error"]
+
+
+OPENALEX_RECORD = {
+    "id": "https://openalex.org/W2741809807",
+    "doi": "https://doi.org/10.1093/mnras/stv1947",
+    "title": "Photometric calibration of nearby supernovae light curves",
+    "publication_year": 2015,
+    "cited_by_count": 42,
+    "counts_by_year": [{"year": 2016, "cited_by_count": 5}],
+    "authorships": [
+        {
+            "author": {"display_name": "A. Author", "orcid": "0000-0002-1825-0097"},
+            "institutions": [],
+            "author_position": "first",
+        }
+    ],
+    "primary_location": {
+        "source": {
+            "display_name": "Monthly Notices of the Royal Astronomical Society",
+            "publisher": "Oxford University Press",
+            "type": "journal",
+            "issn_l": "1365-2966",
+        },
+        "is_oa": False,
+    },
+    "abstract_inverted_index": {"We": [0], "measure": [1], "decline": [2]},
+}
+
+
+def _write_records(tmp_path: Path, name: str, payload) -> Path:
+    path = tmp_path / name
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    return path
+
+
+def test_a_recorded_payload_becomes_a_cohort_without_any_network(workspace):
+    """A real snapshot is fetched where there is egress and imported here."""
+    path = _write_records(workspace, "openalex.json", {"results": [OPENALEX_RECORD]})
+    payload = _load(
+        tools.infl_snapshot_import.invoke(
+            {"paths": [str(path)], "name": "real", "query": "supernova Ia"}
+        )
+    )
+    assert payload["status"] == "ok", payload
+    assert payload["network_used"] is False
+    assert payload["papers"] == 1
+
+    from jw.research_influence.cohort import CohortSnapshot
+
+    snapshot = CohortSnapshot.load(Path(payload["path"]))
+    paper = snapshot.papers[0]
+    # Bibliometrics survive the handover: that is the point of importing.
+    assert paper.cited_by_count == 42
+    assert paper.venue is not None and paper.venue.name.startswith("Monthly Notices")
+    assert paper.authors
+    assert paper.authors[0].name or paper.authors[0].family
+    assert paper.year == 2015
+    assert snapshot.fingerprint() == payload["fingerprint"]
+
+
+def test_jsonl_payloads_are_accepted_too(workspace):
+    """Operators export JSONL as often as JSON; both must work."""
+    path = workspace / "works.jsonl"
+    path.write_text(
+        "\n".join(
+            json.dumps(dict(OPENALEX_RECORD, id=f"https://openalex.org/W{i}"))
+            for i in (1, 2)
+        ),
+        encoding="utf-8",
+    )
+    payload = _load(tools.infl_snapshot_import.invoke({"paths": [str(path)]}))
+    assert payload["status"] == "ok", payload
+    assert payload["papers"] == 2
+
+
+def test_importing_nothing_is_an_error(workspace):
+    """An empty handover must not look like an empty cohort."""
+    assert _load(tools.infl_snapshot_import.invoke({"paths": []}))["status"] == "error"
+    empty = _write_records(workspace, "empty.json", [])
+    payload = _load(tools.infl_snapshot_import.invoke({"paths": [str(empty)]}))
+    assert payload["status"] == "error"
+    assert "no works" in payload["error"]

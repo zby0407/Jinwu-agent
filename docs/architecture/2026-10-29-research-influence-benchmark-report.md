@@ -42,6 +42,12 @@ log1p MAE 0.514；6 类注入偏差中 5 类被命名（含效应量、置信区
 结果。抓取逻辑本身有 51 个离线测试覆盖（`tests/research_influence/test_providers.py`
 等，用注入的假 Transport，零网络）。
 
+真实快照的落地路径是 `infl_snapshot_import`：在有出口的机器上导出 OpenAlex
+`/works` 记录（JSON 或 JSONL），导入后冻结为同样格式的快照，之后的建模、解释、
+审计、报告全部离线复跑。导入有 3 个测试覆盖（原始记录、JSONL、空输入必须是错误
+而不是空队列）；导入时若把原始记录当已解析记录处理，venue/authors 会静默变空——
+这个分叉被 `_RAW_KEYS` 判别并写进测试。
+
 ---
 
 ## 2. 抽取质量（用真实 PDF 的文本层计分）

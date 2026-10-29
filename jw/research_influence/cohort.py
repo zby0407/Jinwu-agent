@@ -17,6 +17,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from collections.abc import Iterable, Mapping, Sequence
 from typing import Any
+from collections.abc import Callable
 
 from .contracts import (
     AccessRoute,
@@ -654,12 +655,13 @@ def openalex_snapshot(
     committed to disk, and re-used, so a model run never depends on a live API.
     """
     from .paper import build_paper
+    from .providers.openalex import parse_work
 
     papers = [
         build_paper(
             paper_id=f"paper:{_identifier(payload)}",
             doi=str(payload.get("doi") or ""),
-            openalex=dict(payload.get("parsed") or payload),
+            openalex=_work_payload(payload, parse_work),
         )
         for payload in payloads
     ]
@@ -671,6 +673,27 @@ def openalex_snapshot(
         reference_year=reference_year,
         filters=dict(filters or {}),
     )
+
+
+#: Keys that only exist in an *unparsed* OpenAlex record.  ``cited_by_count``
+#: survives parsing, so it cannot be used to tell the two shapes apart.
+_RAW_KEYS = frozenset({"authorships", "primary_location", "abstract_inverted_index"})
+
+
+def _work_payload(
+    payload: Mapping[str, Any], parse: Callable[[Mapping[str, Any]], dict[str, Any]]
+) -> dict[str, Any]:
+    """Accept either a recorded export or an already-parsed work record.
+
+    An operator imports whatever their fetch produced: raw ``/works`` records, or
+    the parsed form. Parsing raw input here is what keeps venue, authors and
+    bibliometrics from silently arriving empty.
+    """
+    if isinstance(payload.get("parsed"), Mapping):
+        return dict(payload["parsed"])  # type: ignore[arg-type]
+    if not _RAW_KEYS.intersection(payload):
+        return dict(payload)
+    return parse(payload)
 
 
 def _identifier(payload: Mapping[str, Any]) -> str:

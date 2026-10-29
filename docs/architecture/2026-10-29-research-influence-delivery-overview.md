@@ -3,7 +3,7 @@
 - 日期：2026-10-29
 - 分支：`feat/scientific-data-integration-20261029`
 - 内核：`jw/research_influence/`（schema `jw.research-influence/v1`）
-- 工具面：`jw/tools/influence.py`（13 个 `infl_*` 工具，`include_in_main=False`）
+- 工具面：`jw/tools/influence.py`（14 个 `infl_*` 工具，`include_in_main=False`）
 - 子 Agent：`jw/subagents/research-influence/`（bundle + agent YAML）
 - 基准与指标：`tests/research_influence/test_benchmark.py`、
   `docs/architecture/2026-10-29-research-influence-benchmark-report.md`
@@ -89,8 +89,13 @@
 
 工具面 `infl_*` 把这十阶段拆成可单独调用、可中途接管的一步步：
 `infl_capabilities / infl_cohorts / infl_snapshot_synthetic / infl_snapshot_search /
-infl_fetch_paper / infl_parse_pdf / infl_run / infl_status / infl_report /
-infl_bias / infl_explain / infl_package / infl_acquisition_request`。
+infl_snapshot_import / infl_fetch_paper / infl_parse_pdf / infl_run / infl_status /
+infl_report / infl_bias / infl_explain / infl_package / infl_acquisition_request`。
+
+其中两个快照入口是分开的，因为它们服务于不同的环境：
+`infl_snapshot_search` 需要网络（默认拒绝），`infl_snapshot_import` **完全离线**，
+读操作者录好的 OpenAlex `/works` 导出（JSON / JSONL / API 信封），冻结成同一格式的
+快照。这样“抓取”可以发生在有出口的机器上，而模型运行永远不依赖实时 API。
 
 ---
 
@@ -117,7 +122,10 @@ infl_bias / infl_explain / infl_package / infl_acquisition_request`。
 
 1. 基准队列是**合成**的：证明了管道与校准机制，不证明真实论文的可预测性。
 2. 本报告**不含真实网络抓取**：沙箱出口被拒（`503`），抓取逻辑靠 51 个离线测试
-   保证正确性（注入假 Transport，零网络）。
+   保证正确性（注入假 Transport，零网络）。真实快照的落地方式是
+   `infl_snapshot_import`：在有出口的机器上导出 OpenAlex `/works` 记录，
+   import 进本工作区即可冻结成同样的 `cohorts/<name>.json`（有测试覆盖原始记录
+   与已解析记录两种入参）。
 3. 付费墙只验证到“403 且不绕过”，以及三条降级出口与影子图书馆拒绝。
 4. `自引通胀` 与 `作者人口学` 两类审计是 **cannot_assess**：前者缺作者级引用
    明细，后者拒绝从姓名推断（推断本身会制造它声称测量的偏差）。
@@ -142,6 +150,10 @@ infl_status(); infl_report(); infl_bias(status="detected"); infl_explain()
 
 # 4) 抓不到全文时，生成人工获取清单
 infl_acquisition_request(doi="10.1093/mnras/stv1947")
+
+# 5) 有出口的机器上导出 OpenAlex /works 记录后，离线冻结成真实快照
+infl_snapshot_import(paths=["exports/openalex_works.json"], name="snia_real",
+                     query="supernova Ia light curve cosmology", reference_year=2024)
 ```
 
 命令行等价入口：

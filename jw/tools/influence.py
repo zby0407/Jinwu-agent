@@ -28,7 +28,11 @@ from jw.research_influence.access import (
     rank_candidates,
 )
 from jw.research_influence.bias import AUDIT_LABELS, AUDITS
-from jw.research_influence.cohort import CohortSnapshot, synthetic_cohort
+from jw.research_influence.cohort import (
+    CohortSnapshot,
+    openalex_snapshot,
+    synthetic_cohort,
+)
 from jw.research_influence.paper import build_paper
 from jw.research_influence.providers.base import ProviderPolicy
 from jw.research_influence.providers.openalex import fetch_work, search_works
@@ -399,6 +403,73 @@ def infl_snapshot_search(
                 for field in ("title", "abstract", "year", "doi", "venue", "authors")
             },
             honesty_note="Abstracts and metadata only: no full text was fetched.",
+        )
+    except (OSError, ValueError, TypeError, KeyError, RuntimeError) as exc:
+        return _result(status="error", error=str(exc))
+
+
+@tool(parse_docstring=True)
+def infl_snapshot_import(
+    paths: list[str] | None = None,
+    name: str = "",
+    query: str = "",
+    reference_year: int = 0,
+    config: RunnableConfig = None,
+) -> str:
+    """Freeze a cohort from recorded OpenAlex payloads, with no network at all.
+
+    A snapshot is supposed to be taken once and reused, so the fetch can happen
+    wherever the operator has egress and the model run never depends on a live
+    API. This tool is that handover: it accepts JSON or JSONL files of raw
+    ``/works`` records and writes the same snapshot the search tool would.
+
+    Args:
+        paths: Recorded payload files (JSON array, ``{"results": [...]}`` or JSONL).
+        name: Snapshot name (defaults to a slug of the query, else "imported").
+        query: Query the payloads came from, kept for provenance.
+        reference_year: Year the citation window is measured at (0 = current).
+        config: Runtime-injected task workspace configuration.
+
+    Returns:
+        JSON with the snapshot path, paper count and fingerprint.
+    """
+    try:
+        workspace = _workspace(config)
+        resolved = [_resolve(value, workspace) for value in (paths or [])]
+        if not resolved:
+            return _result(
+                status="error", error="at least one payload file is required"
+            )
+        payloads: list[dict[str, Any]] = []
+        for path in resolved:
+            payloads.extend(_read_payloads(path))
+        if not payloads:
+            return _result(status="error", error="the payload files contain no works")
+        cohort_id = f"cohort:{name.strip() or _slug(query) or 'imported'}"
+        snapshot = openalex_snapshot(
+            payloads,
+            cohort_id=cohort_id,
+            query=query,
+            reference_year=int(reference_year or 0),
+            filters={"imported_files": [path.name for path in resolved]},
+        )
+        path = (
+            _cohort_dir(workspace)
+            / f"{name.strip() or _slug(query) or 'imported'}.json"
+        )
+        snapshot.write(path)
+        return _result(
+            status="ok",
+            path=str(path),
+            name=path.stem,
+            papers=len(snapshot.papers),
+            reference_year=snapshot.reference_year,
+            fingerprint=snapshot.fingerprint(),
+            network_used=False,
+            honesty_note=(
+                "Imported snapshot: provenance is whatever the recorded payload "
+                "carried, and no full text was fetched."
+            ),
         )
     except (OSError, ValueError, TypeError, KeyError, RuntimeError) as exc:
         return _result(status="error", error=str(exc))
@@ -888,6 +959,33 @@ def _read_csv(path: Path) -> list[dict[str, str]]:
         return list(csv.DictReader(handle))
 
 
+def _read_payloads(path: Path) -> list[dict[str, Any]]:
+    """Read one recorded export: JSONL, a JSON array, or an API envelope."""
+    text = path.read_text(encoding="utf-8")
+    if path.suffix == ".jsonl":
+        return [
+            item
+            for line in text.splitlines()
+            if line.strip()
+            for item in [json.loads(line)]
+            if isinstance(item, dict)
+        ]
+    return _payload_records(json.loads(text))
+
+
+def _payload_records(payload: Any) -> list[dict[str, Any]]:
+    """Accept the three shapes a recorded OpenAlex export arrives in."""
+    if isinstance(payload, list):
+        return [item for item in payload if isinstance(item, dict)]
+    if isinstance(payload, dict):
+        for key in ("results", "works", "items"):
+            value = payload.get(key)
+            if isinstance(value, list):
+                return [item for item in value if isinstance(item, dict)]
+        return [payload]
+    return []
+
+
 def _slug(text: str) -> str:
     cleaned = "".join(
         character if character.isalnum() else "-" for character in text.strip().lower()
@@ -901,6 +999,7 @@ INFLUENCE_TOOLS = [
     infl_cohorts,
     infl_snapshot_synthetic,
     infl_snapshot_search,
+    infl_snapshot_import,
     infl_fetch_paper,
     infl_parse_pdf,
     infl_run,
