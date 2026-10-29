@@ -157,7 +157,16 @@ def infl_capabilities(config: RunnableConfig = None) -> str:
         del config
         return _result(
             status="ok",
-            stages=["load", "features", "model", "explain", "bias", "report"],
+            stages=[
+                "load",
+                "features",
+                "topics",
+                "model",
+                "explain",
+                "citation",
+                "bias",
+                "report",
+            ],
             ladder=[
                 "user_supplied",
                 "open_access_gold",
@@ -210,6 +219,8 @@ def infl_capabilities(config: RunnableConfig = None) -> str:
                 "importance.csv",
                 "bias_audit.csv",
                 "bias_audit.md",
+                "citation.csv",
+                "topics.csv",
                 "model_card.json",
                 "metrics.json",
                 "provenance.jsonl",
@@ -1034,8 +1045,8 @@ def infl_network(run_id: str, paper_id: str = "", config: RunnableConfig = None)
                 "references resolved poorly sits lower than its real position."
             ),
         )
-    except Exception as exc:  # a tool must report, not raise
-        return _error("infl_network", exc)
+    except (OSError, ValueError, TypeError, KeyError, RuntimeError) as exc:
+        return _result(status="error", error=str(exc))
 
 
 INFLUENCE_TOOLS = [
