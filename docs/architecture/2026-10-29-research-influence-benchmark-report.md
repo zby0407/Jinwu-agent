@@ -235,13 +235,13 @@ MNAR 的判定也修过一次：五个桶里出现一个回落就判“证据不
 | 项 | 实测 |
 | --- | --- |
 | 同快照同种子两次运行 | `determinism = 1.0` |
-| 指标指纹 | `sha256:fa4d09f43868a7b13ad4c1ec41577cb9f1ce0e033411fe5c835f2d64a91c52cb` |
-| 数据包指纹 | `sha256:7ac1c9d68c247a436584dd27797af6c31f2f69cb07b7f19509fd4456a11596dd` |
-| 输出文件 | 13 个（papers/predictions/factors/comparators/importance/bias_audit(×2)/model_card/metrics/provenance/report/readme/manifest） |
+| 指标指纹 | `sha256:c7d02ef599c35d71291cd404a068190893636f29f73efef32891f69afbf9b096` |
+| 数据包指纹（内容级） | `sha256:324554f1e2b2396641acb75e409e9156b77c82630dde9f1df7a20cfba6adf257` |
+| 输出文件 | 15 个（papers/predictions/factors/comparators/importance/bias_audit.csv/bias_audit.md/model_card/metrics/provenance/citation/topics/report/readme/manifest） |
 | 模型拟合 | 1.8–3.5 s |
 | 整条管道 | 4–12 s |
 
-为保证这些哈希真的可比，修掉了两处会破坏指纹的缺陷：
+为保证这些哈希真的可比，修掉了三处会破坏指纹的缺陷：
 
 1. **墙钟时间进指纹**：`retrieved_at` 每次运行都不同，导致同一篇论文两次运行
    指纹不同。现在 `VOLATILE_KEYS`（`retrieved_at/created_at/decided_at/...`）
@@ -249,6 +249,23 @@ MNAR 的判定也修过一次：五个桶里出现一个回落就判“证据不
 2. **本地路径进指纹**：`fulltext_path` 里的绝对路径会随工作目录变化。现在
    `LOCAL_PATH_KEYS`（`fulltext_path/source_paths/path/directory`）不进指纹，
    内容由 sha256 标识。
+3. **数据包指纹建在字节上**：`report.md` 里必须写运行编号与起止时刻，所以两次
+   内容完全相同的运行，字节摘要必然不同；把包指纹建在字节上，等于宣称
+   “同输入同结论”在文件层面永远不成立。现在 `manifest.json` 给每个产物两种摘要
+   ——`sha256`（磁盘字节，抓任何改动，含重写时间戳）与 `stable_sha256`（抹掉运行
+   时刻、运行编号与本机路径后的内容摘要）——`package_fingerprint` 按
+   `stable_sha256` 计算。
+
+**真实数据证据**（1202 篇天体物理队列，同一冻结快照、两次运行）：
+
+| 场景 | 指标指纹 | 包指纹 |
+| --- | --- | --- |
+| 冻结快照（离线，无网络补充） | 一致 | 一致（`sha256:3ccfca8a...`） |
+| 联网（引用网络在线补充） | 输入相同才一致 | 同左 |
+
+联网这一组故意留着：在线接口两次返回的引用状态可能不同（实测一次 `ok=2`、
+一次 `unavailable=2`），**输入变了，任何指纹都不该一致**。所以“可复现”的口径
+是冻结快照，而不是“跑两次一定一样”——后者会把外部服务的抖动伪装成我们的确定性。
 
 ---
 

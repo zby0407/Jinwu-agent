@@ -3,6 +3,15 @@
 Every file is written once, then hashed into ``manifest.json``.  The manifest is
 written last and lists every other artefact, so a modified CSV is detectable
 without trusting this code.
+
+Two hashes are recorded per artefact.  ``sha256`` is the digest of the bytes on
+disk: it catches any edit, including a rewritten timestamp.  ``stable_sha256``
+is the digest of the same content with wall-clock fields (run identifiers,
+durations, retrieval times) projected out.  Re-running the same frozen snapshot
+with the same seed must reproduce every ``stable_sha256``; the byte digests may
+legitimately differ because the report says *when* the run happened.  That is
+why the package fingerprint is taken over the stable digests, not the bytes:
+"same input, same content" has to be a claim the files can actually support.
 """
 
 from __future__ import annotations
@@ -18,18 +27,49 @@ from pathlib import Path
 from typing import Any
 
 from .cohort import CohortSnapshot, citations_within
-from .contracts import PaperRecord, content_hash, file_digest, utc_now
+from .contracts import (
+    LOCAL_PATH_KEYS,
+    VOLATILE_KEYS,
+    PaperRecord,
+    content_hash,
+    file_digest,
+    utc_now,
+)
 from .report import build_report
 
 __all__ = [
     "PACKAGE_SCHEMA",
+    "STABLE_PLACEHOLDER",
     "PackageResult",
+    "package_fingerprint",
     "paper_rows",
     "provenance_rows",
+    "stable_projection",
     "write_package",
 ]
 
 PACKAGE_SCHEMA = "jw.research-influence.package/v1"
+
+#: What the stable projection prints where a run-specific value would otherwise
+#: sit.  A reader who opens ``report.md`` sees the real run id; the stable digest
+#: sees this placeholder, so two runs can be compared for equality of content.
+STABLE_PLACEHOLDER = "<run>"
+
+#: Keys that carry *when*, *how long*, *which run* or *where on this disk* —
+#: never *what was found*.  They are kept in the delivered files and dropped
+#: from the stable digest, so two runs in different directories still compare.
+STABLE_DROPPED_KEYS: frozenset[str] = (
+    VOLATILE_KEYS
+    | LOCAL_PATH_KEYS
+    | frozenset(
+        {
+            "fit_seconds",
+            "run_id",
+            "training_seconds",
+            "wall_seconds",
+        }
+    )
+)
 
 PAPER_COLUMNS = (
     "paper_id",
@@ -141,6 +181,7 @@ class PackageResult:
     directory: str
     files: Mapping[str, str] = field(default_factory=dict)
     digests: Mapping[str, str] = field(default_factory=dict)
+    stable_digests: Mapping[str, str] = field(default_factory=dict)
     counts: Mapping[str, int] = field(default_factory=dict)
     report_path: str = ""
     manifest_path: str = ""
@@ -151,6 +192,7 @@ class PackageResult:
             "directory": self.directory,
             "files": dict(self.files),
             "digests": dict(self.digests),
+            "stable_digests": dict(self.stable_digests),
             "counts": dict(self.counts),
             "report_path": self.report_path,
             "manifest_path": self.manifest_path,
@@ -461,17 +503,23 @@ def write_package(
     planned["readme"] = "README.md"
     planned["manifest"] = "manifest.json"
 
+    cohort_summary = _cohort_summary(snapshot, papers, subject_ids)
+    card_dict = card.to_dict() if card is not None else None
+    provenance_summary = _provenance_summary(papers)
+    stable_metrics = stable_projection(metrics)
+    stable_card = stable_projection(card_dict) if card_dict is not None else None
+
     report_text = build_report(
         run_id=run_id,
         reference_year=reference_year,
         horizon=horizon,
-        cohort_summary=_cohort_summary(snapshot, papers, subject_ids),
+        cohort_summary=cohort_summary,
         metrics=metrics,
-        model_card=card.to_dict() if card is not None else None,
+        model_card=card_dict,
         importances=importances,
         explanations=explanations,
         bias_report=bias_report,
-        provenance_summary=_provenance_summary(papers),
+        provenance_summary=provenance_summary,
         citations=citations,
         topic_trends=topic_trends,
         topic_positions=topic_positions or {},
@@ -483,6 +531,31 @@ def write_package(
         fingerprint=metrics.get("fingerprint", ""),
     )
     (root / "report.md").write_text(report_text, encoding="utf-8")
+
+    # The same report with the wall clock blanked out.  Only its digest is kept:
+    # it answers "is this the same finding?" without pretending the run id and
+    # the duration are part of the finding.
+    stable_report_text = build_report(
+        run_id=STABLE_PLACEHOLDER,
+        reference_year=reference_year,
+        horizon=horizon,
+        cohort_summary=cohort_summary,
+        metrics=stable_metrics,
+        model_card=stable_card,
+        importances=importances,
+        explanations=explanations,
+        bias_report=bias_report,
+        provenance_summary=provenance_summary,
+        citations=citations,
+        topic_trends=topic_trends,
+        topic_positions=topic_positions or {},
+        notes=notes,
+        files=planned,
+        started_at="",
+        finished_at="",
+        wall_seconds=None,
+        fingerprint=stable_metrics.get("fingerprint", ""),
+    )
 
     (root / "README.md").write_text(
         _readme(run_id=run_id, files=planned, model=model is not None),
@@ -500,11 +573,22 @@ def write_package(
         "provenance": len(provenance),
     }
     digests: dict[str, str] = {}
+    stable_digests: dict[str, str] = {}
+    stable_texts = {
+        "report": stable_report_text,
+        "readme": _readme(
+            run_id=STABLE_PLACEHOLDER, files=planned, model=model is not None
+        ),
+    }
     for role, name in planned.items():
         if role == "manifest":
             continue
         digests[role] = file_digest(root / name)
+        stable_digests[role] = _stable_file_digest(
+            root / name, stable_text=stable_texts.get(role, "")
+        )
 
+    content_fingerprint = content_hash(dict(sorted(stable_digests.items())))
     manifest = {
         "schema": PACKAGE_SCHEMA,
         "run_id": run_id,
@@ -515,8 +599,14 @@ def write_package(
         "counts": counts,
         "metrics": metrics,
         "model_fingerprint": card.fingerprint() if card is not None else "",
+        "package_fingerprint": content_fingerprint,
         "artifacts": [
-            {"role": role, "path": planned[role], "sha256": digest}
+            {
+                "role": role,
+                "path": planned[role],
+                "sha256": digest,
+                "stable_sha256": stable_digests[role],
+            }
             for role, digest in sorted(digests.items())
         ],
         "notes": list(notes),
@@ -524,11 +614,13 @@ def write_package(
     }
     _write_json(root / "manifest.json", manifest)
     digests["manifest"] = file_digest(root / "manifest.json")
+    stable_digests["manifest"] = file_digest(root / "manifest.json")
 
     return PackageResult(
         directory=str(root),
         files=planned,
         digests=digests,
+        stable_digests=stable_digests,
         counts=counts,
         report_path=str(root / "report.md"),
         manifest_path=str(root / "manifest.json"),
@@ -738,12 +830,55 @@ def manifest_digest(directory: Path | str) -> str:
     return file_digest(Path(directory) / "manifest.json")
 
 
-def package_fingerprint(result: PackageResult) -> str:
-    """Deterministic hash over the artefact digests (manifest excluded)."""
-    return content_hash(
-        {
-            role: digest
-            for role, digest in sorted(result.digests.items())
-            if role != "manifest"
+def stable_projection(payload: Any) -> Any:
+    """Drop run-specific fields, keeping everything that was measured.
+
+    This is a projection, not a rewrite: the files on disk keep their
+    timestamps, and only the comparison hash ignores them.
+    """
+    if isinstance(payload, Mapping):
+        return {
+            str(key): stable_projection(value)
+            for key, value in payload.items()
+            if str(key) not in STABLE_DROPPED_KEYS
         }
+    if isinstance(payload, (list, tuple)):
+        return [stable_projection(item) for item in payload]
+    return _jsonable(payload)
+
+
+def _stable_file_digest(path: Path, *, stable_text: str = "") -> str:
+    """Digest of what a file says, insensitive to when the run happened."""
+    if stable_text:
+        return content_hash({"text": stable_text})
+    suffix = path.suffix.lower()
+    if suffix == ".json":
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):  # pragma: no cover - defensive
+            return file_digest(path)
+        return content_hash(stable_projection(payload))
+    if suffix == ".jsonl":
+        rows = []
+        try:
+            for line in path.read_text(encoding="utf-8").splitlines():
+                if line.strip():
+                    rows.append(stable_projection(json.loads(line)))
+        except (OSError, ValueError):  # pragma: no cover - defensive
+            return file_digest(path)
+        return content_hash(rows)
+    # CSV and Markdown bodies carry no wall-clock fields; their bytes are already
+    # a content digest, and re-parsing them would only risk float round-tripping.
+    return file_digest(path)
+
+
+def package_fingerprint(result: PackageResult) -> str:
+    """Deterministic hash over the stable artefact digests (manifest excluded).
+
+    Two runs over the same frozen snapshot with the same seed agree here even
+    though their byte digests differ (the report states when each run happened).
+    """
+    digests = result.stable_digests or result.digests
+    return content_hash(
+        {role: digest for role, digest in sorted(digests.items()) if role != "manifest"}
     )

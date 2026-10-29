@@ -31,7 +31,7 @@
 | 说明影响因素 | `explain.py`：每因素给观测值/参考值/Δ/95% CI/份额 | `test_explain.py`（15 例） |
 | 偏差识别要具体 | `bias.py`：十类审计，每类给方法+证据数字+结论+严重度 | `test_bias.py`（12 例）、`test_benchmark.py` 注入用例 |
 | 是否不公平/不稳定 | 时间右删失、缺失机制 MNAR、区间校准、排名稳定性、折间方差 | 基准报告 §3.3、§5.2、§6 |
-| 结果可复现 | 指纹排除墙钟与本地路径；`determinism=1.0` | `test_benchmark.py::test_the_run_is_reproducible` |
+| 结果可复现 | 指纹排除墙钟与本地路径；`manifest.json` 每个产物给字节摘要与内容摘要，包指纹按内容摘要算；`determinism=1.0` | `test_benchmark.py::test_the_run_is_reproducible`、`test_workflow.py::test_the_package_fingerprint_survives_a_rerun` |
 
 赛题特别指出“不应该只给出一个分数”。本实现里**没有**任何单点输出：
 
@@ -123,7 +123,7 @@
 | explain | `explain.py` | 每主体的因素 Δ + 95% CI + 对照论文 + 重要性 |
 | bias | `bias.py` | 十类审计（九类检测 + 一类显式拒绝） |
 | report | `report.py` | 中文八节报告 |
-| package | `package.py` | 13 个文件 + `manifest.json`（每个文件的 sha256） |
+| package | `package.py` | 15 个文件 + `manifest.json`（每个文件的 sha256 与 stable_sha256） |
 
 工具面 `infl_*` 把这十阶段拆成可单独调用、可中途接管的一步步：
 `infl_capabilities / infl_cohorts / infl_snapshot_synthetic / infl_snapshot_search /
@@ -150,9 +150,11 @@ infl_report / infl_bias / infl_explain / infl_package / infl_acquisition_request
 | `model_card.json` | 特征、训练/留出 id、超参、种子、队列指纹、指标 |
 | `metrics.json` | 全部指标 + `determinism` + `decile_calibration` + 指纹 |
 | `provenance.jsonl` | 每个（论文，字段，来源）一行，带 page/section |
+| `citation.csv` | 每篇论文的引用画像：被引数、PageRank、自引、参考质量、数据是否可得 |
+| `topics.csv` | 主题演化趋势（领域占比、近年斜率、代表论文） |
 | `report.md` | 中文报告（八节） |
 | `README.md` | 数据包自述：怎么读、哪些不能读 |
-| `manifest.json` | 13 个文件的 sha256 + 阶段回执 |
+| `manifest.json` | 每个文件的 sha256 与 stable_sha256 + `package_fingerprint` + 阶段回执 |
 
 ---
 

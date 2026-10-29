@@ -597,6 +597,22 @@ def _section_reproducibility(
         "manifest.json 里记录了每个产物的 sha256，改动任何一个文件都会被发现。"
     )
     lines.append("")
+    lines.append(
+        "manifest 同时给出两种摘要：`sha256` 是磁盘字节的摘要（任何改动都会变，"
+        "包括报告里写下运行时刻的那一行）；`stable_sha256` 是抹掉运行时刻、运行编号与"
+        "本机路径后的内容摘要。跨运行是否“同一结论”看后者，"
+        "包级指纹 `package_fingerprint` 也按后者计算。"
+    )
+    lines.append("")
+    citation = metrics.get("citation") if isinstance(metrics, Mapping) else None
+    if isinstance(citation, Mapping) and citation:
+        statuses = citation.get("statuses") or {}
+        lines.append(
+            "- **启用实时网络补充的本次运行不可跨运行比对**：引用网络/主题数据来自在线"
+            f"接口（本次状态 {_compact(statuses)}），两次运行取到的输入可能不同，"
+            "因此包级指纹只在冻结快照上承诺一致。"
+        )
+        lines.append("")
     if files:
         lines.append("产物清单：")
         lines.append("")

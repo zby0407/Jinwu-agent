@@ -113,6 +113,45 @@ def test_same_cohort_and_seed_reproduce_the_same_numbers(tmp_path, cohort):
     assert first.metrics["interval_coverage"] == second.metrics["interval_coverage"]
 
 
+def test_the_package_fingerprint_survives_a_rerun(tmp_path, cohort):
+    """The on-disk bundle has to support the same claim as the numbers.
+
+    Byte digests legitimately differ — ``report.md`` names its run and says when
+    it happened.  The stable digest is the promise: same frozen snapshot, same
+    seed, same content.
+    """
+    options = RunOptions(importance_repeats=1, importance_seeds=(0,), bootstrap=20)
+    first = run_influence(workspace=tmp_path / "a", snapshot=cohort, options=options)
+    second = run_influence(workspace=tmp_path / "b", snapshot=cohort, options=options)
+
+    assert first.run_id != second.run_id
+    assert first.metrics["package_fingerprint"] == second.metrics["package_fingerprint"]
+
+    manifests = [
+        json.loads((Path(run.package_dir) / "manifest.json").read_text("utf-8"))
+        for run in (first, second)
+    ]
+    for manifest in manifests:
+        assert manifest["package_fingerprint"] == first.metrics["package_fingerprint"]
+        assert all(
+            item["stable_sha256"].startswith("sha256:")
+            for item in manifest["artifacts"]
+        )
+        roles = {item["role"] for item in manifest["artifacts"]}
+        assert {"papers", "report", "metrics", "provenance"} <= roles
+
+    bytes_of = [
+        {item["role"]: item["sha256"] for item in manifest["artifacts"]}
+        for manifest in manifests
+    ]
+    stable_of = [
+        {item["role"]: item["stable_sha256"] for item in manifest["artifacts"]}
+        for manifest in manifests
+    ]
+    assert bytes_of[0]["report"] != bytes_of[1]["report"]
+    assert stable_of[0] == stable_of[1]
+
+
 def test_run_record_is_readable_without_unpickling_a_model(run):
     """Runs are inspected later, so the record has to be plain JSON."""
     record = load_run(run.directory)
