@@ -336,7 +336,7 @@ def default_repair_mode(code: IssueCode) -> RepairMode:
         IssueCode.DELIMITER_SUSPECT,
         IssueCode.UNIT_INCONSISTENCY,
         IssueCode.TRUNCATED_TABLE,
-        IssueCode.SIGN_OR_PHASE_SUSPECT,
+        # A sign or phase flip changes the science, so it is never automatic.
     }
     suggest = {
         IssueCode.MISSING_COVERAGE,
