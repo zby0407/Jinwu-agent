@@ -21,6 +21,7 @@ from .registry import (
 from .research_planner import RESEARCH_PLANNER_TOOLS
 from .research_quality import RESEARCH_QUALITY_TOOLS
 from .research_review import RESEARCH_RELEASE_TOOLS, RESEARCH_REVIEW_TOOLS
+from .scientific_data import SCIENTIFIC_DATA_TOOLS
 from .scientific_hypothesis import SCIENTIFIC_HYPOTHESIS_TOOLS
 from .search import fetch_webpage_content, tavily_search
 from .skill_manager import skill_manager
@@ -48,6 +49,7 @@ __all__ = [
     "RESEARCH_QUALITY_TOOLS",
     "RESEARCH_RELEASE_TOOLS",
     "RESEARCH_REVIEW_TOOLS",
+    "SCIENTIFIC_DATA_TOOLS",
     "SCIENTIFIC_HYPOTHESIS_TOOLS",
     "SOLAR_FEATURE_TOOLS",
     "TOOL_BUNDLE_ENTRY_POINT_GROUP",

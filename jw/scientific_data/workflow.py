@@ -41,17 +41,20 @@ from .figures import (
     series_from_payload,
 )
 from .human_loop import HumanQueue, apply_answers, build_queue
-from .ledger_io import save_ledger, start_run, workspace_run_dir
+from .ledger_io import load_ledger, save_ledger, start_run, workspace_run_dir
 from .package import FigurePackage, PackageResult, refresh_manifest, write_package
 from .policy import AcquisitionPolicy
 from .quality import DetectionReport, detect_all
 from .repair import RepairOutcome, apply_auto_repairs
 from .sources import SourceCatalog, register_local_sources
 
+_DEFAULT_ROLES = tuple(role for role in SourceRole if role is not SourceRole.UNKNOWN)
+
 __all__ = [
     "FigureInput",
     "WorkflowOptions",
     "WorkflowResult",
+    "apply_human_answers",
     "build_figure_package",
     "contract_from_request",
     "run_integration",
@@ -166,7 +169,7 @@ def contract_from_request(payload: Mapping[str, Any]) -> DataRequirementContract
         merge_keys=tuple(payload.get("merge_keys") or plugin.merge_keys),
         domain_plugin=plugin.name,
         accepted_roles=tuple(str(item) for item in payload.get("accepted_roles") or ())
-        or DataRequirementContract.accepted_roles,
+        or _DEFAULT_ROLES,
         target_entity_count=int(payload.get("target_entity_count") or 0),
         min_records_per_entity=int(payload.get("min_records_per_entity") or 1),
         unit_expectations=dict(payload.get("unit_expectations") or {}),
@@ -375,6 +378,85 @@ def run_integration(
         )
     result.queue = queue
     result.figures = figure_packages
+    save_ledger(ledger, directory)
+    return result
+
+
+def apply_human_answers(
+    *,
+    workspace: str | Path,
+    run_id: str,
+    answers: Mapping[str, str],
+    options: WorkflowOptions | None = None,
+) -> WorkflowResult:
+    """Finish a run after a reviewer answered its open questions.
+
+    The original ledger is the authority: answers are applied to the records it
+    already holds, the checks run again, and the package is rewritten so the
+    delivered files reflect the decision instead of the earlier draft.
+    """
+    settings = options or WorkflowOptions()
+    directory = workspace_run_dir(workspace, run_id)
+    ledger = load_ledger(directory / "ledger.json")
+    contract = ledger.contract
+    plugin = get_plugin(contract.domain_plugin)
+    result = WorkflowResult(ledger=ledger, directory=str(directory))
+    rejected = 0
+
+    queue = build_queue(ledger.issues.values(), records=tuple(ledger.records))
+    for request_id, choice in answers.items():
+        try:
+            queue = queue.answer(str(request_id), str(choice), actor="user")
+        except (KeyError, ValueError):
+            rejected += 1
+    if queue.answers:
+        resolution = apply_answers(
+            records=tuple(ledger.records),
+            issues=tuple(ledger.issues.values()),
+            queue=queue,
+        )
+        ledger.records = list(resolution.records)
+        for entry in resolution.repairs:
+            ledger.add_repair(entry)
+        for issue in resolution.issues:
+            ledger.issues[issue.issue_id] = issue
+        queue = resolution.queue
+
+    post = detect_all(
+        records=ledger.records,
+        tables=tuple(ledger.tables.values()),
+        entities=tuple(ledger.entities.values()),
+        contract=contract,
+        plugin=plugin,
+        max_gap_days=settings.max_gap_days,
+    )
+    added = _merge_new_issues(ledger, post)
+    _record_stage(
+        ledger,
+        result,
+        "human_followup",
+        answered=len(queue.answers),
+        new_issues=len(added),
+        rejected_answers=rejected,
+    )
+    if settings.write_package_output:
+        ledger.mark_stage("package", StageState.RUNNING)
+        package = write_package(
+            directory=directory / settings.package_name,
+            ledger=ledger,
+            plugin=plugin,
+            queue=queue,
+            notes=settings.notes,
+        )
+        result.package = package
+        _register_artifacts(ledger, package)
+        refresh_manifest(
+            directory=package.directory,
+            ledger=ledger,
+            result=package,
+            notes=settings.notes,
+        )
+    result.queue = queue
     save_ledger(ledger, directory)
     return result
 
