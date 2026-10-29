@@ -251,3 +251,50 @@ def test_importing_nothing_is_an_error(workspace):
     payload = _load(tools.infl_snapshot_import.invoke({"paths": [str(empty)]}))
     assert payload["status"] == "error"
     assert "no works" in payload["error"]
+
+
+def test_fetch_writes_an_export_and_reports_network_failure_honestly(
+    workspace, monkeypatch, capsys
+):
+    """The export can be produced wherever egress exists, then imported offline."""
+    from jw.research_influence import fetch
+    from jw.research_influence.providers.base import ProviderPolicy
+    from tests.research_influence.conftest import FakeTransport
+
+    out = workspace / "exports" / "openalex.jsonl"
+    transport = FakeTransport().add(
+        "api.openalex.org/works", {"results": [OPENALEX_RECORD]}
+    )
+    payload = fetch.fetch_export(
+        "supernova Ia",
+        out=out,
+        limit=10,
+        transport=transport,
+        policy=ProviderPolicy(allow_network=True),
+    )
+    assert payload["status"] == "ok", payload
+    assert payload["works"] == 1 and payload["has_citations"] == 1
+    assert out.exists()
+
+    # The export is what the offline half consumes.
+    imported = _load(tools.infl_snapshot_import.invoke({"paths": [str(out)]}))
+    assert imported["status"] == "ok", imported
+    from jw.research_influence.cohort import CohortSnapshot
+
+    snapshot = CohortSnapshot.load(Path(imported["path"]))
+    assert snapshot.papers[0].cited_by_count == 42
+
+    # A refused request must not look like an empty result set.
+    refused = fetch.fetch_export(
+        "supernova Ia",
+        out=workspace / "never.jsonl",
+        transport=FakeTransport({}),
+        policy=ProviderPolicy(allow_network=True),
+    )
+    assert refused["status"] == "error"
+    assert not (workspace / "never.jsonl").exists()
+
+    code = fetch.main(["--query", "x", "--out", str(workspace / "cli.jsonl")])
+    assert code == 1  # no egress in the test process
+    printed = json.loads(capsys.readouterr().out)
+    assert printed["status"] == "error"

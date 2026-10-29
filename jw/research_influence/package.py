@@ -503,7 +503,9 @@ def _provenance_summary(papers: Sequence[PaperRecord]) -> dict[str, Any]:
         "with_abstract": count(lambda paper: bool(paper.abstract)),
         "with_year": count(lambda paper: bool(paper.year)),
         "with_authors": count(lambda paper: bool(paper.authors)),
-        "with_venue": count(lambda paper: paper.venue is not None),
+        # An absent venue arrives as an empty VenueRecord, not as None, so
+        # "is not None" counted every metadata-only paper as having a journal.
+        "with_venue": count(lambda paper: bool(paper.venue and paper.venue.name)),
         "with_references": count(lambda paper: bool(paper.references)),
         "with_open_data": count(lambda paper: bool(paper.open_data)),
         "with_full_text": count(lambda paper: paper.has_full_text),

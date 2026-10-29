@@ -262,3 +262,30 @@ def test_written_snapshot_is_stable(tmp_path):
         reference_year=snapshot.reference_year,
     )
     assert first.fingerprint() == second.fingerprint()
+
+
+def test_a_missing_venue_is_not_counted_as_a_journal(tmp_path):
+    """An absent venue arrives as an empty record, so counting `is not None` lies."""
+    from jw.research_influence.cohort import CohortSnapshot
+    from jw.research_influence.contracts import AccessRoute, PaperRecord
+    from jw.research_influence.workflow import RunOptions, run_influence
+
+    papers = tuple(
+        PaperRecord(
+            paper_id=f"paper:{index}",
+            title=f"Paper {index}",
+            access_route=AccessRoute.METADATA_ONLY,
+        )
+        for index in range(3)
+    )
+    snapshot = CohortSnapshot(
+        cohort_id="cohort:bare", papers=papers, query="q", reference_year=2024
+    )
+    result = run_influence(
+        workspace=tmp_path,
+        snapshot=snapshot,
+        options=RunOptions(reference_year=2024, package_name="bare"),
+    )
+    text = (Path(result.directory) / "bare" / "report.md").read_text(encoding="utf-8")
+    assert "| 有期刊信息 | 0 |" in text
+    assert "| 有标题 | 3 |" in text
