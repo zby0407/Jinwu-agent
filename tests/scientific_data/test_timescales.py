@@ -212,3 +212,12 @@ def test_relative_before_is_negative_and_units_are_respected():
     assert to_time("12.4 days since maximum", time_system="").time_system == (
         "days_relative"
     )
+
+
+def test_reduced_precision_month_stamps_are_recognised():
+    assert detect_time_system("2020-01") == "iso"
+    assert detect_time_system("2020M01") == "iso"
+    assert detect_time_system("2020m01") == "iso"
+    assert detect_time_system("2020-13") == ""
+    # A monthly stamp names a bucket, not an instant: no MJD is invented.
+    assert iso_to_mjd("2020-01") is None

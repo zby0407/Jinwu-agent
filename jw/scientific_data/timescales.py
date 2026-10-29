@@ -52,6 +52,12 @@ _ISO_RE = re.compile(
     r"(?:[T ](?P<h>\d{2}):(?P<min>\d{2})(?::(?P<s>\d{2})(?:\.(?P<frac>\d+))?)?"
     r"(?P<tz>Z|[+-]\d{2}:?\d{2})?)?$"
 )
+# Reduced-precision ISO-8601 stamps (monthly means such as "2020-01" or
+# SILSO's "2020M01"). They mark a time axis but cannot be turned into an
+# instant without a cadence convention, so only detection accepts them.
+_ISO_MONTH_RE = re.compile(
+    r"^(?P<y>\d{4})(?:-(?P<m>\d{2})|m(?P<m2>\d{2}))$", re.IGNORECASE
+)
 _RELATIVE_RE = re.compile(
     r"^\s*(?P<num>[-+]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][-+]?\d+)?)\s*"
     r"(?P<unit>s|sec|secs|second|seconds|min|mins|minutes?"
@@ -193,6 +199,17 @@ def mjd_to_julian(mjd: float) -> float:
     return float(mjd) + _MJD_OFFSET
 
 
+def _month_stamp(text: str) -> tuple[int, int] | None:
+    """Parse a reduced-precision month stamp into ``(year, month)``."""
+    match = _ISO_MONTH_RE.match(str(text or "").strip())
+    if match is None:
+        return None
+    month = int(match.group("m") or match.group("m2"))
+    if not 1 <= month <= 12:
+        return None
+    return int(match.group("y")), month
+
+
 def detect_time_system(raw: str) -> str:
     """Infer a declared time system from a header or value string ("" if none).
 
@@ -213,7 +230,7 @@ def detect_time_system(raw: str) -> str:
     ):
         if any(marker in text for marker in markers):
             return system
-    if _ISO_RE.match(text):
+    if _ISO_RE.match(text) or _month_stamp(text):
         return "iso"
     for unit in ("s since", "days since", "days from", "seconds since", "hr since"):
         if unit in text:

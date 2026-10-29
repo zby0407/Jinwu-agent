@@ -273,6 +273,8 @@ class IssueCode(StrEnum):
     ENCODING_SUSPECT = "encoding_suspect"
     DELIMITER_SUSPECT = "delimiter_suspect"
     MERGE_KEY_ABSENT = "merge_key_absent"
+    FIELD_UNMAPPED = "field_unmapped"
+    FIELD_MAPPING_AMBIGUOUS = "field_mapping_ambiguous"
     # completeness
     MISSING_VALUE = "missing_value"
     MISSING_COVERAGE = "missing_coverage"
@@ -341,6 +343,7 @@ def default_repair_mode(code: IssueCode) -> RepairMode:
         IssueCode.COVERAGE_GAP,
         IssueCode.OUT_OF_RANGE,
         IssueCode.UNIT_UNKNOWN,
+        IssueCode.FIELD_UNMAPPED,
     }
     if code in auto:
         return RepairMode.AUTO_SAFE
