@@ -58,6 +58,7 @@ def build_report(
     explanations: Sequence[Any],
     bias_report: Any,
     provenance_summary: Mapping[str, Any],
+    citations: Sequence[Any] = (),
     notes: Sequence[str] = (),
     files: Mapping[str, str] | None = None,
     started_at: str = "",
@@ -81,7 +82,7 @@ def build_report(
     lines.extend(_section_overview(cohort_summary, metrics, model_card))
     lines.extend(_section_sources(cohort_summary, provenance_summary))
     lines.extend(_section_predictions(explanations, model_card, horizon, metrics))
-    lines.extend(_section_explanations(explanations, importances))
+    lines.extend(_section_explanations(explanations, importances, citations))
     lines.extend(_section_bias(bias_report))
     lines.extend(_section_reproducibility(model_card, metrics, fingerprint, files))
     lines.extend(_section_limits(cohort_summary, notes))
@@ -314,7 +315,9 @@ def _section_predictions(
 
 
 def _section_explanations(
-    explanations: Sequence[Any], importances: Sequence[Any]
+    explanations: Sequence[Any],
+    importances: Sequence[Any],
+    citations: Sequence[Any] = (),
 ) -> list[str]:
     lines = [f"## {SECTION_TITLES[3]}", ""]
     if explanations:
@@ -390,6 +393,63 @@ def _section_explanations(
             "不是博弈论意义上的 Shapley 值。"
         )
         lines.append("")
+    lines.extend(_subsection_citation(citations))
+    return lines
+
+
+def _subsection_citation(citations: Sequence[Any]) -> list[str]:
+    """Where the explained papers sit in the citation network, with its limits."""
+    if not citations:
+        return []
+    lines = ["### 目标论文在引用网络里的位置", ""]
+    rows = [
+        [
+            item.paper_id,
+            item.status,
+            f"{item.resolved_references}/{item.reference_count}",
+            "—"
+            if item.median_referenced_citations is None
+            else f"{item.median_referenced_citations:.1f}",
+            "—"
+            if item.references_in_top_decile is None
+            else f"{item.references_in_top_decile * 100:.0f}%",
+            "—" if item.citing_count is None else item.citing_count,
+            "—"
+            if item.mean_citing_citations is None
+            else f"{item.mean_citing_citations:.1f}",
+            item.self_citations,
+            "—"
+            if item.pagerank_percentile is None
+            else f"{item.pagerank_percentile:.0f}",
+        ]
+        for item in citations
+    ]
+    lines.extend(
+        _table(
+            [
+                "论文",
+                "状态",
+                "解析到/总参考文献",
+                "参考文献被引中位数",
+                "参考文献处前 10% 的比例",
+                "被引次数",
+                "引用者被引均值",
+                "自引",
+                "网络位次(百分位)",
+            ],
+            rows,
+        )
+    )
+    for item in citations:
+        lines.extend(f"- {line}" for line in item.summary_lines())
+    lines.append("")
+    lines.append(
+        "读法：引用网络是**观测到的那部分**网络。解析不到的参考文献不算作 0 被引，"
+        "自引只按姓氏重合做下界估计（姓氏会撞车、不比较首字母），"
+        "PageRank 只在本次解析到的参考文献图内计算，所以参考文献解析得差的论文"
+        "位次会偏低。这些是测量的边界，不是论文的真实位置。"
+    )
+    lines.append("")
     return lines
 
 

@@ -92,6 +92,24 @@ COMPARATOR_COLUMNS = (
     "distance",
 )
 
+CITATION_COLUMNS = (
+    "paper_id",
+    "work_id",
+    "status",
+    "reference_count",
+    "resolved_references",
+    "median_referenced_citations",
+    "mean_referenced_citations",
+    "references_in_top_decile",
+    "citing_count",
+    "citing_sampled",
+    "mean_citing_citations",
+    "self_citations",
+    "pagerank",
+    "pagerank_percentile",
+    "notes",
+)
+
 BIAS_COLUMNS = (
     "audit",
     "label",
@@ -201,6 +219,7 @@ def write_package(
     model: Any = None,
     importances: Sequence[Any] = (),
     explanations: Sequence[Any] = (),
+    citations: Sequence[Any] = (),
     bias_report: Any = None,
     metrics: Mapping[str, Any] | None = None,
     notes: Sequence[str] = (),
@@ -331,6 +350,39 @@ def write_package(
         )
         files["importance"] = "importance.csv"
 
+    if citations:
+        _write_csv(
+            root / "citation.csv",
+            CITATION_COLUMNS,
+            [
+                {
+                    "paper_id": item.paper_id,
+                    "work_id": item.work_id,
+                    "status": item.status,
+                    "reference_count": item.reference_count,
+                    "resolved_references": item.resolved_references,
+                    "median_referenced_citations": _round(
+                        item.median_referenced_citations, 2
+                    ),
+                    "mean_referenced_citations": _round(
+                        item.mean_referenced_citations, 2
+                    ),
+                    "references_in_top_decile": _round(
+                        item.references_in_top_decile, 4
+                    ),
+                    "citing_count": item.citing_count,
+                    "citing_sampled": item.citing_sampled,
+                    "mean_citing_citations": _round(item.mean_citing_citations, 2),
+                    "self_citations": item.self_citations,
+                    "pagerank": _round(item.pagerank, 6),
+                    "pagerank_percentile": _round(item.pagerank_percentile, 1),
+                    "notes": " | ".join(item.notes),
+                }
+                for item in citations
+            ],
+        )
+        files["citation"] = "citation.csv"
+
     if bias_report is not None:
         _write_csv(
             root / "bias_audit.csv",
@@ -385,6 +437,7 @@ def write_package(
         explanations=explanations,
         bias_report=bias_report,
         provenance_summary=_provenance_summary(papers),
+        citations=citations,
         notes=notes,
         files=planned,
         started_at=started_at,
@@ -549,6 +602,7 @@ def _readme(*, run_id: str, files: Mapping[str, str], model: bool) -> str:
         "factors": "每个因素一条：观测值、队列参考值、Δ（被引）、95% CI、方向、占比",
         "comparators": "特征空间最近邻对照论文",
         "importance": "置换重要性排名与置信区间",
+        "citation": "引用网络：参考文献质量、被引者质量、自引、PageRank 位次",
         "bias_audit": "十类偏差审计的结论、证据与建议",
         "bias_summary": "偏差审计的人读版本",
         "model_card": "模型卡：特征、超参数、种子、指纹",

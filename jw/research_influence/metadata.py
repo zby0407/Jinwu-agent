@@ -467,7 +467,7 @@ def extract_pdf_metadata(pages: Sequence[str]) -> PdfMetadata:
     )
 
 
-def apply_pdf_metadata(paper: "PaperRecord", metadata: PdfMetadata) -> "PaperRecord":  # noqa: F821
+def apply_pdf_metadata(paper: PaperRecord, metadata: PdfMetadata) -> PaperRecord:  # noqa: F821
     """Fill a paper's empty fields from what the text layer offered.
 
     Everything filled here is ``LOW`` confidence and says so, because a name

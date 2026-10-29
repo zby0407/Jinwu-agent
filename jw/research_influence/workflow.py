@@ -24,6 +24,14 @@ from typing import Any
 from jw.scientific_data.documents import read_pdf_text
 
 from .bias import AUDITS, BiasReport, audit_bias
+from .citation import (
+    CitationProfile,
+    bare_work_id,
+    citing_works,
+    citation_profile,
+    cohort_pagerank,
+    resolve_works,
+)
 
 from .cohort import (
     HORIZON_YEARS,
@@ -39,6 +47,7 @@ from .contracts import (
     ProviderStatus,
     content_hash,
     new_run_id,
+    normalise_doi,
     utc_now,
 )
 from .enrich import Enrichment, EnrichmentBatch, enrich_paper
@@ -95,6 +104,7 @@ class RunOptions:
     max_subjects: int = 5
     package_name: str = "package"
     enrich_uploads: bool = True
+    citation_network: bool = True
     allow_network: bool = False
     transport: object | None = None
     notes: tuple[str, ...] = ()
@@ -114,6 +124,7 @@ class RunOptions:
             "audits": list(self.audits),
             "subject_ids": list(self.subject_ids),
             "max_subjects": self.max_subjects,
+            "citation_network": self.citation_network,
             "package_name": self.package_name,
             "notes": list(self.notes),
         }
@@ -131,6 +142,7 @@ class RunResult:
     predictions: PredictionSet | None = None
     explanations: tuple[PaperExplanation, ...] = ()
     importances: tuple[Any, ...] = ()
+    citations: tuple[CitationProfile, ...] = ()
     bias: BiasReport | None = None
     metrics: Mapping[str, Any] = field(default_factory=dict)
     package: PackageResult | None = None
@@ -322,6 +334,21 @@ def run_influence(
     else:
         stages["explain"] = {"state": "skipped", "reason": "no_model"}
 
+    # --- citation network ---------------------------------------------------
+    citations: tuple[CitationProfile, ...] = ()
+    if settings.citation_network:
+        citations, citation_stage = _citation_stage(
+            papers, _subjects(papers, uploaded, settings), settings
+        )
+        stages["citation"] = citation_stage
+        metrics["citation"] = {
+            "subjects": len(citations),
+            "with_data": sum(1 for item in citations if item.usable),
+            "statuses": _count_by(item.status for item in citations),
+        }
+    else:
+        stages["citation"] = {"state": "skipped", "reason": "disabled"}
+
     # --- bias ---------------------------------------------------------------
     bias: BiasReport | None = None
     if model is not None:
@@ -373,6 +400,7 @@ def run_influence(
         model=model,
         importances=importances,
         explanations=explanations,
+        citations=citations,
         bias_report=bias,
         metrics=metrics,
         notes=notes,
@@ -398,6 +426,7 @@ def run_influence(
         predictions=predictions,
         explanations=explanations,
         importances=importances,
+        citations=citations,
         bias=bias,
         metrics=metrics,
         package=package,
@@ -463,7 +492,145 @@ def _pdf_metadata(path: str):
     return extract_pdf_metadata(pages)
 
 
-def _upload_transport(settings: "RunOptions"):
+#: How many cohort papers get their references resolved for the network graph.
+#: Each one costs a request against the polite client, and a handful of papers
+#: is enough to make the graph non-trivial without turning a report into a
+#: crawl.
+NETWORK_SAMPLE = 60
+
+#: References resolved per run.  Beyond this the marginal reference adds noise,
+#: not information, to a median.
+NETWORK_REFERENCE_BUDGET = 400
+
+
+def _count_by(values: Iterable[str]) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for value in values:
+        counts[value] = counts.get(value, 0) + 1
+    return counts
+
+
+def _work_id_of(
+    paper: PaperRecord, resolved: Mapping[str, Mapping[str, object]]
+) -> str:
+    """The OpenAlex id of a paper, from the record or from a DOI lookup."""
+    bare = bare_work_id(paper.work_id)
+    if bare:
+        return bare
+    doi = normalise_doi(paper.doi)
+    if not doi:
+        return ""
+    for work in resolved.values():
+        if normalise_doi(str(work.get("doi") or "")) == doi:
+            return str(work.get("work_id") or "")
+    return ""
+
+
+def _citation_stage(
+    papers: Sequence[PaperRecord],
+    subjects: Sequence[PaperRecord],
+    settings: RunOptions,
+) -> tuple[tuple[CitationProfile, ...], dict[str, Any]]:
+    """Measure the citation neighbourhood of the subject papers.
+
+    Offline is a normal state: the profiles come back with ``status`` saying
+    why they are empty, so the report can say "we did not read this" instead of
+    implying the paper has no citations.
+    """
+    transport = _upload_transport(settings)
+    if transport is None:
+        profiles = tuple(
+            CitationProfile(paper_id=paper.paper_id, status="skipped_offline")
+            for paper in subjects
+        )
+        return profiles, {
+            "state": "skipped",
+            "reason": "network_disabled",
+            "subjects": len(subjects),
+        }
+    if not subjects:
+        return (), {"state": "skipped", "reason": "no_subject"}
+
+    policy = ProviderPolicy.from_environment()
+    sample = [
+        paper
+        for paper in sorted(
+            papers, key=lambda item: (-(item.cited_by_count or 0), item.paper_id)
+        )
+        if bare_work_id(paper.work_id)
+    ][:NETWORK_SAMPLE]
+    seeds = [bare_work_id(paper.work_id) for paper in (*sample, *subjects)]
+    seeds = [item for item in seeds if item]
+    seeds.extend(paper.doi for paper in subjects if paper.doi and not paper.work_id)
+    resolved = resolve_works(seeds, transport=transport, policy=policy)
+
+    referenced_by_paper: dict[str, list[str]] = {}
+    for paper in subjects:
+        work_id = _work_id_of(paper, resolved)
+        work = resolved.get(work_id or "")
+        identifiers = [str(item) for item in (work or {}).get("referenced_works") or ()]
+        identifiers.extend(
+            reference.resolved_work_id
+            for reference in paper.references
+            if reference.resolved_work_id
+        )
+        referenced_by_paper[paper.paper_id] = list(
+            dict.fromkeys(item for item in identifiers if item)
+        )
+    wanted = [item for values in referenced_by_paper.values() for item in values]
+    if wanted:
+        resolved.update(
+            resolve_works(
+                wanted[:NETWORK_REFERENCE_BUDGET], transport=transport, policy=policy
+            )
+        )
+
+    ranks = cohort_pagerank(papers, resolved)
+    pool = [
+        ranks[bare_work_id(paper.work_id)]
+        for paper in papers
+        if bare_work_id(paper.work_id) in ranks
+    ]
+
+    profiles: list[CitationProfile] = []
+    for paper in subjects:
+        work_id = _work_id_of(paper, resolved)
+        if not work_id:
+            profiles.append(
+                CitationProfile(
+                    paper_id=paper.paper_id,
+                    reference_count=len(paper.references),
+                    status="no_work_id",
+                    notes=("no_index_identifier",),
+                )
+            )
+            continue
+        citing, total, status = citing_works(
+            work_id, transport=transport, policy=policy
+        )
+        profiles.append(
+            citation_profile(
+                paper,
+                resolved=resolved,
+                referenced_ids=referenced_by_paper.get(paper.paper_id, ()),
+                citing=citing,
+                citing_total=total or None,
+                rank=ranks.get(work_id),
+                rank_pool=pool,
+                status=status,
+            )
+        )
+    return tuple(profiles), {
+        "state": "complete",
+        "subjects": len(profiles),
+        "with_data": sum(1 for item in profiles if item.usable),
+        "resolved_works": len(resolved),
+        "network_nodes": len(ranks),
+        "statuses": _count_by(item.status for item in profiles),
+    }
+
+
+def _upload_transport(settings: RunOptions):
     """The transport enrichment should use, or ``None`` when offline."""
     if settings.transport is not None:
         return settings.transport
@@ -473,7 +640,7 @@ def _upload_transport(settings: "RunOptions"):
 
 
 def _enrich_uploads(
-    uploaded: Sequence[PaperRecord], settings: "RunOptions"
+    uploaded: Sequence[PaperRecord], settings: RunOptions
 ) -> EnrichmentBatch:
     """Identify the uploads against the index, or say why it was skipped."""
     transport = _upload_transport(settings)

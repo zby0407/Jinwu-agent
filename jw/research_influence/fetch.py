@@ -73,7 +73,7 @@ def fetch_export(
             "url": result.url,
             "http_status": result.http_status,
         }
-    works = [item for item in (result.payload or {}).get("results") or []]
+    works = list((result.payload or {}).get("results") or [])
     path = Path(out)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(
@@ -93,7 +93,7 @@ def fetch_export(
             1 for work in works if work.get("cited_by_count") is not None
         ),
         "next_step": (
-            "Import it offline: infl_snapshot_import(paths=['%s'], name='...')" % path
+            f"Import it offline: infl_snapshot_import(paths=['{path}'], name='...')"
         ),
     }
 

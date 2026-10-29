@@ -994,6 +994,50 @@ def _slug(text: str) -> str:
     return "-".join(parts)[:48] or "cohort"
 
 
+@tool(parse_docstring=True)
+def infl_network(run_id: str, paper_id: str = "", config: RunnableConfig = None) -> str:
+    """Return the citation-network measurements of a run's subject papers.
+
+    Args:
+        run_id: Run identifier returned by infl_run.
+        paper_id: Paper to read; empty means every measured paper.
+        config: Runtime-injected task workspace configuration.
+
+    Returns:
+        JSON with reference quality, incoming attention, self-citation and the
+        PageRank percentile inside the resolved graph, plus how to read them.
+    """
+    try:
+        workspace = _workspace(config)
+        directory = _run_dir(workspace, run_id)
+        path = directory / "package" / "citation.csv"
+        if not path.is_file():
+            raise ValueError(
+                f"run {run_id} has no citation network: it needs allow_network=True"
+            )
+        rows = _read_csv(path)
+        wanted = paper_id.strip()
+        if wanted:
+            rows = [row for row in rows if row.get("paper_id") == wanted]
+            if not rows:
+                raise ValueError(f"paper {wanted} was not measured in run {run_id}")
+        return _result(
+            status="ok",
+            papers=rows[:_MAX_LISTED],
+            count=len(rows),
+            measured=sum(1 for row in rows if row.get("status") == "ok"),
+            reading_hint=(
+                "references_in_top_decile is a share, not a count: it says how much "
+                "of the cited literature is itself well cited. self_citations is a "
+                "lower bound from surname overlap only. pagerank_percentile is "
+                "computed inside the references we could resolve, so a paper whose "
+                "references resolved poorly sits lower than its real position."
+            ),
+        )
+    except Exception as exc:  # a tool must report, not raise
+        return _error("infl_network", exc)
+
+
 INFLUENCE_TOOLS = [
     infl_capabilities,
     infl_cohorts,
@@ -1007,6 +1051,7 @@ INFLUENCE_TOOLS = [
     infl_report,
     infl_bias,
     infl_explain,
+    infl_network,
     infl_package,
     infl_acquisition_request,
 ]
