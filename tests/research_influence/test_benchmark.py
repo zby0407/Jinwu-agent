@@ -18,6 +18,9 @@ the numbers a reader reproduces cannot drift apart.
 from __future__ import annotations
 
 import json
+import os
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -454,3 +457,31 @@ def test_missing_full_text_widens_the_statement_not_the_numbers(benchmark_run):
     metrics = benchmark_run.metrics
     assert metrics["labelled"] <= len(benchmark_run.papers)
     assert "全文" in report
+
+
+def test_the_fingerprints_agree_between_two_independent_processes():
+    """In-process agreement is too easy: the hashes must survive a new process.
+
+    This is the failure that actually happened. Everything the run hashed was
+    stable within one process, yet a second `measure_benchmark.py` disagreed,
+    because a PDF's creation date, a temporary directory and an artefact's byte
+    digest were all reaching the fingerprint. Re-running the measurement here is
+    the only way to catch that class of leak.
+    """
+    root = Path(__file__).resolve().parents[2]
+    script = root / "tests/research_influence/fixtures/measure_benchmark.py"
+    env = dict(os.environ, MPLCONFIGDIR=os.environ.get("MPLCONFIGDIR", "/tmp/mpl"))
+    outputs = []
+    for _ in range(2):
+        completed = subprocess.run(
+            [sys.executable, str(script)],
+            cwd=root,
+            env=env,
+            capture_output=True,
+            text=True,
+            check=True,
+            timeout=600,
+        )
+        outputs.append(json.loads(completed.stdout)["pipeline"])
+    assert outputs[0]["fingerprint"] == outputs[1]["fingerprint"]
+    assert outputs[0]["package_fingerprint"] == outputs[1]["package_fingerprint"]
