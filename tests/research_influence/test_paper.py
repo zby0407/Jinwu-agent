@@ -279,3 +279,26 @@ def test_kerning_splits_are_flagged_not_rewritten():
     # The characters are kept verbatim: guessing "Type" would be an invention.
     assert paper.title == "T ype Ia supernovae in the nearby universe"
     assert any(note.startswith("pdf_text_kerning_suspect") for note in paper.notes)
+
+
+def test_the_per_year_history_reaches_the_record(tmp_path):
+    """Without counts_by_year every horizon label disappears, silently."""
+    from jw.research_influence.cohort import citations_within
+    from jw.research_influence.paper import build_paper
+
+    payload = {
+        "work_id": "W1",
+        "doi": "10.1/x",
+        "title": "T",
+        "year": 2021,
+        "cited_by_count": 40,
+        "counts_by_year": (
+            {"year": 2024, "cited_by_count": 3},
+            {"year": 2021, "cited_by_count": 5},
+            {"year": 2022, "cited_by_count": 4},
+        ),
+    }
+    paper = build_paper(paper_id="paper:W1", doi="10.1/x", openalex=payload)
+    assert paper.counts_by_year == ((2021, 5), (2022, 4), (2024, 3))
+    assert citations_within(paper, horizon=3) == 9  # lifetime count would be 40
+    assert citations_within(paper, horizon=1) == 5

@@ -137,3 +137,23 @@ def test_snapshot_identity_fields_survive_the_disk(field):
     )
     reloaded = CohortSnapshot.from_dict(snapshot.to_dict())
     assert getattr(reloaded, field) == getattr(snapshot, field)
+
+
+def test_a_window_the_history_does_not_cover_is_not_a_zero():
+    """A 1998 paper's first three years are outside OpenAlex's per-year history."""
+    uncovered = PaperRecord(
+        paper_id="paper:old",
+        title="Old",
+        year=1998,
+        cited_by_count=40,
+        counts_by_year=((2012, 3), (2013, 5)),
+    )
+    assert citations_within(uncovered, horizon=3) is None
+    covered = PaperRecord(
+        paper_id="paper:new",
+        title="New",
+        year=2020,
+        cited_by_count=8,
+        counts_by_year=((2020, 2), (2021, 3)),
+    )
+    assert citations_within(covered, horizon=3) == 5

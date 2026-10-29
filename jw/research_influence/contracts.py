@@ -978,7 +978,7 @@ class PaperRecord:
             reference_count=int(reference_count)
             if isinstance(reference_count, int)
             else None,
-            counts_by_year=_count_pairs(raw.get("counts_by_year")),
+            counts_by_year=count_pairs(raw.get("counts_by_year")),
             access_route=_coerce_enum(
                 AccessRoute, raw.get("access_route"), AccessRoute.METADATA_ONLY
             ),
@@ -1001,8 +1001,13 @@ class PaperRecord:
         )
 
 
-def _count_pairs(raw: Any) -> tuple[tuple[int, int], ...]:
-    """Parse ``counts_by_year`` pairs from JSON-ish input."""
+def count_pairs(raw: Any) -> tuple[tuple[int, int], ...]:
+    """Parse ``counts_by_year`` pairs from JSON-ish input.
+
+    Public because ``build_paper`` has to carry the per-year history into the
+    record: the horizon window is computed from it, and a record that drops it
+    silently loses every label.
+    """
     if not isinstance(raw, (list, tuple)):
         return ()
     out: list[tuple[int, int]] = []

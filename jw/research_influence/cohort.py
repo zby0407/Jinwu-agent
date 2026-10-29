@@ -233,6 +233,13 @@ def citations_within(paper: PaperRecord, *, horizon: int = HORIZON_YEARS) -> int
         return None
     first = paper.year
     last = paper.year + horizon - 1
+    covered_from = min(year for year, _ in paper.counts_by_year)
+    if covered_from > first:
+        # OpenAlex reports per-year history only from a certain year onward, so a
+        # 1998 paper's first three years are simply not covered.  Summing anyway
+        # returns 0, which the model would read as "nobody cited it in three
+        # years" and learn from a fabricated zero.
+        return None
     return sum(count for year, count in paper.counts_by_year if first <= year <= last)
 
 

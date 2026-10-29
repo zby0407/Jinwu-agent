@@ -294,7 +294,17 @@ def test_fetch_writes_an_export_and_reports_network_failure_honestly(
     assert refused["status"] == "error"
     assert not (workspace / "never.jsonl").exists()
 
+    class DeadTransport:
+        def get(self, url, *, headers=None, timeout=20.0, max_bytes=0):
+            from jw.research_influence.transport import HttpResponse
+
+            return HttpResponse(status=0, url=url, error="network_disabled")
+
+        def post_json(self, url, payload, *, headers=None, timeout=20.0):
+            return self.get(url)
+
+    monkeypatch.setattr(fetch, "UrllibTransport", lambda *a, **k: DeadTransport())
     code = fetch.main(["--query", "x", "--out", str(workspace / "cli.jsonl")])
-    assert code == 1  # no egress in the test process
+    assert code == 1
     printed = json.loads(capsys.readouterr().out)
     assert printed["status"] == "error"

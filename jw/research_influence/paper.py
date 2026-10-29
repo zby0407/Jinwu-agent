@@ -30,6 +30,7 @@ from .contracts import (
     Provenance,
     ReferenceRecord,
     VenueRecord,
+    count_pairs,
     normalise_doi,
     utc_now,
 )
@@ -658,6 +659,7 @@ def build_paper(
         sections=sections,
         keywords=keywords,
         cited_by_count=_first_int(oa.get("cited_by_count"), cr.get("cited_by_count")),
+        counts_by_year=count_pairs(oa.get("counts_by_year")),
         reference_count=reference_count,
         access_route=route,
         access=access,
