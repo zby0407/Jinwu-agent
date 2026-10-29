@@ -521,8 +521,21 @@ def citation_profile(
         self_citations=self_citation_count(paper, citing),
         pagerank=rank,
         pagerank_percentile=(
-            percentile_of(rank_pool, rank) if rank is not None and rank_pool else None
+            percentile_of(rank_pool, rank)
+            if rank is not None and rank_pool and referenced
+            else None
         ),
         status=status,
-        notes=(*note_prefix, *note_extra),
+        notes=(
+            *note_prefix,
+            *note_extra,
+            # A paper whose references all failed to resolve sits in the graph as
+            # an isolated node: its PageRank is whatever the dangling mass gives
+            # it, so a percentile computed from that is scenery, not position.
+            *(
+                ("pagerank_percentile_skipped_unlinked",)
+                if rank is not None and rank_pool and not referenced
+                else ()
+            ),
+        ),
     )

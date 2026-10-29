@@ -51,6 +51,27 @@ def _policy() -> ProviderPolicy:
     return ProviderPolicy(allow_network=True, email="operator@example.org")
 
 
+def test_a_paper_whose_references_all_failed_gets_no_position():
+    """An isolated graph node has a PageRank, but it is not a position."""
+    paper = PaperRecord(
+        paper_id="p1",
+        title="No references resolved",
+        work_id="W1",
+        references=(ReferenceRecord(index=1, raw="Somebody 2011, ApJ"),),
+    )
+    profile = citation_profile(
+        paper,
+        resolved={"W1": {"id": "W1", "cited_by_count": 3}},
+        referenced_ids=("W9",),
+        rank=0.02,
+        rank_pool=(0.02, 0.4, 0.5),
+    )
+    assert profile.resolved_references == 0
+    assert profile.pagerank == 0.02
+    assert profile.pagerank_percentile is None
+    assert "pagerank_percentile_skipped_unlinked" in profile.notes
+
+
 def test_bare_work_id_accepts_iris_and_rejects_junk():
     """The API returns full IRIs; everything downstream wants the bare id."""
     assert bare_work_id("https://openalex.org/W123") == "W123"
