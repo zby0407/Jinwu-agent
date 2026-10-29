@@ -41,6 +41,7 @@ from .contracts import (
     default_repair_mode,
     new_run_id,
 )
+from .documents import read_pdf_tables, read_pdf_text, tables_from_text
 from .domain import (
     DomainPlugin,
     EntitySpec,
@@ -88,8 +89,11 @@ __all__ = [
     "load_ledger",
     "new_run_id",
     "plugin_for_contract",
+    "read_pdf_tables",
+    "read_pdf_text",
     "register_plugin",
     "save_ledger",
     "start_run",
+    "tables_from_text",
     "workspace_run_dir",
 ]

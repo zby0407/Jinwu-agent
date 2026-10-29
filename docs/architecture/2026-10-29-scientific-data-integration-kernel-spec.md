@@ -12,9 +12,10 @@
 ```text
 requirement contract          (contracts.DataRequirementContract)
         │
-        ├─ 1 discovery   sources.py      → SourceRecord(retrieval=candidate)
-        ├─ 2 acquisition sources.py      → SourceRecord(retrieval=acquired, sha256)
-        ├─ 3 extraction  tabular.py / pdf_tables.py / figures.py → ExtractedTable
+        ├─ 1 discovery   discovery.py / sources.py → SourceRecord(retrieval=candidate)
+        ├─ 2 acquisition acquisition.py   → SourceRecord(retrieval=acquired, sha256)
+        ├─ 3 extraction  tabular.py / html_tables.py / markdown_tables.py /
+        │                documents.py(pdf) / figures.py → ExtractedTable
         ├─ 4 semantics   semantics.py   → FieldMapping
         ├─ 5 identity    entities.py    → EntityRef
         ├─ 6 alignment   alignment.py   → ObservationRecord（长表）
@@ -241,7 +242,7 @@ D 的测试：`tests/scientific_data/test_quality.py`、`test_repair.py`、
 坐标轴修正）在无人工时**一条都不自动 apply**；自动修正后原值仍可读回；
 `undo_repair` 后指纹与修正前一致。
 
-## 7. Owner E — `sources.py`、`acquisition.py`（可选 `pdf_tables.py`、`figures.py`）
+## 7. Owner E — `discovery.py`、`sources.py`、`acquisition.py`、`documents.py`、`figures.py`
 
 ```python
 # sources.py

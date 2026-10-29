@@ -522,12 +522,14 @@ _READER_SUFFIXES = {
     ".htm": "html",
     ".md": "markdown",
     ".markdown": "markdown",
+    ".pdf": "pdf",
 }
 
 
 def _stage_extract(
     ledger: Any, catalog: SourceCatalog, settings: WorkflowOptions
 ) -> tuple[list[ExtractedTable], dict[str, int]]:
+    from .documents import read_pdf_tables
     from .html_tables import read_html_file
     from .markdown_tables import read_markdown_file
     from .tabular import read_table
@@ -546,6 +548,8 @@ def _stage_extract(
                 produced = read_html_file(path, source_id=source.source_id)
             elif reader == "markdown":
                 produced = read_markdown_file(path, source_id=source.source_id)
+            elif reader == "pdf":
+                produced = read_pdf_tables(path, source_id=source.source_id)
             elif reader == "delimited":
                 produced = read_table(
                     path,

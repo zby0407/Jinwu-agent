@@ -102,12 +102,21 @@ processes; that stays a Phase 3 item.
    benchmark respects that: every source is a local file. Discovery against a
    real catalogue (ADS, OpenAlex, journal pages) is exercised only by unit
    tests with a fake fetcher.
-2. Recall@K of source discovery is not measured here. The benchmark fixes the
+2. Recall@K of source discovery is not measured here. `discovery.py` turns a
+   literature search into candidate `SourceRecord`s and refuses to invent
+   sources when the search is unavailable, policy-blocked or empty, but those
+   states are tested with fake searchers, not against a live catalogue. The benchmark fixes the
    source set, which is the right thing for testing the pipeline, but it means
    the "finds the right papers" claim rests on the planner and policy tests,
    not on this table.
-3. The PDF table reader is not part of the benchmark. Tables, HTML, Markdown,
-   JSON and figures are covered; a real paper PDF is not.
+3. The PDF table reader is not part of this benchmark, and its own evidence is
+   weaker than the rest. Tables, HTML, Markdown, JSON and figures are covered
+   here; a PDF reaches the pipeline through `documents.py`, which rebuilds
+   columns from runs of whitespace in the text layer. It is tested on a real
+   generated PDF (`tests/scientific_data/test_documents.py`), and it reports
+   itself as low confidence with a `pdf_text_reconstruction` warning — but
+   whitespace reconstruction is a reading of the page, not a measurement of it.
+   A multi-line cell, a spanning header or a two-column page will defeat it.
 4. One figure, two markers. The figure path is proven end to end but on a
    synthetic figure payload rather than a scanned plot with overlapping
    symbols, error bars or a legend.

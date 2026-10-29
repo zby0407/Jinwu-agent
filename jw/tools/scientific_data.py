@@ -173,6 +173,7 @@ def sci_data_capabilities(config: RunnableConfig = None) -> str:
                 "json/jsonl (nested payloads flattened)",
                 "html (rowspan/colspan grid)",
                 "markdown pipe tables",
+                "pdf (text-layer table reconstruction, low confidence, flagged)",
                 "figures (axis-calibrated point digitisation with overlay check)",
             ],
             network_default="disabled; enable only with an explicit host allowlist",
