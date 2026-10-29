@@ -43,7 +43,11 @@ export function buildApplicationMenu({ isDev = false, platform = process.platfor
 
   template.push({
     label: '文件',
-    submenu: [isMac ? { role: 'close', label: '关闭窗口' } : { role: 'quit', label: '退出' }],
+    submenu: [
+      { label: 'API 与连接设置', click: actions.openSettings },
+      { type: 'separator' },
+      isMac ? { role: 'close', label: '关闭窗口' } : { role: 'quit', label: '退出' },
+    ],
   });
 
   template.push({

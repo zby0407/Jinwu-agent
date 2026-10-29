@@ -1325,8 +1325,8 @@ async def test_async_qwen_model_retry_allows_two_transient_transport_retries():
     assert response.result[0].content == "recovered"
     assert handler.await_count == 3
     assert retry_sleep.await_count == 2
-    assert retry_sleep.await_args_list[0].args == (20.0,)
-    assert retry_sleep.await_args_list[1].args == (20.0,)
+    assert retry_sleep.await_args_list[0].args == (2.0,)
+    assert retry_sleep.await_args_list[1].args == (5.0,)
 
 
 @pytest.mark.asyncio

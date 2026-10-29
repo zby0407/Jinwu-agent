@@ -13,7 +13,7 @@ import { v4 as uuidv4 } from "uuid";
 import type { UseStreamThread } from "@langchain/langgraph-sdk/react";
 import type { TodoItem } from "@/app/types/types";
 import { extractStringFromMessageContent } from "@/app/utils/utils";
-import { useClient } from "@/providers/ClientProvider";
+import { useClient, useRuntimeStatus } from "@/providers/ClientProvider";
 import { useQueryState } from "nuqs";
 import {
   extractSubAgentSteps,
@@ -36,13 +36,13 @@ import {
   RECOVERY_LEDGER_STATES,
   beginTransientModelRecovery,
   createRecoveryCancellation,
-  isTransientProviderError,
+  isRecoverableProviderError,
   latestHumanTurnId,
   recoveryLedgerMatchesFailure,
+  releaseUnsubmittedRecovery,
   recoverableTransientModelCheckpoint,
   settleRecoveryAttempt,
   transitionOwnedRecoveryLedger,
-  transientModelRecoveryDelayMs,
   writeRecoveryLedger,
 } from "@/lib/runRecovery.js";
 import { setThreadModelOverride } from "@/app/hooks/useThreads";
@@ -425,6 +425,8 @@ export function useChat({
 }) {
   const [threadId, setThreadId] = useQueryState("threadId");
   const client = useClient();
+  const runtime = useRuntimeStatus();
+  const [failure, setFailure] = useState<{ message: string; error: unknown; run: { run_id: string; thread_id: string }; recoverable: boolean } | null>(null);
   // Never hand an unverified URL id to useStream. The SDK starts hydration
   // immediately and a missing thread rejects an internal promise before its
   // onError callback can fully contain it. Preflighting the record keeps a
@@ -467,7 +469,7 @@ export function useChat({
       setStreamThreadRecord(null);
       return;
     }
-    if (streamThreadId === threadId) return;
+    if (streamThreadId === threadId || !runtime.backendReady) return;
 
     let cancelled = false;
     void client.threads
@@ -507,7 +509,7 @@ export function useChat({
     return () => {
       cancelled = true;
     };
-  }, [client, recoverMissingThread, streamThreadId, threadId]);
+  }, [client, recoverMissingThread, streamThreadId, threadId, runtime.backendReady]);
   const handleStreamThreadId = useCallback(
     (createdThreadId: string) => {
       setStreamThreadId(createdThreadId);
@@ -548,9 +550,6 @@ export function useChat({
     threadId: string;
     checkpoint: Omit<Checkpoint, "thread_id">;
   } | null>(null);
-  const transientModelRecoveryRef = useRef<
-    (error: unknown, run?: { run_id: string; thread_id: string }) => boolean
-  >(() => false);
   const transientModelRecoveryCreatedRef = useRef<
     (run: { run_id: string; thread_id: string }) => void
   >(() => {});
@@ -607,6 +606,7 @@ export function useChat({
     // occurred" and has to dig into the server log to learn that, e.g., a
     // model provider returned a quota error.
     onFinish: (_state, run) => {
+      setFailure(null);
       transientModelRecoverySettledRef.current("succeeded", run, threadId);
       if (!run || activeRunRef.current?.run_id === run.run_id) {
         activeRunRef.current = null;
@@ -617,6 +617,7 @@ export function useChat({
       onHistoryRevalidate?.();
     },
     onError: (error, run) => {
+      if (run && run.thread_id === threadId) setFailure({ message: formatStreamError(error), error, run, recoverable: isRecoverableProviderError(error) });
       if (!run || activeRunRef.current?.run_id === run.run_id) {
         activeRunRef.current = null;
       }
@@ -634,10 +635,10 @@ export function useChat({
         toast.error(formatStreamError(error));
         return;
       }
-      if (transientModelRecoveryRef.current(error, run)) return;
       toast.error(formatStreamError(error));
     },
     onCreated: (run) => {
+      setFailure(null);
       transientModelRecoveryCreatedRef.current(run);
       activeRunRef.current = run;
       setActiveRun(run);
@@ -1106,6 +1107,39 @@ export function useChat({
     return stream.messages;
   })();
 
+  // Refreshes and thread switches rediscover failure from the server checkpoint.
+  // This only reads state; run creation requires the explicit recovery action.
+  useEffect(() => {
+    setFailure(null);
+    if (!threadId || !runtime.backendReady || streamThreadId !== threadId || stream.isLoading) return;
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout>;
+    const inspect = async () => {
+      try {
+        const [state, runs] = await Promise.all([
+          client.threads.getState<StateType>(threadId),
+          client.runs.list(threadId, { limit: 1 }),
+        ]);
+        if (cancelled || stopRequestedRef.current) return;
+        const run = runs[0];
+        if (run?.status === "error") {
+          const turnId = latestHumanTurnId(state.values?.messages);
+          if (turnId && !pendingTransientModelRecoveryRef.current) {
+            releaseUnsubmittedRecovery(window.sessionStorage, threadId, turnId);
+          }
+          const task = state.tasks?.find((item) => item.error);
+          const error = task?.error ?? "运行失败，请查看错误详情或后台日志。";
+          setServerPending(false);
+          setFailure({ message: formatStreamError(error), error, run,
+            recoverable: Boolean(recoverableTransientModelCheckpoint(state)) });
+        } else if (run?.status === "success") setFailure(null);
+      } catch { /* A disconnect does not authorize a new run. */ }
+      if (!cancelled) timer = setTimeout(inspect, 3000);
+    };
+    void inspect();
+    return () => { cancelled = true; clearTimeout(timer); };
+  }, [client, threadId, streamThreadId, runtime.backendReady, stream.isLoading]);
+
   // Fold the per-thread model override into the assistant's base config. The
   // backend reads `configurable.model` + `configurable.model_provider` per
   // request. We always send a `configurable` object (possibly empty) so the
@@ -1162,7 +1196,8 @@ export function useChat({
       }
       pending.cancellation.cancel();
       try {
-        persistPendingRecovery(pending, RECOVERY_LEDGER_STATES.CANCELLED);
+        if (pending.submitted) persistPendingRecovery(pending, RECOVERY_LEDGER_STATES.CANCELLED);
+        else releaseUnsubmittedRecovery(window.sessionStorage, pending.ledger.threadId, pending.ledger.turnId);
       } finally {
         if (pendingTransientModelRecoveryRef.current === pending) {
           pendingTransientModelRecoveryRef.current = null;
@@ -1189,7 +1224,8 @@ export function useChat({
         !threadId ||
         !run ||
         run.thread_id !== threadId ||
-        !isTransientProviderError(error)
+        !runtime.canSend || pendingTransientModelRecoveryRef.current ||
+        !isRecoverableProviderError(error)
       ) {
         return false;
       }
@@ -1210,6 +1246,8 @@ export function useChat({
         return false;
       }
       if (!ledger) return false;
+      stopRequestedRef.current = false;
+      setStopState("idle");
 
       const cancellation = createRecoveryCancellation();
       const pending = {
@@ -1238,7 +1276,7 @@ export function useChat({
         const failedCheckpoint =
           recoverableTransientModelCheckpoint(failedState);
         if (!failedCheckpoint) {
-          throw new Error("当前失败检查点不满足安全自动重试条件。");
+          throw new Error("当前失败检查点不满足模型步骤恢复条件。");
         }
         const scheduledLedger = persistPendingRecovery(
           pending,
@@ -1256,11 +1294,6 @@ export function useChat({
           throw new Error("失败运行身份与持久化检查点不一致。");
         }
 
-        const recoveryDelayMs = transientModelRecoveryDelayMs(0);
-        toast.warning(
-          `上游连接中断，将在 ${Math.round(recoveryDelayMs / 1_000)} 秒后从失败检查点自动恢复。`
-        );
-        if (!(await cancellation.wait(recoveryDelayMs))) return;
         if (
           stopRequestedRef.current ||
           recoveryThreadRef.current !== threadId
@@ -1269,14 +1302,16 @@ export function useChat({
           return;
         }
 
-        const [currentState, currentFailedRun] = await Promise.all([
+        const [currentState, currentFailedRun, currentRuns] = await Promise.all([
           client.threads.getState<StateType>(threadId),
           client.runs.get(threadId, run.run_id),
+          client.runs.list(threadId, { limit: 10 }),
         ]);
         if (
           cancellation.isCancelled() ||
           stopRequestedRef.current ||
           recoveryThreadRef.current !== threadId ||
+          currentRuns.some((item) => item.status === "pending" || item.status === "running") ||
           !recoveryLedgerMatchesFailure(scheduledLedger, {
             threadId,
             state: currentState,
@@ -1308,13 +1343,14 @@ export function useChat({
         setFetchedThreadId(null);
         setRegenerationPreview(null);
         setResolvedInterruptKey(null);
-        stream.submit(null, {
+        await stream.submit(null, {
           checkpoint: resumeCheckpoint,
           config: buildRunConfig(),
           streamSubgraphs: true,
           streamMode: ["updates"],
           streamResumable: true,
           onDisconnect: "continue",
+          multitaskStrategy: "reject",
         });
         onHistoryRevalidate?.();
       })().catch((recoveryError) => {
@@ -1323,14 +1359,15 @@ export function useChat({
           !pending.cancellation.isCancelled()
         ) {
           try {
-            persistPendingRecovery(pending, RECOVERY_LEDGER_STATES.FAILED);
+            if (pending.submitted) persistPendingRecovery(pending, RECOVERY_LEDGER_STATES.FAILED);
+            else releaseUnsubmittedRecovery(window.sessionStorage, pending.ledger.threadId, pending.ledger.turnId);
           } finally {
             if (pendingTransientModelRecoveryRef.current === pending) {
               pendingTransientModelRecoveryRef.current = null;
             }
           }
           setServerPending(false);
-          toast.error(`自动恢复失败：${formatStreamError(recoveryError)}`);
+          toast.error(`恢复失败：${formatStreamError(recoveryError)}`);
         }
       });
       return true;
@@ -1345,9 +1382,9 @@ export function useChat({
       persistPendingRecovery,
       stream,
       threadId,
+      runtime.canSend,
     ]
   );
-  transientModelRecoveryRef.current = recoverTransientModelRun;
   transientModelRecoveryCreatedRef.current = (run) => {
     const pending = pendingTransientModelRecoveryRef.current;
     if (
@@ -1387,6 +1424,8 @@ export function useChat({
 
   const sendMessage = useCallback(
     (content: string) => {
+      if (!runtime.canSend) return;
+      setFailure(null);
       const stoppedSnapshot =
         stoppedMessagesRef.current?.threadId === threadId
           ? stoppedMessagesRef.current.messages
@@ -1483,12 +1522,13 @@ export function useChat({
       threadId,
       client,
       activeAssistant?.graph_id,
+      runtime.canSend,
     ]
   );
 
   const regenerateMessage = useCallback(
     (messageId: string) => {
-      if (!threadId || stream.isLoading || serverPending) return;
+      if (!runtime.canSend || !threadId || stream.isLoading || serverPending) return;
       setFetchedInterrupt(undefined);
       setFetchedMessages(null);
       setFetchedMessagesScope(null);
@@ -1600,13 +1640,14 @@ export function useChat({
       messages,
       buildRunConfig,
       onHistoryRevalidate,
+      runtime.canSend,
     ]
   );
 
   const editMessage = useCallback(
     (messageId: string, content: string) => {
       const editedContent = content.trim();
-      if (!threadId || !editedContent || stream.isLoading || serverPending) {
+      if (!runtime.canSend || !threadId || !editedContent || stream.isLoading || serverPending) {
         return;
       }
       setFetchedInterrupt(undefined);
@@ -1696,6 +1737,7 @@ export function useChat({
       client,
       buildRunConfig,
       onHistoryRevalidate,
+      runtime.canSend,
     ]
   );
 
@@ -1727,6 +1769,7 @@ export function useChat({
 
   const resumeInterrupt = useCallback(
     (value: any) => {
+      if (!runtime.canSend || stream.isLoading || serverPending) return;
       // Same as sendMessage: clear the prior snapshot before resuming so a stale
       // fetchedInterrupt/fetchedMessages can't briefly re-surface a resolved
       // approval card or shadow the resumed run's messages.
@@ -1753,7 +1796,7 @@ export function useChat({
       // Update thread list when resuming from interrupt
       onHistoryRevalidate?.();
     },
-    [stream, buildRunConfig, onHistoryRevalidate, interrupt]
+    [stream, buildRunConfig, onHistoryRevalidate, interrupt, runtime.canSend, serverPending]
   );
 
   const stopStream = useCallback(async () => {
@@ -1887,5 +1930,9 @@ export function useChat({
     subAgentActivity,
     modelOverride,
     setModelOverride,
+    canSend: runtime.canSend,
+    runtime,
+    failure,
+    recoverFailedRun: () => failure && recoverTransientModelRun(failure.error, failure.run),
   };
 }

@@ -3,13 +3,18 @@
 金乌（JW）是 Python Agent + LangGraph 后端（默认 `127.0.0.1:6174`）加 Next.js standalone WebUI（默认 `127.0.0.1:4716`）的科研智能体。本目录提供 Electron 桌面外壳，让用户**零 Python / Node 依赖**启动金乌：
 
 - Electron 主进程是唯一进程监管者，直接 spawn 随包 Python 与随包 Node，不调用系统 `python` / `node` / `npm` / `uv`，也不复用 `jw --ui webui` 的双进程启动器。
-- 后端与前端并行启动，分别等待 `http://127.0.0.1:<backendPort>/ok` 与前端根路径可访问，两者都健康后才加载 WebUI。
+- 配置检查前即显示窗口；后端与前端并行启动，前端可访问即加载 WebUI。后端 API 就绪后加载历史，主智能体后台预热完成后允许发送。
 - 退出时按进程组 / 进程树清理，不残留 python / node / langgraph 进程。
 
 初版仅支持 **macOS Apple Silicon（darwin/arm64）** 与 **Windows x64（win32/x64）**，产物**未签名、未公证**。
 
 首次启动会显示配置向导，收集模型供应商、模型和 API Key（写入本机 `config.yaml`，权限 `0600`），
 保存后自动启动后端与 WebUI。已有配置或环境变量凭据时会跳过向导。
+
+0.3.3 起可通过「文件 → API 与连接设置」重新配置，失败页也提供入口。
+DashScope 支持跟随系统代理或直连；存在工作区 `.env` 或环境变量覆盖时显示来源。
+测试连接须主动点击，最多发送一次最小请求；保存时有运行或排队任务会延后应用。
+详见 [0.3.3 升级与验证说明](RELEASE-0.3.3.md)。
 
 ## 目录结构
 
@@ -34,7 +39,7 @@ desktop/
 │   │   └── orphan-process.mjs    # 残留 langgraph dev 兜底清理（不误杀）
 │   ├── services/supervisor.mjs # 子进程监管（崩溃检测、停止、tail 缓冲）
 │   └── ui/
-│       ├── loading.html        # 启动加载页（无脚本）
+│       ├── loading.html        # 启动加载页与阶段计时
 │       ├── setup.html          # 首启配置向导（CSP、无内联脚本）
 │       ├── setup.css
 │       └── setup.js

@@ -11,6 +11,7 @@ import { spawn } from 'node:child_process';
 export const SETUP_MODULE = 'jw.desktop_setup';
 export const SETUP_STATUS_TIMEOUT_MS = 30_000;
 export const SETUP_SAVE_TIMEOUT_MS = 60_000;
+export const SETUP_TEST_TIMEOUT_MS = 30_000;
 export const SETUP_OUTPUT_LIMIT = 256 * 1024;
 
 export class SetupCommandError extends Error {
@@ -28,7 +29,8 @@ export function normalizeSetupPayload(payload) {
     throw new SetupCommandError('配置内容不合法', { code: 'SETUP_PAYLOAD_INVALID' });
   }
   const result = {};
-  for (const field of ['provider', 'model', 'api_key', 'base_url']) {
+  for (const field of ['provider', 'model', 'api_key', 'base_url', 'proxy_mode']) {
+    if (field === 'proxy_mode' && payload[field] === undefined) continue;
     const value = payload[field];
     if (value === undefined || value === null) {
       result[field] = '';
@@ -73,7 +75,7 @@ export function parseSetupResponse(stdout, exitCode) {
 }
 
 export function setupCommandArgs(mode) {
-  if (mode !== 'status' && mode !== 'configure') {
+  if (!['status', 'configure', 'validate', 'test'].includes(mode)) {
     throw new SetupCommandError(`未知的配置命令模式：${mode}`, {
       code: 'SETUP_MODE_INVALID',
     });
@@ -89,6 +91,7 @@ function runSetupCommand({
   stdin = '',
   timeoutMs,
   spawnImpl = spawn,
+  signal,
 }) {
   return new Promise((resolve, reject) => {
     let settled = false;
@@ -104,18 +107,24 @@ function runSetupCommand({
       if (settled) return;
       settled = true;
       clearTimeout(timer);
+      signal?.removeEventListener('abort', abort);
       callback(value);
     };
     const timer = setTimeout(() => {
-      child.kill?.();
       finish(
         reject,
         new SetupCommandError(`配置命令超过 ${Math.round(timeoutMs / 1000)} 秒未完成`, {
-          code: 'SETUP_TIMEOUT',
+          code: mode === 'test' ? 'TIMEOUT' : 'SETUP_TIMEOUT',
         }),
       );
+      child.kill?.();
     }, timeoutMs);
     timer.unref?.();
+    const abort = () => {
+      finish(reject, new SetupCommandError('连接测试已取消', { code: 'SETUP_CANCELLED' }));
+      child.kill?.();
+    };
+    signal?.addEventListener('abort', abort, { once: true });
 
     child.on('error', (error) => {
       finish(
@@ -144,8 +153,21 @@ function runSetupCommand({
     child.stdin?.on('error', () => {
       // A rejected configuration may close stdin before the key is written.
     });
-    child.stdin?.end(stdin);
+    if (signal?.aborted) abort();
+    else child.stdin?.end(stdin);
   });
+}
+
+export function testSetupConnection({ pythonPath, cwd, env, payload, signal, spawnImpl }) {
+  return runSetupCommand({ pythonPath, cwd, env, mode: 'test',
+    stdin: JSON.stringify(normalizeSetupPayload(payload)), signal, spawnImpl,
+    timeoutMs: SETUP_TEST_TIMEOUT_MS });
+}
+
+export function validateSetupConfiguration({ pythonPath, cwd, env, payload, spawnImpl }) {
+  return runSetupCommand({ pythonPath, cwd, env, mode: 'validate',
+    stdin: JSON.stringify(normalizeSetupPayload(payload)), spawnImpl,
+    timeoutMs: SETUP_SAVE_TIMEOUT_MS });
 }
 
 export async function readSetupStatus({

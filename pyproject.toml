@@ -1,6 +1,6 @@
 [project]
 name = "jw-agent"
-version = "0.2.2"
+version = "0.2.3"
 description = "金乌（JW）：端到端自主科研智能体"
 readme = "README.md"
 requires-python = ">=3.11"

@@ -30,5 +30,6 @@ export async function GET() {
   return NextResponse.json({
     port,
     deploymentUrl: `http://127.0.0.1:${port}`,
+    desktopManaged: process.env.JW_DESKTOP_MANAGED === "1",
   });
 }

@@ -19,6 +19,7 @@ process list or desktop logs.
 from __future__ import annotations
 
 import json
+import os
 import sys
 from dataclasses import dataclass
 from typing import Any
@@ -219,6 +220,29 @@ def configuration_status() -> dict[str, Any]:
         "configPath": str(get_config_path()),
         "configExists": get_config_path().is_file(),
         "schema": provider_schema(),
+        "hasCredential": bool(_effective_key(config, config.provider)),
+        "credentialProviders": [
+            p for p in _KEY_FIELD_BY_PROVIDER if _effective_key(config, p)
+        ],
+        **proxy_status(),
+    }
+
+
+def proxy_status() -> dict[str, Any]:
+    from dotenv import dotenv_values, find_dotenv
+
+    env_path = find_dotenv(usecwd=True)
+    dot_value = (
+        dotenv_values(env_path).get("JW_DASHSCOPE_PROXY_MODE") if env_path else None
+    )
+    env_value = os.environ.get("JW_DASHSCOPE_PROXY_MODE")
+    source = "workspace_env" if dot_value else "environment" if env_value else "config"
+    value = dot_value or env_value or load_config().dashscope_proxy_mode
+    return {
+        "proxyMode": value,
+        "proxyModeSource": source,
+        "proxyModeOverridden": source != "config",
+        "proxyModeSourcePath": env_path if dot_value else None,
     }
 
 
@@ -241,8 +265,8 @@ def _validate_base_url(value: str) -> str:
     return value.rstrip("/")
 
 
-def configure_from_payload(payload: Any) -> dict[str, Any]:
-    """Validate and persist a first-run provider configuration."""
+def config_from_payload(payload: Any):
+    """Validate a draft without persisting it or exposing its credentials."""
     if not isinstance(payload, dict):
         raise SetupError("配置必须是 JSON 对象")
 
@@ -259,6 +283,12 @@ def configure_from_payload(payload: Any) -> dict[str, Any]:
     api_key = _clean_text(payload, "api_key", MAX_API_KEY_CHARS)
     base_url = _clean_text(payload, "base_url", MAX_BASE_URL_CHARS)
 
+    config = load_config()
+    effective = get_effective_config()
+    if not api_key:
+        api_key = _effective_key(effective, provider)
+    if not base_url and spec.base_url_field:
+        base_url = str(getattr(effective, spec.base_url_field, "") or "")
     if spec.requires_api_key and not api_key:
         raise SetupError(f"{spec.label} 需要 API Key")
     if spec.requires_base_url and not base_url:
@@ -266,7 +296,6 @@ def configure_from_payload(payload: Any) -> dict[str, Any]:
     if base_url:
         base_url = _validate_base_url(base_url)
 
-    config = load_config()
     config.provider = provider
     config.model = model
     config.ui_backend = "webui"
@@ -274,16 +303,84 @@ def configure_from_payload(payload: Any) -> dict[str, Any]:
         setattr(config, spec.api_key_field, api_key)
     if base_url and spec.base_url_field:
         setattr(config, spec.base_url_field, base_url)
+    route = _clean_text(payload, "proxy_mode", 20) or config.dashscope_proxy_mode
+    if route not in {"env", "direct"}:
+        raise SetupError("连接方式必须为 env 或 direct")
+    if provider in {"dashscope", "dashscope-code"}:
+        config.dashscope_proxy_mode = route
+    return config
 
+
+def configure_from_payload(payload: Any) -> dict[str, Any]:
+    config = config_from_payload(payload)
     save_config(config)
 
     # The caller only gets non-secret fields; API keys never cross stdout.
     return {
         "configured": is_configured(get_effective_config()),
-        "provider": provider,
-        "model": model,
+        "provider": config.provider,
+        "model": config.model,
         "configPath": str(get_config_path()),
+        **proxy_status(),
     }
+
+
+async def test_connection(payload: Any) -> dict[str, Any]:
+    """One explicit minimal model request; no graph, tools, persistence or retries."""
+    import asyncio
+    import time
+
+    from .provider_diagnostics import diagnose_provider_error
+
+    config = config_from_payload(payload)
+    if config.provider != "dashscope":
+        raise SetupError("当前版本的连接测试仅支持 DashScope")
+    started = time.monotonic()
+    route_info = proxy_status()
+    route = (
+        route_info["proxyMode"]
+        if route_info["proxyModeOverridden"]
+        else config.dashscope_proxy_mode
+    )
+    os.environ["JW_DASHSCOPE_PROXY_MODE"] = route
+    # This command runs in a disposable subprocess. Explicit draft credentials
+    # override only this test's environment, never the application or a file.
+    os.environ["DASHSCOPE_API_KEY"] = config.dashscope_api_key
+    from .llm import get_chat_model
+
+    model = None
+    try:
+        model = get_chat_model(
+            model=config.model, provider=config.provider, max_retries=0
+        )
+        result = await asyncio.wait_for(
+            model.ainvoke(
+                "Reply with OK only.",
+                max_tokens=16,
+                extra_body={"enable_thinking": False},
+            ),
+            timeout=max(0.1, 28 - (time.monotonic() - started)),
+        )
+        return {
+            "success": True,
+            "route": route,
+            "code": "OK",
+            "message": "模型请求成功。",
+            "elapsedMs": round((time.monotonic() - started) * 1000),
+            "receivedResponse": bool(result.content),
+        }
+    except Exception as exc:
+        return {
+            "success": False,
+            **diagnose_provider_error(exc, route),
+            "elapsedMs": round((time.monotonic() - started) * 1000),
+        }
+    finally:
+        if model is not None:
+            if getattr(model, "http_async_client", None) is not None:
+                await model.http_async_client.aclose()
+            if getattr(model, "http_client", None) is not None:
+                model.http_client.close()
 
 
 def _read_payload() -> Any:
@@ -305,8 +402,15 @@ def main(argv: list[str] | None = None) -> int:
             result = configuration_status()
         elif mode == "configure":
             result = configure_from_payload(_read_payload())
+        elif mode == "validate":
+            config_from_payload(_read_payload())
+            result = {"valid": True}
+        elif mode == "test":
+            import asyncio
+
+            result = asyncio.run(test_connection(_read_payload()))
         else:
-            raise SetupError("用法: python -m jw.desktop_setup status|configure")
+            raise SetupError("用法: python -m jw.desktop_setup status|configure|test")
     except SetupError as exc:
         json.dump({"ok": False, "error": str(exc)}, sys.stdout, ensure_ascii=False)
         sys.stdout.write("\n")
@@ -314,7 +418,10 @@ def main(argv: list[str] | None = None) -> int:
     except Exception as exc:
         # The JSON protocol must never leak a traceback or secret to the shell.
         json.dump(
-            {"ok": False, "error": f"配置失败：{type(exc).__name__}: {exc}"},
+            {
+                "ok": False,
+                "error": f"配置失败（{type(exc).__name__}），请检查配置格式。",
+            },
             sys.stdout,
             ensure_ascii=False,
         )

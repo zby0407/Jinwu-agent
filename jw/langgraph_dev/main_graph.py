@@ -1,12 +1,17 @@
-"""Deployed graph entry for the main JW agent.
+"""Lazy main graph factory shared by LangGraph runs and background warmup."""
 
-The main ``jw_agent`` is exposed via ``__getattr__`` lazy loading
-in ``jw/agent.py`` so it doesn't construct on plain
-``import jw``. ``langgraph dev`` 's symbol resolver inspects
-module attributes directly and doesn't trigger ``__getattr__``, so we
-re-export here to make it visible.
-"""
+from .runtime import resolve_graph
 
-from jw.agent import jw_agent
+
+def jw_agent():
+    """Register without constructing; share one graph with desktop warmup."""
+
+    def build():
+        from jw.agent import _get_default_agent
+
+        return _get_default_agent()
+
+    return resolve_graph("JW", build)
+
 
 __all__ = ["jw_agent"]

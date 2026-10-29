@@ -23,17 +23,53 @@ memory.
 from __future__ import annotations
 
 import asyncio
+from contextlib import asynccontextmanager
 
 from starlette.applications import Starlette
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 from starlette.routing import Route
+from starlette.middleware import Middleware
 
 from jw.config import get_effective_config
 from jw.langgraph_dev.data_sources_api import DATA_SOURCE_ROUTES
 from jw.langgraph_dev.knowledge_api import KB_ROUTES
 from jw.langgraph_dev.reproduction_api import REPRODUCTION_ROUTES
-from jw.llm.models import list_model_picker_entries
+from jw.langgraph_dev.runtime import runtime_status
+from jw.langgraph_dev.maintenance import (
+    DesktopMaintenanceMiddleware,
+    desktop_maintenance,
+)
+
+
+async def list_model_picker_entries(*args, **kwargs):
+    from jw.llm.models import list_model_picker_entries as entries
+
+    return await entries(*args, **kwargs)
+
+
+async def get_runtime_status(_request: Request) -> JSONResponse:
+    return JSONResponse(runtime_status(), headers={"Cache-Control": "no-store"})
+
+
+@asynccontextmanager
+async def lifespan(_app):
+    async def warm_main():
+        from .main_graph import jw_agent
+
+        try:
+            await asyncio.to_thread(jw_agent)
+        except Exception:
+            # Failure is reported by runtime-status; configuration remains usable.
+            pass
+
+    task = asyncio.create_task(warm_main())
+    try:
+        yield
+    finally:
+        if task is not None:
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
 
 
 async def get_models(_request: Request) -> JSONResponse:
@@ -79,12 +115,16 @@ async def get_models(_request: Request) -> JSONResponse:
 
 
 app = Starlette(
+    lifespan=lifespan,
+    middleware=[Middleware(DesktopMaintenanceMiddleware)],
     routes=[
+        Route("/api/runtime-status", get_runtime_status, methods=["GET"]),
+        Route("/api/desktop-maintenance", desktop_maintenance, methods=["POST"]),
         Route("/api/models", get_models, methods=["GET"]),
         *REPRODUCTION_ROUTES,
         # Read-only knowledge-base surface (see knowledge_api.py).
         *KB_ROUTES,
         # Observational data-source status and toggles (see data_sources_api.py).
         *DATA_SOURCE_ROUTES,
-    ]
+    ],
 )
