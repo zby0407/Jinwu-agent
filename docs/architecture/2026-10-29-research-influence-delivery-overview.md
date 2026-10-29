@@ -50,7 +50,7 @@
 | --- | --- | --- | --- |
 | 参考文献质量 | `median_referenced_citations`、`references_in_top_decile` | 它引用的文献本身被引多少；有多大比例位于队列前 10% | 解析不到的条目不算 0 被引；快照里没有参考文献列表时该行为空 |
 | 被引者质量 | `citing_count`、`mean_citing_citations`、`self_citations` | 谁在引用它、这些引用者被引多少、其中多少是同作者自引 | 引用者只抽一页；自引只按姓氏重合做**下界**估计 |
-| 网络位置 | `pagerank`、`pagerank_percentile` | 在解析到的参考文献图上的 PageRank 与队列位次 | 只在解析成功的子图上计算，参考文献解析差的论文位次偏低 |
+| 网络位置 | `pagerank`、`pagerank_percentile` | 在解析到的参考文献图上的 PageRank 与队列位次 | 只在解析成功的子图上计算；参考文献一条都没解析到的论文是孤立节点，因此**不给位次**（只有原始 PageRank 加说明） |
 
 真实运行（1202 篇冻结核物理队列 + 两篇上传 PDF，经操作者本机代理）：
 
