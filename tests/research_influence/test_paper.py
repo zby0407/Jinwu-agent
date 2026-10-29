@@ -227,3 +227,55 @@ def test_summarise_counts_access_routes():
     assert summary["metadata_only"] == 1
     assert summary["with_full_text"] == 0
     assert "routes" in summary
+
+
+def test_a_pdf_title_line_is_used_and_flagged_as_weak_evidence():
+    """A supplied PDF supplies its own title, marked LOW with a page locator."""
+    paper = build_paper(
+        paper_id="paper:local:abc",
+        fulltext=FulltextResult(
+            path="/tmp/x.pdf", is_pdf=True, pages=(PAGE_ONE, PAGE_TWO)
+        ),
+    )
+    assert paper.title == "The light curve of SN 2005cf"
+    entries = paper.provenance["title"]
+    assert entries and entries[0].provider == "pdf_text"
+    assert entries[0].confidence == ConfidenceBand.LOW
+    assert entries[0].locator is not None and entries[0].locator.page == 1
+    assert "title_from_pdf_text_layer" in paper.notes
+    # An index record would be stronger evidence, so the flag stays visible.
+    assert "title" not in paper.missing
+
+
+def test_a_heading_first_page_does_not_become_the_title():
+    """When page one starts with a label, no title is invented."""
+    paper = build_paper(
+        paper_id="paper:local:def",
+        fulltext=FulltextResult(
+            path="/tmp/y.pdf",
+            is_pdf=True,
+            pages=("Abstract\nWe report a survey of nearby galaxies.\n",),
+        ),
+    )
+    assert paper.title == ""
+    assert paper.missing["title"] == MissingReason.NOT_FOUND
+
+
+def test_kerning_splits_are_flagged_not_rewritten():
+    """A word split by the extractor is reported, because it cannot be verified."""
+    from jw.research_influence.paper import detect_kerning_splits
+
+    notes = detect_kerning_splits(("Photometric typing of T ype Ia supernovae",))
+    assert notes and notes[0].startswith("pdf_text_kerning_suspect:T ype")
+
+    paper = build_paper(
+        paper_id="paper:local:ghi",
+        fulltext=FulltextResult(
+            path="/tmp/z.pdf",
+            is_pdf=True,
+            pages=("T ype Ia supernovae in the nearby universe\n",),
+        ),
+    )
+    # The characters are kept verbatim: guessing "Type" would be an invention.
+    assert paper.title == "T ype Ia supernovae in the nearby universe"
+    assert any(note.startswith("pdf_text_kerning_suspect") for note in paper.notes)

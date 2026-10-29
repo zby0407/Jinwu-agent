@@ -3,6 +3,7 @@
   "primary_agents": [
     "solar-planner",
     "scientific-data",
+    "research-influence",
     "solar-data",
     "solar-hypothesis",
     "solar-experiment",
@@ -78,6 +79,10 @@
     "scheduler": {
       "title": "调度支持",
       "description": "管理主流程中的定时、延迟与恢复任务。"
+    },
+    "research-influence": {
+      "title": "科研影响力分析与偏差解释",
+      "description": "按阶梯合法获取论文源（含非开放论文的人工回路），逐字段解析并溯源，冻结参照队列，给出带 80% 区间的被引预测、带 Δ 与 95% 区间的因素解释，并对十类偏差做可核查审计（明确不推断作者人口学）。"
     }
   },
   "shared": [
@@ -154,7 +159,8 @@
       "find-skills",
       "jw-release-export-qa"
     ],
-    "scientific-data": []
+    "scientific-data": [],
+    "research-influence": []
   },
   "adaptations": {
     "math-modeling-figure-production": {

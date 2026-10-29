@@ -392,8 +392,7 @@ def run_influence(
 
 def paper_from_upload(path: str | Path, *, directory: str | Path) -> PaperRecord:
     """Adopt one operator-supplied PDF as the top rung of the ladder."""
-    store = Path(directory) / "fulltext"
-    fulltext = read_local_fulltext(path, directory=store)
+    fulltext = read_local_fulltext(path, directory=directory)
     digest = fulltext.sha256 or ""
     paper_id = f"paper:local:{digest[7:19] or Path(path).stem}"
     attempt = AccessAttempt(

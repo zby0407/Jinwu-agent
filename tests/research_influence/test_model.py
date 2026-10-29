@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import math
 import random
 
@@ -86,16 +88,27 @@ def test_predictions_are_ordered_and_non_negative(model, cohort):
 
 
 def test_interval_coverage_is_near_nominal(model, cohort):
-    """The calibrated 80% interval should cover about 80% out of sample."""
+    """The calibrated 80% interval should cover about 80% out of sample.
+
+    The default subset is the rows this model never trained on; scoring the
+    training rows instead would report the booster's memory, not calibration.
+    """
     metrics = model.metrics_for(cohort.papers)
+    assert metrics["eval_subset"] == "holdout"
     assert 0.6 <= metrics["interval_coverage"] <= 0.95
+    in_sample = model.metrics_for(cohort.papers, subset="all")
+    assert in_sample["in_sample_rows"] > 0
+    assert in_sample["interval_coverage"] >= metrics["interval_coverage"]
 
 
 def test_the_model_learns_the_designed_signal(model, cohort):
     """The synthetic cohort has observable signal; a working model finds it."""
     metrics = model.metrics_for(cohort.papers)
     assert metrics["spearman"] > 0.3
-    assert metrics["top_decile_lift"] > 1.5
+    # A decile on a ~30-row holdout is too coarse to estimate, so the lift is
+    # quoted on the whole labelled set and labelled as descriptive.
+    descriptive = model.metrics_for(cohort.papers, subset="all")
+    assert descriptive["top_decile_lift"] > 1.5
 
 
 def test_refitting_is_reproducible(model, cohort):
@@ -146,8 +159,8 @@ def test_card_serialises_with_null_for_absent_numbers(model):
 
 def test_model_card_writes_to_disk(model, tmp_path):
     """The card is a deliverable of the run, not an internal detail."""
-    path = model.card.write(tmp_path / "model_card.json")
-    text = open(path, encoding="utf-8").read()
+    path = Path(model.card.write(tmp_path / "model_card.json"))
+    text = path.read_text(encoding="utf-8")
     assert '"quantiles"' in text
     assert "holdout_rows" in text
 

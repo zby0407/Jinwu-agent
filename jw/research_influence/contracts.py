@@ -104,6 +104,33 @@ def file_digest(path: str | Path) -> str:
         return ""
 
 
+#: Fields that record *when* something happened, not *what* it said.  They stay
+#: in the artefacts but never enter a fingerprint.
+VOLATILE_KEYS: frozenset[str] = frozenset(
+    {"retrieved_at", "created_at", "decided_at", "generated_at", "saved_at"}
+)
+
+#: Fields holding *where a copy sits on this machine*, not what the paper says.
+#: The content digest is what identifies the payload, so two runs in different
+#: work directories still hash the same paper.
+LOCAL_PATH_KEYS: frozenset[str] = frozenset(
+    {"fulltext_path", "source_paths", "path", "directory"}
+)
+
+
+def _stable_payload(payload: Any) -> Any:
+    """Recursively drop volatile timestamps so a hash can be reproduced."""
+    if isinstance(payload, Mapping):
+        return {
+            str(key): _stable_payload(value)
+            for key, value in payload.items()
+            if str(key) not in VOLATILE_KEYS and str(key) not in LOCAL_PATH_KEYS
+        }
+    if isinstance(payload, (list, tuple)):
+        return [_stable_payload(item) for item in payload]
+    return _jsonable(payload)
+
+
 def normalise_doi(raw: str) -> str:
     """Lower-case bare DOI, stripping resolver prefixes and stray whitespace."""
     text = str(raw or "").strip()
@@ -875,8 +902,13 @@ class PaperRecord:
         return len(self.covered_fields()) / len(CORE_FIELDS)
 
     def fingerprint(self) -> str:
-        """Stable hash of the record's scientific content."""
-        return content_hash(self.to_dict())
+        """Stable hash of the record's scientific content.
+
+        Wall-clock fields (``retrieved_at`` and friends) are kept in the record as
+        an audit trail but excluded here: a hash that changes every second cannot
+        be used to prove that two runs read the same paper.
+        """
+        return content_hash(_stable_payload(self.to_dict()))
 
     def to_dict(self) -> dict[str, Any]:
         """Plain JSON mapping, artefacts excluded to stay comparable."""

@@ -38,10 +38,13 @@ from .fulltext import FulltextResult
 __all__ = [
     "CANONICAL_SECTIONS",
     "build_paper",
+    "detect_kerning_splits",
     "normalise_section_name",
     "open_data_from_text",
     "references_from_text",
+    "section_provenance",
     "sections_from_pages",
+    "title_line",
 ]
 
 #: Section names the downstream features understand.  Anything else is kept
@@ -175,6 +178,125 @@ def sections_from_pages(pages: Sequence[str]) -> dict[str, str]:
     for section in located:
         merged.setdefault(section.name, []).append(section.text)
     return {name: "\n".join(parts).strip() for name, parts in merged.items()}
+
+
+#: ``X yz``: a lone capital separated from a lowercase tail -- the classic
+#: kerning artefact of PDF text extraction.
+_SPLIT_WORD = re.compile(r"(?<![^\s])([A-Z])\s([a-z]{3,})")
+
+
+def detect_kerning_splits(pages: Sequence[str]) -> tuple[str, ...]:
+    """Report text that a PDF extractor split mid-word.
+
+    ``T ype Ia`` cannot be repaired from the text alone: the same shape appears in
+    legitimate phrases (``A homogeneous sample``), and a dictionary is not
+    evidence about this document.  So the pipeline keeps the characters verbatim
+    and records the suspect lines instead of guessing, which is why the note is a
+    flag and not a rewrite.
+    """
+    notes: list[str] = []
+    for page_index, page in enumerate(pages, 1):
+        for line in page.splitlines():
+            for match in _SPLIT_WORD.finditer(line):
+                notes.append(
+                    f"pdf_text_kerning_suspect:{match.group(1)} {match.group(2)}"
+                    f"@p{page_index}"
+                )
+    if len(notes) > 3:
+        notes = [*notes[:3], f"pdf_text_kerning_suspect_more:{len(notes) - 3}"]
+    return tuple(notes)
+
+
+@dataclass(slots=True)
+class TitleGuess:
+    """A candidate title line, with where it was found."""
+
+    text: str
+    page: int
+    char_start: int
+
+
+#: ``1. Introduction``, ``2.3 Data``, ``Section 3``: numbering means heading.
+_NUMBERED_HEADING = re.compile(r"^(?:section\s+)?\d+(?:\.\d+)*\.?\s+\S", re.IGNORECASE)
+
+#: Lead-in words that mean "this line is a heading, not the title".
+_NOT_TITLE = (
+    "abstract",
+    "summary",
+    "keywords",
+    "key words",
+    "preprint",
+    "draft",
+    "arxiv:",
+    "doi:",
+    "received",
+    "accepted",
+    "published",
+)
+
+
+def title_line(pages: Sequence[str], *, max_length: int = 300) -> TitleGuess | None:
+    """The first substantial line of page one, when it is not a heading.
+
+    Returns ``None`` when the text layer starts with something that is clearly a
+    label (``Abstract``, ``arXiv:...``); guessing in that case would put a heading
+    in the title column.
+    """
+    if not pages:
+        return None
+    offset = 0
+    for line in pages[0].splitlines(keepends=True):
+        stripped = line.strip()
+        if stripped:
+            lowered = stripped.casefold()
+            if any(
+                lowered == token or lowered.startswith(token) for token in _NOT_TITLE
+            ):
+                return None
+            if len(stripped) > max_length or len(stripped) < 3:
+                return None
+            if _NUMBERED_HEADING.match(stripped):
+                return None
+            if normalise_section_name(stripped) in CANONICAL_SECTIONS:
+                return None
+            if stripped.endswith(":"):
+                return None
+            return TitleGuess(text=stripped, page=1, char_start=offset)
+        offset += len(line)
+    return None
+
+
+def section_provenance(
+    pages: Sequence[str], *, route: AccessRoute = AccessRoute.USER_SUPPLIED
+) -> tuple[Provenance, ...]:
+    """One provenance entry per located section, carrying its page and offsets.
+
+    A section without a locator is unverifiable, so the reader could not check
+    that the abstract was not actually the conclusion.
+    """
+    entries: list[Provenance] = []
+    seen: set[tuple[str, int]] = set()
+    for section in _locate_sections(pages):
+        key = (section.name, section.page)
+        if key in seen:
+            continue
+        seen.add(key)
+        entries.append(
+            Provenance(
+                provider="pdf_text",
+                route=route,
+                method="text_layer_sectioning",
+                retrieved_at=utc_now(),
+                confidence=ConfidenceBand.MEDIUM,
+                locator=Locator(
+                    page=section.page,
+                    section=section.name,
+                    char_start=section.char_start,
+                    char_end=section.char_end,
+                ),
+            )
+        )
+    return tuple(entries)
 
 
 def _locate_sections(pages: Sequence[str]) -> tuple[_Section, ...]:
@@ -442,6 +564,25 @@ def build_paper(
         ("crossref", cr.get("title")),
         ("europepmc", ep.get("title")),
     )
+    if not title and fulltext is not None and fulltext.pages:
+        # A user-supplied PDF has no index record, so the first line that is not a
+        # heading is the best available title -- marked LOW, with the page it came
+        # from, rather than left empty as though the paper had no title.
+        guess = title_line(fulltext.pages)
+        if guess is not None:
+            title = guess.text
+            provenance["title"] = (
+                Provenance(
+                    provider="pdf_text",
+                    route=route,
+                    method="title_line",
+                    retrieved_at=utc_now(),
+                    confidence=ConfidenceBand.LOW,
+                    locator=Locator(page=guess.page, char_start=guess.char_start),
+                    note="title read from the text layer, not from an index record",
+                ),
+            )
+            note_list.append("title_from_pdf_text_layer")
     if not title:
         missing["title"] = MissingReason.NOT_FOUND
 
@@ -475,6 +616,9 @@ def build_paper(
             if route.has_full_text or oa.get("referenced_works")
             else MissingReason.FULL_TEXT_UNAVAILABLE
         )
+    provenance["references"] = tuple(
+        entry for record in references for entry in record.provenance
+    )
     reference_count = _first_int(
         oa.get("reference_count"),
         cr.get("reference_count"),
@@ -485,10 +629,17 @@ def build_paper(
     open_data: tuple[OpenDataRecord, ...] = ()
     pages = fulltext.pages if fulltext is not None else ()
     if pages:
+        note_list.extend(detect_kerning_splits(pages))
+    if pages:
         sections = sections_from_pages(pages)
         open_data = open_data_from_text(pages)
+        provenance["sections"] = section_provenance(pages, route=route)
         if not open_data:
             note_list.append("data_availability_not_state_in_text")
+        else:
+            provenance["open_data"] = tuple(
+                entry for record in open_data for entry in record.provenance
+            )
     else:
         missing["sections"] = MissingReason.FULL_TEXT_UNAVAILABLE
 

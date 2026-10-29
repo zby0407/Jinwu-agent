@@ -22,7 +22,7 @@ from typing import Any
 from .contracts import PaperRecord, canonical_json, content_hash
 from .explain import FeatureImportance
 from .features import FEATURES, citations_within, targets, venue_tier
-from .model import InfluenceModel
+from .model import InfluenceModel, spearman
 
 __all__ = [
     "AUDITS",
@@ -33,6 +33,9 @@ __all__ = [
 ]
 
 DETECTION_THRESHOLD = 0.15
+#: Predicted gap (log units) above which an access route is already priced into
+#: the model; the residual test then cannot clear it.
+ABSORBED_GAP_THRESHOLD = 0.30
 HIGH_SEVERITY = 0.60
 MEDIUM_SEVERITY = 0.30
 MIN_GROUP_SIZE = 6
@@ -773,6 +776,23 @@ def _audit_open_access_visibility(context: _Context) -> BiasFinding:
         ),
     }
     share = context.route_share({"open_access"})
+    predicted_gap = (
+        predictions["full_text"] - predictions["abstract_only"]
+        if predictions["full_text"] is not None
+        and predictions["abstract_only"] is not None
+        else math.nan
+    )
+    # A visibility advantage can be *absorbed*: if the model can already tell the
+    # two groups apart, it learns the gap and the residuals look clean.  That is
+    # not evidence of fairness, so the audit refuses to call it "not detected"
+    # when the model itself predicts a large gap between the two groups.
+    absorbed = (
+        status == "not_detected"
+        and not math.isnan(predicted_gap)
+        and abs(predicted_gap) >= ABSORBED_GAP_THRESHOLD
+    )
+    if absorbed:
+        status = "insufficient_evidence"
     return BiasFinding(
         name="open_access_visibility",
         label=AUDIT_LABELS["open_access_visibility"],
@@ -789,6 +809,10 @@ def _audit_open_access_visibility(context: _Context) -> BiasFinding:
             "mean_predicted_log_full_text": _maybe(predictions["full_text"]),
             "mean_predicted_log_abstract_only": _maybe(predictions["abstract_only"]),
             "open_access_route_importance_share": round(share, 4),
+            "predicted_gap_log": round(predicted_gap, 4)
+            if not math.isnan(predicted_gap)
+            else None,
+            "absorbed_into_features": absorbed,
         },
         conclusion=(
             (
@@ -923,9 +947,18 @@ def _audit_missing_mechanism(context: _Context) -> BiasFinding:
         later["missing_share"] >= earlier["missing_share"] - 0.05
         for earlier, later in pairwise(buckets)
     )
+    # Five buckets of ~60 papers each: a single dip is sampling noise, so the
+    # verdict uses the rank trend as well as strict monotonicity rather than
+    # discarding a large, obviously increasing profile as "insufficient".
+    trend = spearman(
+        [float(index) for index in range(len(buckets))],
+        [bucket["missing_share"] for bucket in buckets],
+    )
+    if not math.isnan(trend) and math.isnan(spread):
+        trend = math.nan
     status = (
         "detected"
-        if spread >= 0.20 and monotone
+        if spread >= 0.20 and (monotone or (not math.isnan(trend) and trend >= 0.80))
         else "not_detected"
         if abs(spread) < 0.10
         else "insufficient_evidence"
@@ -947,6 +980,8 @@ def _audit_missing_mechanism(context: _Context) -> BiasFinding:
         ),
         evidence={
             "buckets": buckets,
+            "missing_trend": None if math.isnan(trend) else round(trend, 4),
+            "strictly_monotone": monotone,
             "spread_bottom_to_top": round(spread, 4),
             "monotone": monotone,
             "text_level_features": list(TEXT_LEVEL),

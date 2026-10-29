@@ -1,0 +1,30 @@
+# Research-influence bundle — paper-source analysis and bias explanation.
+#
+# Parses papers (metadata, authors, venue, references, open data, full text where
+# it can be obtained legitimately), freezes a reference cohort, predicts a
+# citation window as an interval, explains every factor with a delta and a
+# confidence interval, and audits ten bias routes before writing a bundle.
+#
+# Enable this bundle together with `core` for the full research workflow.
+
+name: research-influence
+version: "1.0"
+description: >-
+  Research Influence Analysis sub-agent: climbs the paper acquisition ladder from
+  user-supplied PDFs and open access to paywalled records that are honestly
+  marked metadata-only, extracts every field with a locator, freezes a cohort,
+  fits a quantile model that predicts an interval rather than a score, explains
+  the estimate with ablation deltas and permutation importance, and audits ten
+  bias routes (including the ones it refuses to estimate). Depends on the `core`
+  bundle for generic workflow primitives.
+
+agents:
+  - research-influence
+
+skills:
+  - verification-before-completion
+  - scientific-writing
+  - scientific-visualization
+
+depends_on:
+  - core

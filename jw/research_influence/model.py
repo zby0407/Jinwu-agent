@@ -236,6 +236,8 @@ class ModelCard:
     text_level_missing_share: float = 0.0
     training_seconds: float = 0.0
     cohort_fingerprint: str = ""
+    training_paper_ids: tuple[str, ...] = ()
+    holdout_paper_ids: tuple[str, ...] = ()
     notes: tuple[str, ...] = ()
     created_at: str = ""
 
@@ -290,6 +292,8 @@ class ModelCard:
             "text_level_missing_share": self.text_level_missing_share,
             "training_seconds": self.training_seconds,
             "cohort_fingerprint": self.cohort_fingerprint,
+            "training_paper_ids": list(self.training_paper_ids),
+            "holdout_paper_ids": list(self.holdout_paper_ids),
             "notes": list(self.notes),
             "created_at": self.created_at,
         }
@@ -427,24 +431,50 @@ class InfluenceModel:
         )
 
     def metrics_for(
-        self, papers: Sequence[PaperRecord], *, horizon: int | None = None
+        self,
+        papers: Sequence[PaperRecord],
+        *,
+        horizon: int | None = None,
+        subset: str = "holdout",
     ) -> dict[str, Any]:
-        """Out-of-sample metrics on any labelled set."""
+        """Metrics on the rows this model did **not** train on.
+
+        Scoring the training rows would flatter the interval: a quantile booster
+        reproduces the data it saw, so coverage measured in-sample is far above
+        nominal.  ``subset="all"`` is available for description, but the number
+        then carries ``in_sample_rows`` so nobody can quote it as validation.
+        """
         horizon = horizon or self.card.horizon_years
         truth = targets(
             papers, reference_year=self.card.reference_year, horizon=horizon
         )
         predictions = self.predict(papers)
-        keep = [
-            index
-            for index, flag in enumerate(truth.available)
-            if flag and not math.isnan(truth.values[index])
-        ]
+        holdout = set(self.card.holdout_paper_ids)
+        training = set(self.card.training_paper_ids)
+        in_sample = 0
+        keep: list[int] = []
+        for index, flag in enumerate(truth.available):
+            if not flag or math.isnan(truth.values[index]):
+                continue
+            paper_id = papers[index].paper_id
+            if subset == "holdout" and holdout and paper_id in training:
+                in_sample += 1
+                continue
+            if subset == "training" and training and paper_id not in training:
+                continue
+            keep.append(index)
         actual = [truth.values[index] for index in keep]
         low = [predictions.log_low[index] for index in keep]
         median = [predictions.log_median[index] for index in keep]
         high = [predictions.log_high[index] for index in keep]
-        return _metrics(actual, low, median, high, self.card.quantiles)
+        metrics = _metrics(actual, low, median, high, self.card.quantiles)
+        metrics["eval_subset"] = subset
+        metrics["scored_rows"] = len(keep)
+        metrics["in_sample_rows"] = sum(
+            1 for index in keep if papers[index].paper_id in training
+        )
+        metrics["holdout_rows"] = len(self.card.holdout_paper_ids)
+        return metrics
 
 
 def _counts(log_value: float) -> float:
@@ -622,6 +652,8 @@ def _fit_model(
         text_level_missing_share=matrix.text_level_missing_share(),
         training_seconds=round(time.perf_counter() - started, 3),
         cohort_fingerprint=cohort_fingerprint,
+        training_paper_ids=tuple(matrix.paper_ids[index] for index in train_index),
+        holdout_paper_ids=tuple(matrix.paper_ids[index] for index in holdout_index),
         notes=tuple(
             note
             for note in (

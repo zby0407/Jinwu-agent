@@ -92,7 +92,12 @@ def test_metrics_record_determinism_and_the_window(run):
     """Determinism is a claim with a number behind it."""
     assert run.metrics["determinism"] == 1.0
     assert run.metrics["cohort_fingerprint"] == run.snapshot.fingerprint()
-    assert run.metrics["labelled"] == (run.metrics["records"])
+    # The scored rows are the held-out ones; the labelled count must be larger,
+    # because scoring the training rows would report the booster's memory.
+    assert run.metrics["eval_subset"] == "holdout"
+    assert run.metrics["records"] == run.metrics["scored_rows"]
+    assert run.metrics["records"] <= run.metrics["labelled"]
+    assert run.metrics["in_sample_rows"] == 0
     assert run.metrics["censored_paper_ids"]
     assert run.metrics["decile_calibration"]
 
@@ -203,7 +208,6 @@ def test_upload_participates_in_the_run(tmp_path, cohort):
     assert result.explanations[0].paper_id == result.uploads[0].paper_id
     papers_csv = (Path(result.package_dir) / "papers.csv").read_text(encoding="utf-8")
     assert "user_supplied" in papers_csv
-    text = (Path(result.package_dir) / "report.md").read_text(encoding="utf-8")
     # an unlabelled upload has no window count, and the report must not invent one
     assert result.uploads[0].cited_by_count is None
 
