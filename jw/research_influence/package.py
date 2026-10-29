@@ -92,6 +92,18 @@ COMPARATOR_COLUMNS = (
     "distance",
 )
 
+TOPIC_COLUMNS = (
+    "topic",
+    "papers",
+    "first_year",
+    "last_year",
+    "recent_share",
+    "earlier_share",
+    "growth",
+    "median_citations",
+    "status",
+)
+
 CITATION_COLUMNS = (
     "paper_id",
     "work_id",
@@ -220,6 +232,8 @@ def write_package(
     importances: Sequence[Any] = (),
     explanations: Sequence[Any] = (),
     citations: Sequence[Any] = (),
+    topic_trends: Sequence[Any] = (),
+    topic_positions: Mapping[str, Sequence[Mapping[str, object]]] | None = None,
     bias_report: Any = None,
     metrics: Mapping[str, Any] | None = None,
     notes: Sequence[str] = (),
@@ -350,6 +364,27 @@ def write_package(
         )
         files["importance"] = "importance.csv"
 
+    if topic_trends:
+        _write_csv(
+            root / "topics.csv",
+            TOPIC_COLUMNS,
+            [
+                {
+                    "topic": item.topic,
+                    "papers": item.papers,
+                    "first_year": item.first_year,
+                    "last_year": item.last_year,
+                    "recent_share": _round(item.recent_share, 4),
+                    "earlier_share": _round(item.earlier_share, 4),
+                    "growth": _round(item.growth),
+                    "median_citations": _round(item.median_citations, 1),
+                    "status": item.status,
+                }
+                for item in topic_trends
+            ],
+        )
+        files["topics"] = "topics.csv"
+
     if citations:
         _write_csv(
             root / "citation.csv",
@@ -438,6 +473,8 @@ def write_package(
         bias_report=bias_report,
         provenance_summary=_provenance_summary(papers),
         citations=citations,
+        topic_trends=topic_trends,
+        topic_positions=topic_positions or {},
         notes=notes,
         files=planned,
         started_at=started_at,
@@ -603,6 +640,7 @@ def _readme(*, run_id: str, files: Mapping[str, str], model: bool) -> str:
         "comparators": "特征空间最近邻对照论文",
         "importance": "置换重要性排名与置信区间",
         "citation": "引用网络：参考文献质量、被引者质量、自引、PageRank 位次",
+        "topics": "主题演化：每个主题的年份分布、近三年占比与相对增长",
         "bias_audit": "十类偏差审计的结论、证据与建议",
         "bias_summary": "偏差审计的人读版本",
         "model_card": "模型卡：特征、超参数、种子、指纹",

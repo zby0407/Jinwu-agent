@@ -62,6 +62,7 @@ from .explain import (
 from .features import feature_matrix
 from .fulltext import read_local_fulltext
 from .metadata import apply_pdf_metadata, extract_pdf_metadata
+from .topics import paper_topic_position, topic_trends
 from .providers.base import ProviderPolicy
 from .transport import PoliteTransport, UrllibTransport
 from .model import (
@@ -334,6 +335,20 @@ def run_influence(
     else:
         stages["explain"] = {"state": "skipped", "reason": "no_model"}
 
+    # --- topic evolution ----------------------------------------------------
+    trends = topic_trends(papers, reference_year=reference_year)
+    stages["topics"] = {
+        "state": "complete",
+        "topics": len(trends),
+        "readable": sum(1 for item in trends if item.status == "ok"),
+        "rising": sum(1 for item in trends if item.rising),
+    }
+    metrics["topic_trends"] = {
+        "topics": len(trends),
+        "rising": [item.topic for item in trends if item.rising][:10],
+        "largest": [item.topic for item in trends[:5]],
+    }
+
     # --- citation network ---------------------------------------------------
     citations: tuple[CitationProfile, ...] = ()
     if settings.citation_network:
@@ -401,6 +416,11 @@ def run_influence(
         importances=importances,
         explanations=explanations,
         citations=citations,
+        topic_trends=trends,
+        topic_positions={
+            paper.paper_id: paper_topic_position(paper, trends)
+            for paper in _subjects(papers, uploaded, settings)
+        },
         bias_report=bias,
         metrics=metrics,
         notes=notes,

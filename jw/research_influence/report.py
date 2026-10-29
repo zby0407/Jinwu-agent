@@ -59,6 +59,8 @@ def build_report(
     bias_report: Any,
     provenance_summary: Mapping[str, Any],
     citations: Sequence[Any] = (),
+    topic_trends: Sequence[Any] = (),
+    topic_positions: Mapping[str, Sequence[Mapping[str, object]]] | None = None,
     notes: Sequence[str] = (),
     files: Mapping[str, str] | None = None,
     started_at: str = "",
@@ -83,6 +85,7 @@ def build_report(
     lines.extend(_section_sources(cohort_summary, provenance_summary))
     lines.extend(_section_predictions(explanations, model_card, horizon, metrics))
     lines.extend(_section_explanations(explanations, importances, citations))
+    lines.extend(_subsection_topics(topic_trends, topic_positions or {}, explanations))
     lines.extend(_section_bias(bias_report))
     lines.extend(_section_reproducibility(model_card, metrics, fingerprint, files))
     lines.extend(_section_limits(cohort_summary, notes))
@@ -394,6 +397,78 @@ def _section_explanations(
         )
         lines.append("")
     lines.extend(_subsection_citation(citations))
+    return lines
+
+
+def _subsection_topics(
+    trends: Sequence[Any],
+    positions: Mapping[str, Sequence[Mapping[str, object]]],
+    explanations: Sequence[Any],
+) -> list[str]:
+    """Where the subject papers' topics sit in the cohort's topic history."""
+    if not trends:
+        return []
+    from jw.research_influence.topics import RECENT_YEARS, trend_note
+
+    lines = ["### 研究主题的时间演化", ""]
+    lines.extend(
+        _table(
+            [
+                "主题",
+                "论文数",
+                "年份范围",
+                f"近 {RECENT_YEARS} 年占比",
+                "更早占比",
+                "相对变化",
+                "被引中位数",
+                "状态",
+            ],
+            [
+                [
+                    trend.topic,
+                    trend.papers,
+                    f"{trend.first_year}-{trend.last_year}",
+                    "—"
+                    if trend.recent_share is None
+                    else f"{trend.recent_share * 100:.0f}%",
+                    "—"
+                    if trend.earlier_share is None
+                    else f"{trend.earlier_share * 100:.0f}%",
+                    "—" if trend.growth is None else f"{trend.growth:+.2f}",
+                    "—"
+                    if trend.median_citations is None
+                    else f"{trend.median_citations:.0f}",
+                    trend.status,
+                ]
+                for trend in trends[:10]
+            ],
+        )
+    )
+    lines.append("")
+    for explanation in explanations:
+        rows = positions.get(explanation.paper_id) or ()
+        if not rows:
+            continue
+        holdings = "；".join(
+            f"{row['topic']}（本队列 {row['papers']} 篇，相对变化 {row['growth']:+.2f}）"
+            if row.get("growth") is not None
+            else f"{row['topic']}（本队列 {row['papers']} 篇，增长无法评估）"
+            for row in rows
+        )
+        lines.append(f"- {explanation.paper_id} 的主题位置：{holdings}。")
+    lines.append("")
+    anchor = next(
+        (trend.anchor_year for trend in trends if trend.anchor_year is not None), None
+    )
+    if anchor is not None:
+        lines.append(
+            f"“近 {RECENT_YEARS} 年”的锚点是 {anchor}：取队列中**仍有可观样本量的最新年份**，"
+            "既不是参考年（冻结快照通常早于它），也不是最大年份"
+            "（少数几篇新论文会把所有主题都算成“消失了”）。"
+        )
+        lines.append("")
+    lines.append(trend_note(trends))
+    lines.append("")
     return lines
 
 
