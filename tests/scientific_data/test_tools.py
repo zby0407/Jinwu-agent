@@ -184,3 +184,27 @@ def test_remote_sources_are_refused_without_an_allowlist(workspace):
     assert payload["status"] == "ok"
     assert payload["results"][0]["status"] == "denied"
     assert payload["issues"][0]["code"] == "source_host_denied"
+
+
+def test_discover_refuses_the_network_by_default(workspace):
+    payload = _json(
+        tools.sci_data_discover.invoke({"request_json": json.dumps(REQUEST)})
+    )
+    assert payload["status"] == "ok"
+    discovery = payload["discovery"]
+    assert discovery["status"] == "policy_blocked"
+    assert payload["urls"] == []
+
+
+def test_discover_registers_user_supplied_urls_without_network(workspace):
+    payload = _json(
+        tools.sci_data_discover.invoke(
+            {
+                "request_json": json.dumps(REQUEST),
+                "extra_urls_json": json.dumps(["https://example.org/table.csv"]),
+            }
+        )
+    )
+    assert payload["urls"] == ["https://example.org/table.csv"]
+    found = payload["discovery"]["found"]
+    assert found[0]["discovered_via"] == "user_input"

@@ -18,6 +18,7 @@ from langchain_core.tools import tool
 
 from jw.scientific_data.acquisition import acquire
 from jw.scientific_data.contracts import IssueCode, default_repair_mode
+from jw.scientific_data.discovery import discover_sources
 from jw.scientific_data.domain import get_plugin, list_plugins
 from jw.scientific_data.figures import (
     axis_issue,
@@ -162,6 +163,18 @@ def sci_data_capabilities(config: RunnableConfig = None) -> str:
                 "imputation, axis/legend reading and unit ambiguity are never "
                 "resolved automatically; they become numbered questions."
             ),
+            discovery=[
+                "sci_data_discover: literature search returns candidate URLs",
+                "sci_data_acquire_only: download candidates under policy",
+                "sci_data_run: acquire, parse, align, repair and package in one run",
+            ],
+            supported_formats=[
+                "csv/tsv/txt/dat (delimiter, encoding and header sniffed)",
+                "json/jsonl (nested payloads flattened)",
+                "html (rowspan/colspan grid)",
+                "markdown pipe tables",
+                "figures (axis-calibrated point digitisation with overlay check)",
+            ],
             network_default="disabled; enable only with an explicit host allowlist",
         )
     except (OSError, ValueError, RuntimeError) as exc:
@@ -626,6 +639,55 @@ def sci_data_acquire_only(
         return _result(status="error", error=str(exc))
 
 
+@tool(parse_docstring=True)
+def sci_data_discover(
+    request_json: str,
+    limit: int = 5,
+    allow_network: bool = False,
+    extra_urls_json: str = "",
+    config: RunnableConfig = None,
+) -> str:
+    """Find candidate sources for a research request before downloading anything.
+
+    Discovery never invents a reference: it asks the literature search for hits
+    and reports whether the search ran, failed, was refused by policy, or came
+    back empty. Nothing is fetched here — pass the returned URLs to
+    sci_data_acquire_only or sci_data_run once the user has seen them.
+
+    Args:
+        request_json: JSON research request (see sci_data_contract).
+        limit: Maximum number of literature hits to consider.
+        allow_network: Whether the literature search may reach the network.
+        extra_urls_json: JSON list of URLs the user supplied directly.
+        config: Runtime-injected task workspace configuration.
+
+    Returns:
+        JSON discovery report with candidate sources and per-query status.
+    """
+    try:
+        workspace = _workspace(config)
+        del workspace
+        contract = contract_from_request(_payload(request_json, what="request_json"))
+        extra = json.loads(extra_urls_json) if extra_urls_json.strip() else []
+        report = discover_sources(
+            contract,
+            limit=limit,
+            allow_network=bool(allow_network),
+            extra_urls=[str(item) for item in extra],
+        )
+        return _result(
+            status="ok",
+            discovery=report.to_dict(),
+            urls=[record.url for record in report.found],
+            suggested_next_step=(
+                "Show these candidates to the user, then call sci_data_run with "
+                "extra_sources_json, or sci_data_acquire_only to download first."
+            ),
+        )
+    except (OSError, ValueError, TypeError, KeyError, RuntimeError) as exc:
+        return _result(status="error", error=str(exc))
+
+
 SCIENTIFIC_DATA_TOOLS = [
     sci_data_capabilities,
     sci_data_contract,
@@ -638,6 +700,7 @@ SCIENTIFIC_DATA_TOOLS = [
     sci_data_package,
     sci_data_runs,
     sci_data_acquire_only,
+    sci_data_discover,
 ]
 
 register_tool_bundle("scientific-data", SCIENTIFIC_DATA_TOOLS, include_in_main=False)
