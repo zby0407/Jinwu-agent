@@ -503,6 +503,7 @@ def _inject_subagent_middleware(
         AutomaticExperimentTerminalGuardMiddleware,
         ContextOverflowMapperMiddleware,
         ContractToolAllowlistMiddleware,
+        FileToolArgumentsMiddleware,
         QwenToolCompatibilityMiddleware,
         TaskCancellationMiddleware,
         ToolErrorHandlerMiddleware,
@@ -536,6 +537,7 @@ def _inject_subagent_middleware(
         )
         middleware = [
             TaskCancellationMiddleware(),
+            FileToolArgumentsMiddleware(),
             *(
                 [AutomaticExperimentTerminalGuardMiddleware()]
                 if name == "solar-experiment"
@@ -1221,6 +1223,7 @@ def _get_default_middleware(
         ConfigurableModelMiddleware,
         ContextOverflowMapperMiddleware,
         ContractToolAllowlistMiddleware,
+        FileToolArgumentsMiddleware,
         ModelFallbackMiddleware,
         QwenToolCompatibilityMiddleware,
         ResearchReviewOrchestrationMiddleware,
@@ -1334,6 +1337,7 @@ def _get_default_middleware(
                 if for_async_subagent and memory_source_agent == "solar-experiment"
                 else []
             ),
+            FileToolArgumentsMiddleware(),
             VirtualPathCodeGuardMiddleware(),
             *(
                 [ResearchRouterMiddleware(model=model)]

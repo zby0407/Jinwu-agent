@@ -26,6 +26,7 @@ from .context_editing import (
 )
 from .context_overflow import ContextOverflowMapperMiddleware
 from .contract_tool_allowlist import ContractToolAllowlistMiddleware
+from .file_tool_arguments import FileToolArgumentsMiddleware
 from .memory import (
     JWMemoryMiddleware,
     create_memory_middleware,
@@ -73,6 +74,7 @@ __all__ = [
     "ConfigurableModelMiddleware",
     "ContextOverflowMapperMiddleware",
     "ContractToolAllowlistMiddleware",
+    "FileToolArgumentsMiddleware",
     "JWMemoryLifecycleMiddleware",
     "JWMemoryMiddleware",
     "KnowledgeContextMiddleware",

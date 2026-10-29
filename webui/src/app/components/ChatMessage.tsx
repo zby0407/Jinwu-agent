@@ -384,6 +384,8 @@ export const ChatMessage = React.memo<ChatMessageProps>(
 
     return (
       <div
+        data-message-id={message.id}
+        data-message-role={isUser ? "user" : "assistant"}
         className={cn(
           "group flex w-full max-w-full overflow-x-hidden",
           isUser && "flex-row-reverse"
@@ -491,6 +493,7 @@ export const ChatMessage = React.memo<ChatMessageProps>(
           ) : hasContent ? (
             <div className={cn("relative flex items-end gap-0")}>
               <div
+                data-message-content
                 className={cn(
                   "mt-4 overflow-hidden break-words text-sm font-normal leading-[150%]",
                   isUser
