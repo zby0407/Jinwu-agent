@@ -23,7 +23,8 @@
 | 提取作者 | `PaperRecord.authors`（姓名/机构/国家/ORCID/通讯/序号） | `test_paper.py::test_full_text_paper_carries_sections_and_open_data` |
 | 提取期刊 | `PaperRecord.venue`（名称/类型/出版商/ISSN/OA） | 同上 |
 | 提取参考文献 | 三级优先级：Crossref 存缴 > OpenAlex `referenced_works` > PDF 文本 | `test_crossref_reference_deposit_beats_text_parsing` |
-| 引用关系 | `cited_by_count`、`counts_by_year`、`references` | `test_providers.py` |
+| 引用关系 | `citation.py`：批量解析参考文献与引用者、`cited_by_count`、`counts_by_year`、PageRank | `test_citation.py`（16 例）、真实运行见 §3.1 |
+| 主题演化 | `topics.py`：每主题年份分布、近窗占比、相对增长、被引中位数 | `test_topics.py`（8 例）、真实运行见 §3.2 |
 | 开放数据情况 | `paper.open_data_from_text()`（Zenodo/Figshare/Dryad/GitHub/MAST/VizieR/…） | `test_open_data_finds_repositories_and_kinds` |
 | 预测影响力 | `model.fit_model()`（分位梯度提升，3 年窗口） | `test_model.py`（14 例） |
 | **不只给一个分数** | 输出 10/50/90 分位区间 + 80% 区间 | `test_benchmark.py::test_model_reaches_the_agreed_thresholds` |
@@ -38,6 +39,43 @@
 - `predictions.csv` 同时给 `low/median/high` 与 `interval_width`；
 - 区间窄/宽本身是结论（证据多的论文区间窄，仅有元数据的论文区间宽一个量级）；
 - 区间穿越（`quantile_crossings`）与经验覆盖率一起上报，不隐藏。
+
+### 1.1 引用网络读出来的东西（`citation.py`）
+
+赛题把“引用网络”列进必须能解析的内容，而它对解释层同样关键：十二次引用来自
+被引中位数 591 的文献，与十二次引用来自没人读的文献，是两件事，而这件差别在被引
+次数里完全看不见。实现给出三组测量，全部可复算：
+
+| 测量 | 字段 | 含义 | 边界 |
+| --- | --- | --- | --- |
+| 参考文献质量 | `median_referenced_citations`、`references_in_top_decile` | 它引用的文献本身被引多少；有多大比例位于队列前 10% | 解析不到的条目不算 0 被引；快照里没有参考文献列表时该行为空 |
+| 被引者质量 | `citing_count`、`mean_citing_citations`、`self_citations` | 谁在引用它、这些引用者被引多少、其中多少是同作者自引 | 引用者只抽一页；自引只按姓氏重合做**下界**估计 |
+| 网络位置 | `pagerank`、`pagerank_percentile` | 在解析到的参考文献图上的 PageRank 与队列位次 | 只在解析成功的子图上计算，参考文献解析差的论文位次偏低 |
+
+真实运行（1202 篇冻结核物理队列 + 两篇上传 PDF，经操作者本机代理）：
+
+- `https://doi.org/10.48550/arXiv.1509.00001` → 6/6 条参考文献解析成功，参考文献被引
+  **中位数 591**、17% 位于队列前 10%，1 篇引用者（自引 1 篇），PageRank 位次 48.4；
+- 2024 年那篇（TSP）有 359 条**PDF 解析出的**参考文献，但索引没有它的参考文献列表，
+  解析到 0 条 —— 报告直接写“该论文的 359 条参考文献一条也没能解析成可核算的作品”，
+  而不是给出一个 0 被引的假数字。
+
+### 1.2 主题演化（`topics.py`）
+
+主题标签来自索引（OpenAlex topics，模型自动分配），因此“主题在升温”说的是**标签在
+样本里变多**，不是科学价值变高；这句话写进了报告正文，与主题热度偏差审计一起读。
+
+真实运行（1200 篇、60 个主题、27 个样本量足够、28 个上升，窗口锚点 2021）：
+
+| 主题 | 论文数 | 近 3 年占比 | 更早占比 | 相对变化 | 被引中位数 |
+| --- | --- | --- | --- | --- | --- |
+| Cosmology and Gravitation Theories | 745 | 68% | 59% | +0.15 | 32 |
+| Gamma-ray bursts and supernovae | 600 | 47% | 51% | −0.07 | 39 |
+| Neutrino Physics Research | 155 | 18% | 11% | +0.64 | 42 |
+| Stellar, planetary, and galactic studies | 268 | 15% | 25% | −0.39 | 48 |
+
+窗口锚点取“仍有可观样本量的最新年份”，不是参考年也不是最大年份：前者会让 2012-2021
+的快照把所有主题算成灭绝，后者会让两篇 2024 年论文干同样的事。这个选择写在报告里。
 
 ---
 

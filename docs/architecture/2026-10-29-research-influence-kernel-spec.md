@@ -45,6 +45,8 @@
 | `features.py` | 23 个特征 | `FEATURES`、`feature_matrix`、`feature_row`、`targets`、`venue_tier` |
 | `model.py` | 分位模型 | `fit_model`、`cross_validate`、`InfluenceModel.predict/predict_matrix/metrics_for`、`ModelCard`、`PredictionSet`、`InsufficientTrainingData` |
 | `explain.py` | 解释层 | `explain_paper`、`permutation_importance`、`partial_dependence`、`counterfactual`、`rank_stability`、`rank_stability`/`importance_rank` |
+| `citation.py` | 引用网络测量 | `resolve_works`、`citing_works`、`pagerank`、`cohort_pagerank`、`reference_quality`、`self_citation_count`、`citation_profile`、`CitationProfile` |
+| `topics.py` | 主题演化 | `topic_trends`、`paper_topic_position`、`trend_note`、`TopicTrend`、`RECENT_YEARS` |
 | `bias.py` | 十类偏差审计 | `audit_bias`、`AUDITS`、`BiasReport`、`BiasFinding` |
 | `report.py` | 中文报告 | `build_report`、`SECTION_TITLES`、`format_interval` |
 | `package.py` | 数据包 | `write_package`、`paper_rows`、`provenance_rows`、`package_fingerprint`、`manifest_digest` |
