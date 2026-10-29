@@ -399,6 +399,7 @@ def apply_answers(
     unit_overrides: dict[str, str] = {}
     approved: set[str] = set()
     rejected: set[str] = set()
+    superseded: dict[tuple[str, str, str], str] = {}
     repairs: list[RepairLedgerEntry] = []
     ignored: list[str] = []
 
@@ -411,6 +412,15 @@ def apply_answers(
         if choice.startswith("keep:"):
             keep = choice.split(":", 1)[1]
             kept.add(keep)
+            subject = request.evidence.get("subject", {})
+            if isinstance(subject, dict):
+                superseded[
+                    (
+                        str(subject.get("entity_id") or ""),
+                        str(subject.get("observable") or ""),
+                        str(subject.get("time") or ""),
+                    )
+                ] = keep
             for record in records:
                 if record.record_uid == keep and record.conflict:
                     repairs.append(
@@ -479,6 +489,17 @@ def apply_answers(
         current = record
         if record.record_uid in kept:
             current = replace(current, conflict=False)
+        else:
+            authority = superseded.get(
+                (record.entity_id, record.observable, record.time)
+            )
+            if authority and record.conflict:
+                # The reviewer picked a different reading: keep this one as
+                # evidence, but say plainly that it lost the decision.
+                current = replace(
+                    current,
+                    flags=(*current.flags, f"superseded_by:{authority}"),
+                )
         if current.observable in unit_overrides and current.unit:
             current = replace(
                 current,

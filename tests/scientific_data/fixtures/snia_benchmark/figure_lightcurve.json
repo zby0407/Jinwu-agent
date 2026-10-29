@@ -1,0 +1,51 @@
+{
+  "figure_id": "snia-figure-1",
+  "path": "sources/figure_lightcurve.png",
+  "pixel_noise": 1.5,
+  "figure_id_note": "axis ticks and marker pixels were read off the published figure",
+  "x_ticks": [
+    {
+      "pixel": 100.0,
+      "value": 56690.0
+    },
+    {
+      "pixel": 300.0,
+      "value": 56710.0
+    }
+  ],
+  "y_ticks": [
+    {
+      "pixel": 400.0,
+      "value": 14.0
+    },
+    {
+      "pixel": 200.0,
+      "value": 13.0
+    }
+  ],
+  "x_scale": "linear",
+  "y_scale": "linear",
+  "x_unit": "MJD",
+  "y_unit": "mag",
+  "time_system": "mjd",
+  "observable": "apparent_magnitude",
+  "unit": "mag",
+  "entity": "SN 2014J",
+  "series": [
+    {
+      "label": "V",
+      "colour": "#1234aa",
+      "marker": "circle",
+      "points": [
+        [
+          150.0,
+          300.0
+        ],
+        [
+          250.0,
+          250.0
+        ]
+      ]
+    }
+  ]
+}

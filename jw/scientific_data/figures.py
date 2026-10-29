@@ -251,6 +251,7 @@ def digitise_points(
     unit: str = "",
     time_unit: str = "",
     path: str = "",
+    attributes: Mapping[str, str] | None = None,
 ) -> tuple[ObservationRecord, ...]:
     """Convert marker pixels into observation records marked ``DIGITIZED``."""
     records: list[ObservationRecord] = []
@@ -314,7 +315,10 @@ def digitise_points(
                     ),
                 ),
                 flags=("digitised_from_figure", f"series:{series.label}"),
-                attributes={"label": series.label} if series.label else {},
+                attributes={
+                    **({"label": series.label} if series.label else {}),
+                    **dict(attributes or {}),
+                },
             )
         )
     return tuple(records)

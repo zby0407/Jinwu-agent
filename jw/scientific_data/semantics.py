@@ -225,16 +225,23 @@ def score_column(
 ) -> tuple[float, tuple[str, ...]]:
     """Score how well one column matches one canonical field, with reasons."""
     reasons: list[str] = []
-    base_slug = slug(strip_unit_from_header(profile.column))
+    base_text = strip_unit_from_header(profile.column).strip().lower()
+    base_slug = slug(base_text)
     raw_hints = spec.header_hints or plugin.hints_for(spec.name)
-    hints = [slug(hint) for hint in raw_hints]
+    # slug() drops script characters, so a Chinese header collapses to "". An
+    # empty hint would then match every such header, so keep only real hints.
+    hints = [hint for hint in (slug(item) for item in raw_hints) if hint]
+    spelled = {str(item).strip().lower() for item in raw_hints if str(item).strip()}
     spec_slug = slug(spec.name)
     score = 0.0
     score_source = "none"
 
-    if base_slug == spec_slug:
+    if base_slug and base_slug == spec_slug:
         score, score_source = 1.0, "exact_head"
-    elif base_slug in hints:
+    elif base_text and base_text in spelled:
+        # A hint written as-is (including Chinese headers) is a strong signal.
+        score, score_source = 0.93, "listed_hint"
+    elif base_slug and base_slug in hints:
         score, score_source = 0.93, "listed_hint"
     elif normalise_identifier(spec.name) == normalise_identifier(base_slug):
         score, score_source = 0.9, "name_alias"

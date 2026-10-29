@@ -479,30 +479,41 @@ def detect_sign_suspect(
 def detect_conflicts(
     records: Iterable[ObservationRecord],
 ) -> tuple[QualityIssue, ...]:
-    """Re-report every record where two sources disagree, as one issue."""
-    issues: list[QualityIssue] = []
+    """Report each disputed merge key once, listing every conflicting record.
+
+    One question per disagreement: asking the reviewer the same question twice
+    (once per record) is how a review queue turns into noise.
+    """
+    groups: dict[tuple[str, str, str], list[ObservationRecord]] = {}
     for record in records:
         if not record.conflict:
             continue
+        groups.setdefault(
+            (record.entity_id, record.observable, record.time), []
+        ).append(record)
+    issues: list[QualityIssue] = []
+    for (entity_id, observable, time), group in sorted(groups.items()):
+        raw_values = [record.value_raw for record in group]
+        sources = sorted({source for record in group for source in record.source_ids})
         issues.append(
             _issue(
                 IssueCode.CROSS_SOURCE_CONFLICT,
                 severity=IssueSeverity.ERROR,
                 subject={
-                    "entity_id": record.entity_id,
-                    "observable": record.observable,
-                    "time": record.time,
+                    "entity_id": entity_id,
+                    "observable": observable,
+                    "time": time,
                 },
                 detail=(
-                    f"Sources disagree about {record.observable} for "
-                    f"{record.entity_id} at {record.time}: {record.value_raw}."
+                    f"Sources disagree about {observable} for {entity_id} at "
+                    f"{time}: {' | '.join(raw_values)}."
                 ),
                 evidence={
-                    "record_uid": record.record_uid,
-                    "raw_values": record.value_raw,
-                    "sources": list(record.source_ids),
-                    "kept_value": record.value,
-                    "unit": record.unit,
+                    "record_uids": [record.record_uid for record in group],
+                    "raw_values": raw_values,
+                    "sources": sources,
+                    "kept_values": [record.value for record in group],
+                    "unit": group[0].unit,
                 },
                 action="Choose the authoritative source; the kernel never averages.",
             )

@@ -25,11 +25,13 @@ from .contracts import (
     ObservationRecord,
     QualityIssue,
     RepairMode,
+    RetrievalState,
+    SourceRecord,
     SourceRole,
     StageState,
     default_repair_mode,
 )
-from .domain import DomainPlugin, get_plugin
+from .domain import DomainPlugin, get_plugin, slug
 from .entities import AliasClaim, EntityResolver
 from .figures import (
     FigureCalibration,
@@ -205,7 +207,7 @@ def _observables(
                 ObservationField(
                     name=name,
                     kind=str(item.get("kind") or (spec.kind if spec else "quantity")),
-                    unit=str(item.get("unit") or (spec.unit if spec else "")),
+                    unit=str(item.get("unit") or (spec.canonical_unit if spec else "")),
                     required=bool(item.get("required", False)),
                     description=str(item.get("description") or ""),
                     aliases=tuple(str(alias) for alias in item.get("aliases") or ()),
@@ -625,13 +627,18 @@ def _stage_figures(
     records: list[ObservationRecord] = []
     for item in settings.figure_inputs:
         calibration = calibration_from_payload(item.payload)
-        if item.source_id and not calibration.source_id:
+        source_id = item.source_id or calibration.source_id
+        if not source_id:
+            # A figure is a source too: without one its records would be
+            # untraceable, and untraceable records are not allowed to ship.
+            source_id = _register_figure_source(ledger, item)
+        if source_id and not calibration.source_id:
             calibration = FigureCalibration(
                 x=calibration.x,
                 y=calibration.y,
                 pixel_noise=calibration.pixel_noise,
                 figure_id=calibration.figure_id or item.figure_id,
-                source_id=item.source_id,
+                source_id=source_id,
             )
         issue = axis_issue(
             calibration,
@@ -653,6 +660,10 @@ def _stage_figures(
                 time_system=str(item.payload.get("time_system") or "mjd"),
                 time_unit=str(item.payload.get("time_unit") or "day"),
                 path=item.path,
+                attributes={
+                    "band": str(item.payload.get("band") or series.label),
+                    "entity_label": label,
+                },
             )
             series_records.extend(produced)
         report = overlay_report(series_records, calibration)
@@ -663,13 +674,49 @@ def _stage_figures(
         packages.append(
             FigurePackage(
                 figure_id=item.figure_id,
-                source_id=item.source_id or calibration.source_id,
+                source_id=source_id,
                 calibration=calibration,
                 records=tuple(series_records),
                 overlay=report,
             )
         )
     return tuple(packages), tuple(issues), tuple(records)
+
+
+def _register_figure_source(ledger: Any, item: FigureInput) -> str:
+    """Register the figure file itself as a source so records stay traceable."""
+    figure_id = calibration_slug(item.figure_id or "figure")
+    source_id = f"src:figure:{figure_id}"
+    if source_id in ledger.sources:
+        return source_id
+    path = item.payload.get("path") or item.path or ""
+    ledger.add_source(
+        SourceRecord(
+            source_id=source_id,
+            role=SourceRole.FIGURE_DIGITIZED,
+            title=Path(str(path)).name or item.figure_id,
+            url=f"file://{path}" if path else "",
+            canonical_uri=str(path),
+            provider="user_figure",
+            retrieval=(
+                RetrievalState.ACQUIRED
+                if path and Path(str(path)).exists()
+                else RetrievalState.CANDIDATE
+            ),
+            local_path=str(path),
+            discovered_via="user_input",
+            notes=("supplied_by_user", "digitised_by_agent"),
+            format_hint="image",
+            relevance=1.0,
+            trust=0.8,
+        )
+    )
+    return source_id
+
+
+def calibration_slug(value: str) -> str:
+    """Compact identifier used inside figure source ids."""
+    return slug(value) or "figure"
 
 
 def _figure_observable(contract: DataRequirementContract, plugin: DomainPlugin) -> str:

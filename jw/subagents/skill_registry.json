@@ -1,11 +1,31 @@
 {
   "version": 1,
-  "primary_agents": ["solar-planner", "solar-data", "solar-hypothesis", "solar-experiment", "solar-evidence", "solar-knowledge"],
-  "support_agents": ["planner-agent", "research-agent", "code-agent", "debug-agent", "data-analysis-agent", "writing-agent", "scheduler"],
+  "primary_agents": [
+    "solar-planner",
+    "scientific-data",
+    "solar-data",
+    "solar-hypothesis",
+    "solar-experiment",
+    "solar-evidence",
+    "solar-knowledge"
+  ],
+  "support_agents": [
+    "planner-agent",
+    "research-agent",
+    "code-agent",
+    "debug-agent",
+    "data-analysis-agent",
+    "writing-agent",
+    "scheduler"
+  ],
   "agent_profiles": {
     "JW": {
       "title": "JW 主 Agent",
       "description": "接收原始科研问题，协调六个太阳科研子 Agent，并把证据汇总为可审查的研究结果。"
+    },
+    "scientific-data": {
+      "title": "科学数据整合",
+      "description": "把研究目标编译为数据需求合同，按策略发现并获取多源科学数据，解析表格与图表数值，对齐字段/单位/实体，报告全部质量异常，只自动执行可逆修正，其余提交人工确认，最后输出可溯源的数据包。"
     },
     "solar-planner": {
       "title": "研究规划",
@@ -133,7 +153,8 @@
       "knowledge-base-agent",
       "find-skills",
       "jw-release-export-qa"
-    ]
+    ],
+    "scientific-data": []
   },
   "adaptations": {
     "math-modeling-figure-production": {

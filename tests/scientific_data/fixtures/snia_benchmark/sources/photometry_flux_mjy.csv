@@ -1,0 +1,4 @@
+object,time,filter,flux (mJy),flux_err
+SN 2005cf,53520.0,V,12.30,0.10
+SN 2005cf,53522.0,V,21.40,0.20
+SN 2011fe,55760.0,B,12.30,0.10

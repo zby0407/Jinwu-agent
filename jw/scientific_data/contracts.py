@@ -786,8 +786,14 @@ class QualityIssue:
     detail: str = ""
     evidence: Mapping[str, Any] = field(default_factory=dict)
     proposed_action: str = ""
-    repair_mode: RepairMode = RepairMode.SUGGEST_ONLY
+    # ``None`` means "use the policy table", so a detector cannot accidentally
+    # downgrade a risky code (an unreadable axis, say) to a mere suggestion.
+    repair_mode: RepairMode | None = None
     auto_applied: bool = False
+
+    def __post_init__(self) -> None:
+        if self.repair_mode is None:
+            self.repair_mode = default_repair_mode(self.code)
 
     @property
     def blocking(self) -> bool:
@@ -810,8 +816,12 @@ class QualityIssue:
             detail=str(raw.get("detail") or ""),
             evidence=dict(raw.get("evidence") or {}),
             proposed_action=str(raw.get("proposed_action") or ""),
-            repair_mode=_coerce_enum(
-                RepairMode, raw.get("repair_mode"), RepairMode.SUGGEST_ONLY
+            repair_mode=(
+                _coerce_enum(
+                    RepairMode, raw.get("repair_mode"), RepairMode.SUGGEST_ONLY
+                )
+                if raw.get("repair_mode") is not None
+                else None
             ),
             auto_applied=bool(raw.get("auto_applied")),
         )

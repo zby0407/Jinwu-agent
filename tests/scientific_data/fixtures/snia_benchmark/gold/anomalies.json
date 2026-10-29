@@ -1,0 +1,36 @@
+{
+  "injected": {
+    "cross_source_conflict": 1,
+    "duplicate_exact": 1,
+    "nonfinite_value": 1,
+    "out_of_range": 1,
+    "truncated_table": 1,
+    "delimiter_suspect": 1
+  },
+  "must_not_appear": [
+    "unit_inconsistency",
+    "axis_tick_unreadable",
+    "axis_scale_suspect",
+    "figure_overlay_mismatch"
+  ],
+  "tolerated_extra": [
+    "duplicate_key",
+    "missing_coverage",
+    "coverage_gap",
+    "field_unmapped",
+    "field_mapping_ambiguous",
+    "schema_drift",
+    "time_system_ambiguous",
+    "unit_unknown",
+    "entity_identity_ambiguous"
+  ],
+  "notes": [
+    "duplicate_exact: the same row twice inside photometry_anomalies.csv",
+    "nonfinite_value: an 'inf' magnitude",
+    "out_of_range: a 99.9 magnitude outside the plugin plausibility bounds",
+    "truncated_table: a short row and an unterminated quoted last line",
+    "delimiter_suspect: one row carries a surplus field",
+    "cross_source_conflict: photometry_main.csv and photometry_gbk_semicolon.csv disagree at MJD 53524",
+    "unit_inconsistency must not fire: uJy and Jy are exactly convertible to the canonical mJy"
+  ]
+}
