@@ -39,8 +39,14 @@ FULL_PAPER = PaperRecord(
         ReferenceRecord(index=2, raw="y", doi="", year=None),
     ),
     open_data=(
-        OpenDataRecord(kind=OpenDataKind.DATA, url="https://zenodo.org/record/1", repository="Zenodo"),
-        OpenDataRecord(kind=OpenDataKind.CODE, url="https://github.com/x/y", repository="GitHub"),
+        OpenDataRecord(
+            kind=OpenDataKind.DATA,
+            url="https://zenodo.org/record/1",
+            repository="Zenodo",
+        ),
+        OpenDataRecord(
+            kind=OpenDataKind.CODE, url="https://github.com/x/y", repository="GitHub"
+        ),
     ),
     sections={
         "methods": "2. Methods\nWe used 5 bands and 12 targets.",

@@ -403,7 +403,7 @@ def _synthetic_authors(
                 name=f"Synthetic Author {index + 1}",
                 given="Synthetic",
                 family=f"Author{index + 1}",
-                position="first" if index == 0 else "middle",
+                position=index + 1,
                 orcid="",
                 institution=institution,
                 country=country,

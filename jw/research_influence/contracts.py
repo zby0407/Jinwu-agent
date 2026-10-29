@@ -57,7 +57,10 @@ __all__ = [
     "canonical_json",
     "content_hash",
     "file_digest",
+    "merge_records",
+    "new_run_id",
     "normalise_doi",
+    "summarise",
     "utc_now",
 ]
 
@@ -70,6 +73,13 @@ __all__ = [
 def utc_now() -> str:
     """Current UTC timestamp in second-precision ISO-8601."""
     return datetime.now(UTC).replace(microsecond=0).isoformat()
+
+
+def new_run_id(prefix: str = "infl") -> str:
+    """Sortable run identifier: ``{prefix}-{UTC stamp}-{digest prefix}``."""
+    stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
+    seed = f"{prefix}:{stamp}:{id(object())}"
+    return f"{prefix}-{stamp}-{hashlib.sha256(seed.encode()).hexdigest()[:8]}"
 
 
 def canonical_json(payload: Any) -> str:
@@ -137,6 +147,21 @@ def _coerce_enum(enum_type: type[Enum], raw: Any, default: Any) -> Any:
         return enum_type(str(raw))
     except ValueError:
         return default
+
+
+def _as_position(raw: Any) -> int:
+    """Author order as a 1-based ordinal, tolerating words from older snapshots."""
+    if isinstance(raw, bool):
+        return 0
+    if isinstance(raw, int):
+        return raw
+    text = str(raw or "").strip().casefold()
+    if not text:
+        return 0
+    known = {"first": 1, "middle": 2, "last": -1, "corresponding": 1}
+    if text in known:
+        return known[text]
+    return int(text) if text.isdigit() else 0
 
 
 def _provenance_tuple(raw: Any) -> tuple[Provenance, ...]:
@@ -446,7 +471,7 @@ class AuthorRecord:
             name=str(raw.get("name") or ""),
             given=str(raw.get("given") or ""),
             family=str(raw.get("family") or ""),
-            position=int(raw.get("position") or 0),
+            position=_as_position(raw.get("position")),
             orcid=str(raw.get("orcid") or ""),
             institution=str(raw.get("institution") or ""),
             country=str(raw.get("country") or ""),
