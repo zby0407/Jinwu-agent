@@ -161,11 +161,14 @@ infl_report / infl_bias / infl_explain / infl_package / infl_acquisition_request
 ## 5. 诚实边界（会写进报告与 README，不是补丁说明）
 
 1. 基准队列是**合成**的：证明了管道与校准机制，不证明真实论文的可预测性。
-2. 本报告**不含真实网络抓取**：沙箱出口被拒（`503`），抓取逻辑靠 51 个离线测试
-   保证正确性（注入假 Transport，零网络）。真实快照的落地方式是
-   `infl_snapshot_import`：在有出口的机器上导出 OpenAlex `/works` 记录，
-   import 进本工作区即可冻结成同样的 `cohorts/<name>.json`（有测试覆盖原始记录
-   与已解析记录两种入参）。
+2. 抓取逻辑默认离线验证：注入假 Transport 的测试覆盖拒绝/分页/解析各路径，
+   零网络。真实快照有两条落地方式——`infl_snapshot_search`（有出口时直接分页抓取，
+   现在会翻页直到 `limit`，不是只留第一页）与 `infl_snapshot_import`（把别处导出的
+   `/works` 记录离线冻结）。本报告里的真实数据来自一份 1200 篇的冻结快照
+   （查询 `supernova cosmology 2012-2021`，`reference_year=2024`，
+   指纹 `sha256:a4d95bdd006796474161ce01479462852509547f57e9537eb6e5f15d7fd44b06`），
+   其中 1133 篇有摘要、0 篇有全文（全文只来自两篇用户上传）——这条限制直接决定了
+   真实队列上可用的特征层级。
 3. 付费墙只验证到“403 且不绕过”，以及三条降级出口与影子图书馆拒绝。
 4. `自引通胀` 与 `作者人口学` 两类审计是 **cannot_assess**：前者缺作者级引用
    明细，后者拒绝从姓名推断（推断本身会制造它声称测量的偏差）。
@@ -191,9 +194,13 @@ infl_status(); infl_report(); infl_bias(status="detected"); infl_explain()
 # 4) 抓不到全文时，生成人工获取清单
 infl_acquisition_request(doi="10.1093/mnras/stv1947")
 
-# 5) 有出口的机器上导出 OpenAlex /works 记录后，离线冻结成真实快照
-infl_snapshot_import(paths=["exports/openalex_works.json"], name="snia_real",
-                     query="supernova Ia light curve cosmology", reference_year=2024)
+# 5) 有出口的机器上分页抓取并冻结成真实快照（也可先导出记录再离线 import）
+infl_snapshot_search(query="supernova cosmology 2012-2021", name="snia_real",
+                     limit=1200, reference_year=2024, allow_network=True)
+infl_snapshot_import(paths=["exports/openalex_works.json"], name="snia_real_offline",
+                     query="supernova cosmology 2012-2021", reference_year=2024)
+# 注意：OpenAlex 是活的索引，同一查询重建得到的是"此后的新快照"，
+# 指纹必然不同；报告数字只对上面那份 1200 篇快照成立。
 ```
 
 命令行等价入口：

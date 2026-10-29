@@ -42,16 +42,33 @@ log1p MAE 0.514；6 类注入偏差中 5 类被命名（含效应量、置信区
 **它不能证明什么**：任何真实天体物理结论。队列的“质量”是生成器写进去的，
 模型学到它只说明特征与目标之间的通路没断。
 
-真实队列需要网络：`infl_snapshot_search` 走 OpenAlex/Crossref/Unpaywall 三源，
-当前沙箱的出口被拒（`Tunnel connection failed: 503`），所以本报告不含真实抓取
-结果。抓取逻辑本身有 51 个离线测试覆盖（`tests/research_influence/test_providers.py`
-等，用注入的假 Transport，零网络）。
+队列搜索只需要一个源：`infl_snapshot_search` 打 OpenAlex `/works`，
+按页翻到 `limit`（不是只留第一页），Crossref/Unpaywall 只在逐篇 enrich 时用。
+默认运行仍然离线拒网；本报告里的真实数据是经操作者本机 HTTP 代理抓取的冻结快照：
 
-真实快照的落地路径是 `infl_snapshot_import`：在有出口的机器上导出 OpenAlex
-`/works` 记录（JSON 或 JSONL），导入后冻结为同样格式的快照，之后的建模、解释、
-审计、报告全部离线复跑。导入有 3 个测试覆盖（原始记录、JSONL、空输入必须是错误
-而不是空队列）；导入时若把原始记录当已解析记录处理，venue/authors 会静默变空——
-这个分叉被 `_RAW_KEYS` 判别并写进测试。
+| 项 | 值 |
+| --- | --- |
+| 查询 | `supernova cosmology 2012-2021` |
+| `reference_year` | 2024 |
+| 论文数 | 1200（无用户上传时；§4.1 与 §6 的 1202 篇是并上两篇上传 PDF） |
+| 有摘要 | 1133 |
+| 有全文 | 0（全文只来自两篇用户上传） |
+| 快照指纹 | `sha256:a4d95bdd006796474161ce01479462852509547f57e9537eb6e5f15d7fd44b06` |
+
+抓取逻辑本身有离线测试覆盖（`tests/research_influence/test_providers.py` 等，
+注入假 Transport，零网络），包括分页：`test_snapshot_search_pages_instead_of_keeping_the_first_page`
+断言第二页真的被请求——这条路径此前只被当作“拒网”测过，一测就暴露了两个真 bug
+（位置候选分类器拿到的是扁平化后的占位符而不是原始 location 映射；`decide_access`
+被按位置参数调用，而它的签名全是 keyword-only）。
+
+离线落地路径是 `infl_snapshot_import`：在别处导出 OpenAlex `/works` 记录（JSON
+或 JSONL），导入后冻结为同样格式的快照，之后的建模、解释、审计、报告全部离线复跑。
+导入有 3 个测试覆盖（原始记录、JSONL、空输入必须是错误而不是空队列）；导入时若把
+原始记录当已解析记录处理，venue/authors 会静默变空——这个分叉被 `_RAW_KEYS`
+判别并写进测试。
+
+OpenAlex 是活的索引：同一查询重建得到的是“此后的新快照”，指纹不会相同。所以本报告
+所有真实数据数字都绑定上面那个指纹，换快照就要重跑阈值校验。
 
 ---
 
