@@ -10,6 +10,7 @@ from __future__ import annotations
 import textwrap
 
 import pytest
+import yaml
 
 from jw.utils import load_subagents
 
@@ -18,6 +19,14 @@ def _write_yaml(tmp_path, name: str, body: str):
     """Write ``body`` to ``tmp_path/name`` and return the directory path."""
     (tmp_path / name).write_text(textwrap.dedent(body))
     return tmp_path
+
+
+def test_loader_rejects_python_object_tags(tmp_path):
+    config_path = _write_yaml(
+        tmp_path, "unsafe.yaml", "worker: !!python/object:builtins.object {}"
+    )
+    with pytest.raises(yaml.constructor.ConstructorError):
+        load_subagents(config_path, tool_registry={})
 
 
 def test_async_flag_accepts_real_bool(tmp_path):

@@ -1442,7 +1442,7 @@ def _get_default_agent():
     """
     global _jw_agent
     if _jw_agent is None:
-        from deepagents import create_deep_agent
+        from .graph_build import create_deep_agent
 
         cfg = _ensure_config()
         be = _get_scoped_backend_factory()
@@ -1499,8 +1499,7 @@ def create_reproduction_agent() -> "CompiledStateGraph":
     """
     from dataclasses import replace
 
-    from deepagents import create_deep_agent
-
+    from .graph_build import create_deep_agent
     from .llm import get_chat_model
     from .reproduction.suite import MODEL_NAME, MODEL_PROVIDER
 
@@ -1599,7 +1598,6 @@ def create_cli_agent(
     """
     import os as _os
 
-    from deepagents import create_deep_agent
     from deepagents.backends import CompositeBackend
 
     from . import paths as _paths
@@ -1609,6 +1607,7 @@ def create_cli_agent(
         MemoryFilesystemBackend,
         MergedSkillsBackend,
     )
+    from .graph_build import create_deep_agent
 
     # Pure path only when BOTH config and chat_model are explicit: build from
     # locals and write no module globals. Otherwise keep the legacy
