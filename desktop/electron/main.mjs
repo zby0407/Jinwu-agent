@@ -213,6 +213,7 @@ async function bootstrap() {
     );
   }
   ensureWorkspaceDirectory(paths.workspaceDir);
+  migrateLegacyData();
 
   const setupStatus = await getSetupStatus(runtime);
   state.setupStatus = setupStatus;
@@ -478,6 +479,35 @@ function logEnvironmentSummary(label, env) {
 function ensureWorkspaceDirectory(directory) {
   fs.mkdirSync(directory, { recursive: true });
   logger.info(`工作区已就绪：${directory}`);
+}
+
+/**
+ * 命令行版把记忆/知识库放在 `~/.jw`，桌面版用 `<userData>/data`。
+ * 首次启动时把旧数据搬过来，否则「金乌记忆」和「LLM Wiki」面板会是空的。
+ * 迁移本身绝不覆盖桌面版已有文件；失败只记日志，不阻塞启动。
+ */
+function migrateLegacyData() {
+  try {
+    const result = importLegacyData({
+      userDataDir: paths.userDataDir,
+      homedir: os.homedir(),
+      env: process.env,
+    });
+    if (result.status === 'imported') {
+      logger.info(
+        `已从旧版数据目录导入 ${result.imported.length} 个文件：` +
+          `${result.legacyDataDir} → ${result.dataDirectory}`,
+      );
+    } else if (result.status === 'failed') {
+      logger.warn(
+        `旧版数据导入未完成（下次启动会重试）：${result.failed.slice(0, 5).join('；')}`,
+      );
+    } else if (result.reason === 'already-imported' || result.reason === 'no-legacy-directory') {
+      logger.info(`旧版数据导入：跳过（${result.reason}）`);
+    }
+  } catch (error) {
+    logger.warn(`旧版数据导入失败（忽略）：${error?.stack ?? error}`);
+  }
 }
 
 function loadRuntime() {

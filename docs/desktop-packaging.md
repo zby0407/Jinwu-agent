@@ -82,6 +82,18 @@ Windows 对应值为 `python/python.exe`、`node/node.exe`。字段说明：
 版本值由脚本从实际环境中探测（`platform.python_version()`、`node --version`、
 `importlib.metadata.version("jw-agent")`、`webui/dist/package.json`），不写死。
 
+**数据目录与旧版数据导入**：桌面外壳把 `JW_DATA_DIR` 指向 `<userData>/data`（macOS 为
+`~/Library/Application Support/Jinwu/data`），`XDG_CONFIG_HOME` 指向 `<userData>/config`；
+命令行版的默认数据目录则是 `~/.jw`（`jw/paths.py` 的 `DATA_DIR`），两者互不相通。为此外壳首次启动时
+会做一次**只增不改**的迁移（`desktop/electron/lib/legacy-data.mjs`）：拷贝 `memories/`、`knowledge.db`、
+`sessions.db`（目标端已存在的文件一律跳过），成功后写 `<userData>/data/.legacy-imported` 标记；
+有失败项时不写标记，下次启动重试。用户显式设置了 `JW_DATA_DIR` 时完全跳过迁移。
+
+**资源路径锚点**：打包后 `project/src/` 与 `jw/` 包**并不在同一父目录**（`jw/` 在 `runtime/jw`
+或 site-packages 下），因此 `src/` 内的资源定位不能写死 `Path(__file__).parents[N]`。
+`knowledge_base.literature.default_literature_feeds_path()` 逐级向上探测
+`jw/subagents/.../llm_wiki`，`jw/langgraph_dev/knowledge_api.py` 则锚定 `jw` 包自身。
+
 ## 3. 本地构建（macOS arm64）
 
 前置条件：
