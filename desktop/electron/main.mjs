@@ -2,12 +2,12 @@
  * 金乌（JW）桌面外壳主进程（Electron ESM）。
  *
  * 唯一进程监管者：
- * - 直接 spawn 随包 Python：`<python> -m jw deploy --workdir <workspace> --port <backendPort>`
+ * - 直接 spawn 随包 Python：`<python> -m jw.desktop_server --workdir <workspace> --port <backendPort>`
  * - 直接 spawn 随包 Node：`<node> <runtime>/webui/dist/server.js`
  * - 不使用系统 python/node/npm/uv，也不复用 `jw --ui webui` 的双进程启动器
  * - 后端输出 → `<userData>/logs/backend.log`，前端输出 → `<userData>/logs/webui.log`，
  *   桌面自身 → `<userData>/logs/desktop.log`
- * - 并行启动，后端 `/ok` 与前端根路径都健康后才 loadURL；失败展示可读错误页
+ * - 并行启动，前端根路径健康后即 loadURL；后端和智能体就绪分别显示
  *
  * 退出：before-quit 拦截并异步清理（幂等、有超时），确保不残留
  * python / node / langgraph 进程；清理异常仍允许退出并记录错误。
@@ -16,6 +16,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { randomUUID } from 'node:crypto';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import { app, BrowserWindow, Menu, dialog, ipcMain, shell } from 'electron';
@@ -27,6 +28,8 @@ import {
   isSecretEnvName,
 } from './lib/environment.mjs';
 import { renderErrorPage } from './lib/error-page.mjs';
+import { importLegacyData } from './lib/legacy-data.mjs';
+import { stageSetup, readPendingSetup, clearPendingSetup, backendIdle, frontendQueueIdle } from './lib/pending-setup.mjs';
 import {
   BACKEND_HEALTH_TIMEOUT_MS,
   WEBUI_HEALTH_TIMEOUT_MS,
@@ -51,6 +54,8 @@ import { findMissingRuntimeFiles, loadRuntimeManifest } from './lib/runtime-mani
 import {
   readSetupStatus,
   saveSetupConfiguration,
+  validateSetupConfiguration,
+  testSetupConnection,
 } from './lib/setup.mjs';
 import {
   buildWebPreferences,
@@ -65,8 +70,13 @@ const LOADING_PAGE_PATH = path.join(APP_ROOT, 'electron', 'ui', 'loading.html');
 const SETUP_PAGE_PATH = path.join(APP_ROOT, 'electron', 'ui', 'setup.html');
 const SETUP_PRELOAD_PATH = path.join(APP_ROOT, 'electron', 'preload', 'setup-preload.cjs');
 const IS_DEV = !app.isPackaged;
+const startupStarted = performance.now();
+const desktopControlToken = randomUUID();
+function markPhase(phase) {
+  logger.info(`startup phase=${phase} elapsed_ms=${Math.round(performance.now() - startupStarted)}`);
+}
 
-const BACKEND_ARGS_TEMPLATE = Object.freeze(['-m', 'jw', 'deploy']);
+const BACKEND_ARGS_TEMPLATE = Object.freeze(['-m', 'jw.desktop_server']);
 // 退出宽限期：jw deploy 收到 SIGTERM 后会通过 atexit 停止其 langgraph dev
 // 子树（该子树运行在独立 session 中，不属于我们的进程组），因此需要比默认
 // 5 秒更长的窗口；宽限期后仍存活则对进程组 SIGKILL。
@@ -109,6 +119,9 @@ const state = {
   setupStatus: null,
   setupSchema: [],
   setupSaving: false,
+  setupTest: null,
+  pendingTimer: null,
+  agentTimer: null,
 };
 
 process.on('SIGINT', () => app.quit());
@@ -192,6 +205,8 @@ async function bootstrap() {
   logger.info(`用户数据目录：${paths.userDataDir}`);
   logger.info(`默认工作区：${paths.workspaceDir}`);
   refreshMenu();
+  await showLoadingPage();
+  markPhase('window-visible');
 
   if (paths.platformError) {
     await showErrorPage(paths.platformError, { canRetry: false });
@@ -215,9 +230,16 @@ async function bootstrap() {
   ensureWorkspaceDirectory(paths.workspaceDir);
   migrateLegacyData();
 
+  const pending = readPendingSetup(paths.userDataDir);
+  if (pending) {
+    await saveSetupConfiguration({ ...setupOptions(), payload: pending });
+    clearPendingSetup(paths.userDataDir);
+  }
+
   const setupStatus = await getSetupStatus(runtime);
   state.setupStatus = setupStatus;
   state.setupSchema = Array.isArray(setupStatus.schema) ? setupStatus.schema : [];
+  markPhase('configuration-ready');
   if (!setupStatus.configured) {
     logger.info(`首次配置未完成，打开配置向导：${setupStatus.configPath}`);
     await showSetupWindow();
@@ -242,7 +264,7 @@ async function getSetupStatus(runtime) {
   });
   return readSetupStatus({
     pythonPath: runtime.pythonPath,
-    cwd: runtime.projectRootPath,
+    cwd: paths.workspaceDir,
     env,
   });
 }
@@ -295,6 +317,8 @@ async function startServices({ reason = 'launch' } = {}) {
       backendPort: ports.backendPort,
       inheritedEnv: process.env,
     });
+    backendEnv.JW_DESKTOP_CONTROL_TOKEN = desktopControlToken;
+    backendEnv.JW_DASHSCOPE_MAX_RETRIES = '0';
     const webuiEnv = buildWebuiEnvironment({
       runtime,
       workspaceDir: paths.workspaceDir,
@@ -327,7 +351,7 @@ async function startServices({ reason = 'launch' } = {}) {
         '--port',
         String(ports.backendPort),
       ],
-      cwd: runtime.projectRootPath,
+      cwd: paths.workspaceDir,
       env: backendEnv,
       logStream: state.backendLogStream,
     });
@@ -344,11 +368,10 @@ async function startServices({ reason = 'launch' } = {}) {
     logger.info('已并行启动后端与前端，开始健康检查…');
     await waitForServices(ports);
 
-    state.webuiUrl = webuiHealthUrl(ports.webuiPort);
-    const window = createWindow();
-    await window.loadURL(state.webuiUrl);
     state.servicesReady = true;
-    logger.info(`界面已加载：${state.webuiUrl}`);
+    markPhase('backend-api-ready');
+    watchAgentReadiness();
+    schedulePendingSetup();
     refreshMenu();
   } catch (error) {
     logger.error(`启动失败：${error?.message ?? error}`);
@@ -379,6 +402,11 @@ async function waitForServices(ports) {
         label: 'WebUI 前端',
         signal: abort.signal,
         isAlive: () => state.supervisor?.isRunning('webui') ?? false,
+      }).then(async () => {
+        if (abort.signal.aborted || state.quitting) return;
+        state.webuiUrl = webuiHealthUrl(ports.webuiPort);
+        await createWindow().loadURL(state.webuiUrl);
+        markPhase('frontend-ready');
       }),
     ]);
   } catch (error) {
@@ -388,6 +416,9 @@ async function waitForServices(ports) {
 }
 
 async function stopServices(reason = 'shutdown') {
+  clearTimeout(state.pendingTimer);
+  clearTimeout(state.agentTimer);
+  state.servicesReady = false;
   if (state.supervisor) {
     try {
       await state.supervisor.stopAll({ graceMs: TERMINATE_GRACE_MS });
@@ -540,6 +571,13 @@ function registerSetupIpc() {
       model: status.model ?? null,
       configPath: status.configPath ?? null,
       schema: state.setupSchema,
+      hasCredential: status.hasCredential,
+      credentialProviders: status.credentialProviders ?? [],
+      proxyMode: status.proxyMode ?? 'env',
+      proxyModeSource: status.proxyModeSource ?? 'config',
+      proxyModeOverridden: status.proxyModeOverridden ?? false,
+      proxyModeSourcePath: status.proxyModeSourcePath,
+      pending: Boolean(readPendingSetup(paths.userDataDir)),
     };
   });
 
@@ -549,7 +587,7 @@ function registerSetupIpc() {
     } catch (error) {
       return { ok: false, error: error.message };
     }
-    if (state.setupSaving) {
+    if (state.setupSaving || state.setupTest || state.restarting) {
       return { ok: false, error: '配置正在保存，请稍候。' };
     }
     if (!state.runtime) {
@@ -557,19 +595,14 @@ function registerSetupIpc() {
     }
     state.setupSaving = true;
     try {
-      const env = buildBackendEnvironment({
-        runtime: state.runtime,
-        workspaceDir: paths.workspaceDir,
-        userDataDir: paths.userDataDir,
-        backendPort: 6174,
-        inheritedEnv: process.env,
-      });
-      const result = await saveSetupConfiguration({
-        pythonPath: state.runtime.pythonPath,
-        cwd: state.runtime.projectRootPath,
-        env,
-        payload,
-      });
+      await validateSetupConfiguration({ ...setupOptions(), payload });
+      stageSetup(paths.userDataDir, payload);
+      const applied = await applyPendingSetup();
+      if (!applied) {
+        schedulePendingSetup();
+        return { ok: true, pending: true };
+      }
+      const result = state.setupStatus;
       const provider =
         typeof payload?.provider === 'string' ? payload.provider.trim() : '未知';
       logger.info(`首次配置已保存：provider=${provider}；开始启动服务。`);
@@ -604,9 +637,108 @@ function registerSetupIpc() {
     } catch (error) {
       return { ok: false, error: error.message };
     }
-    app.quit();
+    state.setupTest?.abort();
+    if (state.setupStatus?.configured) state.setupWindow?.close();
+    else app.quit();
     return { ok: true };
   });
+
+  ipcMain.handle('setup:test', async (event, payload) => {
+    assertSetupSender(event);
+    if (state.setupTest || state.setupSaving) return { ok: false, error: '另一个配置操作正在进行。' };
+    const controller = new AbortController();
+    state.setupTest = controller;
+    try {
+      return await testSetupConnection({ ...setupOptions(), payload, signal: controller.signal });
+    } catch (error) {
+      const route = state.setupStatus?.proxyModeOverridden
+        ? state.setupStatus.proxyMode : payload?.proxy_mode ?? state.setupStatus?.proxyMode ?? 'env';
+      return { ok: false, code: error.code, error: error.message, route,
+        suggestion: error.code === 'TIMEOUT' ? '请检查网络和当前连接方式，然后重试。' : '' };
+    } finally {
+      if (state.setupTest === controller) state.setupTest = null;
+    }
+  });
+  ipcMain.handle('setup:cancel-test', (event) => {
+    assertSetupSender(event);
+    state.setupTest?.abort();
+    return { ok: true };
+  });
+}
+
+function setupOptions() {
+  return {
+    pythonPath: state.runtime.pythonPath,
+    cwd: paths.workspaceDir,
+    env: buildBackendEnvironment({ runtime: state.runtime, workspaceDir: paths.workspaceDir,
+      userDataDir: paths.userDataDir, backendPort: state.ports?.backendPort ?? 6174, inheritedEnv: process.env }),
+  };
+}
+
+async function setMaintenance(enabled) {
+  const response = await fetch(`http://127.0.0.1:${state.ports.backendPort}/api/desktop-maintenance`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'x-jw-desktop-token': desktopControlToken },
+    body: JSON.stringify({ enabled }), signal: AbortSignal.timeout(3000),
+  });
+  if (!response.ok) throw new Error('后台暂时无法确认任务状态，配置等待应用。');
+  return response.json();
+}
+
+async function applyPendingSetup() {
+  const payload = readPendingSetup(paths.userDataDir);
+  if (!payload) return false;
+  let maintenanceHeld = false;
+  let applied = false;
+  try {
+    if (state.supervisor?.isRunning('backend')) {
+      if (!state.servicesReady) return false;
+      const gate = await setMaintenance(true);
+      maintenanceHeld = true;
+      if (gate.inFlight !== 0 || !await frontendQueueIdle(state.window?.webContents) || !await backendIdle(`http://127.0.0.1:${state.ports.backendPort}`)) return false;
+    }
+    await saveSetupConfiguration({ ...setupOptions(), payload });
+    state.setupStatus = await getSetupStatus(state.runtime);
+    clearPendingSetup(paths.userDataDir);
+    applied = true;
+    return true;
+  } catch (error) {
+    logger.warn(`连接设置等待应用：${error?.message ?? error}`);
+    return false;
+  } finally {
+    if (maintenanceHeld && !applied) await setMaintenance(false).catch(() => {});
+  }
+}
+
+function schedulePendingSetup() {
+  clearTimeout(state.pendingTimer);
+  if (state.quitting || !readPendingSetup(paths.userDataDir)) return;
+  state.pendingTimer = setTimeout(async () => {
+    if (state.setupSaving || state.restarting) { schedulePendingSetup(); return; }
+    state.setupSaving = true;
+    try {
+      if (await applyPendingSetup()) await activateAfterSetup();
+    } finally {
+      state.setupSaving = false;
+      schedulePendingSetup();
+    }
+  }, 5000);
+  state.pendingTimer.unref?.();
+}
+
+function watchAgentReadiness() {
+  const check = async () => {
+    if (state.quitting || !state.servicesReady) return;
+    try {
+      const response = await fetch(`http://127.0.0.1:${state.ports.backendPort}/api/runtime-status`, { signal: AbortSignal.timeout(3000) });
+      const status = await response.json();
+      if (status.canSend || status.agent?.state === 'failed') {
+        markPhase(status.canSend ? 'main-agent-ready' : 'main-agent-failed');
+        return;
+      }
+    } catch { /* The next probe can observe readiness after a transient delay. */ }
+    state.agentTimer = setTimeout(check, 500);
+  };
+  void check();
 }
 
 function assertSetupSender(event) {
@@ -625,17 +757,41 @@ function assertSetupSender(event) {
 
 async function activateAfterSetup() {
   try {
-    await showLoadingPage();
     const setupWindow = state.setupWindow;
     state.setupWindow = null;
     if (setupWindow && !setupWindow.isDestroyed()) {
       setupWindow.close();
     }
-    await startServices({ reason: 'first-run-setup' });
+    if (state.supervisor?.isRunning('webui') && state.webuiUrl) {
+      await restartConfiguredBackend();
+    } else {
+      await startServices({ reason: 'configuration' });
+    }
   } catch (error) {
     logger.error(`首次配置完成后启动失败：${error?.message ?? error}`);
     await showErrorPage(error, { canRetry: true });
   }
+}
+
+async function restartConfiguredBackend() {
+  state.restarting = true;
+  state.servicesReady = false;
+  clearTimeout(state.agentTimer);
+  try {
+    await state.supervisor.stopService('backend', { graceMs: TERMINATE_GRACE_MS });
+    await sweepLeftoverBackend('configuration');
+    const env = { ...setupOptions().env, JW_DESKTOP_CONTROL_TOKEN: desktopControlToken,
+      JW_DASHSCOPE_MAX_RETRIES: '0' };
+    state.supervisor.spawnService({ name: 'backend', label: '后端', command: state.runtime.pythonPath,
+      args: [...BACKEND_ARGS_TEMPLATE, '--workdir', paths.workspaceDir, '--port', String(state.ports.backendPort)],
+      cwd: paths.workspaceDir, env, logStream: state.backendLogStream });
+    await waitForHttp({ url: backendHealthUrl(state.ports.backendPort),
+      timeoutMs: BACKEND_HEALTH_TIMEOUT_MS, label: '后端服务',
+      isAlive: () => state.supervisor.isRunning('backend') });
+    state.servicesReady = true;
+    logger.info('连接设置已应用，后端已重启；界面和草稿保留。');
+    watchAgentReadiness();
+  } finally { state.restarting = false; }
 }
 
 async function showSetupWindow() {
@@ -644,12 +800,16 @@ async function showSetupWindow() {
     state.setupWindow.focus();
     return;
   }
+  if (state.runtime) {
+    state.setupStatus = await getSetupStatus(state.runtime);
+    state.setupSchema = state.setupStatus.schema ?? [];
+  }
   const window = new BrowserWindow({
     width: 720,
     height: 760,
     minWidth: 600,
     minHeight: 640,
-    title: `${APP_NAME} · 首次配置`,
+    title: `${APP_NAME} · API 与连接设置`,
     backgroundColor: '#0d1117',
     show: false,
     autoHideMenuBar: true,
@@ -666,6 +826,7 @@ async function showSetupWindow() {
     if (!window.isDestroyed()) window.show();
   });
   window.on('closed', () => {
+    state.setupTest?.abort();
     if (state.setupWindow === window) state.setupWindow = null;
   });
   window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
@@ -871,6 +1032,9 @@ async function handleDesktopAction(action) {
     case 'quit':
       app.quit();
       break;
+    case 'configure':
+      await showSetupWindow();
+      break;
     case 'open-logs':
       await openDirectory(logPaths.directory);
       break;
@@ -902,6 +1066,7 @@ function refreshMenu() {
     isDev: IS_DEV,
     platform: process.platform,
     actions: {
+      openSettings: () => { void showSetupWindow(); },
       reloadWindow: () => {
         const window = state.window;
         if (window && !window.isDestroyed()) {
@@ -963,6 +1128,9 @@ function handleBeforeQuit(event) {
     return;
   }
   state.quitting = true;
+  state.setupTest?.abort();
+  clearTimeout(state.pendingTimer);
+  clearTimeout(state.agentTimer);
   event.preventDefault();
   logger.info('收到退出请求，开始清理子进程…');
 

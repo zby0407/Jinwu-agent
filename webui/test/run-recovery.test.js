@@ -5,8 +5,10 @@ import {
   MAX_TRANSIENT_MODEL_RECOVERIES_PER_TURN,
   RECOVERY_LEDGER_STATES,
   beginTransientModelRecovery,
+  releaseUnsubmittedRecovery,
   createRecoveryCancellation,
   isTransientProviderError,
+  isRecoverableProviderError,
   isPendingRecoveryLedger,
   latestHumanTurnId,
   parseRecoveryLedger,
@@ -28,8 +30,21 @@ function memoryStorage() {
     setItem(key, value) {
       values.set(key, String(value));
     },
+    removeItem(key) { values.delete(key); },
   };
 }
+
+test("discovery can be retried after cancellation or refresh, but ambiguous submission cannot", () => {
+  const storage = memoryStorage();
+  const identity = { threadId: 'thread-1', turnId: 'u1', runId: 'run-1', checkpointId: 'cp-1' };
+  const first = beginTransientModelRecovery(storage, identity);
+  assert.equal(releaseUnsubmittedRecovery(storage, 'thread-1', 'u1'), true);
+  assert.ok(beginTransientModelRecovery(storage, identity));
+  const started = transitionRecoveryLedger(first, RECOVERY_LEDGER_STATES.STARTED);
+  storage.setItem(recoveryLedgerStorageKey('thread-1', 'u1'), JSON.stringify(started));
+  assert.equal(releaseUnsubmittedRecovery(storage, 'thread-1', 'u1'), false);
+  assert.equal(beginTransientModelRecovery(storage, identity), null);
+});
 
 function failedState(checkpointId = "cp-1", turnId = "u1") {
   return {
@@ -63,6 +78,30 @@ test("recognizes nested transient provider failures without matching domain erro
     isTransientProviderError(new Error("hypothesis schema is incomplete")),
     false
   );
+});
+
+test("stable provider codes permit explicit model-step recovery after settings are repaired", () => {
+  for (const code of ["AUTH", "QUOTA", "MODEL_UNAVAILABLE", "TLS_HANDSHAKE", "PROXY_CONNECT", "TIMEOUT", "CONNECTION"]) {
+    const error = `[JW_PROVIDER:${code}] synthetic diagnostic`;
+    assert.equal(isRecoverableProviderError(error), true);
+    const state = failedState();
+    state.tasks[0].error = error;
+    assert.equal(recoverableTransientModelCheckpoint(state).checkpoint_id, "cp-1");
+    state.next = ["tools"];
+    assert.equal(recoverableTransientModelCheckpoint(state), null);
+  }
+  assert.equal(isTransientProviderError('[JW_PROVIDER:AUTH]'), false);
+});
+
+test("failed new recovery run can be manually recovered once, but repeated clicks are rejected", () => {
+  const storage = memoryStorage();
+  const identity = { threadId: 'thread-1', turnId: 'u1', runId: 'run-1', checkpointId: 'cp-1' };
+  const first = beginTransientModelRecovery(storage, identity);
+  const failed = transitionRecoveryLedger(first, RECOVERY_LEDGER_STATES.FAILED, { recoveryRunId: 'run-2' });
+  storage.setItem(recoveryLedgerStorageKey('thread-1', 'u1'), JSON.stringify(failed));
+  assert.equal(beginTransientModelRecovery(storage, identity), null);
+  assert.ok(beginTransientModelRecovery(storage, { ...identity, runId: 'run-2' }));
+  assert.equal(beginTransientModelRecovery(storage, { ...identity, runId: 'run-2' }), null);
 });
 
 test("returns only a transient failed model checkpoint", () => {

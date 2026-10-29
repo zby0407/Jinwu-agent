@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
+import { useRuntimeStatus } from "@/providers/ClientProvider";
 
 type HealthStatus = "checking" | "online" | "offline";
 
@@ -100,6 +101,7 @@ export function HealthIndicator({
   deploymentUrl,
   onReconnect,
 }: HealthIndicatorProps) {
+  const runtime = useRuntimeStatus();
   const [status, setStatus] = useState<HealthStatus>("checking");
   const [info, setInfo] = useState<BackendInfo | null>(null);
   // A different, reachable backend URL detected while the saved one is dead.
@@ -245,7 +247,7 @@ export function HealthIndicator({
           }`}
           aria-hidden="true"
         />
-        <span className="hidden sm:inline">{meta.label}</span>
+        <span className="hidden sm:inline">{runtime.maintenance ? '正在应用连接设置' : runtime.agent?.state === 'failed' ? '智能体初始化失败' : runtime.canSend ? '本机服务就绪 · 模型连接未测试' : runtime.backendReady ? `智能体准备中 · ${Math.floor(runtime.elapsedMs / 1000)} 秒` : meta.label}</span>
       </Button>
       {showReconnect && (
         <Button

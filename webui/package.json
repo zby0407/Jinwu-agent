@@ -1,6 +1,6 @@
 {
   "name": "@jw/webui",
-  "version": "0.1.8",
+  "version": "0.1.9",
   "description": "Web UI for 金乌 (JW) — an autonomous AI research assistant built on DeepAgents/LangGraph.",
   "author": "Xi Zhang <zacharyzhang2022@gmail.com>",
   "type": "module",

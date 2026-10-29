@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta
     http-equiv="Content-Security-Policy"
-    content="default-src 'none'; style-src 'unsafe-inline'; img-src 'self' data:;"
+    content="default-src 'none'; script-src 'self'; style-src 'unsafe-inline'; img-src 'self' data:;"
   />
   <title>金乌正在启动</title>
   <style>
@@ -77,8 +77,11 @@
     <img class="logo" src="./assets/logo.png" alt="金乌" />
     <div class="spinner" aria-hidden="true"></div>
     <h1>金乌正在启动</h1>
-    <p>正在启动随包 Python 后端与本地 WebUI，首次启动可能需要几十秒。请稍候…</p>
+    <p>正在准备本地配置与服务。界面就绪后将先开放草稿编辑，智能体准备完成后可发送。</p>
+    <p id="elapsed" role="status">已用时 0 秒</p>
+    <p><a href="jinwu-action:configure">API 与连接设置</a></p>
     <p class="note">本窗口不会访问外网，仅监听 127.0.0.1。</p>
   </main>
+  <script src="./loading.js"></script>
 </body>
 </html>

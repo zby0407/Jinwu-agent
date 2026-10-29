@@ -25,10 +25,17 @@ import from the submodule that owns the symbol; test code should use
 
 from __future__ import annotations
 
+
 # Sole package-level public entry. ``JW.config`` re-exports this
 # (via lazy ``__getattr__``) so ``from jw.config import
 # run_onboard`` keeps working — that import path is used by the CLI and is
 # the only documented external API.
-from .wizard import run_onboard
+def __getattr__(name: str):
+    if name == "run_onboard":
+        from .wizard import run_onboard
+
+        return run_onboard
+    raise AttributeError(name)
+
 
 __all__ = ["run_onboard"]

@@ -94,7 +94,8 @@ _REPEATED_TOOL_ERROR_STOP = (
     "resume only after changing the approach or external state."
 )
 _TOOL_ERROR_COMPACT_THRESHOLD = 1_200
-_QWEN_TRANSPORT_RETRY_DELAY_SECONDS = 20.0
+_QWEN_TRANSPORT_RETRY_DELAYS = (2.0, 5.0)
+_QWEN_TRANSPORT_RETRY_DELAY_SECONDS = _QWEN_TRANSPORT_RETRY_DELAYS[0]
 _QWEN_TRANSPORT_MAX_RETRIES = 2
 
 
@@ -318,14 +319,16 @@ _RETRYABLE_QWEN_TRANSPORT_ERRORS = frozenset(
 def _is_retryable_qwen_transport_error(exc: BaseException) -> bool:
     """Recognize one-request transport failures without retrying API rejections."""
 
-    current: BaseException | None = exc
-    for _ in range(8):
-        if current is None:
-            return False
-        if type(current).__name__ in _RETRYABLE_QWEN_TRANSPORT_ERRORS:
-            return True
-        current = current.__cause__ or current.__context__
-    return False
+    from jw.provider_diagnostics import diagnose_provider_error
+
+    return diagnose_provider_error(exc)["retryable"]
+
+
+def _annotate_qwen_error(exc: Exception) -> Exception:
+    from jw.llm.models import _dashscope_proxy_mode
+    from jw.provider_diagnostics import annotate_provider_error
+
+    return annotate_provider_error(exc, _dashscope_proxy_mode())
 
 
 def _safe_host(base_url: Any) -> str:
@@ -2921,13 +2924,22 @@ class QwenToolCompatibilityMiddleware(AgentMiddleware):
             elif self._active_model_is_qwen(
                 request
             ) and _is_retryable_qwen_transport_error(exc):
-                _logger.warning(
-                    "[jw.middleware.qwen_compat] transient Qwen transport failure; "
-                    "retrying the same model request once (%s)",
-                    type(exc).__name__,
-                )
-                response = handler(prepared)
+                import time
+
+                for retry_index, delay in enumerate(_QWEN_TRANSPORT_RETRY_DELAYS):
+                    time.sleep(delay)
+                    try:
+                        response = handler(prepared)
+                        break
+                    except Exception as retry_exc:
+                        if (
+                            not _is_retryable_qwen_transport_error(retry_exc)
+                            or retry_index == 1
+                        ):
+                            raise _annotate_qwen_error(retry_exc)
             else:
+                if self._active_model_is_qwen(request):
+                    raise _annotate_qwen_error(exc)
                 raise
         _logger.info(
             "[jw.middleware.qwen_compat] model result tool_calls=%s",
@@ -3055,10 +3067,12 @@ class QwenToolCompatibilityMiddleware(AgentMiddleware):
                         "failure; retry %d/%d after %.0f seconds (%s)",
                         retry_index + 1,
                         _QWEN_TRANSPORT_MAX_RETRIES,
-                        _QWEN_TRANSPORT_RETRY_DELAY_SECONDS,
+                        _QWEN_TRANSPORT_RETRY_DELAYS[retry_index],
                         type(current).__name__,
                     )
-                    await _sleep_before_qwen_retry(_QWEN_TRANSPORT_RETRY_DELAY_SECONDS)
+                    await _sleep_before_qwen_retry(
+                        _QWEN_TRANSPORT_RETRY_DELAYS[retry_index]
+                    )
                     try:
                         response = await self._await_handler_with_qwen_wall_timeout(
                             request, prepared, handler
@@ -3071,8 +3085,10 @@ class QwenToolCompatibilityMiddleware(AgentMiddleware):
                             or not _is_retryable_qwen_transport_error(retry_exc)
                             or retry_index + 1 >= _QWEN_TRANSPORT_MAX_RETRIES
                         ):
-                            raise
+                            raise _annotate_qwen_error(retry_exc)
             else:
+                if self._active_model_is_qwen(request):
+                    raise _annotate_qwen_error(exc)
                 raise
         _logger.info(
             "[jw.middleware.qwen_compat] model result tool_calls=%s",

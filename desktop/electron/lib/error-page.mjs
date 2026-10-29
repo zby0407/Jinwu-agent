@@ -61,6 +61,7 @@ export function renderErrorPage({
       ? '<a class="primary" href="jinwu-action:retry">重试启动</a>'
       : '',
     '<a class="secondary" href="jinwu-action:open-logs">打开日志目录</a>',
+    '<a class="secondary" href="jinwu-action:configure">API 与连接设置</a>',
     '<a class="secondary" href="jinwu-action:open-workspace">打开工作区</a>',
     '<a class="secondary" href="jinwu-action:quit">退出</a>',
   ]

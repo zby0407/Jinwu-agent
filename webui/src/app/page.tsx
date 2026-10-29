@@ -3,11 +3,11 @@
 import React, { useState, useEffect, useCallback, Suspense } from "react";
 import Image from "next/image";
 import { useQueryState } from "nuqs";
-import { getConfig, saveConfig, DeploymentConfig } from "@/lib/config";
+import { getConfig, saveConfig, DeploymentConfig, DEFAULT_ASSISTANT_ID } from "@/lib/config";
 import { ConfigDialog } from "@/app/components/ConfigDialog";
 import { Button } from "@/components/ui/button";
 import { Assistant } from "@langchain/langgraph-sdk";
-import { ClientProvider, useClient } from "@/providers/ClientProvider";
+import { ClientProvider, useClient, useRuntimeStatus } from "@/providers/ClientProvider";
 import {
   Blocks,
   BrainCircuit,
@@ -50,6 +50,7 @@ function HomePageInner({
   handleSaveConfig,
 }: HomePageInnerProps) {
   const client = useClient();
+  const runtime = useRuntimeStatus();
   const [threadId, setThreadId] = useQueryState("threadId");
   const [sidebar, setSidebar] = useQueryState("sidebar");
   const [view, setView] = useQueryState("view");
@@ -131,8 +132,8 @@ function HomePageInner({
   }, [client, config.assistantId]);
 
   useEffect(() => {
-    fetchAssistant();
-  }, [fetchAssistant]);
+    if (runtime.backendReady) fetchAssistant();
+  }, [fetchAssistant, runtime.backendReady]);
 
   useEffect(() => {
     const mediaQuery = window.matchMedia("(min-width: 768px)");
@@ -409,7 +410,7 @@ function HomePageInner({
                 aria-label="研究导航"
                 className="relative z-10 h-full w-[min(19rem,calc(100vw-2.25rem))] bg-background shadow-xl"
               >
-                <ThreadList
+                {runtime.backendReady && <ThreadList
                   onClose={closeSidebar}
                   onNewChat={startNewChat}
                   onThreadSelect={async (id) => {
@@ -418,7 +419,7 @@ function HomePageInner({
                   }}
                   onMutateReady={(fn) => setMutateThreads(() => fn)}
                   onInterruptCountChange={setInterruptCount}
-                />
+                />}
                 <PanelEdgeToggle
                   side="left"
                   open
@@ -470,12 +471,12 @@ function HomePageInner({
                     minSize={18}
                     className="relative min-w-[260px] bg-background"
                   >
-                    <ThreadList
+                    {runtime.backendReady && <ThreadList
                       onNewChat={startNewChat}
                       onThreadSelect={selectThread}
                       onMutateReady={(fn) => setMutateThreads(() => fn)}
                       onInterruptCountChange={setInterruptCount}
-                    />
+                    />}
                   </ResizablePanel>
                   <ResizableHandle />
                 </>
@@ -580,20 +581,37 @@ function HomePageInner({
 
 function HomePageContent() {
   const [config, setConfig] = useState<DeploymentConfig | null>(null);
+  const [loadingConfig, setLoadingConfig] = useState(true);
   const [configDialogOpen, setConfigDialogOpen] = useState(false);
   const [assistantId, setAssistantId] = useQueryState("assistantId");
 
-  // On mount, check for saved config, otherwise show config dialog
+  // The desktop shell owns the local endpoint, including alternate ports.
+  // Browser deployments retain their saved remote endpoint and setup flow.
   useEffect(() => {
-    const savedConfig = getConfig();
-    if (savedConfig) {
-      setConfig(savedConfig);
-      if (!assistantId) {
-        setAssistantId(savedConfig.assistantId);
+    let cancelled = false;
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 3000);
+    void (async () => {
+      let resolved = getConfig();
+      try {
+        const response = await fetch("/api/jw-config", { signal: controller.signal, cache: "no-store" });
+        const detected = response.ok ? await response.json() : null;
+        if (detected?.desktopManaged && detected.deploymentUrl) {
+          resolved = { ...resolved, deploymentUrl: detected.deploymentUrl, assistantId: DEFAULT_ASSISTANT_ID };
+          if (!cancelled) saveConfig(resolved);
+        }
+      } catch { /* Saved browser configuration remains usable offline. */ }
+      finally { clearTimeout(timeout); }
+      if (cancelled) return;
+      setConfig(resolved);
+      setLoadingConfig(false);
+      if (resolved) {
+        if (!assistantId) setAssistantId(resolved.assistantId);
+      } else {
+        setConfigDialogOpen(true);
       }
-    } else {
-      setConfigDialogOpen(true);
-    }
+    })();
+    return () => { cancelled = true; clearTimeout(timeout); controller.abort(); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -613,6 +631,7 @@ function HomePageContent() {
     config?.langsmithApiKey || process.env.NEXT_PUBLIC_LANGSMITH_API_KEY || "";
 
   if (!config) {
+    if (loadingConfig) return <div className="flex h-screen items-center justify-center">正在加载连接设置…</div>;
     return (
       <>
         <ConfigDialog

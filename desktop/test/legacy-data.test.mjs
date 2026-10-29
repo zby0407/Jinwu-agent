@@ -44,7 +44,7 @@ test('resolveLegacyDataDirectory 默认 ~/.jw，可用 JW_LEGACY_DATA_DIR 覆盖
       homedir: '/Users/tester',
       env: { JW_LEGACY_DATA_DIR: '/tmp/custom-jw' },
     }),
-    '/tmp/custom-jw',
+    path.resolve('/tmp/custom-jw'),
   );
   assert.throws(() => resolveLegacyDataDirectory({ env: {} }), TypeError);
 });

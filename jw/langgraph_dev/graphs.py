@@ -1,39 +1,71 @@
 """Deployed graphs for all yaml-flagged async sub-agents.
 
-One module-level binding per ``async: true`` entry in
-``jw/subagents/<name>.yaml``. Each binding is a graph compiled by
-``build_async_subagent_graph`` (which reads the yaml, wires tools/skills/
-backend/middleware identical to the in-process sync version, and returns a
-runnable langgraph).
+One lazy factory per ``async: true`` entry in ``jw/subagents/<name>.yaml``.
+The first invocation compiles and caches the graph with the same tools,
+skills, backend and middleware as the in-process sync version.
 
 To add a new async sub-agent:
 
   1. Set ``async: true`` in ``jw/subagents/<name>.yaml``.
-  2. Add a one-line binding here::
+  2. Add a factory here::
 
-         <snake_name> = build_async_subagent_graph("<name>")
+         def <snake_name>():
+             return _subagent("<name>")
 
   3. Register it in ``jw/langgraph_dev/langgraph.json``::
 
          "<name>": "jw.langgraph_dev.graphs:<snake_name>"
 
-The deployed main agent (``jw_agent``) lives in ``main_graph.py``
-because it follows a different mechanism (re-exporting a lazily-constructed
-attribute), not the yaml-driven factory.
+The deployed main agent factory (``jw_agent``) lives in ``main_graph.py``
+and is warmed in the background during server startup.
 """
 
-from jw.memory.agents import (
-    build_autoskills_graph,
-    build_memory_worker_graph,
-    build_observation_linker_graph,
-)
-from jw.memory.types import MemorySourceType
-from jw.subagents._factory import build_async_subagent_graph
+from .runtime import resolve_graph
 
-writing_agent = build_async_subagent_graph("writing-agent")
-data_analysis_agent = build_async_subagent_graph("data-analysis-agent")
-scheduler = build_async_subagent_graph("scheduler")
-jwmemory_subagent_worker = build_memory_worker_graph(MemorySourceType.SUBAGENT)
-jwmemory_turn_worker = build_memory_worker_graph(MemorySourceType.TURN)
-jwmemory_observation_linker = build_observation_linker_graph()
-jwmemory_autoskills = build_autoskills_graph()
+
+def _subagent(name):
+    def build():
+        from jw.subagents._factory import build_async_subagent_graph
+
+        return build_async_subagent_graph(name)
+
+    return resolve_graph(name, build)
+
+
+def writing_agent():
+    return _subagent("writing-agent")
+
+
+def data_analysis_agent():
+    return _subagent("data-analysis-agent")
+
+
+def scheduler():
+    return _subagent("scheduler")
+
+
+def _memory(name, factory, source=None):
+    def build():
+        from jw.memory import agents
+        from jw.memory.types import MemorySourceType
+
+        builder = getattr(agents, factory)
+        return builder(MemorySourceType(source)) if source else builder()
+
+    return resolve_graph(name, build)
+
+
+def jwmemory_subagent_worker():
+    return _memory("jwmemory-subagent-worker", "build_memory_worker_graph", "subagent")
+
+
+def jwmemory_turn_worker():
+    return _memory("jwmemory-turn-worker", "build_memory_worker_graph", "turn")
+
+
+def jwmemory_observation_linker():
+    return _memory("jwmemory-observation-linker", "build_observation_linker_graph")
+
+
+def jwmemory_autoskills():
+    return _memory("jwmemory-autoskills", "build_autoskills_graph")
