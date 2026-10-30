@@ -116,6 +116,10 @@ def test_default_middleware_includes_runtime_context(
     middleware = _get_default_middleware()
 
     assert any(isinstance(m, RuntimeContextMiddleware) for m in middleware)
+    names = [type(m).__name__ for m in middleware]
+    assert names.index("FileToolArgumentsMiddleware") < names.index(
+        "VirtualPathCodeGuardMiddleware"
+    )
 
 
 @patch(

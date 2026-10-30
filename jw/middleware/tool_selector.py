@@ -4,7 +4,11 @@ Wraps LangChain's built-in ``LLMToolSelectorMiddleware`` with project-specific
 defaults and an optional stream tracker that captures which tools were selected.
 
 The selector only activates when the agent has more than ``threshold`` tools
-(default 20).  Below that, the extra LLM call isn't worth the token savings.
+(default 26).  Below that, the extra LLM call isn't worth the token savings.
+
+Within a conversation, reuse successful selections for unchanged user messages
+and tool menus. Intermediate tool results are not inputs to the upstream
+selector, so they do not require another selection request.
 
 Usage::
 
@@ -15,7 +19,11 @@ Usage::
 
 from __future__ import annotations
 
+import hashlib
+import json
 import logging
+import threading
+from collections import OrderedDict
 from collections.abc import Awaitable, Callable, Iterable
 from typing import Any
 
@@ -27,7 +35,9 @@ from langchain.agents.middleware.types import (
     ModelResponse,
 )
 from langchain_core.language_models import BaseChatModel
+from langchain_core.messages import HumanMessage
 from langchain_core.tools import BaseTool
+from langgraph.config import get_config
 
 logger = logging.getLogger(__name__)
 
@@ -93,15 +103,82 @@ class _ConditionalToolSelectorMiddleware(AgentMiddleware):
         self._threshold = threshold
         self._always_include = always_include or frozenset()
         self._track_stream_selection = track_stream_selection
-        # Agent tools are fixed after graph construction, so the filtered
-        # always-include set is stable for this middleware instance.
         self._selector: AgentMiddleware | None = None
+        self._selector_names: list[str] = []
+        self._cache_lock = threading.Lock()
+        # Process-local and bounded; store only selection inputs' digest and
+        # tool names, never messages/results or a modified ModelRequest.
+        self._selections: OrderedDict[tuple, tuple[BaseChatModel, tuple[str, ...]]] = (
+            OrderedDict()
+        )
 
     def _build_selector(self, request: ModelRequest) -> AgentMiddleware:
-        if self._selector is None:
-            names = _available_always_include(request.tools, self._always_include)
-            self._selector = self._selector_factory(names)
-        return self._selector
+        names = _available_always_include(request.tools, self._always_include)
+        with self._cache_lock:
+            if self._selector is None or names != self._selector_names:
+                self._selector = self._selector_factory(names)
+                self._selector_names = names
+            return self._selector
+
+    def _selection_key(self, request: ModelRequest) -> tuple | None:
+        # The upstream selector sees only the last HumanMessage and the
+        # ordered tool names/descriptions, not intermediate AI/tool messages.
+        user = next(
+            (m for m in reversed(request.messages) if isinstance(m, HumanMessage)), None
+        )
+        if user is None or not user.id:
+            return None
+        try:
+            config = get_config().get("configurable", {})
+        except RuntimeError:
+            return None  # Direct middleware calls have no conversation scope.
+        thread = config.get("thread_id")
+        if not thread:
+            return None
+        # LangGraph appends the current node's task id to the namespace. Its
+        # parent identifies the graph invocation and stays stable across steps.
+        namespace = config.get("checkpoint_ns", "").rpartition("|")[0]
+        inputs = [
+            user.model_dump_json(),
+            [(t.name, t.description) for t in request.tools if isinstance(t, BaseTool)],
+        ]
+        digest = hashlib.sha256(
+            json.dumps(inputs, ensure_ascii=False).encode()
+        ).digest()
+        return (str(thread), namespace, id(request.model), digest)
+
+    def _reuse_selection(
+        self, key: tuple | None, request: ModelRequest
+    ) -> ModelRequest | None:
+        if key is None:
+            return None
+        with self._cache_lock:
+            entry = self._selections.get(key)
+            if entry is None:
+                return None
+            self._selections.move_to_end(key)
+            names = entry[1]
+        tools = {t.name: t for t in request.tools if isinstance(t, BaseTool)}
+        # Rebind to this request's objects; provider dictionaries pass through.
+        return request.override(
+            tools=[
+                *(tools[name] for name in names),
+                *(t for t in request.tools if isinstance(t, dict)),
+            ]
+        )
+
+    def _remember_selection(
+        self, key: tuple | None, request: ModelRequest, selected: ModelRequest
+    ) -> None:
+        if key is None:
+            return
+        names = tuple(t.name for t in selected.tools if isinstance(t, BaseTool))
+        with self._cache_lock:
+            # Keep the model alive while its identity is part of a cache key.
+            self._selections[key] = (request.model, names)
+            self._selections.move_to_end(key)
+            if len(self._selections) > 128:
+                self._selections.popitem(last=False)
 
     def wrap_model_call(
         self,
@@ -110,6 +187,11 @@ class _ConditionalToolSelectorMiddleware(AgentMiddleware):
     ) -> ModelResponse | AIMessage | ExtendedModelResponse:
         if len(request.tools) <= self._threshold:
             return handler(request)
+
+        key = self._selection_key(request)
+        cached = self._reuse_selection(key, request)
+        if cached is not None:
+            return handler(cached)
 
         if self._track_stream_selection:
             global _selector_active, _total_tools_count
@@ -123,6 +205,7 @@ class _ConditionalToolSelectorMiddleware(AgentMiddleware):
         def _handler_after_selection(req: ModelRequest) -> ModelResponse:
             nonlocal _handler_called
             _handler_called = True
+            self._remember_selection(key, request, req)
             if self._track_stream_selection:
                 global _selector_active
                 _selector_active = False
@@ -152,6 +235,11 @@ class _ConditionalToolSelectorMiddleware(AgentMiddleware):
         if len(request.tools) <= self._threshold:
             return await handler(request)
 
+        key = self._selection_key(request)
+        cached = self._reuse_selection(key, request)
+        if cached is not None:
+            return await handler(cached)
+
         if self._track_stream_selection:
             global _selector_active, _total_tools_count
             _selector_active = True
@@ -162,6 +250,7 @@ class _ConditionalToolSelectorMiddleware(AgentMiddleware):
         async def _handler_after_selection(req: ModelRequest) -> ModelResponse:
             nonlocal _handler_called
             _handler_called = True
+            self._remember_selection(key, request, req)
             if self._track_stream_selection:
                 global _selector_active
                 _selector_active = False

@@ -93,9 +93,6 @@ def _patch_mcp_windows_command_resolver() -> None:
     logger.debug("Applied MCP Windows command-resolver os.access fast-path patch")
 
 
-_patch_mcp_windows_command_resolver()
-
-
 # =============================================================================
 # Constants
 # =============================================================================
@@ -752,6 +749,15 @@ async def _load_tools(
     Raises:
         ImportError: if ``langchain-mcp-adapters`` is not installed.
     """
+    connections = _build_connections(config)
+    if not connections:
+        return {}
+
+    # Install transport compatibility only when connecting a stdio server.
+    # Reading configuration with no servers must not import the MCP SDK.
+    if any(conn["transport"] == "stdio" for conn in connections.values()):
+        _patch_mcp_windows_command_resolver()
+
     try:
         from langchain_mcp_adapters.client import MultiServerMCPClient
     except ImportError:
@@ -759,10 +765,6 @@ async def _load_tools(
             "MCP servers are configured but langchain-mcp-adapters is not installed.\n"
             "Install with: pip install langchain-mcp-adapters"
         ) from None
-
-    connections = _build_connections(config)
-    if not connections:
-        return {}
 
     client = MultiServerMCPClient(connections)  # type: ignore[invalid-argument-type]
 

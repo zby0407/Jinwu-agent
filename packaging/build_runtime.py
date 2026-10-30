@@ -554,8 +554,16 @@ def install_python_packages(
             "hatch); CI uses the frozen uv.lock instead"
         )
         _copy_site_packages(
-            source, site_packages,
-            excludes=(*PYTHON_BOOTSTRAP_IGNORE, "jw", "jw-*", "jw_agent-*", "research_review", "research_quality"),
+            source,
+            site_packages,
+            excludes=(
+                *PYTHON_BOOTSTRAP_IGNORE,
+                "jw",
+                "jw-*",
+                "jw_agent-*",
+                "research_review",
+                "research_quality",
+            ),
         )
     else:
         lock_file = REPO_ROOT / "uv.lock"
@@ -1126,6 +1134,37 @@ def _remove(path: Path) -> None:
         shutil.rmtree(path, ignore_errors=True)
 
 
+def precompile_runtime(out_dir: Path, *, platform: str, env: dict[str, str]) -> None:
+    """Compile the private runtime after all dependencies and JW are installed.
+
+    The packaged runtime is replaced as a unit on upgrade. Build-owned bytecode
+    avoids reopening thousands of source files at every Windows launch. Force
+    regeneration here; source development environments keep normal validation.
+    """
+    run(
+        [
+            _interpreter_in(out_dir / "python", platform),
+            "-I",
+            "-m",
+            "compileall",
+            "-q",
+            "-f",
+            "-j",
+            "1",
+            "--invalidation-mode",
+            "unchecked-hash",
+            "-s",
+            str(out_dir),
+            "-p",
+            "runtime",
+            str(out_dir / "python" / ("Lib" if platform == "win32" else "lib")),
+        ],
+        cwd=out_dir,
+        env=env,
+        label="precompile private Python",
+    )
+
+
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
     out_dir = args.out.expanduser().resolve()
@@ -1219,32 +1258,7 @@ def main(argv: list[str] | None = None) -> int:
         moved = True
 
         log("== precompile private Python with relocatable filenames ==")
-        final_python = _interpreter_in(out_dir / "python", args.platform)
-        run(
-            [
-                final_python,
-                "-I",
-                "-m",
-                "compileall",
-                "-q",
-                "-j",
-                "1",
-                "--invalidation-mode",
-                "checked-hash",
-                "-s",
-                str(out_dir),
-                "-p",
-                "runtime",
-                str(
-                    out_dir / "python" / "Lib"
-                    if args.platform == "win32"
-                    else out_dir / "python" / "lib"
-                ),
-            ],
-            cwd=out_dir,
-            env=env,
-            label="precompile private Python",
-        )
+        precompile_runtime(out_dir, platform=args.platform, env=env)
 
         log("== self-check from the final path ==")
         sys.path.insert(0, str(SCRIPT_DIR))
