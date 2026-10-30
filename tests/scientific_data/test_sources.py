@@ -421,3 +421,11 @@ def test_fetch_result_reports_its_own_state():
 
     assert result.ok is True
     assert FetchResult(source_id="src:1", url="u", status="failed").ok is False
+
+
+def test_local_source_title_is_the_basename_on_windows():
+    catalog = SourceCatalog()
+
+    records = register_local_sources(catalog, [r"C:\Users\runner\data\table.csv"])
+
+    assert records[0].title == "table.csv"

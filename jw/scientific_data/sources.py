@@ -454,7 +454,9 @@ def register_local_sources(
         added.append(
             catalog.add(
                 url=f"file://{path}",
-                title=str(path).rsplit("/", 1)[-1],
+                # A Windows path uses backslashes, so split on both kinds of
+                # separator rather than only the POSIX one.
+                title=str(path).replace("\\", "/").rsplit("/", 1)[-1],
                 role=source_role_for_format(hint, fallback=SourceRole.AUTHORED_TABLE),
                 provider=provider,
                 format_hint=hint,
