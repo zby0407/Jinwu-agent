@@ -136,7 +136,9 @@ def _scrub_local_path(value: str) -> str:
     text = str(value)
     if not text.startswith("file://"):
         return text
-    name = text.rstrip("/").rsplit("/", 1)[-1]
+    # A Windows path has no forward slash after the scheme, so split on both
+    # kinds of separator; otherwise the whole local path becomes the "name".
+    name = text.replace("\\", "/").rstrip("/").rsplit("/", 1)[-1]
     return f"file://<local>/{name}"
 
 

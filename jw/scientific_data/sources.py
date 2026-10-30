@@ -13,7 +13,7 @@ import io
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field, replace
 from typing import Any
-from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
+from urllib.parse import parse_qsl, unquote, urlencode, urlsplit, urlunsplit
 
 from .contracts import (
     DataRequirementContract,
@@ -68,10 +68,13 @@ def canonical_url(url: str) -> str:
     """Normalise a URL so the same document is not catalogued twice."""
     if not url:
         return ""
+    stripped = url.strip()
+    if stripped.lower().startswith("file:"):
+        return _canonical_file_url(stripped)
     try:
-        parts = urlsplit(url.strip())
+        parts = urlsplit(stripped)
     except ValueError:
-        return url.strip()
+        return stripped
     scheme = (parts.scheme or "https").lower()
     host = (parts.hostname or "").lower()
     path = parts.path or "/"
@@ -87,6 +90,17 @@ def canonical_url(url: str) -> str:
     if parts.port and parts.port not in (80, 443):
         netloc = f"{host}:{parts.port}"
     return urlunsplit((scheme, netloc, path, urlencode(kept), ""))
+
+
+def _canonical_file_url(url: str) -> str:
+    """Keep a local file URI opaque instead of treating its path as a netloc.
+
+    ``urlsplit('file://C:\\data\\x.csv')`` reads ``C:\\data\\x.csv`` as the
+    network location, so anything that inspects ``.port`` raises on Windows.
+    Local paths are not URLs, so keep the path text as it came in.
+    """
+    raw = unquote(url[len("file:") :]).removeprefix("//")
+    return "file://" + raw
 
 
 def _query_rank(key: str) -> tuple[int, str]:

@@ -76,6 +76,31 @@ def test_canonical_url_removes_tracking_and_fragment_noise():
     assert canonical_url("") == ""
 
 
+def test_canonical_url_keeps_a_windows_file_path_intact():
+    path = r"C:\Users\runner\data\table.csv"
+
+    assert canonical_url(f"file://{path}") == f"file://{path}"
+
+
+def test_acquired_local_filenames_are_safe_on_windows(tmp_path):
+    data = tmp_path / "lc.csv"
+    data.write_text("object,mag\nSN2005A,16.5\n", encoding="utf-8")
+    catalog = SourceCatalog()
+    register_local_sources(catalog, [str(data)])
+
+    report = acquire(
+        catalog,
+        policy=AcquisitionPolicy(),
+        workdir=tmp_path / "run",
+        contract=contract(),
+    )
+
+    stored = Path(report.catalog.to_records()[0].local_path)
+    assert ":" not in stored.name
+    assert stored.suffix == ".csv"
+    assert stored.exists()
+
+
 def test_retrieval_plan_names_the_source_roles_the_goal_needs():
     steps = plan_retrieval(contract(), plugin=PLUGIN)
 

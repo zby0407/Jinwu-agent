@@ -9,11 +9,12 @@ records where they came from.
 from __future__ import annotations
 
 import hashlib
+import re
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Protocol
-from urllib.parse import urlsplit, unquote
+from urllib.parse import unquote, urlsplit
 
 from .contracts import (
     DataRequirementContract,
@@ -36,6 +37,9 @@ __all__ = [
 ]
 
 _MAX_EXTENSION = 8
+
+#: Characters reserved by Windows file names; source ids may contain colons.
+_UNSAFE_FILENAME = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
 
 
 @dataclass(frozen=True, slots=True)
@@ -304,8 +308,9 @@ def _fetch_one(
             path=seen_digests[digest],
             from_cache=True,
         )
-    target = (
-        directory / f"{record.source_id}__{digest[7:19]}{_extension(url, content_type)}"
+    target = directory / (
+        f"{_filename_stem(record.source_id)}__"
+        f"{digest[7:19]}{_extension(url, content_type)}"
     )
     existed = target.exists()
     if not existed:
@@ -328,9 +333,22 @@ def _digest(body: bytes) -> str:
     return "sha256:" + hashlib.sha256(body).hexdigest()
 
 
+def _filename_stem(source_id: str) -> str:
+    """Turn a ``src:local:001`` style id into a name Windows will accept.
+
+    Colons and the other reserved characters are legal in a URL but not in a
+    Windows file name, so the content-addressed store replaces them.
+    """
+    cleaned = _UNSAFE_FILENAME.sub("_", source_id)
+    return cleaned.rstrip(" .") or "source"
+
+
 def _extension(url: str, content_type: str) -> str:
-    path = urlsplit(url).path
-    suffix = Path(unquote(path)).suffix.lstrip(".")
+    if url.lower().startswith("file:"):
+        candidate = _local_path(url)
+    else:
+        candidate = Path(unquote(urlsplit(url).path))
+    suffix = candidate.suffix.lstrip(".")
     if suffix and len(suffix) <= _MAX_EXTENSION:
         return f".{suffix.lower()}"
     hinted = {

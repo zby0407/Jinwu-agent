@@ -302,3 +302,19 @@ def test_the_per_year_history_reaches_the_record(tmp_path):
     assert paper.counts_by_year == ((2021, 5), (2022, 4), (2024, 3))
     assert citations_within(paper, horizon=3) == 9  # lifetime count would be 40
     assert citations_within(paper, horizon=1) == 5
+
+
+def test_local_file_urls_are_collapsed_to_their_name_on_windows():
+    r"""A Windows path has no forward slash after the scheme.
+
+    Two independent runs stage the same PDF under different temporary
+    directories, so if the whole path survives the scrub their fingerprints
+    disagree even though the paper is identical.
+    """
+    from jw.research_influence.contracts import _scrub_local_path
+
+    first = r"file://C:\Users\runner\AppData\Local\Temp\a\store\benchmark.pdf"
+    second = r"file://C:\Users\runner\AppData\Local\Temp\b\store\benchmark.pdf"
+
+    assert _scrub_local_path(first) == "file://<local>/benchmark.pdf"
+    assert _scrub_local_path(second) == _scrub_local_path(first)
