@@ -79,6 +79,7 @@ ResearchMode = Literal["fast_answer", "verified_analysis", "full_research"]
 SourceMode = Literal["none", "local", "external", "mixed"]
 TaskIntent = Literal[
     "general",
+    "data_integration",
     "research_planning",
     "data_preparation",
     "hypothesis_generation",
@@ -89,6 +90,7 @@ TaskIntent = Literal[
 ]
 RequiredSpecialist = Literal[
     "none",
+    "scientific-data",
     "solar-planner",
     "solar-data",
     "solar-hypothesis",
@@ -129,6 +131,7 @@ _ROUTE_SCHEMA: dict[str, Any] = {
             "type": "string",
             "enum": [
                 "general",
+                "data_integration",
                 "research_planning",
                 "data_preparation",
                 "hypothesis_generation",
@@ -146,6 +149,7 @@ _ROUTE_SCHEMA: dict[str, Any] = {
             "type": "string",
             "enum": [
                 "none",
+                "scientific-data",
                 "solar-planner",
                 "solar-data",
                 "solar-hypothesis",
@@ -192,6 +196,11 @@ Routes:
   competing hypotheses, experiment/validation, and final research report.
 
 Professional intents:
+- data_integration: find, download, parse and merge scientific data from multiple
+  sources into reusable tables with provenance and quality checks. Use the
+  scientific-data specialist, including solar observations such as SILSO and
+  NOAA monthly series. This route can begin without preloaded files. It is not
+  the solar-data research stage, which consumes already bound research inputs.
 - research_planning: produce or revise a bounded research plan.
 - data_preparation: inspect, clean, align, or feature-engineer a bounded dataset.
 - hypothesis_generation: generate or formulate scientific hypotheses.
@@ -199,7 +208,7 @@ Professional intents:
 - hypothesis_update: revise or update hypotheses using new evidence.
 - experiment_design: design a bounded experiment without claiming execution.
 - experiment_run: execute or resume a bounded accepted experiment.
-Each is a bounded verified_analysis request with its matching solar specialist.
+Each is a bounded verified_analysis request with its matching specialist.
 Conceptual hypothesis generation remains bounded.  A hypothesis question that
 asks the system to decide an empirical relation from observations, data, a
 prediction test, or a reproducible calculation requires full_research even when
@@ -610,6 +619,12 @@ def _specialize_hypothesis_route(
         normalized["required_specialist"] = "none"
         return normalized
 
+    if normalized.get("task_intent") == "data_integration":
+        normalized.update(
+            mode="verified_analysis", required_specialist="scientific-data"
+        )
+        return normalized
+
     text_intent = _hypothesis_intent(text)
     routed_intent = normalized.get("task_intent")
     required_specialist = normalized.get("required_specialist")
@@ -918,6 +933,7 @@ def _validated_route(value: object, *, fallback_text: str) -> dict[str, Any]:
         or task_intent
         not in {
             "general",
+            "data_integration",
             "research_planning",
             "data_preparation",
             "hypothesis_generation",
@@ -929,6 +945,7 @@ def _validated_route(value: object, *, fallback_text: str) -> dict[str, Any]:
         or required_specialist
         not in {
             "none",
+            "scientific-data",
             "solar-planner",
             "solar-data",
             "solar-hypothesis",
@@ -2579,6 +2596,51 @@ class ResearchRouterMiddleware(AgentMiddleware[ResearchRoutingState, Any, Any]):
         latest_human = _latest_human(messages)
         latest_text = _message_text(latest_human[1]) if latest_human else ""
         system_text = _message_text(request.system_message)
+        if (
+            task_intent == "data_integration"
+            and required_specialist == "scientific-data"
+        ):
+            delegated_ids = {
+                call.get("id")
+                for call in calls
+                if call.get("name") == "task"
+                and call.get("args", {}).get("subagent_type") == "scientific-data"
+            }
+            returned = any(
+                _message_role(message) == "tool"
+                and (
+                    message.get("tool_call_id")
+                    if isinstance(message, Mapping)
+                    else getattr(message, "tool_call_id", None)
+                )
+                in delegated_ids
+                for message in messages
+            )
+            instruction = (
+                "This is scientific data integration, not a solar research producer stage. "
+                "Call task with subagent_type='scientific-data' and pass the full user "
+                "requirements, date window, sources and output requirements. Existing "
+                "explicit permission to retrieve public data is sufficient; do not ask "
+                "again. The specialist must acquire sources before analysing them. "
+                "For supported official solar monthly series it can use "
+                "sci_data_solar_monthly; other formats use the integration pipeline. "
+                "Report actual acquisition failures and open quality issues. A returned "
+                "delegation is not proof of task success; use its output counts and status."
+            )
+            if returned:
+                instruction = (
+                    "The scientific-data delegation has returned. Summarize its actual "
+                    "files, counts, status and limitations. If it failed, report the "
+                    "failure; do not enter the solar research stages or claim completion."
+                )
+            task_tools = [tool for tool in request.tools if _tool_name(tool) == "task"]
+            return request.override(
+                system_message=append_to_system_message(
+                    request.system_message, instruction
+                ),
+                tools=[] if returned else task_tools,
+                tool_choice="task" if task_tools and not returned else None,
+            )
         literature_only = route.get(
             "literature_only"
         ) is True or is_literature_only_request(latest_text)
@@ -3084,6 +3146,65 @@ class ResearchRouterMiddleware(AgentMiddleware[ResearchRoutingState, Any, Any]):
             prepared = prepared.override(tools=literature_tools, tool_choice=None)
         return prepared
 
+    def _integration_dispatch(self, request: ModelRequest) -> ModelResponse | None:
+        """Execute the selected specialist route without a second LLM planner."""
+        route = request.state.get("research_route")
+        if (
+            not isinstance(route, Mapping)
+            or route.get("task_intent") != "data_integration"
+        ):
+            return None
+        if route.get("required_specialist") != "scientific-data":
+            return None
+        calls, _ = _calls_since_latest_human(list(request.messages))
+        delegated_ids = {
+            call.get("id")
+            for call in calls
+            if call.get("name") == "task"
+            and call.get("args", {}).get("subagent_type") == "scientific-data"
+        }
+        if delegated_ids:
+            for message in reversed(request.messages):
+                if (
+                    not isinstance(message, ToolMessage)
+                    or message.tool_call_id not in delegated_ids
+                ):
+                    continue
+                try:
+                    receipt = json.loads(_message_text(message))
+                except json.JSONDecodeError:
+                    return None
+                if (
+                    isinstance(receipt, dict)
+                    and receipt.get("kind") == "solar_monthly_integration"
+                ):
+                    return ModelResponse(result=[AIMessage(content=receipt["summary"])])
+            return None
+        if _available_tool(request.tools, ("task",)) is None:
+            return ModelResponse(
+                result=[AIMessage(content="科学数据整合工具当前不可用，任务未执行。")]
+            )
+        latest = _latest_human(list(request.messages))
+        description = _message_text(latest[1]) if latest else ""
+        digest = hashlib.sha256(description.encode("utf-8")).hexdigest()[:16]
+        return ModelResponse(
+            result=[
+                AIMessage(
+                    content="",
+                    tool_calls=[
+                        {
+                            "name": "task",
+                            "args": {
+                                "subagent_type": "scientific-data",
+                                "description": description,
+                            },
+                            "id": f"call_scientific_data_{digest}",
+                        }
+                    ],
+                )
+            ]
+        )
+
     def wrap_model_call(
         self,
         request: ModelRequest,
@@ -3091,6 +3212,9 @@ class ResearchRouterMiddleware(AgentMiddleware[ResearchRoutingState, Any, Any]):
     ) -> ModelResponse:
         if is_live_request(latest_request(request.messages)[0]):
             return handler(request)
+        dispatch = self._integration_dispatch(request)
+        if dispatch is not None:
+            return dispatch
         prepared = self._prepare_request(request)
         raw_response = handler(prepared)
         if _request_is_literature_only(request):
@@ -3111,6 +3235,9 @@ class ResearchRouterMiddleware(AgentMiddleware[ResearchRoutingState, Any, Any]):
     ) -> ModelResponse:
         if is_live_request(latest_request(request.messages)[0]):
             return await handler(request)
+        dispatch = self._integration_dispatch(request)
+        if dispatch is not None:
+            return dispatch
         prepared = await asyncio.to_thread(self._prepare_request, request)
         raw_response = await handler(prepared)
         if _request_is_literature_only(request):
