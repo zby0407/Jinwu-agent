@@ -1,0 +1,12 @@
+{
+  "measurement_recall": 1.0,
+  "unit_normalisation": 1.0,
+  "mapping_accuracy": 1.0,
+  "anomaly_recall": 1.0,
+  "anomaly_false_alarm_codes": 0,
+  "provenance_coverage": 1.0,
+  "human_required_auto_applied": 0,
+  "figure_median_abs_error_mag": 0.02,
+  "determinism": 1.0,
+  "wall_seconds": 120.0
+}

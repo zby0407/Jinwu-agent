@@ -37,6 +37,10 @@ export function ConfigDialog({
   );
   const [error, setError] = useState<string | null>(null);
   const [tab, setTab] = useState<ConfigTab>("general");
+  // Desktop builds inject the local endpoint via JW_DESKTOP_MANAGED (see
+  // page.tsx auto-detection): the URL is owned by the shell, so the dialog
+  // only surfaces the data-source management tab.
+  const [desktopManaged, setDesktopManaged] = useState(false);
   const inputRef = useRef<HTMLInputElement | null>(null);
   // UI preference: persisted independently of deployment config. The hook
   // owns the localStorage round-trip; we read once and write on toggle.
@@ -46,21 +50,31 @@ export function ConfigDialog({
   useEffect(() => {
     if (!open) return;
     setError(null);
-    setTab("general");
-    if (initialConfig?.deploymentUrl) {
-      setDeploymentUrl(initialConfig.deploymentUrl);
-      return;
-    }
-    // First run (no saved config): prefill from the 金乌 backend's
-    // configured port (config.yaml / env), instead of guessing the default.
+    let cancelled = false;
+    // Single jw-config round-trip: decides desktop-managed mode (hides the
+    // URL tab) and, on first run, prefills the backend's configured port
+    // instead of guessing the default.
     fetch("/api/jw-config")
-      .then((r) => r.json())
+      .then((r) => (r.ok ? r.json() : null))
       .then((d) => {
-        if (d?.deploymentUrl) setDeploymentUrl(d.deploymentUrl);
+        if (cancelled) return;
+        const managed = Boolean(d?.desktopManaged);
+        setDesktopManaged(managed);
+        // The desktop shell owns the endpoint: land on data sources.
+        setTab(managed ? "sources" : "general");
+        if (!initialConfig?.deploymentUrl && d?.deploymentUrl) {
+          setDeploymentUrl(d.deploymentUrl);
+        }
       })
       .catch(() => {
         // Keep the hardcoded default already in state.
       });
+    if (initialConfig?.deploymentUrl) {
+      setDeploymentUrl(initialConfig.deploymentUrl);
+    }
+    return () => {
+      cancelled = true;
+    };
   }, [open, initialConfig]);
 
   const handleSave = () => {
@@ -94,47 +108,51 @@ export function ConfigDialog({
       <DialogContent
         className={cn(
           "flex max-h-[85vh] flex-col",
-          tab === "sources" ? "sm:max-w-[680px]" : "sm:max-w-[525px]"
+          tab === "sources" || desktopManaged
+            ? "h-[min(85vh,700px)] sm:max-w-[1000px]"
+            : "sm:max-w-[525px]"
         )}
       >
         <DialogHeader>
           <DialogTitle>配置</DialogTitle>
           <DialogDescription>
-            {tab === "sources"
+            {tab === "sources" || desktopManaged
               ? "查看和管理当前接入的观测数据源与论文源。"
               : `金乌部署的访问地址。默认会自动检测本地部署，也可以填写通过 jw deploy 获得的公开 URL。设置将保存在浏览器本地存储中。`}
           </DialogDescription>
         </DialogHeader>
-        <div
-          role="tablist"
-          aria-label="设置分类"
-          className="flex gap-1 border-b border-border/70"
-        >
-          {(
-            [
-              ["general", "常规"],
-              ["sources", "数据源"],
-            ] as Array<[ConfigTab, string]>
-          ).map(([mode, label]) => (
-            <button
-              key={mode}
-              type="button"
-              role="tab"
-              aria-selected={tab === mode}
-              onClick={() => setTab(mode)}
-              className={cn(
-                "-mb-px border-b-2 px-3 py-2 text-sm transition-colors",
-                tab === mode
-                  ? "border-[var(--brand)] font-medium text-foreground"
-                  : "border-transparent text-muted-foreground hover:text-foreground"
-              )}
-            >
-              {label}
-            </button>
-          ))}
-        </div>
-        {tab === "sources" ? (
-          <div className="min-h-0 flex-1 overflow-y-auto py-4 pr-1">
+        {!desktopManaged && (
+          <div
+            role="tablist"
+            aria-label="设置分类"
+            className="flex gap-1 border-b border-border/70"
+          >
+            {(
+              [
+                ["general", "常规"],
+                ["sources", "数据源"],
+              ] as Array<[ConfigTab, string]>
+            ).map(([mode, label]) => (
+              <button
+                key={mode}
+                type="button"
+                role="tab"
+                aria-selected={tab === mode}
+                onClick={() => setTab(mode)}
+                className={cn(
+                  "-mb-px border-b-2 px-3 py-2 text-sm transition-colors",
+                  tab === mode
+                    ? "border-[var(--brand)] font-medium text-foreground"
+                    : "border-transparent text-muted-foreground hover:text-foreground"
+                )}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        )}
+        {tab === "sources" || desktopManaged ? (
+          <div className="flex min-h-0 flex-1 flex-col py-4">
             <DataSourceSettings />
           </div>
         ) : (

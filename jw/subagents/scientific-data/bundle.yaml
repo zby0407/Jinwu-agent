@@ -1,0 +1,34 @@
+# Scientific-data bundle — multi-source data integration sub-agent.
+#
+# Turns a research goal into an auditable multi-source dataset: discovery,
+# policy-gated acquisition, table extraction, field/unit/entity alignment,
+# quality detection, reversible repairs, a human review queue, and a standard
+# output package with record-level provenance.
+#
+# Enable this bundle together with `core` for the full research workflow.
+
+name: scientific-data
+version: "1.0"
+description: >-
+  Scientific Data Integration sub-agent: compiles a research goal into a data
+  requirement contract, plans and acquires multi-source data under policy,
+  extracts tables and figure values, aligns fields, units and entities, reports
+  every data quality issue, repairs only what is provably reversible, and asks a
+  human about everything else before writing a provenance-complete data package.
+  Depends on the `core` bundle for generic workflow primitives.
+
+# Sub-agents that live in this directory (discovered by the recursive loader;
+# listed here for documentation and audit).
+agents:
+  - scientific-data
+
+# Skills (resolved from the mounted /skills/ tier) this bundle relies on.
+skills:
+  - verification-before-completion
+  - scientific-writing
+  - scientific-visualization
+
+# The agent only works through the scientific-data tool bundle, so it assumes
+# no solar-specific tool surface.
+depends_on:
+  - core

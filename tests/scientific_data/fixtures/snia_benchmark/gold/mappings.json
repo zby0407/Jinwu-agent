@@ -1,0 +1,50 @@
+{
+  "photometry_main.csv": {
+    "name": "object",
+    "mjd": "time",
+    "band": "band",
+    "mag": "apparent_magnitude"
+  },
+  "photometry_flux_mjy.csv": {
+    "object": "object",
+    "time": "time",
+    "filter": "band",
+    "flux (mJy)": "flux_density"
+  },
+  "photometry_flux_ujy.csv": {
+    "object": "object",
+    "time": "time",
+    "filter": "band",
+    "flux [uJy]": "flux_density"
+  },
+  "photometry_flux_jy.csv": {
+    "object": "object",
+    "time": "time",
+    "filter": "band",
+    "flux (Jy)": "flux_density"
+  },
+  "photometry_gbk_semicolon.csv": {
+    "天体名称": "object",
+    "时间": "time",
+    "滤光片": "band",
+    "星等": "apparent_magnitude"
+  },
+  "photometry_anomalies.csv": {
+    "object": "object",
+    "time": "time",
+    "filter": "band",
+    "magnitude": "apparent_magnitude"
+  },
+  "photometry_table.html": {
+    "object": "object",
+    "mjd": "time",
+    "filter": "band",
+    "mag": "apparent_magnitude"
+  },
+  "photometry_table.md": {
+    "name": "object",
+    "mjd": "time",
+    "filter": "band",
+    "mag": "apparent_magnitude"
+  }
+}
