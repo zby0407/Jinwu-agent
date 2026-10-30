@@ -68,6 +68,61 @@ def test_cohorts_lists_what_was_frozen(workspace):
     assert payload["cohorts"][0]["synthetic"] is True
 
 
+def test_cohort_diff_measures_churn_between_two_builds(workspace):
+    """A shorter rebuild loses papers: churn becomes a number, not a note."""
+    _demo_cohort(workspace, name="older", count=40, seed=3)
+    _demo_cohort(workspace, name="newer", count=25, seed=3)
+
+    payload = _load(tools.infl_cohort_diff.invoke({"older": "older", "newer": "newer"}))
+
+    assert payload["status"] == "ok"
+    membership = payload["diff"]["membership"]
+    assert membership["papers_left"] == 40
+    assert membership["papers_right"] == 25
+    assert membership["kept"] == 25
+    assert membership["removed"] == 15
+    assert membership["added"] == 0
+    assert membership["jaccard"] == 0.625
+    assert payload["diff"]["same_question"] is True
+    assert "部分稳定" in payload["diff"]["verdict"]
+    assert Path(payload["artifacts"]["json"]).is_file()
+    assert "Cohort drift" in Path(payload["artifacts"]["markdown"]).read_text(
+        encoding="utf-8"
+    )
+
+
+def test_cohort_diff_separates_value_drift_from_membership_churn(workspace):
+    """Same papers, different numbers: the survivors' values moved."""
+    _demo_cohort(workspace, name="older", count=30, seed=3)
+    _demo_cohort(workspace, name="newer", count=30, seed=11)
+
+    payload = _load(tools.infl_cohort_diff.invoke({"older": "older", "newer": "newer"}))
+
+    diff = payload["diff"]
+    assert diff["membership"]["kept"] == 30
+    assert diff["membership"]["removed"] == 0
+    assert diff["values"]["citations_changed"] > 0
+
+
+def test_cohort_diff_sees_the_same_cohort_as_unchanged(workspace):
+    """The same seed twice is the control case: nothing was lost."""
+    _demo_cohort(workspace, name="one", count=40, seed=5)
+    _demo_cohort(workspace, name="two", count=40, seed=5)
+
+    payload = _load(tools.infl_cohort_diff.invoke({"older": "one", "newer": "two"}))
+
+    assert payload["diff"]["membership"]["kept"] == 40
+    assert payload["diff"]["membership"]["removed"] == 0
+    assert "没有换掉任何论文" in payload["diff"]["verdict"]
+
+
+def test_cohort_diff_refuses_an_unknown_cohort(workspace):
+    """A missing snapshot is an error, never an empty diff."""
+    _demo_cohort(workspace, name="one", count=10, seed=5)
+    payload = _load(tools.infl_cohort_diff.invoke({"older": "one", "newer": "nowhere"}))
+    assert payload["status"] == "error"
+
+
 def test_network_is_refused_by_default(workspace):
     search = _load(tools.infl_snapshot_search.invoke({"query": "supernova cosmology"}))
     assert search["status"] == "error"
@@ -234,7 +289,13 @@ def test_jsonl_payloads_are_accepted_too(workspace):
     path = workspace / "works.jsonl"
     path.write_text(
         "\n".join(
-            json.dumps(dict(OPENALEX_RECORD, id=f"https://openalex.org/W{i}"))
+            json.dumps(
+                {
+                    **OPENALEX_RECORD,
+                    "id": f"https://openalex.org/W{i}",
+                    "doi": f"https://doi.org/10.1000/jsonl{i}",
+                }
+            )
             for i in (1, 2)
         ),
         encoding="utf-8",

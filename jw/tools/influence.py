@@ -33,6 +33,7 @@ from jw.research_influence.cohort import (
     openalex_snapshot,
     synthetic_cohort,
 )
+from jw.research_influence.drift import diff_snapshots, drift_markdown
 from jw.research_influence.package import verify_package
 from jw.research_influence.paper import build_paper
 from jw.research_influence.providers.base import ProviderPolicy, credential
@@ -114,6 +115,15 @@ def _apply_reference_year(
         filters=dict(snapshot.filters),
         notes=snapshot.notes,
     )
+
+
+def _safe_stem(value: str) -> str:
+    """Turn a cohort id into a filename without losing which cohort it was."""
+    cleaned = "".join(
+        character if character.isalnum() or character in "-_." else "_"
+        for character in str(value)
+    )
+    return cleaned.strip("_") or "cohort"
 
 
 def _run_dir(workspace: Path, run_id: str) -> Path:
@@ -961,6 +971,64 @@ def infl_verify(run_id: str, config: RunnableConfig = None) -> str:
 
 
 @tool(parse_docstring=True)
+def infl_cohort_diff(
+    older: str,
+    newer: str,
+    write_artifact: bool = True,
+    config: RunnableConfig = None,
+) -> str:
+    """Measure what changed between two frozen cohorts of the same question.
+
+    A search-backed cohort is a moment: the query is fixed, the ranking is not.
+    This compares two snapshots and reports membership churn, how far the
+    survivors' own numbers moved, and how far their place inside the cohort
+    moved — the last one matters because rank-derived features are relative to
+    whoever else is in the cohort.
+
+    Args:
+        older: Cohort name or path of the earlier snapshot.
+        newer: Cohort name or path of the later snapshot.
+        write_artifact: Whether to save the comparison as JSON and Markdown.
+        config: Runtime-injected task workspace configuration.
+
+    Returns:
+        JSON diff with membership, value drift, rank drift, a verdict, the
+        caveats that limit it, and the paths of any written artifacts.
+    """
+    try:
+        workspace = _workspace(config)
+        before = CohortSnapshot.load(_snapshot_path(workspace, older))
+        after = CohortSnapshot.load(_snapshot_path(workspace, newer))
+        diff = diff_snapshots(before, after)
+        payload: dict[str, Any] = {
+            "status": "ok",
+            "diff": diff.to_dict(),
+            "summary": diff.summary_line(),
+            "markdown": drift_markdown(diff),
+        }
+        if write_artifact:
+            directory = _root(workspace) / "diffs"
+            directory.mkdir(parents=True, exist_ok=True)
+            stem = f"{_safe_stem(before.cohort_id)}__vs__{_safe_stem(after.cohort_id)}"
+            json_path = directory / f"{stem}.json"
+            md_path = directory / f"{stem}.md"
+            json_path.write_text(
+                json.dumps(
+                    diff.to_dict(), ensure_ascii=False, indent=2, sort_keys=True
+                ),
+                encoding="utf-8",
+            )
+            md_path.write_text(drift_markdown(diff) + "\n", encoding="utf-8")
+            payload["artifacts"] = {
+                "json": str(json_path),
+                "markdown": str(md_path),
+            }
+        return _result(**payload)
+    except (OSError, ValueError, TypeError, KeyError, RuntimeError) as exc:
+        return _result(status="error", error=str(exc))
+
+
+@tool(parse_docstring=True)
 def infl_acquisition_request(
     doi: str = "", title: str = "", config: RunnableConfig = None
 ) -> str:
@@ -1124,6 +1192,7 @@ def infl_network(run_id: str, paper_id: str = "", config: RunnableConfig = None)
 
 INFLUENCE_TOOLS = [
     infl_capabilities,
+    infl_cohort_diff,
     infl_cohorts,
     infl_snapshot_synthetic,
     infl_snapshot_search,

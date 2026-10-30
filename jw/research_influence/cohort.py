@@ -664,7 +664,7 @@ def openalex_snapshot(
     from .paper import build_paper
     from .providers.openalex import parse_work
 
-    papers = [
+    built = [
         build_paper(
             paper_id=f"paper:{_identifier(payload)}",
             doi=str(payload.get("doi") or ""),
@@ -672,6 +672,12 @@ def openalex_snapshot(
         )
         for payload in payloads
     ]
+    # OpenAlex returns the same DOI under more than one work id while a merge is
+    # pending (9 of 1200 records in one 2026-10-30 sample).  Keeping both would
+    # count one paper twice and double its citations, so the later record only
+    # wins when it actually carries more fields.
+    papers, collapsed = _collapse_duplicates(built)
+    notes = (f"collapsed_{collapsed}_duplicate_records",) if collapsed else ()
     return build_snapshot(
         papers,
         cohort_id=cohort_id,
@@ -679,11 +685,45 @@ def openalex_snapshot(
         source="openalex:works",
         reference_year=reference_year,
         filters=dict(filters or {}),
+        notes=notes,
     )
 
 
-#: Keys that only exist in an *unparsed* OpenAlex record.  ``cited_by_count``
-#: survives parsing, so it cannot be used to tell the two shapes apart.
+def _collapse_duplicates(
+    papers: Sequence[PaperRecord],
+) -> tuple[list[PaperRecord], int]:
+    """Keep one record per paper id, preferring the more complete one."""
+    best: dict[str, PaperRecord] = {}
+    collapsed = 0
+    for paper in papers:
+        current = best.get(paper.paper_id)
+        if current is None:
+            best[paper.paper_id] = paper
+            continue
+        collapsed += 1
+        if _is_better_witness(paper, current):
+            best[paper.paper_id] = paper
+    return list(best.values()), collapsed
+
+
+def _is_better_witness(candidate: PaperRecord, current: PaperRecord) -> bool:
+    """Which of two records of one paper should the snapshot keep?
+
+    More populated fields first (a record with an abstract and a venue is the
+    better witness), then more citations, then the smaller work id so the choice
+    does not depend on the order the pages arrived in.
+    """
+    candidate_fields = len(candidate.covered_fields())
+    current_fields = len(current.covered_fields())
+    if candidate_fields != current_fields:
+        return candidate_fields > current_fields
+    candidate_citations = int(candidate.cited_by_count or 0)
+    current_citations = int(current.cited_by_count or 0)
+    if candidate_citations != current_citations:
+        return candidate_citations > current_citations
+    return candidate.work_id < current.work_id
+
+
 _RAW_KEYS = frozenset({"authorships", "primary_location", "abstract_inverted_index"})
 
 

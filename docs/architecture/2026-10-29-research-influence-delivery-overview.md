@@ -126,15 +126,21 @@
 | package | `package.py` | 15 个文件 + `manifest.json`（每个文件的 sha256 与 stable_sha256） |
 
 工具面 `infl_*` 把这十阶段拆成可单独调用、可中途接管的一步步：
-`infl_capabilities / infl_cohorts / infl_snapshot_synthetic / infl_snapshot_search /
-infl_snapshot_import / infl_fetch_paper / infl_parse_pdf / infl_run / infl_status /
-infl_report / infl_bias / infl_explain / infl_package / infl_verify /
-infl_acquisition_request`。
+`infl_capabilities / infl_cohorts / infl_cohort_diff / infl_snapshot_synthetic /
+infl_snapshot_search / infl_snapshot_import / infl_fetch_paper / infl_parse_pdf /
+infl_run / infl_status / infl_report / infl_bias / infl_explain / infl_package /
+infl_verify / infl_acquisition_request`。
 
 `infl_verify` 是“可复现”这个说法的执行入口：它不信任 manifest，而是重新读盘、
 重算每个产物的字节摘要与内容摘要，再用自己验过的摘要重算包指纹。改一个 CSV 会被
 判 `drift`；只改写报告里的时间戳会看到 `bytes_ok=false, stable_ok=true`
 ——两种漂移被分开报告，因为它们的含义不同。
+
+`infl_cohort_diff` 是“队列是一个时刻”这句话的执行入口：把两份快照的加入、流失、
+共享论文的被引变化与队列内位次移动算成数字，写进 `diffs/*.json` 与 `diffs/*.md`，
+并给这份比较本身一个指纹。它同时是唯一会指出“快照内部有重复 DOI”的地方——OpenAlex
+在两个 work id 指向同一 DOI 时会重复返回一条，构建期已改为合并（保留字段更全的一条并
+在快照 `notes` 里记数）。
 
 其中两个快照入口是分开的，因为它们服务于不同的环境：
 `infl_snapshot_search` 需要网络（默认拒绝），`infl_snapshot_import` **完全离线**，

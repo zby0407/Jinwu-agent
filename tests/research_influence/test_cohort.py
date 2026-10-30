@@ -9,6 +9,7 @@ from jw.research_influence.cohort import (
     build_snapshot,
     citations_within,
     is_right_censored,
+    openalex_snapshot,
     select_cohort,
     synthetic_cohort,
 )
@@ -157,3 +158,44 @@ def test_a_window_the_history_does_not_cover_is_not_a_zero():
         counts_by_year=((2020, 2), (2021, 3)),
     )
     assert citations_within(covered, horizon=3) == 5
+
+
+def _payload(work: str, *, doi: str, title: str, abstract: bool = False) -> dict:
+    record = {
+        "id": f"https://openalex.org/{work}",
+        "doi": f"https://doi.org/{doi}",
+        "title": title,
+        "publication_year": 2016,
+        "type": "article",
+        "cited_by_count": 7,
+        "authorships": [],
+        "primary_location": {"source": {"display_name": "MNRAS"}},
+    }
+    if abstract:
+        record["abstract_inverted_index"] = {"We": [0], "observe": [1], "it": [2]}
+    return record
+
+
+def test_one_doi_under_two_work_ids_becomes_one_paper():
+    """OpenAlex lists pending merges twice; a cohort must not count them twice."""
+    bare = _payload("W1", doi="10.1000/dup", title="Dup")
+    rich = _payload("W2", doi="10.1000/dup", title="Dup", abstract=True)
+
+    snapshot = openalex_snapshot(
+        [bare, rich], cohort_id="dup", query="supernova", reference_year=2024
+    )
+
+    assert len(snapshot.papers) == 1
+    assert snapshot.papers[0].abstract
+    assert "collapsed_1_duplicate_records" in snapshot.notes
+
+
+def test_the_collapse_does_not_depend_on_page_order():
+    """Whichever copy arrives first, the same record wins."""
+    bare = _payload("W1", doi="10.1000/dup", title="Dup")
+    rich = _payload("W2", doi="10.1000/dup", title="Dup", abstract=True)
+
+    forward = openalex_snapshot([bare, rich], cohort_id="dup", reference_year=2024)
+    backward = openalex_snapshot([rich, bare], cohort_id="dup", reference_year=2024)
+
+    assert forward.fingerprint() == backward.fingerprint()
