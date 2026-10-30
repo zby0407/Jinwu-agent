@@ -46,8 +46,51 @@ async function getJson<T>(path: string): Promise<T> {
   return (await r.json()) as T;
 }
 
+export interface DataSourcePreviewColumn {
+  name: string;
+  numeric: boolean;
+  missing: number;
+}
+
+export interface DataSourcePreviewStat {
+  name: string;
+  min: number;
+  max: number;
+  mean: number;
+  missing: number;
+}
+
+export interface DataSourcePreviewSeries {
+  name: string;
+  column: string;
+  points: Array<{ label: string; value: number }>;
+  point_count: number;
+}
+
+export interface DataSourcePreview {
+  dataset_id: string;
+  file: string;
+  registered: boolean;
+  columns: DataSourcePreviewColumn[];
+  stats: DataSourcePreviewStat[];
+  row_count: number;
+  head_rows: Array<Array<string | number | null>>;
+  tail_rows: Array<Array<string | number | null>>;
+  omitted_rows: number;
+  series: DataSourcePreviewSeries[];
+}
+
 export async function fetchDataSources(): Promise<DataSourceCatalog> {
   return getJson<DataSourceCatalog>("/api/data-sources");
+}
+
+export async function fetchDataSourcePreview(
+  datasetId: string
+): Promise<DataSourcePreview> {
+  const result = await getJson<{ status: string; preview: DataSourcePreview }>(
+    `/api/data-sources/${encodeURIComponent(datasetId)}/preview`
+  );
+  return result.preview;
 }
 
 export async function setDataSourceEnabled(

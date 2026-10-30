@@ -13,12 +13,14 @@ from __future__ import annotations
 
 import asyncio
 import json
+from pathlib import Path
 from typing import Any
 
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 from starlette.routing import Route
 
+from jw.data_preview import build_dataset_preview
 from jw.data_source_settings import load_source_settings, set_source_enabled
 from jw.paths import WORKSPACE_ROOT
 from jw.solar_data_catalog import describe_solar_datasets
@@ -123,8 +125,97 @@ async def update_data_source(request: Request) -> JSONResponse:
     return _json(result, status_code=status_code)
 
 
+# Source-checkout fallback: when JW runs from its own repository (dev /
+# desktop-app source builds), curated datasets may live in the checkout's
+# projects/ even though the runtime workspace is workspace/. In installed
+# packages this directory simply does not exist and the fallback is inert.
+_CHECKOUT_PROJECTS = Path(__file__).resolve().parents[2] / "projects"
+
+
+def _project_data_roots() -> list[Path]:
+    roots = [WORKSPACE_ROOT / "projects"]
+    if _CHECKOUT_PROJECTS != WORKSPACE_ROOT / "projects":
+        roots.append(_CHECKOUT_PROJECTS)
+    return roots
+
+
+def _dataset_file_path(dataset_id: str) -> tuple[Path, bool] | None:
+    """Resolve the data file for a curated dataset.
+
+    Search order: the newest registered receipt (spec-correct), then any
+    project's ``shared/data`` catalog layout across known project roots.
+    Returns ``(path, registered)`` or ``None`` when no file exists yet.
+    """
+
+    relative = next(
+        (
+            str(dataset["relative"])
+            for dataset in describe_solar_datasets()
+            if str(dataset["id"]) == dataset_id
+        ),
+        None,
+    )
+    candidates: list[tuple[Path, bool]] = []
+    registration = _latest_registrations().get(dataset_id)
+    if registration and registration.get("data_path"):
+        data_path = Path(str(registration["data_path"]))
+        if not data_path.is_absolute():
+            project = str(registration.get("project") or "default")
+            data_path = (
+                WORKSPACE_ROOT / "projects" / project / "shared" / "data" / data_path
+            )
+        candidates.append((data_path, True))
+    if relative:
+        for projects_root in _project_data_roots():
+            for project_root in sorted(projects_root.glob("*")):
+                candidate = project_root / "shared" / "data" / relative
+                candidates.append((candidate, False))
+    for candidate, registered in candidates:
+        try:
+            resolved = candidate.expanduser().resolve()
+        except OSError:
+            continue
+        if resolved.is_file():
+            return resolved, registered
+    return None
+
+
+def _preview_data_source(dataset_id: str) -> dict[str, Any]:
+    known = {str(dataset["id"]) for dataset in describe_solar_datasets()}
+    if dataset_id not in known:
+        return {"error": f"unknown dataset id: {dataset_id}", "status_code": 404}
+    resolved = _dataset_file_path(dataset_id)
+    if resolved is None:
+        return {
+            "error": "dataset has not been ingested yet",
+            "status_code": 404,
+            "code": "not_ingested",
+        }
+    path, registered = resolved
+    try:
+        preview = build_dataset_preview(dataset_id, path)
+    except (OSError, ValueError, KeyError) as exc:
+        return {
+            "error": f"preview failed: {type(exc).__name__}",
+            "status_code": 422,
+        }
+    return {"status": "ok", "preview": {**preview, "registered": registered}}
+
+
+async def preview_data_source(request: Request) -> JSONResponse:
+    dataset_id = request.path_params["dataset_id"]
+    result = await asyncio.to_thread(_preview_data_source, dataset_id)
+    status_code = int(result.pop("status_code", 200))
+    return _json(result, status_code=status_code)
+
+
 DATA_SOURCE_ROUTES = [
     Route("/api/data-sources", list_data_sources, methods=["GET"]),
+    Route(
+        "/api/data-sources/{dataset_id}/preview",
+        preview_data_source,
+        methods=["GET"],
+    ),
     Route(
         "/api/data-sources/{dataset_id}",
         update_data_source,
