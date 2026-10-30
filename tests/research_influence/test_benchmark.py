@@ -459,6 +459,7 @@ def test_missing_full_text_widens_the_statement_not_the_numbers(benchmark_run):
     assert "全文" in report
 
 
+@pytest.mark.timeout(300)
 def test_the_fingerprints_agree_between_two_independent_processes():
     """In-process agreement is too easy: the hashes must survive a new process.
 
