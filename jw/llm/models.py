@@ -88,7 +88,12 @@ _DASHSCOPE_MAX_RETRIES_MAX = 2
 def _dashscope_proxy_mode() -> str:
     """Return the explicit network route for Qwen research requests."""
 
-    value = os.environ.get("JW_DASHSCOPE_PROXY_MODE", "").strip().casefold() or "env"
+    from jw.config import load_config
+
+    value = (
+        os.environ.get("JW_DASHSCOPE_PROXY_MODE", "").strip().casefold()
+        or load_config().dashscope_proxy_mode
+    )
     if value not in {"env", "direct"}:
         raise ValueError("JW_DASHSCOPE_PROXY_MODE must be 'env' or 'direct'")
     return value

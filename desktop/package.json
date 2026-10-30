@@ -1,7 +1,7 @@
 {
   "name": "jw-desktop",
   "productName": "Jinwu",
-  "version": "0.3.2",
+  "version": "0.3.4",
   "description": "金乌（JW）桌面外壳：随包 Python Agent 与 Next.js WebUI 的一体化 Electron 启动器",
   "author": "Jinwu Project",
   "license": "Apache-2.0",

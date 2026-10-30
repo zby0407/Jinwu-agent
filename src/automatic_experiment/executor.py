@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import shutil
 import signal
 import subprocess
 import sys
@@ -31,8 +32,11 @@ IS_WINDOWS = os.name == "nt"
 IS_MACOS = sys.platform == "darwin"
 IS_LINUX = sys.platform.startswith("linux")
 
-WSL_DISTRO = "Ubuntu-E"
-WSL_PYTHON = "/usr/bin/python3" if IS_LINUX else "python3"
+# An empty distribution uses WSL's registered default, never a developer's name.
+# These settings affect only the isolated Linux runtime; there is no host-Python
+# fallback when WSL or its required isolation primitives are unavailable.
+WSL_DISTRO = ""
+WSL_PYTHON = "/usr/bin/python3"
 EXPECTED_PACKAGES = {
     "astropy": "8.0.1",
     "h5netcdf": "1.8.1",
@@ -82,55 +86,237 @@ def _safe_environment() -> dict[str, str]:
     return result
 
 
+def _wsl_prefix() -> list[str]:
+    if not IS_WINDOWS:
+        return []
+    distro = os.environ.get("AE_WSL_DISTRO", WSL_DISTRO).strip()
+    return ["wsl.exe", *(["-d", distro] if distro else []), "--"]
+
+
+def _linux_python() -> str:
+    return os.environ.get("AE_SANDBOX_PYTHON", WSL_PYTHON).strip() or WSL_PYTHON
+
+
+def _decode_probe_output(value: bytes | str | None) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, str):
+        return value
+    # The Windows WSL launcher emits UTF-16 even when the Linux child would use
+    # UTF-8. Decode that diagnostic without leaking NUL-filled unreadable text.
+    if value.startswith((b"\xff\xfe", b"\xfe\xff")):
+        return value.decode("utf-16", errors="replace")
+    if b"\x00" in value:
+        return value.decode("utf-16-le", errors="replace")
+    try:
+        return value.decode("utf-8")
+    except UnicodeDecodeError:
+        if len(value) % 2 == 0:
+            return value.decode("utf-16-le", errors="replace")
+        return value.decode("utf-8", errors="replace")
+
+
 def _run_wsl(args: list[str], timeout: int = 20) -> subprocess.CompletedProcess[str]:
-    command = ["wsl.exe", "-d", WSL_DISTRO, "--", *args] if IS_WINDOWS else args
-    return subprocess.run(
-        command,
-        cwd=PROJECT_ROOT,
-        env=_safe_environment(),
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        timeout=timeout,
-        check=False,
+    command = [*_wsl_prefix(), *args]
+    try:
+        result = subprocess.run(
+            command,
+            cwd=PROJECT_ROOT,
+            env=_safe_environment(),
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            timeout=timeout,
+            check=False,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        )
+        return subprocess.CompletedProcess(
+            command,
+            result.returncode,
+            _decode_probe_output(result.stdout),
+            _decode_probe_output(result.stderr),
+        )
+    except OSError as exc:
+        return subprocess.CompletedProcess(command, 127, "", str(exc))
+    except subprocess.TimeoutExpired:
+        return subprocess.CompletedProcess(
+            command, 124, "", f"Isolated runtime probe exceeded {timeout} seconds"
+        )
+
+
+def _linux_runtime_files() -> dict[str, Any]:
+    """Check the actual runner bytes and parse them with the execution shell.
+
+    Git Bash can silently ignore CR characters. Only the selected Linux runtime's
+    bash is authoritative, and no runner statement is executed by ``bash -n``.
+    """
+    runner = PROJECT_ROOT / "src" / "automatic_experiment" / "sandbox_runner.sh"
+    worker = PROJECT_ROOT / "src" / "automatic_experiment" / "sandbox_worker.py"
+    syntax: dict[str, Any] = {
+        "ready": False,
+        "executed": False,
+        "return_code": None,
+        "diagnostic": "Execution runtime files are missing",
+    }
+    result: dict[str, Any] = {
+        "ready": False,
+        "runner_sha256": file_sha256(runner) if runner.is_file() else None,
+        "worker_sha256": file_sha256(worker) if worker.is_file() else None,
+        "runner_lf_only": False,
+        "runner_syntax": syntax,
+    }
+    if not runner.is_file() or not worker.is_file():
+        return result
+    try:
+        result["runner_lf_only"] = b"\r" not in runner.read_bytes()
+    except OSError:
+        syntax["diagnostic"] = "Execution runner bytes cannot be read"
+        return result
+    if not result["runner_lf_only"]:
+        syntax["diagnostic"] = (
+            "Execution runner must use LF line endings without CR bytes"
+        )
+        return result
+    parsed = _run_wsl(["bash", "-n", _backend_path(runner)])
+    syntax.update(
+        ready=parsed.returncode == 0,
+        executed=True,
+        return_code=parsed.returncode,
+        diagnostic=(parsed.stderr or parsed.stdout).strip()[-1000:] or None,
     )
+    result["ready"] = syntax["ready"]
+    return result
+
+
+def _normalize_execution_log(path: Path, *, run_root: Path) -> dict[str, Any]:
+    """Separate leading UTF-16 WSL diagnostics from unchanged UTF-8 child logs.
+
+    The launcher and Linux child can write different encodings to one pipe.
+    Never decode the entire mixed stream as UTF-16 just because it contains NULs.
+    Any transformed log retains its exact original transport bytes and digest.
+    """
+    raw = path.read_bytes()
+    child = raw
+    host_diagnostics = []
+    while True:
+        line = child[2:] if child.startswith(b"\xff\xfe") else child
+        if not line.lower().startswith(b"w\x00s\x00l\x00:\x00"):
+            break
+        end = next(
+            (
+                index + 2
+                for index in range(0, len(line) - 1, 2)
+                if line[index : index + 2] == b"\n\x00"
+            ),
+            len(line),
+        )
+        try:
+            decoded = line[:end].decode("utf-16-le")
+        except UnicodeDecodeError:
+            break
+        host_diagnostics.append(decoded)
+        child = line[end:]
+    result: dict[str, Any] = {
+        "ready": True,
+        "child_encoding": "utf-8",
+        "child_text_available": True,
+        "host_diagnostics": host_diagnostics,
+        "raw_transport": None,
+    }
+    try:
+        child.decode("utf-8")
+    except UnicodeDecodeError:
+        result.update(ready=False, child_text_available=False)
+    if host_diagnostics or not result["ready"]:
+        raw_path = path.with_name(path.stem + ".raw.bin")
+        with raw_path.open("xb") as handle:
+            handle.write(raw)
+        result["raw_transport"] = {
+            "path": raw_path.relative_to(run_root).as_posix(),
+            "size_bytes": len(raw),
+            "sha256": file_sha256(raw_path),
+        }
+        if result["ready"]:
+            # The scientific child bytes are copied exactly, not re-encoded.
+            path.write_bytes(child)
+        else:
+            path.write_bytes(
+                b"Child log is not valid UTF-8; exact transport bytes are retained in the declared raw log.\n"
+            )
+            result["diagnostic"] = (
+                "Child log cannot be represented as verified UTF-8 text"
+            )
+    return result
 
 
 def _locked_site_packages() -> tuple[str, dict[str, str], str | None]:
+    configured = os.environ.get("AE_SANDBOX_SITE_PACKAGES", "").strip()
+    if configured and not configured.startswith("/"):
+        return "", {}, "AE_SANDBOX_SITE_PACKAGES must be an absolute Linux path"
     site_probe = _run_wsl(
-        [WSL_PYTHON, "-I", "-c", "import site; print(site.getusersitepackages())"]
+        [
+            _linux_python(),
+            "-I",
+            "-c",
+            "import site,json; print(json.dumps("
+            + (
+                f"[{configured!r}]"
+                if configured
+                else "site.getsitepackages()+[site.getusersitepackages()]"
+            )
+            + "))",
+        ]
     )
-    site_path = site_probe.stdout.strip() if site_probe.returncode == 0 else ""
-    if not site_path:
+    if site_probe.returncode != 0:
         return (
             "",
             {},
-            (site_probe.stderr or "locked site-packages path is unavailable").strip(),
+            (
+                site_probe.stderr
+                or site_probe.stdout
+                or "locked site-packages path is unavailable"
+            ).strip(),
         )
-    package_script = (
-        "import site,sys,importlib.metadata as m,json;"
-        "sys.path.insert(0,site.getusersitepackages());"
-        f"names={json.dumps(list(EXPECTED_PACKAGES))};"
-        "print(json.dumps({n:m.version('scikit-learn' if n=='sklearn' else n) for n in names}))"
-    )
-    packages = _run_wsl([WSL_PYTHON, "-I", "-c", package_script])
-    if packages.returncode != 0:
-        return site_path, {}, packages.stderr.strip()
     try:
-        installed = json.loads(packages.stdout)
+        candidates = json.loads(site_probe.stdout)
     except json.JSONDecodeError:
-        return site_path, {}, "locked package probe returned invalid JSON"
-    if not isinstance(installed, dict):
-        return site_path, {}, "locked package probe returned a non-object"
-    return site_path, {str(key): str(value) for key, value in installed.items()}, None
+        return "", {}, "locked site-packages probe returned invalid JSON"
+    if not isinstance(candidates, list) or not all(
+        isinstance(p, str) for p in candidates
+    ):
+        return "", {}, "locked site-packages probe returned invalid paths"
+    best_path, best_installed = "", {}
+    for site_path in dict.fromkeys(candidates):
+        package_script = (
+            "import importlib.metadata as m,json;"
+            f"names={json.dumps(list(EXPECTED_PACKAGES))};"
+            f"found={{d.metadata['Name'].lower().replace('_','-'):d.version for d in m.distributions(path=[{site_path!r}])}};"
+            "print(json.dumps({n:found.get('scikit-learn' if n=='sklearn' else n) for n in names if ('scikit-learn' if n=='sklearn' else n) in found}))"
+        )
+        packages = _run_wsl([_linux_python(), "-I", "-c", package_script])
+        try:
+            installed = (
+                json.loads(packages.stdout) if packages.returncode == 0 else None
+            )
+        except json.JSONDecodeError:
+            installed = None
+        if not isinstance(installed, dict):
+            continue
+        installed = {str(k): str(v) for k, v in installed.items()}
+        if all(installed.get(n) == v for n, v in EXPECTED_PACKAGES.items()):
+            return site_path, installed, None
+        if len(installed) > len(best_installed):
+            best_path, best_installed = site_path, installed
+    return (
+        best_path,
+        best_installed,
+        "No single locked site-packages directory matches requirements.lock",
+    )
 
 
 def runtime_environment_snapshot() -> dict[str, Any]:
     if IS_MACOS:
         return sandbox_macos.runtime_snapshot(EXPECTED_PACKAGES)
-    python = _run_wsl([WSL_PYTHON, "--version"])
+    python = _run_wsl([_linux_python(), "--version"])
     bubblewrap = _run_wsl(["bwrap", "--version"])
     site_path, installed, diagnostic = _locked_site_packages()
     mismatches = {
@@ -149,7 +335,8 @@ def runtime_environment_snapshot() -> dict[str, Any]:
         "ready": ready,
         "execution_backend": "native_wsl" if IS_LINUX else "windows_wsl_bridge",
         "host_os": "linux" if IS_LINUX else "windows",
-        "wsl_distro": WSL_DISTRO,
+        "wsl_distro": os.environ.get("AE_WSL_DISTRO", WSL_DISTRO).strip() or None,
+        "python": _linux_python(),
         "python_version": (python.stdout or python.stderr).strip(),
         "bubblewrap_version": (bubblewrap.stdout or bubblewrap.stderr).strip(),
         "locked_site_packages": site_path,
@@ -310,13 +497,19 @@ def execute_attempt(
         ]
         sandbox_policy = sandbox_macos.sandbox_policy_facts()
     elif IS_WINDOWS or IS_LINUX:
+        runtime_files = _linux_runtime_files()
+        runtime_environment["runtime_files"] = runtime_files
+        if not runtime_files["ready"]:
+            raise ExecutionError(
+                "execution runner failed Linux syntax or LF validation"
+            )
         runner = PROJECT_ROOT / "src" / "automatic_experiment" / "sandbox_runner.sh"
         for required in (runner, worker):
             if not required.is_file():
                 raise ExecutionError(
                     f"execution runtime is incomplete: {required.name}"
                 )
-        bridge_prefix = ["wsl.exe", "-d", WSL_DISTRO, "--"] if IS_WINDOWS else []
+        bridge_prefix = _wsl_prefix()
         command = [
             *bridge_prefix,
             "bash",
@@ -333,6 +526,10 @@ def execute_attempt(
             str(budget["memory_mb"] * 1024 * 1024),
             "--file-bytes",
             str(budget["single_file_mb"] * 1024 * 1024),
+            "--python",
+            _linux_python(),
+            "--site-packages",
+            runtime_environment["locked_site_packages"],
         ]
         command_kind = (
             "fixed_windows_wsl_bridge_bubblewrap_python"
@@ -355,12 +552,16 @@ def execute_attempt(
             str(budget["memory_mb"] * 1024 * 1024),
             "--file-bytes",
             str(budget["single_file_mb"] * 1024 * 1024),
+            "--python",
+            _linux_python(),
+            "--site-packages",
+            runtime_environment["locked_site_packages"],
         ]
         sandbox_policy = {
             "backend": (
-                f"windows_wsl_bridge/{WSL_DISTRO}+bubblewrap"
+                f"windows_wsl_bridge/{os.environ.get('AE_WSL_DISTRO', WSL_DISTRO).strip() or 'default'}+bubblewrap"
                 if IS_WINDOWS
-                else f"native_wsl/{WSL_DISTRO}+bubblewrap"
+                else "native_linux+bubblewrap"
             ),
             "user_namespace": True,
             "pid_namespace": True,
@@ -419,6 +620,12 @@ def execute_attempt(
                 break
             time.sleep(0.1)
         exit_code = process.wait(timeout=10)
+    log_encodings = {
+        "stdout": _normalize_execution_log(stdout_path, run_root=run_root),
+        "stderr": _normalize_execution_log(stderr_path, run_root=run_root),
+    }
+    if any(not row["ready"] for row in log_encodings.values()):
+        stop_reason = stop_reason or "transport_log_encoding"
     ended_at = utc_now()
     elapsed_seconds = round(time.monotonic() - start, 6)
     if cancel_path.exists():
@@ -460,7 +667,7 @@ def execute_attempt(
         "started_at": started_at,
         "ended_at": ended_at,
         "wall_seconds": elapsed_seconds,
-        "execution_backend": "windows_wsl_bridge" if IS_WINDOWS else "native_wsl",
+        "execution_backend": runtime_environment["execution_backend"],
         "command_kind": command_kind,
         "command_arguments": command_arguments,
         "host_process_exit_code": exit_code,
@@ -474,12 +681,14 @@ def execute_attempt(
             "size_bytes": stdout_size,
             "sha256": file_sha256(stdout_path),
             "truncated": stdout_size > budget["stdout_kb"] * 1024,
+            "encoding": log_encodings["stdout"],
         },
         "stderr": {
             "path": stderr_path.relative_to(run_root).as_posix(),
             "size_bytes": stderr_size,
             "sha256": file_sha256(stderr_path),
             "truncated": stderr_size > budget["stderr_kb"] * 1024,
+            "encoding": log_encodings["stderr"],
         },
         "resource_usage": _parse_resource_file(attempt_root / "resource.txt"),
         "runtime_environment": runtime_environment,
@@ -669,16 +878,72 @@ def _doctor_macos() -> dict[str, Any]:
     }
 
 
-def doctor() -> dict[str, Any]:
+def doctor(*, probe: bool = True) -> dict[str, Any]:
+    """Inspect prerequisites and, only when available, test real isolation.
+
+    ``probe=False`` is a read-only environment inspection. It never claims
+    readiness because namespace, host-file and network isolation remain untested.
+    Missing prerequisites also return a structured blocker without making a run
+    directory or attempting to execute experiment code.
+    """
     if IS_MACOS:
+        if not probe:
+            snapshot = runtime_environment_snapshot()
+            return {
+                "schema_version": "automatic-experiment-doctor-v1",
+                "status": "inspection_only",
+                "platform": "macos",
+                "runtime_environment": snapshot,
+                "sandbox_probe_executed": False,
+                "runtime_installation_permitted": False,
+            }
         return _doctor_macos()
+    snapshot = runtime_environment_snapshot()
+    runtime_files = _linux_runtime_files()
+    ready = snapshot["ready"] and runtime_files["ready"]
+    if not ready or not probe:
+        return {
+            "schema_version": "automatic-experiment-doctor-v1",
+            "status": "boundary_blocked" if not ready else "inspection_only",
+            "platform": "windows" if IS_WINDOWS else "linux",
+            "project_root": str(PROJECT_ROOT),
+            "wsl_distro": snapshot["wsl_distro"],
+            "runtime_environment": snapshot,
+            "sandbox_probe_executed": False,
+            "runtime_installation_permitted": False,
+            "detected_alternative_launchers": {
+                name: shutil.which(name) is not None for name in ("docker", "podman")
+            },
+            "checks": {
+                "runtime_prerequisites": {
+                    "ready": snapshot["ready"],
+                    "diagnostic": snapshot["diagnostic"],
+                },
+                "runtime_files": runtime_files,
+                "sandbox_probe": {
+                    "ready": False,
+                    "skipped": True,
+                    "diagnostic": (
+                        "Isolation cannot be tested until runtime prerequisites and runner checks are ready"
+                        if not ready
+                        else "Read-only inspection requested; actual isolation remains unverified"
+                    ),
+                },
+            },
+            "next_steps": [
+                "Provide an installed Linux isolation runtime with bubblewrap and locked dependencies",
+                "Optionally select AE_WSL_DISTRO, AE_SANDBOX_PYTHON and AE_SANDBOX_SITE_PACKAGES",
+                "Require LF runner bytes and a successful syntax check by the selected Linux bash",
+                "Run the full doctor and require sandbox_probe.ready before research execution",
+            ],
+        }
     checks: dict[str, Any] = {}
     version = _run_wsl(["bwrap", "--version"])
     checks["bubblewrap"] = {
         "ready": version.returncode == 0,
         "version": (version.stdout or version.stderr).strip(),
     }
-    python = _run_wsl([WSL_PYTHON, "--version"])
+    python = _run_wsl([_linux_python(), "--version"])
     checks["python"] = {
         "ready": python.returncode == 0,
         "version": (python.stdout or python.stderr).strip(),
@@ -699,15 +964,9 @@ def doctor() -> dict[str, Any]:
     checks["locked_packages"]["ready"] = (
         bool(site_packages) and package_diagnostic is None and not mismatches
     )
-    runner = PROJECT_ROOT / "src" / "automatic_experiment" / "sandbox_runner.sh"
-    worker = PROJECT_ROOT / "src" / "automatic_experiment" / "sandbox_worker.py"
-    checks["runtime_files"] = {
-        "ready": runner.is_file() and worker.is_file(),
-        "runner_sha256": file_sha256(runner) if runner.is_file() else None,
-        "worker_sha256": file_sha256(worker) if worker.is_file() else None,
-    }
+    checks["runtime_files"] = runtime_files
     runs_root = active_runs_root()
-    runs_root.mkdir(exist_ok=True)
+    runs_root.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(
         prefix=".doctor-", dir=runs_root
     ) as temporary_name:
@@ -776,7 +1035,10 @@ def doctor() -> dict[str, Any]:
             "--ro-bind",
             _backend_path(runtime),
             "/runtime.py",
-            "/usr/bin/python3",
+            "--ro-bind",
+            _linux_python(),
+            "/runtime/python",
+            "/runtime/python",
             "-I",
             "-B",
             "/runtime.py",
@@ -814,7 +1076,8 @@ def doctor() -> dict[str, Any]:
         "schema_version": "automatic-experiment-doctor-v1",
         "status": "ready" if ready else "boundary_blocked",
         "project_root": str(PROJECT_ROOT),
-        "wsl_distro": WSL_DISTRO,
+        "wsl_distro": os.environ.get("AE_WSL_DISTRO", WSL_DISTRO).strip() or None,
+        "sandbox_probe_executed": True,
         "gpu_policy": "gpu_count must remain zero in V1",
         "runtime_installation_permitted": False,
         "checks": checks,

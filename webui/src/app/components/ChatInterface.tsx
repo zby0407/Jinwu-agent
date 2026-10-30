@@ -454,6 +454,10 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
       summarizationEvent,
       modelOverride,
       setModelOverride,
+      canSend,
+      runtime,
+      failure,
+      recoverFailedRun,
     } = useChatContext();
     const confirmRegenerate = useCallback(() => {
       if (!regenerateMessageId) return;
@@ -738,7 +742,7 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
       (Array.isArray(interruptValue?.action_requests) &&
         interruptValue.action_requests.length > 0);
     const submitDisabled =
-      isLoading || isThreadLoading || !assistant || hasPendingInterrupt;
+      isLoading || isThreadLoading || !assistant || !canSend || hasPendingInterrupt;
 
     // Drain the user-message queue: when the thread goes idle (and no interrupt is
     // pending), send the head as the next turn. One per idle window — the
@@ -747,7 +751,7 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
     // isLoading drops and the queue still drains (queued = intent to send).
     useEffect(() => {
       if (
-        isLoading ||
+        !canSend || failure || isLoading ||
         isThreadLoading ||
         hasPendingInterrupt ||
         autoFireInFlightRef.current
@@ -762,6 +766,8 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
       setQueuedMessages(rest);
       sendMessage(formatMessageWithFiles(head.text, head.files));
     }, [
+      canSend,
+      failure,
       isLoading,
       isThreadLoading,
       hasPendingInterrupt,
@@ -964,7 +970,7 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
         // Can't compose with no assistant, a pending interrupt, or files still
         // uploading. (Unlike before, isLoading is NOT a blocker — see below.)
         if (
-          !assistant ||
+          !assistant || !canSend ||
           hasPendingInterrupt ||
           isUploadingFiles ||
           isThreadLoading
@@ -997,6 +1003,7 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
         input,
         applyModelCommand,
         assistant,
+        canSend,
         hasPendingInterrupt,
         autoApprove,
         isLoading,
@@ -1598,7 +1605,7 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
     }, [interrupt]);
 
     return (
-      <div className="flex flex-1 flex-col overflow-hidden">
+      <div className="flex flex-1 flex-col overflow-hidden" data-jw-queued-count={queuedMessages.length}>
         <Dialog
           open={autoApproveDialogOpen}
           onOpenChange={setAutoApproveDialogOpen}
@@ -2424,6 +2431,20 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
                 </button>
               </div>
             )}
+            {!canSend && (
+              <div role="status" className="px-4 py-2 text-sm text-muted-foreground">
+                {runtime.maintenance ? '正在应用连接设置…' : runtime.agent?.state === 'failed'
+                  ? '智能体初始化失败，请从桌面菜单打开“API 与连接设置”。'
+                  : `${runtime.backendReady ? '智能体准备中，可先编辑草稿' : '本地服务准备中，可先编辑草稿'} · ${Math.floor(runtime.elapsedMs / 1000)} 秒`}
+              </div>
+            )}
+            {failure && (
+              <div role="alert" className="border-b border-border px-4 py-3 text-sm">
+                <p>任务失败，等待处理。</p>
+                <details><summary>错误详情</summary><p className="break-words">{failure.message}</p></details>
+                {failure.recoverable && <Button type="button" size="sm" disabled={!canSend || isLoading} onClick={recoverFailedRun}>从失败检查点继续</Button>}
+              </div>
+            )}
             <form
               onSubmit={handleSubmit}
               className="flex flex-col"
@@ -2603,7 +2624,7 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
                     variant={isLoading ? "destructive" : "default"}
                     onClick={isLoading ? stopStream : handleSubmit}
                     disabled={
-                      isStopping ||
+                      isStopping || (!isLoading && !canSend) ||
                       (!isLoading &&
                         (submitDisabled || isUploadingFiles || !input.trim()))
                     }

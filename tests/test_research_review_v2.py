@@ -4608,6 +4608,23 @@ def test_integration_mechanism_claims_complete_after_evidence_review(
     assert store.next_action()["kind"] == "prepare_release"
 
 
+def _complete_report_fixture(draft: str) -> str:
+    from jw.report_contract import REPORT_FIELDS, REPORT_SUBFIELDS
+
+    sections = [draft]
+    for key, chinese, english, _ in REPORT_FIELDS:
+        if key == "paper_title":
+            continue
+        level = "###" if key in REPORT_SUBFIELDS else "##"
+        sections.extend(
+            [
+                f"{level} {chinese}（{english}）",
+                "Not recorded in this synthetic fixture; no additional scientific claim is made.",
+            ]
+        )
+    return "\n\n".join(sections)
+
+
 def test_final_release_defers_semantic_report_review_to_evidence(
     tmp_path: Path,
 ) -> None:
@@ -4641,7 +4658,7 @@ def test_final_release_defers_semantic_report_review_to_evidence(
     )
 
     cited_claim_id = integration["claims"][0]["claim_id"]
-    report = (
+    report = _complete_report_fixture(
         "# Result 2042\n\n首次提出一项原创机制。\n\n"
         "An additional interpretation without a paragraph-level citation.\n\n"
         "External replication remains unavailable."
@@ -4681,7 +4698,7 @@ def test_final_release_defers_semantic_report_review_to_evidence(
     )
     assert store.next_action()["kind"] == "prepare_release"
 
-    revised_report = (
+    revised_report = _complete_report_fixture(
         "# Result\n\nA coherent accepted synthesis.\n\n"
         "External replication remains unavailable."
     )
@@ -4776,7 +4793,7 @@ def test_final_release_uses_limits_curated_by_integration_review(
     ]
 
     cited_claim_id = accepted_claim_id
-    report = (
+    report = _complete_report_fixture(
         "# Result\n\nA coherent accepted synthesis.\n\nReader-facing scientific limit."
     )
     release = store.prepare_release(

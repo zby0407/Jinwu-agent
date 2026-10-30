@@ -7,6 +7,8 @@ import {
   parseSetupResponse,
   saveSetupConfiguration,
   setupCommandArgs,
+  testSetupConnection,
+  SETUP_TEST_TIMEOUT_MS,
 } from '../electron/lib/setup.mjs';
 
 class FakeChild extends EventEmitter {
@@ -95,6 +97,34 @@ test('setupCommandArgs only permits known modes', () => {
   assert.deepEqual(setupCommandArgs('status'), ['-m', 'jw.desktop_setup', 'status']);
   assert.deepEqual(setupCommandArgs('configure'), ['-m', 'jw.desktop_setup', 'configure']);
   assert.throws(() => setupCommandArgs('shell'), /未知/);
+  assert.deepEqual(setupCommandArgs('test'), ['-m', 'jw.desktop_setup', 'test']);
+  assert.equal(SETUP_TEST_TIMEOUT_MS, 30_000);
+});
+
+test('connection test cancellation kills its child and never saves a draft', async () => {
+  const controller = new AbortController();
+  const child = new FakeChild();
+  const calls = [];
+  const result = testSetupConnection({ pythonPath: 'python', cwd: '.', env: {},
+    payload: { provider: 'dashscope', api_key: 'synthetic-key', proxy_mode: 'direct' },
+    signal: controller.signal, spawnImpl: (_cmd, args) => { calls.push(args); return child; } });
+  controller.abort();
+  await assert.rejects(result, (error) => error.code === 'SETUP_CANCELLED');
+  assert.equal(child.killed, true);
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].at(-1), 'test');
+  assert.equal(JSON.parse(child.stdin.data).proxy_mode, 'direct');
+});
+
+test('an already cancelled test sends no credential payload', async () => {
+  const controller = new AbortController();
+  controller.abort();
+  const child = new FakeChild();
+  await assert.rejects(testSetupConnection({ pythonPath: 'python', cwd: '.', env: {},
+    payload: { provider: 'dashscope', api_key: 'synthetic-key' }, signal: controller.signal,
+    spawnImpl: () => child }), (error) => error.code === 'SETUP_CANCELLED');
+  assert.equal(child.stdin.data, '');
+  assert.equal(child.killed, true);
 });
 
 test('saveSetupConfiguration sends the API key on stdin, never argv', async () => {

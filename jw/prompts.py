@@ -23,6 +23,7 @@ Style notes
 """
 
 from .agent_harness import AUTONOMY_CONTRACT, render_capability_summary
+from .report_contract import REPORT_TEMPLATE
 
 # =============================================================================
 # Identity
@@ -224,17 +225,7 @@ EXPERIMENT_WORKFLOW = _build_experiment_workflow()
 # Report template (single source of truth — referenced from Step 5)
 # =============================================================================
 
-REPORT_TEMPLATE = """# Experiment Report Template (Recommended)
-
-When writing a final report (e.g. `final_report.md`), use this six-section structure unless the user requests a different format:
-
-1. **Summary & goals** — problem statement and what success looks like
-2. **Experiment plan** — stages with their success signals
-3. **Setup** — data, model, environment, hyperparameters, hardware
-4. **Baselines and comparisons** — what you compared against and why
-5. **Results** — tables / figures with references to artifact files
-6. **Analysis, limitations, and next steps** — interpretation, caveats, follow-ups
-"""
+# REPORT_TEMPLATE is shared with native report rendering and release validation.
 
 # =============================================================================
 # Writing guidelines (style rules for any written output)

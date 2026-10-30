@@ -54,9 +54,14 @@ function errorText(value, seen = new Set()) {
 
 export function isTransientProviderError(error) {
   const text = errorText(error);
+  if (/\[JW_PROVIDER:(TLS_HANDSHAKE|PROXY_CONNECT|TIMEOUT|CONNECTION)\]/.test(text)) return true;
   return TRANSIENT_PROVIDER_ERROR_MARKERS.some((marker) =>
     text.includes(marker)
   );
+}
+
+export function isRecoverableProviderError(error) {
+  return isTransientProviderError(error) || /\[JW_PROVIDER:(AUTH|QUOTA|MODEL_UNAVAILABLE)\]|AuthenticationError|PermissionDeniedError|RateLimitError/.test(errorText(error));
 }
 
 export function latestHumanTurnId(messages) {
@@ -165,12 +170,21 @@ export function writeRecoveryLedger(storage, ledger) {
 }
 
 export function beginTransientModelRecovery(storage, identity) {
-  const key = recoveryLedgerStorageKey(identity.threadId, identity.turnId);
-  if (storage.getItem(key) !== null) return null;
+  const previous = readRecoveryLedger(storage, identity.threadId, identity.turnId);
+  if (previous && (isPendingRecoveryLedger(previous) || previous.runId === identity.runId)) return null;
   return writeRecoveryLedger(
     storage,
     recoveryLedger(identity, RECOVERY_LEDGER_STATES.DISCOVERING)
   );
+}
+
+// These states are persisted before submit. Releasing them is safe after a
+// cancelled/read-only discovery or a page reload; STARTED remains ambiguous.
+export function releaseUnsubmittedRecovery(storage, threadId, turnId) {
+  const previous = readRecoveryLedger(storage, threadId, turnId);
+  if (!previous || ![RECOVERY_LEDGER_STATES.DISCOVERING, RECOVERY_LEDGER_STATES.SCHEDULED].includes(previous.state)) return false;
+  storage.removeItem(recoveryLedgerStorageKey(threadId, turnId));
+  return true;
 }
 
 export function transitionRecoveryLedger(ledger, state, updates = {}) {
@@ -256,7 +270,7 @@ export function recoverableTransientModelCheckpoint(state) {
   const failedModel = Array.isArray(state.tasks)
     ? state.tasks.find(
         (task) =>
-          task && task.name === "model" && isTransientProviderError(task.error)
+          task && task.name === "model" && isRecoverableProviderError(task.error)
       )
     : null;
   if (!failedModel) return null;

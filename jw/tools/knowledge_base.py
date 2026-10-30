@@ -8,11 +8,14 @@ logging, and the promotion review gate implemented in
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import os
 import sys
 import threading
+import uuid
+from pathlib import Path
 from typing import Any
 
 from jw.runtime_layout import PROJECT_ROOT as _PROJECT_ROOT
@@ -25,6 +28,7 @@ from langchain_core.runnables import RunnableConfig  # noqa: E402
 from langchain_core.tools import tool  # noqa: E402
 
 from jw.tools.registry import register_tool_bundle  # noqa: E402
+from jw.workspaces import workspace_root_from_config  # noqa: E402
 from knowledge_base import context as knowledge_context  # noqa: E402
 from knowledge_base import growth, literature, service  # noqa: E402
 from knowledge_base.seed import ensure_builtin_wiki  # noqa: E402
@@ -646,10 +650,11 @@ def lit_bundle_build(
     limit: int = 3,
     config: RunnableConfig = None,
 ) -> str:
-    """Build a frozen, task-bound bundle from already cached literature.
+    """Build a frozen, task-bound bundle of cached metadata and abstracts only.
 
     This tool never searches the network and returns at most five directly
-    relevant, non-retracted source snapshots. It is safe for the hypothesis
+    relevant, non-retracted abstract snapshots, never article full text.
+    It is safe for the hypothesis
     agent's read-only capability.
 
     Args:
@@ -679,7 +684,7 @@ def lit_bundle_build(
 
 @tool(parse_docstring=True)
 def lit_bundle_read(bundle_id: str) -> str:
-    """Read one previously frozen task literature bundle.
+    """Read a frozen metadata/abstract bundle, never article full text.
 
     Args:
         bundle_id: Bundle id returned by ``lit_bundle_build``.
@@ -925,25 +930,286 @@ def lit_search(
         return _err(str(exc))
 
 
-@tool(parse_docstring=True)
-def lit_fetch(source_id: str) -> str:
-    """Write a cached literature source to the task and persistent Wiki source layer.
+def _task_literature_directory(config: RunnableConfig | None) -> Path | None:
+    """Use the standard thread workspace; unbound library callers retain defaults."""
+    _, run_id = _run_context(config)
+    return workspace_root_from_config(config) / "literature" if run_id else None
 
-    The task-readable copy goes to ``workspace/literature/`` (falling back to
-    ``<DATA_DIR>/literature``); an immutable Wiki copy goes to
-    ``<workspace>/knowledge_base/raw/sources/``. Idempotent: an already-fetched
-    source returns the existing file with ``cached=true``.
+
+def _assert_literature_cache_path(path: Path, root: Path) -> None:
+    """Check a native cache path before the library can follow or overwrite it."""
+    try:
+        relative = path.absolute().relative_to(root.absolute())
+        path.resolve().relative_to(root.resolve())
+    except ValueError as exc:
+        raise PermissionError(
+            "Literature cache escaped its current task scope"
+        ) from exc
+    cursor = root
+    for part in (None, *relative.parts):
+        if part is not None:
+            cursor /= part
+        is_junction = getattr(cursor, "is_junction", None)
+        if cursor.is_symlink() or (callable(is_junction) and is_junction()):
+            raise PermissionError("Task literature cache cannot use linked paths")
+
+
+@tool(parse_docstring=True)
+def lit_fetch(source_id: str, config: RunnableConfig = None) -> str:
+    """Export cached metadata and abstract; this does not retrieve article full text.
+
+    Task-bound calls write to the current workspace's literature directory.
+    Library calls without a thread use the existing default export directory.
 
     Args:
-        source_id: Cached source id from ``lit_search``, like ``openalex:W123``.
+        source_id: Cached source id from lit_search, such as openalex:W123.
+        config: Runtime-injected current task configuration.
 
     Returns:
-        JSON string with the text file path and its length.
+        Export path, length and explicit abstract-only reading scope.
     """
     try:
-        return _ok(literature.fetch_literature(_get_store(), source_id))
-    except Exception as exc:  # noqa: BLE001
+        store = _get_store()
+        directory = _task_literature_directory(config)
+        if directory is None:
+            return _ok(literature.fetch_literature(store, source_id))
+        _assert_literature_cache_path(directory, directory.parent)
+        source = store.resolve_lit_source(source_id)
+        if source is not None:
+            filename = literature._source_filename(str(source["source_id"]))
+            _assert_literature_cache_path(directory / filename, directory.parent)
+            _assert_literature_cache_path(
+                store.export_dir / "raw/sources" / filename, store.export_dir
+            )
+        return _ok(
+            literature.fetch_literature(store, source_id, literature_dir=directory)
+        )
+    except Exception as exc:
         return _err(str(exc))
+
+
+@tool(parse_docstring=True)
+def lit_fetch_full_text(
+    source_id: str,
+    article_url: str = "",
+    binding_id: str = "",
+    config: RunnableConfig = None,
+) -> str:
+    """Retrieve one bounded public original article into the current bound task.
+
+    Requires lit_bind_task and a source_id from the literature search
+    cache. Uses an explicit article URL or the cached source URL. HTTP(S)
+    public addresses only: no credentials, private networks, paywall bypass,
+    authenticated session, cookies, archive restoration or automatic retries.
+    At most 5 MiB, five redirects and a 20 second network deadline. HTML/plain
+    text or extractable PDF must match the cached title/DOI and show an article
+    body with sections and references. Landing/abstract pages fail honestly.
+    Retrieval is not source review or scientific support. Read the resulting
+    text and preserve its extraction/completeness limits and exact locations.
+
+    Args:
+        source_id: Non-retracted source id from this task's lit_search results.
+        article_url: Optional explicit public article/full-text URL; otherwise cached URL.
+        binding_id: Current lit_bind_task binding; active task binding when omitted.
+
+    Returns:
+        Task-local raw/text paths, source/redirect provenance and SHA hashes,
+        or an unavailable receipt with the full-text evidence gap retained.
+    """
+    try:
+        from jw.literature_full_text import (
+            fetch_article_full_text,
+            register_successful_full_text,
+        )
+
+        directory = _task_literature_directory(config)
+        if directory is None:
+            raise PermissionError(
+                "Public article retrieval requires an explicit current bound task"
+            )
+        store = _get_store()
+        selected_id = binding_id or _ACTIVE_DISTILL_BINDINGS.get(
+            _binding_context_key(config), ""
+        )
+        binding = _DISTILL_BINDINGS.get(selected_id)
+        _, run_id = _run_context(config)
+        if not binding or str(binding.get("run_id") or "") != run_id:
+            raise PermissionError(
+                "Bind the current task with lit_bind_task before public article retrieval"
+            )
+        source = store.resolve_lit_source(source_id)
+        if source is None or source.get("is_retracted"):
+            raise ValueError("A current cached non-retracted source_id is required")
+        url = (
+            article_url or str(source.get("url") or "") or str(source.get("doi") or "")
+        )
+        if url.startswith("10."):
+            url = "https://doi.org/" + url
+        if (
+            not article_url
+            and str(source.get("provider")) == "arxiv"
+            and "/abs/" in url
+        ):
+            url = url.replace("/abs/", "/pdf/", 1)
+        target = directory / "full_text"
+        _assert_literature_cache_path(target, directory.parent)
+        result = fetch_article_full_text(
+            source,
+            article_url=url,
+            directory=target,
+            binding_id=selected_id,
+            task_workspace=workspace_root_from_config(config),
+            task_thread_id=run_id,
+        )
+        for key in ("path", "raw_path", "receipt_path"):
+            if key in result:
+                _assert_literature_cache_path(Path(result[key]), target)
+        if result.get("status") == "ok":
+            result.update(
+                register_successful_full_text(
+                    workspace_root_from_config(config), Path(result["receipt_path"])
+                )
+            )
+        return _ok(result)
+    except Exception as exc:  # noqa: BLE001
+        # No URL or exception body is echoed, because it might carry credentials.
+        return _err(
+            "Public article retrieval input or task boundary rejected: "
+            + type(exc).__name__
+        )
+
+
+@tool(parse_docstring=True)
+def lit_read_full_text(
+    receipt_path: str,
+    start_line: int = 1,
+    max_lines: int = 80,
+    max_chars: int = 12000,
+    config: RunnableConfig = None,
+) -> str:
+    """Read a bounded, located excerpt from this task's retrieved article text.
+
+    Use the exact receipt_path from lit_fetch_full_text. Requires the same
+    live task binding and successful host registration; checks receipt, raw
+    and extracted-text hashes on every read. No arbitrary files, prior task
+    cache, changed source or fabricated full-text reading status is accepted.
+    This returns only the requested text range, never a scientific assessment.
+
+    Args:
+        receipt_path: Exact successful receipt path returned by lit_fetch_full_text.
+        start_line: One-based first extracted-text line to read.
+        max_lines: Maximum lines to return, between one and 200.
+        max_chars: Maximum excerpt characters, between one and 20000.
+
+    Returns:
+        Actual text excerpt, source/line range, reading-scope receipt and
+        verified source hashes; completeness is stated for this call only.
+    """
+    try:
+        from jw.literature_full_text import verified_full_text_sources
+
+        if any(
+            type(value) is not int for value in [start_line, max_lines, max_chars]
+        ) or not (
+            start_line >= 1 and 1 <= max_lines <= 200 and 1 <= max_chars <= 20000
+        ):
+            raise ValueError("Invalid bounded article read range")
+        directory = _task_literature_directory(config)
+        if directory is None:
+            raise PermissionError("Article reads require the current bound task")
+        path = Path(receipt_path)
+        target = directory / "full_text"
+        _assert_literature_cache_path(path, target)
+        relative = path.absolute().relative_to(target.absolute())
+        if (
+            len(relative.parts) != 2
+            or path.name != "receipt.json"
+            or not relative.parts[0].startswith("article_")
+        ):
+            raise PermissionError(
+                "Only a successful current article receipt can be read"
+            )
+        sources = verified_full_text_sources(workspace_root_from_config(config))
+        if path.resolve() not in sources:
+            raise PermissionError("Article receipt is not registered")
+        expected = hashlib.sha256(path.read_bytes()).hexdigest()
+        receipt = json.loads(path.read_text(encoding="utf-8"))
+        selected_id = _ACTIVE_DISTILL_BINDINGS.get(_binding_context_key(config), "")
+        binding = _DISTILL_BINDINGS.get(selected_id)
+        _, run_id = _run_context(config)
+        if (
+            not binding
+            or binding.get("run_id") != run_id
+            or receipt.get("binding_id") != selected_id
+        ):
+            raise PermissionError(
+                "Article receipt belongs to a different literature task binding"
+            )
+        if (
+            receipt.get("status") != "ok"
+            or receipt.get("full_text_retrieved") is not True
+        ):
+            raise PermissionError(
+                "Unavailable article receipts cannot be read as full text"
+            )
+        for key, sha_key in [("raw_path", "raw_sha256"), ("path", "text_sha256")]:
+            source_path = Path(receipt[key])
+            _assert_literature_cache_path(source_path, path.parent)
+            if (
+                source_path.parent != path.parent
+                or hashlib.sha256(source_path.read_bytes()).hexdigest()
+                != receipt[sha_key]
+            ):
+                raise PermissionError(
+                    "The registered article source or extracted text changed"
+                )
+        text = Path(receipt["path"]).read_text(encoding="utf-8")
+        lines = text.splitlines(keepends=True)
+        if start_line > len(lines):
+            raise ValueError("Article read start_line exceeds extracted text")
+        chosen = lines[start_line - 1 : start_line - 1 + max_lines]
+        full_range = "".join(chosen)
+        excerpt = full_range[:max_chars]
+        returned_lines = len(excerpt.splitlines())
+        end_line = start_line + returned_lines - 1
+        truncated_last_line = len(excerpt) < len(full_range) and not excerpt.endswith(
+            ("\n", "\r")
+        )
+        result = {
+            "status": "ok",
+            "source_id": receipt["source_id"],
+            "binding_id": selected_id,
+            "receipt_path": str(path),
+            "receipt_sha256": expected,
+            "raw_sha256": receipt["raw_sha256"],
+            "text_sha256": receipt["text_sha256"],
+            "source_url": receipt["final_url"],
+            "text": excerpt,
+            "source_ref": receipt["path"],
+            "start_line": start_line,
+            "end_line": end_line,
+            "last_line_partial": truncated_last_line,
+            "total_lines": len(lines),
+            "returned_chars": len(excerpt),
+            "full_text_retrieved": True,
+            "complete_extracted_text_returned": start_line == 1 and excerpt == text,
+            "reading_level": "extracted_article_excerpt_returned",
+            "scientific_assessment_performed": False,
+            "extraction_limits": receipt["extraction_limits"],
+        }
+        read_path = path.parent / "reads" / ("read_" + uuid.uuid4().hex[:12] + ".json")
+        _assert_literature_cache_path(read_path, path.parent)
+        read_path.parent.mkdir(parents=True, exist_ok=True)
+        reading_receipt = {key: value for key, value in result.items() if key != "text"}
+        reading_receipt["excerpt_sha256"] = hashlib.sha256(
+            excerpt.encode("utf-8")
+        ).hexdigest()
+        with read_path.open("x", encoding="utf-8") as handle:
+            json.dump(reading_receipt, handle, ensure_ascii=False, indent=2)
+        result["reading_receipt_path"] = str(read_path)
+        return _ok(result)
+    except Exception as exc:  # noqa: BLE001
+        return _err("Article text read rejected: " + type(exc).__name__)
 
 
 @tool(parse_docstring=True)
@@ -1033,6 +1299,8 @@ KB_TOOLS = [
     lit_bundle_read,
     lit_search,
     lit_fetch,
+    lit_fetch_full_text,
+    lit_read_full_text,
     lit_distill,
     lit_impact_record,
     lit_patch_propose,
@@ -1055,6 +1323,8 @@ KB_LITERATURE_TOOLS = [
     lit_bind_task,
     lit_search,
     lit_fetch,
+    lit_fetch_full_text,
+    lit_read_full_text,
     lit_bundle_build,
     lit_bundle_read,
 ]

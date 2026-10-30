@@ -270,7 +270,12 @@ def load_subagents(
             if any(part.startswith((".", "_")) for part in rel_parts[:-1]):
                 continue
             with yml.open(encoding="utf-8") as f:
-                data = yaml.safe_load(f)
+                # The binary wheels shipped with the desktop runtime include
+                # LibYAML. Keep SafeLoader semantics for untrusted YAML tags;
+                # source installs without the extension use the same safe API.
+                data = yaml.load(
+                    f, Loader=getattr(yaml, "CSafeLoader", yaml.SafeLoader)
+                )
             if data is None:
                 # Empty file — skip silently (matches dotfile/underscore skip behavior)
                 continue

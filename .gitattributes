@@ -1,3 +1,5 @@
+*.sh text eol=lf
+
 # Registered research inputs are hash-bound byte snapshots. Never normalize
 # their line endings, otherwise catalog SHA-256 verification becomes platform-dependent.
 /projects/default/shared/data/** binary

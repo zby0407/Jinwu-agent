@@ -15,6 +15,7 @@ export const DESKTOP_ACTIONS = Object.freeze([
   'quit',
   'open-logs',
   'open-workspace',
+  'configure',
 ]);
 export const EXTERNAL_PROTOCOLS = Object.freeze(['https:']);
 

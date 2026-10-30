@@ -166,6 +166,7 @@ class JWConfig:
     volcengine_api_key: str = ""
     dashscope_api_key: str = ""
     dashscope_base_url: str = ""
+    dashscope_proxy_mode: Literal["env", "direct"] = "env"
     moonshot_api_key: str = ""
     kimi_api_key: str = ""
     custom_openai_api_key: str = ""
@@ -786,6 +787,7 @@ _ENV_MAPPINGS = {
     "volcengine_api_key": "VOLCENGINE_API_KEY",
     "dashscope_api_key": "DASHSCOPE_API_KEY",
     "dashscope_base_url": "DASHSCOPE_BASE_URL",
+    "dashscope_proxy_mode": "JW_DASHSCOPE_PROXY_MODE",
     "moonshot_api_key": "MOONSHOT_API_KEY",
     "kimi_api_key": "KIMI_API_KEY",
     "custom_openai_api_key": "CUSTOM_OPENAI_API_KEY",

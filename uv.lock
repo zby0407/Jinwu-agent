@@ -2088,7 +2088,7 @@ wheels = [
 
 [[package]]
 name = "jw-agent"
-version = "0.2.2"
+version = "0.2.3"
 source = { editable = "." }
 dependencies = [
     { name = "deepagents", extra = ["quickjs"] },

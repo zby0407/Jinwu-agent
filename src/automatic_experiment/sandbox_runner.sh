@@ -7,6 +7,8 @@ wall_seconds=""
 cpu_seconds=""
 memory_bytes=""
 file_bytes=""
+python_path="/usr/bin/python3"
+site_packages=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -16,6 +18,8 @@ while [[ $# -gt 0 ]]; do
     --cpu-seconds) cpu_seconds="$2"; shift 2 ;;
     --memory-bytes) memory_bytes="$2"; shift 2 ;;
     --file-bytes) file_bytes="$2"; shift 2 ;;
+    --python) python_path="$2"; shift 2 ;;
+    --site-packages) site_packages="$2"; shift 2 ;;
     *) echo "unsupported sandbox runner argument" >&2; exit 64 ;;
   esac
 done
@@ -29,7 +33,11 @@ done
 [[ -f "$attempt_root/code/experiment.py" ]] || { echo "experiment.py missing" >&2; exit 66; }
 [[ -f "$attempt_root/code/worker_request.json" ]] || { echo "worker request missing" >&2; exit 66; }
 [[ -f "$runtime_file" ]] || { echo "trusted worker missing" >&2; exit 66; }
-site_packages="$(/usr/bin/python3 -c 'import site; print(site.getusersitepackages())')"
+[[ "$python_path" == /* && -f "$python_path" && -x "$python_path" ]] || { echo "absolute trusted Linux Python required" >&2; exit 66; }
+if [[ -z "$site_packages" ]]; then
+  site_packages="$("$python_path" -I -c 'import site; print(site.getusersitepackages())')"
+fi
+[[ "$site_packages" == /* ]] || { echo "absolute locked site-packages directory required" >&2; exit 66; }
 [[ -d "$site_packages" ]] || { echo "locked user site-packages directory missing" >&2; exit 66; }
 
 input_root="$(dirname "$(dirname "$attempt_root")")/inputs"
@@ -70,6 +78,7 @@ bwrap_args=(
   --ro-bind "$prior_root" /workspace/prior
   --bind "$attempt_root/output" /workspace/output
   --ro-bind "$runtime_file" /runtime/sandbox_worker.py
+  --ro-bind "$python_path" /runtime/python
   --chdir /workspace
 )
 
@@ -97,7 +106,7 @@ while [[ "$startup_attempt" -lt 4 ]]; do
         --nproc=32 \
         --nofile=256 \
         -- \
-        /usr/bin/python3 -I -B /runtime/sandbox_worker.py \
+        /runtime/python -I -B /runtime/sandbox_worker.py \
           --experiment /workspace/code/experiment.py \
           --request /workspace/code/worker_request.json \
           --result /workspace/output/result.json \

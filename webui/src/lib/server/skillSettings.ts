@@ -92,11 +92,25 @@ export async function readDisabledSkills(): Promise<Set<string>> {
  * missing, keeps unknown fields, pins `version: 1`, and stores `disabled`
  * sorted/de-duplicated (matching Python's writer byte for byte).
  */
-export async function setSkillEnabled(
+const writeQueues = new Map<string, Promise<void>>();
+
+export async function setSkillEnabled(name: string, enabled: boolean): Promise<void> {
+  const path = skillSettingsPath();
+  const previous = writeQueues.get(path) ?? Promise.resolve();
+  const pending = previous.catch(() => {}).then(() => writeSkillEnabled(path, name, enabled));
+  writeQueues.set(path, pending);
+  try {
+    await pending;
+  } finally {
+    if (writeQueues.get(path) === pending) writeQueues.delete(path);
+  }
+}
+
+async function writeSkillEnabled(
+  path: string,
   name: string,
   enabled: boolean
 ): Promise<void> {
-  const path = skillSettingsPath();
   const settings = await readSettingsFile(path);
   const disabled = new Set(normalizeDisabled(settings.disabled));
   if (enabled) disabled.delete(name);
@@ -111,7 +125,16 @@ export async function setSkillEnabled(
   const tmp = join(dirname(path), `.${basename(path)}.${randomUUID()}.tmp`);
   try {
     await writeFile(tmp, serializeSettings(next), "utf8");
-    await rename(tmp, path);
+    for (let attempt = 0; ; attempt++) {
+      try {
+        await rename(tmp, path);
+        break;
+      } catch (error) {
+        const code = (error as NodeJS.ErrnoException).code;
+        if (process.platform !== "win32" || !["EPERM", "EACCES", "EBUSY"].includes(code ?? "") || attempt >= 4) throw error;
+        await new Promise((resolve) => setTimeout(resolve, 10 * 2 ** attempt));
+      }
+    }
   } catch (error) {
     await unlink(tmp).catch(() => {});
     throw error;

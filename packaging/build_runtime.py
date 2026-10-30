@@ -415,7 +415,16 @@ def prepare_python(
         if not source.is_dir():
             raise BuildError(f"--python-dir does not exist: {source}")
         log(f"using prebuilt Python from {source}")
-        shutil.copytree(source, destination, symlinks=True)
+        # Dependencies are installed/copied in the next phase. Avoid copying an
+        # entire populated interpreter twice when using the offline escape hatch.
+        shutil.copytree(
+            source,
+            destination,
+            symlinks=True,
+            ignore=shutil.ignore_patterns("site-packages")
+            if args.deps_site_packages
+            else None,
+        )
     else:
         install_dir = Path(env["UV_PYTHON_INSTALL_DIR"])
         install_dir.mkdir(parents=True, exist_ok=True)
@@ -545,7 +554,16 @@ def install_python_packages(
             "hatch); CI uses the frozen uv.lock instead"
         )
         _copy_site_packages(
-            source, site_packages, excludes=(*PYTHON_BOOTSTRAP_IGNORE, "jw", "jw-*")
+            source,
+            site_packages,
+            excludes=(
+                *PYTHON_BOOTSTRAP_IGNORE,
+                "jw",
+                "jw-*",
+                "jw_agent-*",
+                "research_review",
+                "research_quality",
+            ),
         )
     else:
         lock_file = REPO_ROOT / "uv.lock"
@@ -1116,6 +1134,37 @@ def _remove(path: Path) -> None:
         shutil.rmtree(path, ignore_errors=True)
 
 
+def precompile_runtime(out_dir: Path, *, platform: str, env: dict[str, str]) -> None:
+    """Compile the private runtime after all dependencies and JW are installed.
+
+    The packaged runtime is replaced as a unit on upgrade. Build-owned bytecode
+    avoids reopening thousands of source files at every Windows launch. Force
+    regeneration here; source development environments keep normal validation.
+    """
+    run(
+        [
+            _interpreter_in(out_dir / "python", platform),
+            "-I",
+            "-m",
+            "compileall",
+            "-q",
+            "-f",
+            "-j",
+            "1",
+            "--invalidation-mode",
+            "unchecked-hash",
+            "-s",
+            str(out_dir),
+            "-p",
+            "runtime",
+            str(out_dir / "python" / ("Lib" if platform == "win32" else "lib")),
+        ],
+        cwd=out_dir,
+        env=env,
+        label="precompile private Python",
+    )
+
+
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
     out_dir = args.out.expanduser().resolve()
@@ -1208,6 +1257,9 @@ def main(argv: list[str] | None = None) -> int:
         shutil.move(str(staging), str(out_dir))
         moved = True
 
+        log("== precompile private Python with relocatable filenames ==")
+        precompile_runtime(out_dir, platform=args.platform, env=env)
+
         log("== self-check from the final path ==")
         sys.path.insert(0, str(SCRIPT_DIR))
         from runtime_contract import check_runtime  # local sibling module
@@ -1247,4 +1299,7 @@ def main(argv: list[str] | None = None) -> int:
 
 
 if __name__ == "__main__":
+    if sys.platform == "win32":
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
     raise SystemExit(main())

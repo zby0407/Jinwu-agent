@@ -7,7 +7,7 @@
       content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'"
     />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>金乌 · 首次配置</title>
+    <title>金乌 · API 与连接设置</title>
     <link rel="stylesheet" href="./setup.css" />
   </head>
   <body>
@@ -15,7 +15,7 @@
       <header>
         <img class="mark" src="./assets/logo.png" alt="金乌" />
         <div>
-          <h1>欢迎使用金乌</h1>
+          <h1>API 与连接设置</h1>
           <p class="subtitle">连接一个模型服务，开始你的科研智能体。</p>
         </div>
       </header>
@@ -42,7 +42,7 @@
             spellcheck="false"
           />
           <p class="hint">
-            只保存在本机配置文件中，不会写入日志或发送到金乌之外的服务。
+            密钥保存在本机，用于向所选模型服务进行身份验证；不会回显或写入配置日志。已有密钥时留空可保留。
           </p>
         </div>
 
@@ -57,6 +57,15 @@
           />
         </div>
 
+        <div class="field" id="proxy-field">
+          <label for="proxy-mode">DashScope 连接方式</label>
+          <select id="proxy-mode"><option value="env">跟随系统代理（默认）</option><option value="direct">直连</option></select>
+          <p class="hint" id="proxy-source"></p>
+          <p class="hint">测试会向当前模型发送一次仅要求回复 OK 的请求，可能产生少量费用；不发送实验内容，不保存表单。最长等待 30 秒。</p>
+          <button type="button" class="secondary" id="test">测试连接</button>
+          <button type="button" class="secondary hidden" id="cancel-test">取消测试</button>
+          <p class="hint" id="test-result" role="status"></p>
+        </div>
         <p class="error hidden" id="error" role="alert"></p>
         <p class="success hidden" id="success" role="status">
           配置已保存，正在启动金乌…
@@ -70,7 +79,7 @@
 
       <footer>
         <span id="config-path"></span>
-        <span>首次配置完成后，可随时通过 `jw configure` 修改。</span>
+        <span>可随时通过桌面“文件 → API 与连接设置”修改。</span>
       </footer>
     </main>
     <script src="./setup.js"></script>

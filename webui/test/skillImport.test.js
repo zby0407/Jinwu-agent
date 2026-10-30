@@ -430,7 +430,15 @@ test("uploads: duplicate paths are rejected", async (t) => {
 test("directory: symlinks are rejected", async (t) => {
   await freshInstallRoot(t);
   const source = await makeTree(t, { "SKILL.md": "# Src\n" }, "linked-skill");
-  await symlink("/etc/passwd", join(source, "leak.txt"));
+  try {
+    await symlink("/etc/passwd", join(source, "leak.txt"));
+  } catch (error) {
+    if (process.platform === "win32" && error.code === "EPERM") {
+      t.skip("Windows account cannot create symbolic links; run this case on Unix or with symlink privileges.");
+      return;
+    }
+    throw error;
+  }
   await rejectsWith(importSkillFromDirectory(source), "unsafe");
   assert.deepEqual(await listInstalled(), []);
 });
