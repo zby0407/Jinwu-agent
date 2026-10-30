@@ -35,7 +35,7 @@ from jw.research_influence.cohort import (
 )
 from jw.research_influence.package import verify_package
 from jw.research_influence.paper import build_paper
-from jw.research_influence.providers.base import ProviderPolicy
+from jw.research_influence.providers.base import ProviderPolicy, credential
 from jw.research_influence.providers.openalex import fetch_work, search_works
 from jw.research_influence.transport import PoliteTransport, UrllibTransport
 from jw.research_influence.workflow import (
@@ -360,6 +360,12 @@ def infl_snapshot_search(
         statuses: dict[str, int] = {}
         page = 1
         pages_fetched = 0
+        # Cursor paging is the right way to walk a large result set, but it
+        # answers "401 API key required" without a key. So: use a cursor when a
+        # key is configured, otherwise page by number and say so in the notes.
+        key, _ = credential("openalex", policy)
+        cursor = "*" if key else ""
+        paging = "cursor" if cursor else "page"
         while len(records) < wanted:
             result = search_works(
                 query,
@@ -367,6 +373,7 @@ def infl_snapshot_search(
                 policy=policy,
                 per_page=min(200, wanted - len(records)),
                 page=page,
+                cursor=cursor,
             )
             statuses[str(result.status.value)] = (
                 statuses.get(result.status.value, 0) + 1
@@ -387,6 +394,12 @@ def infl_snapshot_search(
             records.extend(page_records[: wanted - len(records)])
             pages_fetched += 1
             page += 1
+            meta = payload.get("meta")
+            if cursor:
+                next_cursor = str((meta or {}).get("next_cursor") or "")
+                if not next_cursor:
+                    break
+                cursor = next_cursor
         papers = []
         for parsed in records:
             work = _parse_work(parsed)
@@ -415,8 +428,20 @@ def infl_snapshot_search(
             query=query,
             source="openalex",
             reference_year=int(reference_year or 0),
-            filters={"limit": int(limit), "pages_fetched": pages_fetched},
-            notes=("metadata_only_snapshot",),
+            filters={
+                "limit": int(limit),
+                "pages_fetched": pages_fetched,
+                "paging": paging,
+            },
+            notes=(
+                "metadata_only_snapshot",
+                (
+                    "cursor_paging"
+                    if paging == "cursor"
+                    else "page_number_paging_needs_api_key_for_cursor"
+                ),
+                "relevance_ranked_sample_is_a_moment_not_a_fixed_cohort",
+            ),
         )
         path = _cohort_dir(workspace) / f"{name.strip() or _slug(query)}.json"
         snapshot.write(path)
@@ -427,6 +452,7 @@ def infl_snapshot_search(
             reference_year=snapshot.reference_year,
             fingerprint=snapshot.fingerprint(),
             pages_fetched=pages_fetched,
+            paging=paging,
             provider_statuses=statuses,
             missing={
                 field: sum(1 for paper in snapshot.papers if paper.missing.get(field))

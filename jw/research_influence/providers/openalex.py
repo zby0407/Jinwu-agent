@@ -88,12 +88,17 @@ def search_works(
     per_page: int = 25,
     filter_expression: str = "",
     page: int = 1,
+    cursor: str = "",
 ) -> ProviderResult:
     """Search works, used to build cohorts and to match titles.
 
     ``page`` exists because a cohort larger than one page needs paging, and a
     builder that silently keeps the first page would look complete while being
     a biased sample of whatever OpenAlex ranked highest.
+
+    ``cursor`` is the paging form OpenAlex recommends for deep reads, but it
+    answers ``401 API key required for cursor paging`` without a key, so callers
+    with a key pass a cursor and callers without one page by number.
     """
     text = str(query or "").strip()
     if not text:
@@ -107,7 +112,9 @@ def search_works(
     ]
     if filter_expression:
         params.append(f"filter={quote(filter_expression, safe='')}")
-    if int(page or 1) > 1:
+    if cursor:
+        params.append(f"cursor={quote(str(cursor), safe='')}")
+    elif int(page or 1) > 1:
         params.append(f"page={int(page)}")
     if policy.email:
         params.append(f"mailto={quote(policy.email, safe='')}")

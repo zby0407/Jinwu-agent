@@ -10,6 +10,7 @@ Prints a JSON scoreboard. Every number is reproducible from the frozen snapshot.
 from __future__ import annotations
 
 import json
+import os
 import sys
 import time
 from pathlib import Path
@@ -41,11 +42,21 @@ WORKSPACE = Path("workspace")
 COHORT_PATH = WORKSPACE / "research_influence" / "cohorts" / "snia_real.json"
 
 
+def _cohort_path() -> Path:
+    """Which snapshot to score.
+
+    Overridable so a rebuilt snapshot can be scored without editing code: the
+    numbers below belong to one fingerprint, and a newer snapshot has its own.
+    """
+    override = os.getenv("REAL_EFFECT_COHORT", "").strip()
+    return Path(override) if override else COHORT_PATH
+
+
 def main() -> None:
     transport = PoliteTransport(UrllibTransport())
     policy = ProviderPolicy.from_environment()
 
-    snapshot = CohortSnapshot.load(COHORT_PATH)
+    snapshot = CohortSnapshot.load(_cohort_path())
     papers = list(snapshot.papers)
     print(f"cohort: {len(papers)} papers", file=sys.stderr)
 

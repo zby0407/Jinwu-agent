@@ -48,7 +48,9 @@ class ProviderPolicy:
     """Everything a provider needs to know about how we are allowed to talk."""
 
     timeout: float = 20.0
-    max_bytes: int = 4_000_000
+    # A 200-row OpenAlex page with the full field selection is about 7 MB; the
+    # old 4 MB cap silently truncated it into an "invalid payload".
+    max_bytes: int = 32_000_000
     allow_network: bool = True
     email: str = ""
     overrides: Mapping[str, str] = field(default_factory=dict)
@@ -95,6 +97,17 @@ def json_result(
     missing_status: ProviderStatus = ProviderStatus.NOT_FOUND,
 ) -> ProviderResult:
     """Turn a transport response into a typed provider result."""
+    if response.truncated:
+        # Named for what happened instead of blaming the payload: the bytes are
+        # ours to raise, and a reader who sees "invalid payload" here would go
+        # looking for a parser bug that does not exist.
+        return ProviderResult(
+            provider=provider,
+            status=ProviderStatus.UNAVAILABLE,
+            url=url,
+            http_status=response.status,
+            note=f"response_too_large:{len(response.body)} bytes",
+        )
     if response.error or not response.ok:
         status = _status_for(response)
         return ProviderResult(

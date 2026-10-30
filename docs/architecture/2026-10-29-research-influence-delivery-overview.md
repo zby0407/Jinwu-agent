@@ -172,9 +172,11 @@ infl_acquisition_request`。
    现在会翻页直到 `limit`，不是只留第一页）与 `infl_snapshot_import`（把别处导出的
    `/works` 记录离线冻结）。本报告里的真实数据来自一份 1200 篇的冻结快照
    （查询 `supernova cosmology 2012-2021`，`reference_year=2024`，
-   指纹 `sha256:a4d95bdd006796474161ce01479462852509547f57e9537eb6e5f15d7fd44b06`），
+   指纹 `sha256:2b9952762921604dc993d4aef2498ac1fb0837275a71b0ec4ea4327c91a3b03e`），
    其中 1133 篇有摘要、0 篇有全文（全文只来自两篇用户上传）——这条限制直接决定了
-   真实队列上可用的特征层级。
+   真实队列上可用的特征层级。次日重测给了这条限制一个量级：相隔 6 分钟的两次重抓
+   是 1200/1200 完全一致，而与前一天那份只重合 91/1200 —— 相关性排序的样本是**一个
+   时刻**，不是一个固定队列，所以真实数字一律绑定指纹（详见基准报告 §4.3）。
 3. 付费墙只验证到“403 且不绕过”，以及三条降级出口与影子图书馆拒绝。
 4. `自引通胀` 与 `作者人口学` 两类审计是 **cannot_assess**：前者缺作者级引用
    明细，后者拒绝从姓名推断（推断本身会制造它声称测量的偏差）。
@@ -207,6 +209,8 @@ infl_snapshot_import(paths=["exports/openalex_works.json"], name="snia_real_offl
                      query="supernova cosmology 2012-2021", reference_year=2024)
 # 注意：OpenAlex 是活的索引，同一查询重建得到的是"此后的新快照"，
 # 指纹必然不同；报告数字只对上面那份 1200 篇快照成立。
+# 分页：有 OPENALEX_API_KEY 走 cursor（OpenAlex 推荐），没有 key 时游标翻页返回
+# 401，工具退回 page-number 分页并把 paging 写进快照 filters/notes。
 ```
 
 命令行等价入口：

@@ -341,7 +341,68 @@ def test_snapshot_search_pages_instead_of_keeping_the_first_page(
     assert payload["pages_fetched"] == 2
     assert payload["papers"] == 4
     urls = [url for _, url in transport.calls]
-    assert any("page=2" in url for url in urls), urls
+    # "&page=" not "page=": per-page would match the latter.
+    assert any("&page=2" in url for url in urls), urls
+    # Without a key the tool cannot use cursors, and the snapshot must record
+    # that instead of leaving the reader to guess how the sample was walked.
+    assert payload["paging"] == "page"
+
+
+def test_snapshot_search_prefers_cursors_when_a_key_is_configured(
+    workspace, monkeypatch
+):
+    """A key unlocks cursor paging, which is the form OpenAlex recommends."""
+    from tests.research_influence.conftest import FakeTransport
+
+    def work(number: int) -> dict:
+        record = dict(OPENALEX_RECORD)
+        record["id"] = f"https://openalex.org/W{number}"
+        record["doi"] = f"https://doi.org/10.1000/cur{number}"
+        record["title"] = f"Cursor work {number}"
+        return record
+
+    transport = FakeTransport()
+    transport.add(
+        "cursor=IlszNC",
+        {"results": [work(201)], "meta": {"next_cursor": None}},
+    )
+    transport.add(
+        "cursor=%2A",
+        {"results": [work(101)], "meta": {"next_cursor": "IlszNC4yNDUxMSw"}},
+    )
+    monkeypatch.setattr(tools, "_transport", lambda *a, **k: transport)
+
+    from jw.research_influence.providers.base import ProviderPolicy
+
+    monkeypatch.setattr(
+        tools,
+        "ProviderPolicy",
+        type(
+            "PatchedPolicy",
+            (ProviderPolicy,),
+            {
+                "from_environment": classmethod(
+                    lambda cls, **kw: cls(overrides={"openalex": "KEY"})
+                )
+            },
+        ),
+    )
+
+    payload = _load(
+        tools.infl_snapshot_search.invoke(
+            {
+                "query": "supernova",
+                "name": "cursored",
+                "limit": 2,
+                "allow_network": True,
+            }
+        )
+    )
+    assert payload["status"] == "ok", payload
+    urls = [url for _, url in transport.calls]
+    assert any("cursor=" in url for url in urls), urls
+    assert not any("&page=" in url for url in urls), urls
+    assert payload["paging"] == "cursor"
 
 
 def test_verify_reports_drift_instead_of_trusting_the_manifest(workspace):

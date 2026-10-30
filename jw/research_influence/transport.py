@@ -18,6 +18,23 @@ from typing import Protocol
 USER_AGENT = "jw-research-influence/1.0"
 
 
+def _read_capped(response: object, max_bytes: int) -> tuple[bytes, bool]:
+    """Read a response body, reporting whether the cap cut it short.
+
+    ``read(n)`` returns at most ``n`` bytes and says nothing about what was
+    left behind, so reading exactly the cap makes a truncated body look like a
+    complete one: the JSON parser then fails and the caller blames the provider
+    for an "invalid payload".  Reading one byte past the cap turns the cut into
+    a fact we can name.
+    """
+    if max_bytes <= 0:
+        return response.read(), False
+    body = response.read(max_bytes + 1)
+    if len(body) > max_bytes:
+        return body[:max_bytes], True
+    return body, False
+
+
 @dataclass(slots=True)
 class HttpResponse:
     """One transport answer: status, bytes and content type."""
@@ -27,6 +44,7 @@ class HttpResponse:
     content_type: str = ""
     url: str = ""
     error: str = ""
+    truncated: bool = False
 
     @property
     def ok(self) -> bool:
@@ -89,12 +107,13 @@ class UrllibTransport:
         request = urllib.request.Request(url, headers=merged)
         try:
             with urllib.request.urlopen(request, timeout=timeout) as response:
-                body = response.read(max_bytes) if max_bytes else response.read()
+                body, truncated = _read_capped(response, max_bytes)
                 return HttpResponse(
                     status=int(getattr(response, "status", 200)),
                     body=body,
                     content_type=str(response.headers.get("content-type", "")),
                     url=url,
+                    truncated=truncated,
                 )
         except urllib.error.HTTPError as exc:
             return HttpResponse(status=int(exc.code), url=url, error=f"http_{exc.code}")
@@ -117,12 +136,13 @@ class UrllibTransport:
         request = urllib.request.Request(url, data=body, headers=merged, method="POST")
         try:
             with urllib.request.urlopen(request, timeout=timeout) as response:
-                data = response.read(max_bytes) if max_bytes else response.read()
+                data, truncated = _read_capped(response, max_bytes)
                 return HttpResponse(
                     status=int(getattr(response, "status", 200)),
                     body=data,
                     content_type=str(response.headers.get("content-type", "")),
                     url=url,
+                    truncated=truncated,
                 )
         except urllib.error.HTTPError as exc:
             return HttpResponse(status=int(exc.code), url=url, error=f"http_{exc.code}")

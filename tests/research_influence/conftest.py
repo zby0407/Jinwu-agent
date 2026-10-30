@@ -38,6 +38,7 @@ class FakeTransport:
                     content_type=value.content_type,
                     url=url,
                     error=value.error,
+                    truncated=value.truncated,
                 )
             status, payload, content_type = value  # type: ignore[misc]
             if isinstance(payload, bytes):
