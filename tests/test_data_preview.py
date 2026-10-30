@@ -90,7 +90,9 @@ def test_prose_header_lines_are_skipped(tmp_path: Path) -> None:
 
 
 def test_series_downsampled_to_cap(tmp_path: Path) -> None:
-    lines = "\n".join(f"2000 {month:02d} 2000.{month:03d} {month}.0 -1.0 -1" for month in range(1, 13))
+    lines = "\n".join(
+        f"2000 {month:02d} 2000.{month:03d} {month}.0 -1.0 -1" for month in range(1, 13)
+    )
     file_path = _write(tmp_path / "year.txt", lines + "\n")
     preview = build_dataset_preview("silso-monthly-total-v2", file_path)
     assert preview["series"][0]["point_count"] == 12
@@ -98,7 +100,7 @@ def test_series_downsampled_to_cap(tmp_path: Path) -> None:
 
 def test_non_array_json_rejected(tmp_path: Path) -> None:
     file_path = _write(tmp_path / "bad.json", '{"not": "a list"}')
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="array of objects"):
         build_dataset_preview("noaa-swpc-monthly-f107-v1", file_path)
 
 

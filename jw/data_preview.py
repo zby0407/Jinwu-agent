@@ -230,12 +230,10 @@ def _format_number(value: float | int) -> str:
     return str(round(numeric, 2))
 
 
-def _compose_label(
-    labels: list[str], row: list[Any], label_col: str
-) -> str | None:
+def _compose_label(labels: list[str], row: list[Any], label_col: str) -> str | None:
     """Format a human axis label from the row's key column."""
 
-    values = dict(zip(labels, row))
+    values = dict(zip(labels, row, strict=False))
     year = values.get("year")
     month = values.get("month")
     if (
@@ -319,9 +317,7 @@ def _preview_from_rows(
         if header is None and not _COLUMN_LABELS.get(dataset_id):
             header = body_rows[0]
         body_rows = body_rows[1:]
-    body: list[list[Any]] = [
-        [_coerce(cell) for cell in row] for row in body_rows
-    ]
+    body: list[list[Any]] = [[_coerce(cell) for cell in row] for row in body_rows]
     return _table_preview(dataset_id, header, body, file_name=file_name)
 
 
