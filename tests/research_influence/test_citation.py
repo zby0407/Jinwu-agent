@@ -331,7 +331,10 @@ def test_resolve_works_reports_a_rate_limit_instead_of_no_results():
 
     transport = FakeTransport({"/works": HttpResponse(status=429, error="http_429")})
     status: dict[str, str] = {}
-    assert resolve_works(["W1"], transport=transport, policy=_policy(), status=status) == {}
+    assert (
+        resolve_works(["W1"], transport=transport, policy=_policy(), status=status)
+        == {}
+    )
     assert status["status"] == "rate_limited"
     assert status["note"] == "http_429"
 
@@ -340,7 +343,11 @@ def test_resolve_works_keeps_the_status_ok_when_the_page_was_read():
     from jw.research_influence.transport import HttpResponse
 
     transport = FakeTransport(
-        {"/works": HttpResponse(status=200, body=b'{"results": [], "meta": {"count": 0}}')}
+        {
+            "/works": HttpResponse(
+                status=200, body=b'{"results": [], "meta": {"count": 0}}'
+            )
+        }
     )
     status: dict[str, str] = {}
     resolve_works(["W1"], transport=transport, policy=_policy(), status=status)

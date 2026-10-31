@@ -739,7 +739,7 @@ def apply_fulltext(
         notes.append("abstract_from_pdf_text_layer")
 
     references = paper.references
-    if (not references or all(not ref.doi and not ref.title for ref in references)):
+    if not references or all(not ref.doi and not ref.title for ref in references):
         parsed = references_from_text(fulltext.pages)
         if parsed:
             references = parsed

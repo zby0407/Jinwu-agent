@@ -252,7 +252,14 @@ def _section_predictions(
         )
     lines.extend(
         _table(
-            ["论文", "标题", "年份", "窗口内已观测", f"预测（{horizon} 年）", "log 中位数"],
+            [
+                "论文",
+                "标题",
+                "年份",
+                "窗口内已观测",
+                f"预测（{horizon} 年）",
+                "log 中位数",
+            ],
             rows,
         )
     )

@@ -438,9 +438,7 @@ class InfluenceModel:
             logs[quantile] = [float(value) for value in raw]
         expansion = float(self.card.conformal_quantile)
         raw_low = [value - expansion for value in logs[min(self.card.quantiles)]]
-        raw_median = (
-            logs[0.5] if 0.5 in logs else logs[sorted(logs)[len(logs) // 2]]
-        )
+        raw_median = logs[0.5] if 0.5 in logs else logs[sorted(logs)[len(logs) // 2]]
         raw_high = [value + expansion for value in logs[max(self.card.quantiles)]]
         # Independently fitted quantiles can cross; a crossing is repaired upward and
         # counted, because a silent "low > median" interval would be a lie.

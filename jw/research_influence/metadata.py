@@ -537,14 +537,18 @@ def apply_pdf_metadata(paper: PaperRecord, metadata: PdfMetadata) -> PaperRecord
         derived_year = metadata.year or _year_from_arxiv_id(metadata.arxiv_id)
         if derived_year is not None:
             changes["year"] = derived_year
-            provenance["year"] = (_prov("year_from_arxiv_id" if metadata.year is None else "year"),)
+            provenance["year"] = (
+                _prov("year_from_arxiv_id" if metadata.year is None else "year"),
+            )
             missing.pop("year", None)
             filled.append("year")
     if not paper.doi:
         derived_doi = metadata.doi or metadata.arxiv_doi
         if derived_doi:
             changes["doi"] = derived_doi
-            provenance["doi"] = (_prov("doi_from_arxiv_id" if not metadata.doi else "doi"),)
+            provenance["doi"] = (
+                _prov("doi_from_arxiv_id" if not metadata.doi else "doi"),
+            )
             missing.pop("doi", None)
             filled.append("doi")
     if not paper.venue.name:

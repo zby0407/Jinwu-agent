@@ -31,7 +31,9 @@ def test_multi_word_arxiv_query_keeps_boolean_separators(monkeypatch):
         return ATOM
 
     monkeypatch.setattr(literature, "_http_get", fake_get)
-    items = literature._search_arxiv("supernova light curve", 5, None, None, "relevance")
+    items = literature._search_arxiv(
+        "supernova light curve", 5, None, None, "relevance"
+    )
 
     assert len(items) == 1
     assert items[0]["title"] == "A supernova light curve"

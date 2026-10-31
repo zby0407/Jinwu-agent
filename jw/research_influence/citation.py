@@ -556,9 +556,7 @@ def citation_profile(
             if not target:
                 work = by_doi.get(normalise_doi(item.doi))
                 target = (
-                    bare_work_id(work.get("work_id") or work.get("id"))
-                    if work
-                    else ""
+                    bare_work_id(work.get("work_id") or work.get("id")) if work else ""
                 )
             if target:
                 targets.append(target)

@@ -159,7 +159,10 @@ class UrllibTransport:
                 response = HttpResponse(
                     status=0, url=url, error=f"{type(exc).__name__}: {exc}"
                 )
-            if attempt >= self.max_retries or response.status not in _RETRYABLE_STATUSES:
+            if (
+                attempt >= self.max_retries
+                or response.status not in _RETRYABLE_STATUSES
+            ):
                 return response
             _sleep_before_retry(response, attempt, self.backoff_seconds)
         return response
@@ -179,7 +182,9 @@ class UrllibTransport:
         body = json.dumps(dict(payload), ensure_ascii=False).encode("utf-8")
         response = HttpResponse(status=0, url=url)
         for attempt in range(self.max_retries + 1):
-            request = urllib.request.Request(url, data=body, headers=merged, method="POST")
+            request = urllib.request.Request(
+                url, data=body, headers=merged, method="POST"
+            )
             try:
                 with urllib.request.urlopen(request, timeout=timeout) as raw:
                     data, truncated = _read_capped(raw, max_bytes)
@@ -201,7 +206,10 @@ class UrllibTransport:
                 response = HttpResponse(
                     status=0, url=url, error=f"{type(exc).__name__}: {exc}"
                 )
-            if attempt >= self.max_retries or response.status not in _RETRYABLE_STATUSES:
+            if (
+                attempt >= self.max_retries
+                or response.status not in _RETRYABLE_STATUSES
+            ):
                 return response
             _sleep_before_retry(response, attempt, self.backoff_seconds)
         return response

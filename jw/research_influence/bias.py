@@ -372,21 +372,19 @@ def _audit_venue_prestige(context: _Context) -> BiasFinding:
             "venue_route_importance_share": round(share, 4),
         },
         conclusion=(
-            (
-                f"Across {combined_low['n'] + combined_high['n']} labelled papers the "
-                f"model {_verb(difference['delta'])} higher-tier venues by "
-                f"{abs(difference['delta']):.2f} log units "
-                f"(95% CI {difference['ci_low']:.2f} to {difference['ci_high']:.2f}); "
-                f"venue features carry {share:.0%} of the model's importance."
-                if status in {"detected", "not_detected"}
-                else (
-                    f"The point estimate is {difference['delta']:.2f} log units "
-                    f"(95% CI {difference['ci_low']:.2f} to "
-                    f"{difference['ci_high']:.2f}), but the smaller group has only "
-                    f"{min(combined_low['n'], combined_high['n'])} labelled papers "
-                    f"(minimum {MIN_GROUP_SIZE}); this cohort cannot establish a "
-                    "venue-tier bias."
-                )
+            f"Across {combined_low['n'] + combined_high['n']} labelled papers the "
+            f"model {_verb(difference['delta'])} higher-tier venues by "
+            f"{abs(difference['delta']):.2f} log units "
+            f"(95% CI {difference['ci_low']:.2f} to {difference['ci_high']:.2f}); "
+            f"venue features carry {share:.0%} of the model's importance."
+            if status in {"detected", "not_detected"}
+            else (
+                f"The point estimate is {difference['delta']:.2f} log units "
+                f"(95% CI {difference['ci_low']:.2f} to "
+                f"{difference['ci_high']:.2f}), but the smaller group has only "
+                f"{min(combined_low['n'], combined_high['n'])} labelled papers "
+                f"(minimum {MIN_GROUP_SIZE}); this cohort cannot establish a "
+                "venue-tier bias."
             )
         ),
         recommendation=(
@@ -453,21 +451,19 @@ def _audit_affiliation_hierarchy(context: _Context) -> BiasFinding:
             ),
         },
         conclusion=(
-            (
-                f"Papers with a known first-author institution are "
-                f"{_participle(difference['delta'])} by "
-                f"{abs(difference['delta']):.2f} log units "
-                f"(95% CI {difference['ci_low']:.2f} to {difference['ci_high']:.2f}); "
-                f"affiliation features carry {share:.0%} of importance."
-                if status in {"detected", "not_detected"}
-                else (
-                    f"The point estimate is {difference['delta']:.2f} log units, but "
-                    f"the comparison groups have only "
-                    f"{stats['institution_known']['n']} and "
-                    f"{stats['institution_unknown']['n']} labelled papers "
-                    f"(minimum {MIN_GROUP_SIZE} each); this is too unstable to call "
-                    "an institutional bias."
-                )
+            f"Papers with a known first-author institution are "
+            f"{_participle(difference['delta'])} by "
+            f"{abs(difference['delta']):.2f} log units "
+            f"(95% CI {difference['ci_low']:.2f} to {difference['ci_high']:.2f}); "
+            f"affiliation features carry {share:.0%} of importance."
+            if status in {"detected", "not_detected"}
+            else (
+                f"The point estimate is {difference['delta']:.2f} log units, but "
+                f"the comparison groups have only "
+                f"{stats['institution_known']['n']} and "
+                f"{stats['institution_unknown']['n']} labelled papers "
+                f"(minimum {MIN_GROUP_SIZE} each); this is too unstable to call "
+                "an institutional bias."
             )
         ),
         recommendation=(
@@ -1014,19 +1010,17 @@ def _audit_missing_mechanism(context: _Context) -> BiasFinding:
             "text_level_features": list(TEXT_LEVEL),
         },
         conclusion=(
-            (
-                "Every predicted bucket has the same full-text coverage (all papers "
-                "lack text), so this audit has no discriminating power and cannot "
-                "test whether text is missing at random."
-                if all_missing
-                else (
-                    f"Full-text coverage differs by {abs(spread):.0%} between the "
-                    f"lowest and highest predicted bucket "
-                    f"({'increasing' if spread > 0 else 'decreasing'} with predicted "
-                    f"impact), so the text-level features are "
-                    f"{'not' if status == 'detected' else 'not clearly'} missing at "
-                    "random."
-                )
+            "Every predicted bucket has the same full-text coverage (all papers "
+            "lack text), so this audit has no discriminating power and cannot "
+            "test whether text is missing at random."
+            if all_missing
+            else (
+                f"Full-text coverage differs by {abs(spread):.0%} between the "
+                f"lowest and highest predicted bucket "
+                f"({'increasing' if spread > 0 else 'decreasing'} with predicted "
+                f"impact), so the text-level features are "
+                f"{'not' if status == 'detected' else 'not clearly'} missing at "
+                "random."
             )
         ),
         recommendation=(

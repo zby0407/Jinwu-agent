@@ -170,17 +170,57 @@ def _source_status() -> list[dict[str, object]]:
     """
     policy = ProviderPolicy.from_environment()
     specs = (
-        ("openalex", "OPENALEX_API_KEY", True, "keyless search works; a key enables the polite pool and cursor paging"),
-        ("crossref", "CROSSREF_MAILTO", True, "keyless DOI lookup; a contact email joins the polite pool"),
-        ("arxiv", "", True, "keyless Atom API; only id lookup and title search are implemented"),
+        (
+            "openalex",
+            "OPENALEX_API_KEY",
+            True,
+            "keyless search works; a key enables the polite pool and cursor paging",
+        ),
+        (
+            "crossref",
+            "CROSSREF_MAILTO",
+            True,
+            "keyless DOI lookup; a contact email joins the polite pool",
+        ),
+        (
+            "arxiv",
+            "",
+            True,
+            "keyless Atom API; only id lookup and title search are implemented",
+        ),
         ("europepmc", "", True, "keyless, biomedical coverage"),
-        ("unpaywall", "UNPAYWALL_EMAIL", False, "requires an email; it is never invented"),
-        ("semantic_scholar", "SEMANTIC_SCHOLAR_API_KEY", False, "unauthenticated access is heavily rate-limited"),
+        (
+            "unpaywall",
+            "UNPAYWALL_EMAIL",
+            False,
+            "requires an email; it is never invented",
+        ),
+        (
+            "semantic_scholar",
+            "SEMANTIC_SCHOLAR_API_KEY",
+            False,
+            "unauthenticated access is heavily rate-limited",
+        ),
         ("core", "CORE_API_KEY", False, "requires an API key"),
         ("ads", "ADS_API_TOKEN", False, "requires a NASA ADS token"),
-        ("elsevier_tdm", "ELSEVIER_API_KEY", False, "publisher TDM needs the operator's own licence"),
-        ("wiley_tdm", "WILEY_TDM_TOKEN", False, "publisher TDM needs the operator's own licence"),
-        ("springer_tdm", "SPRINGER_API_KEY", False, "publisher TDM needs the operator's own licence"),
+        (
+            "elsevier_tdm",
+            "ELSEVIER_API_KEY",
+            False,
+            "publisher TDM needs the operator's own licence",
+        ),
+        (
+            "wiley_tdm",
+            "WILEY_TDM_TOKEN",
+            False,
+            "publisher TDM needs the operator's own licence",
+        ),
+        (
+            "springer_tdm",
+            "SPRINGER_API_KEY",
+            False,
+            "publisher TDM needs the operator's own licence",
+        ),
     )
     wired = {"openalex", "crossref"}
     out: list[dict[str, object]] = []
@@ -519,7 +559,9 @@ def infl_snapshot_search(
             )
             work_id = str(work.get("work_id") or "")
             paper_id = (
-                f"paper:{doi}" if doi else f"paper:openalex:{work_id.rsplit('/', 1)[-1]}"
+                f"paper:{doi}"
+                if doi
+                else f"paper:openalex:{work_id.rsplit('/', 1)[-1]}"
             )
             papers.append(
                 build_paper(paper_id=paper_id, doi=doi, openalex=work, access=access)
@@ -790,7 +832,9 @@ def infl_fetch_fulltext(
             )
         canonical = normalise_doi(wanted or selected.doi)
         if not canonical and not url:
-            return _result(status="error", error="paper has no DOI and no url was given")
+            return _result(
+                status="error", error="paper has no DOI and no url was given"
+            )
 
         policy = AccessPolicy(allow_network=True)
         candidates = []
@@ -813,7 +857,9 @@ def infl_fetch_fulltext(
                     acquisition=acquisition_request(selected.to_dict()),
                 )
             work = _parse_work(resolved.payload or {})
-            candidates = list(rank_candidates(candidates_from_openalex(work), policy=policy))
+            candidates = list(
+                rank_candidates(candidates_from_openalex(work), policy=policy)
+            )
             candidates = [item for item in candidates if item.route.has_full_text]
 
         store = _root(workspace) / "fulltext"
@@ -871,7 +917,10 @@ def infl_fetch_fulltext(
         )
         decision = with_attempt(decision, attempts[-1], route=chosen.route)
         updated = apply_fulltext(selected, result, access=decision)
-        papers = [updated if item.paper_id == selected.paper_id else item for item in snapshot.papers]
+        papers = [
+            updated if item.paper_id == selected.paper_id else item
+            for item in snapshot.papers
+        ]
         label = _safe_stem(name.strip() or f"{path.stem}_fulltext")
         output = CohortSnapshot(
             cohort_id=f"cohort:{label}",

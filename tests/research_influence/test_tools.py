@@ -617,9 +617,7 @@ def test_enrich_references_writes_a_new_snapshot_and_reuses_the_cache(
     )
     monkeypatch.setattr(tools, "_transport", lambda *a, **k: transport)
 
-    disabled = _load(
-        tools.infl_enrich_references.invoke({"cohort": "before"})
-    )
+    disabled = _load(tools.infl_enrich_references.invoke({"cohort": "before"}))
     assert disabled["status"] == "error"
     assert "network_disabled" in disabled["error"]
 
@@ -698,7 +696,10 @@ def test_enrich_references_replaces_ids_with_crossref_deposits(workspace, monkey
     from jw.research_influence.cohort import CohortSnapshot
 
     enriched = CohortSnapshot.load(Path(first["path"]))
-    assert [ref.title for ref in enriched.papers[0].references] == ["Ref one", "Ref two"]
+    assert [ref.title for ref in enriched.papers[0].references] == [
+        "Ref one",
+        "Ref two",
+    ]
     assert enriched.papers[0].references[0].doi == "10.1/a"
 
     second = _load(
@@ -713,7 +714,9 @@ def test_enrich_references_replaces_ids_with_crossref_deposits(workspace, monkey
 
 def test_enrich_references_refuses_network_without_consent(workspace):
     payload = _load(
-        tools.infl_enrich_references.invoke({"cohort": "missing", "allow_network": False})
+        tools.infl_enrich_references.invoke(
+            {"cohort": "missing", "allow_network": False}
+        )
     )
     assert payload["status"] == "error"
     assert "network_disabled" in payload["error"]
@@ -755,15 +758,21 @@ def test_fetch_fulltext_attaches_sections_to_an_indexed_paper(
     }
     records = workspace / "records.json"
     records.write_text(json.dumps([record]), encoding="utf-8")
-    imported = _load(tools.infl_snapshot_import.invoke({"paths": [str(records)], "name": "ft"}))
+    imported = _load(
+        tools.infl_snapshot_import.invoke({"paths": [str(records)], "name": "ft"})
+    )
     assert imported["status"] == "ok", imported
     paper_id = CohortSnapshot.load(Path(imported["path"])).papers[0].paper_id
 
-    transport = FakeTransport().add(
-        "example.org/paper.pdf",
-        _pdf_with_text(tmp_path / "paper.pdf"),
-        content_type="application/pdf",
-    ).add("api.openalex.org/works", record)
+    transport = (
+        FakeTransport()
+        .add(
+            "example.org/paper.pdf",
+            _pdf_with_text(tmp_path / "paper.pdf"),
+            content_type="application/pdf",
+        )
+        .add("api.openalex.org/works", record)
+    )
     monkeypatch.setattr(tools, "_transport", lambda *a, **k: transport)
 
     payload = _load(

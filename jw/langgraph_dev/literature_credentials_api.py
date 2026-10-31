@@ -64,9 +64,7 @@ async def save_literature_credentials(request: Request) -> JSONResponse:
     try:
         body = await request.json()
     except (json.JSONDecodeError, ValueError):
-        return _json(
-            {"status": "error", "error": "请求体必须是 JSON"}, status_code=400
-        )
+        return _json({"status": "error", "error": "请求体必须是 JSON"}, status_code=400)
     if not isinstance(body, dict):
         return _json(
             {"status": "error", "error": "请求体必须是 JSON 对象"}, status_code=400
