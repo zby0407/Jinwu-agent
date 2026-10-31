@@ -583,6 +583,7 @@ def test_router_runs_once_per_human_turn_and_persists_decision(monkeypatch) -> N
     schema = middleware._model.with_structured_output.call_args.args[0]
     assert schema["properties"]["task_intent"]["enum"] == [
         "general",
+        "data_integration",
         "research_planning",
         "data_preparation",
         "hypothesis_generation",
@@ -593,6 +594,7 @@ def test_router_runs_once_per_human_turn_and_persists_decision(monkeypatch) -> N
     ]
     assert schema["properties"]["required_specialist"]["enum"] == [
         "none",
+        "scientific-data",
         "solar-planner",
         "solar-data",
         "solar-hypothesis",

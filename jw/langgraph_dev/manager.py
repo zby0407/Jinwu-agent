@@ -370,7 +370,12 @@ def is_langgraph_dev_running(
     """
     url = base_url or _base_url(port)
     try:
-        return httpx.get(f"{url}/ok", timeout=1.0).status_code == 200
+        from urllib.parse import urlsplit
+
+        local = urlsplit(url).hostname in {"localhost", "127.0.0.1", "::1"}
+        return (
+            httpx.get(f"{url}/ok", timeout=1.0, trust_env=not local).status_code == 200
+        )
     except (httpx.TransportError, OSError):
         return False
 

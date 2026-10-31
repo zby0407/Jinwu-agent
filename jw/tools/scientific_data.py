@@ -11,10 +11,12 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any
+from typing import Annotated, Any
 
+from langchain_core.messages import ToolMessage
 from langchain_core.runnables import RunnableConfig
-from langchain_core.tools import tool
+from langchain_core.tools import InjectedToolCallId, tool
+from langgraph.types import Command
 
 from jw.scientific_data.acquisition import acquire
 from jw.scientific_data.contracts import IssueCode, default_repair_mode
@@ -689,7 +691,68 @@ def sci_data_discover(
         return _result(status="error", error=str(exc))
 
 
+@tool(parse_docstring=True, return_direct=True)
+def sci_data_solar_monthly(
+    start_month: str,
+    end_month: str,
+    tool_call_id: Annotated[str, InjectedToolCallId],
+    allow_network: bool = False,
+    output_dir: str = "",
+    config: RunnableConfig = None,
+) -> Command:
+    """Acquire and integrate official SILSO and NOAA monthly solar observations.
+
+    Use for monthly total sunspot number plus observed F10.7, with no preloaded
+    input required. The maintained official catalogue resolves source addresses;
+    this is not a literature search. Uses the shared acquisition policy with two
+    official hosts and two downloads. Preserves raw files, per-value provenance,
+    missing flags and full precision; conflicts fail instead of selecting values.
+    Returns merged_monthly.csv, sources.json, quality_report.json, findings.md
+    and replay.py. Only enable network when the user requested public retrieval.
+
+    Args:
+        start_month: First month, YYYY-MM, inclusive.
+        end_month: Last month, YYYY-MM, inclusive.
+        tool_call_id: Runtime-injected identifier for the tool receipt.
+        allow_network: User has authorized downloading official public data.
+        output_dir: Optional new directory relative to the task workspace.
+        config: Runtime-injected task workspace configuration.
+
+    Returns:
+        JSON with actual status, row counts, quality findings and output paths.
+    """
+    from uuid import uuid4
+
+    from jw.scientific_data.solar_monthly import (
+        describe_result,
+        integrate_solar_monthly,
+    )
+
+    try:
+        root = _workspace(config)
+        directory = _paths(
+            [output_dir or f"scientific_data/solar-monthly-{uuid4().hex[:12]}"], root
+        )[0]
+        result = integrate_solar_monthly(
+            directory, start_month, end_month, allow_network=allow_network
+        )
+    except (OSError, ValueError, TypeError, KeyError) as exc:
+        result = {"status": "error", "error": str(exc)}
+    receipt = dict(
+        kind="solar_monthly_integration", summary=describe_result(result), **result
+    )
+    return Command(
+        update={
+            "messages": [
+                ToolMessage(content=_result(**receipt), tool_call_id=tool_call_id)
+            ],
+            "structured_response": receipt,
+        }
+    )
+
+
 SCIENTIFIC_DATA_TOOLS = [
+    sci_data_solar_monthly,
     sci_data_capabilities,
     sci_data_contract,
     sci_data_plan,
