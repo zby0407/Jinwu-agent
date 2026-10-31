@@ -19,8 +19,10 @@ from .contracts import (
     SCHEMA_VERSION,
     ArtifactIndex,
     IntegrationLedger,
+    IssueCode,
     ObservationRecord,
     RepairLedgerEntry,
+    ValueKind,
     file_digest,
     utc_now,
 )
@@ -209,7 +211,7 @@ def write_package(
     }
     if queue is not None:
         result.files["human_review"] = _write_json(
-            root / "human_review.json", queue.to_dict()
+            root / "human_review.json", queue.to_dict(include_timestamps=False)
         )
     result.files["report"] = _write_text(
         root / "data_quality_report.md",
@@ -510,14 +512,14 @@ def _report(
     lines.extend(["", "## 5. 修正与人工确认", ""])
     lines.extend(_repair_lines(ledger, queue=queue))
     lines.extend(["", "## 6. 图表识别、提取与校验", ""])
-    lines.extend(_figure_lines(figures))
+    lines.extend(_figure_lines(figures, ledger=ledger))
     lines.extend(["", "## 7. 复现性", ""])
     lines.extend(
         [
             f"- 合同指纹: `{contract.fingerprint}`",
             f"- 数据模式: `{SCHEMA_VERSION}`",
-            f"- 生成时间: {utc_now()}",
             "- 同一冻结输入重跑应得到相同的 `record_uid`、`issue_id` 与文件哈希。",
+            "- 报告不写入墙钟时间，以保证同输入重跑的报告字节一致。",
             "",
         ]
     )
@@ -534,6 +536,81 @@ def _report(
         )
     else:
         lines.append("- 未发现仍未解决的跨源冲突。")
+    lines.extend(_data_loss_lines(ledger))
+    wide_tables = [
+        table
+        for table in ledger.tables.values()
+        if any(str(w).startswith("wide_photometry_") for w in table.parse_warnings)
+    ]
+    if wide_tables:
+        bands: list[str] = []
+        for table in wide_tables:
+            for warning in table.parse_warnings:
+                if str(warning).startswith("wide_photometry_reshaped:"):
+                    bands.extend(
+                        item
+                        for item in str(warning).split(":", 1)[1].split(",")
+                        if item
+                    )
+        lines.append(
+            f"- 本次有 {len(wide_tables)} 个宽表（每个波段一列，共 {len(set(bands))} 种波段）"
+            "按 `时间 + 波段 + 星等 + 误差` 重排为长表；空单元格保留为显式缺失，不删除行。"
+        )
+    overridden = [
+        record
+        for record in records
+        if any("entity_override" in flag for flag in record.flags)
+    ]
+    if overridden:
+        lines.append(
+            f"- 其中 {len(overridden)} 条记录的实体名来自用户显式声明的源级实体"
+            "（`entity_override`）；这不是从行内字段推断的，需在报告或论文中单独说明。"
+        )
+    discovered = {
+        str(source.discovered_via)
+        for source in ledger.sources.values()
+        if source.discovered_via
+    }
+    if ledger.sources and discovered == {"user_input"}:
+        lines.append(
+            "- 本次来源均由用户提供；运行没有执行文献检索，不能称为自动发现了这些文献。"
+        )
+    elif discovered:
+        lines.append(f"- 来源发现方式: {', '.join(sorted(discovered))}。")
+    pdf_sources = [
+        source
+        for source in ledger.sources.values()
+        if str(source.format_hint).lower() == "pdf"
+    ]
+    if pdf_sources:
+        lines.append(
+            "- PDF 表格由文本层按连续空白重建：列边界是推断而非事实，"
+            "所有行置信度为 0.45，源文件行号保留在 `provenance.jsonl`。"
+        )
+        for issue in ledger.issues.values():
+            if (
+                str(issue.code) in {"empty_extract", "truncated_table"}
+                and str(issue.stage) == "extract"
+            ):
+                if issue.subject.get("source_id") in {
+                    source.source_id for source in pdf_sources
+                }:
+                    lines.append(f"  - {issue.detail}")
+    low_confidence = [
+        record
+        for record in records
+        if record.value_kind is ValueKind.DIGITIZED
+        and any(
+            reference.confidence_score < 0.6
+            for reference in record.provenance
+            if reference.confidence_score >= 0
+        )
+    ]
+    if low_confidence:
+        lines.append(
+            f"- 另有 {len(low_confidence)} 条数字化记录置信度低于 0.6；它们保留在表中，"
+            "但不应直接用于定量拟合。"
+        )
     if figures:
         failed = [
             item.figure_id
@@ -549,17 +626,55 @@ def _report(
     return "\n".join(lines)
 
 
+def _data_loss_lines(ledger: IntegrationLedger) -> list[str]:
+    """Sources that produced rows on disk but contributed no merged record."""
+    rows_by_source: dict[str, int] = {}
+    records_by_source: dict[str, int] = {}
+    for table in ledger.tables.values():
+        rows_by_source[table.source_id] = rows_by_source.get(table.source_id, 0) + len(
+            table.rows
+        )
+    for record in ledger.records:
+        for source_id in record.source_ids:
+            records_by_source[source_id] = records_by_source.get(source_id, 0) + 1
+    lost = [
+        (source, rows_by_source.get(source.source_id, 0))
+        for source in sorted(ledger.sources.values(), key=lambda item: item.source_id)
+        if rows_by_source.get(source.source_id, 0)
+        and not records_by_source.get(source.source_id, 0)
+    ]
+    if not lost:
+        return []
+    return [
+        "- 以下来源提取到了行，但没有任何行进入合并表（原因见 `quality_issues.csv`）："
+    ] + [
+        f"  - `{source.source_id}` {_escape(source.title)}: {rows} 行"
+        for source, rows in lost
+    ]
+
+
 def _source_lines(ledger: IntegrationLedger) -> list[str]:
     if not ledger.sources:
         return ["- 本次运行没有登记任何来源。"]
+    rows_by_source: dict[str, int] = {}
+    records_by_source: dict[str, int] = {}
+    for table in ledger.tables.values():
+        rows_by_source[table.source_id] = rows_by_source.get(table.source_id, 0) + len(
+            table.rows
+        )
+    for record in ledger.records:
+        for source_id in record.source_ids:
+            records_by_source[source_id] = records_by_source.get(source_id, 0) + 1
     lines = [
-        "| 来源 | 角色 | 检索状态 | 格式 | 标题 |",
-        "| --- | --- | --- | --- | --- |",
+        "| 来源 | 角色 | 检索状态 | 格式 | 标题 | 表行数 | 记录数 |",
+        "| --- | --- | --- | --- | --- | --- | --- |",
     ]
     for source in sorted(ledger.sources.values(), key=lambda item: item.source_id):
         lines.append(
             f"| `{source.source_id}` | {source.role} | {source.retrieval} | "
-            f"{source.format_hint or '-'} | {_escape(source.title) or '-'} |"
+            f"{source.format_hint or '-'} | {_escape(source.title) or '-'} | "
+            f"{rows_by_source.get(source.source_id, 0)} | "
+            f"{records_by_source.get(source.source_id, 0)} |"
         )
     return lines
 
@@ -657,33 +772,60 @@ def _repair_lines(ledger: IntegrationLedger, *, queue: HumanQueue | None) -> lis
     return lines
 
 
-def _figure_lines(figures: Sequence[FigurePackage]) -> list[str]:
+def _figure_lines(
+    figures: Sequence[FigurePackage], *, ledger: IntegrationLedger | None = None
+) -> list[str]:
     if not figures:
         return ["- 本次运行未使用图表数字化数据。"]
+    suspect: dict[str, str] = {}
+    if ledger is not None:
+        for issue in ledger.issues.values():
+            if issue.code in {
+                IssueCode.AXIS_SCALE_SUSPECT,
+                IssueCode.AXIS_TICK_UNREADABLE,
+            }:
+                figure_id = str(issue.subject.get("figure_id") or "")
+                if figure_id:
+                    suspect[figure_id] = str(issue.code)
     lines = [
-        "| 图 | 来源 | x 轴 | y 轴 | 像素误差 | 叠加校验 | 最大残差 (px) |",
-        "| --- | --- | --- | --- | --- | --- | --- |",
+        "| 图 | 来源 | x 轴 | y 轴 | 像素误差 | 轴拟合 rms (x/y) | 叠加校验 | 最大残差 (px) |",
+        "| --- | --- | --- | --- | --- | --- | --- | --- |",
     ]
     for item in figures:
         overlay = item.overlay
-        verdict = "未校验"
-        residual = "-"
-        if overlay is not None:
+        if item.figure_id in suspect:
+            verdict = "内部自洽，轴标定存疑"
+        elif overlay is None:
+            verdict = "未校验"
+        else:
             verdict = "通过" if overlay.passed else "未通过"
-            residual = f"{overlay.max_residual:.2f}"
+        residual = f"{overlay.max_residual:.2f}" if overlay is not None else "-"
         lines.append(
             f"| `{item.figure_id}` | `{item.source_id or '-'}` | "
             f"{item.calibration.x.scale} ({item.calibration.x.unit or '-'}) | "
             f"{item.calibration.y.scale} ({item.calibration.y.unit or '-'}) | "
-            f"{item.calibration.pixel_noise:.2f} | {verdict} | {residual} |"
+            f"{item.calibration.pixel_noise:.2f} | "
+            f"{item.calibration.x.rms:.3f} / {item.calibration.y.rms:.3f} | "
+            f"{verdict} | {residual} |"
+        )
+    if suspect:
+        lines.append("")
+        lines.append(
+            "轴标定存疑的图: "
+            + ", ".join(
+                f"`{figure_id}` ({code})" for figure_id, code in sorted(suspect.items())
+            )
+            + "；其数字化值保留但置信度低，不能仅凭叠加校验判为可用。"
         )
     lines.extend(
         [
             "",
             "识别方式: 刻度位置与其标签值做最小二乘拟合，对数轴在 log10 空间拟合；",
             "提取方式: 标记点像素坐标经拟合映射为数据值，像素噪声按局部斜率折算为不确定度；",
-            "校验方式: 把恢复出的数值反投影回像素坐标，与原始标记位置比较残差，超过容差的图"
-            "会被标记为 `figure_overlay_mismatch` 并保留 `digitized` 取值类型。",
+            "校验方式: 把恢复出的数值反投影回像素坐标，与原始标记位置比较残差；"
+            "叠加通过只证明投影自洽，轴标定是否可信还要看拟合 rms 与轴尺度判读，"
+            "超过容差的图会被标记为 `figure_overlay_mismatch`；所有数字化值保持 "
+            "`digitized` 取值类型。",
         ]
     )
     return lines

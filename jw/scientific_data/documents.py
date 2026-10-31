@@ -74,11 +74,27 @@ def read_pdf_text(path: str | Path) -> PdfText:
 
 
 def _cells(line: str) -> list[str]:
-    return [cell.strip() for cell in _TWO_SPACES.split(line.strip()) if cell.strip()]
+    cells = [cell.strip() for cell in _TWO_SPACES.split(line.strip()) if cell.strip()]
+    if len(cells) >= MIN_COLUMNS:
+        return cells
+    # A text layer often collapses a table to single spaces.  Fall back to
+    # single-space tokens only when the line has enough of them; the numeric
+    # row check below still decides whether a block is a table.
+    tokens = line.split()
+    if len(tokens) >= MIN_COLUMNS:
+        return tokens
+    return cells
 
 
 def _is_number(cell: str) -> bool:
     return bool(_NUMBER.match(cell.replace(",", "")))
+
+
+def _contains_number(cell: str) -> bool:
+    """A cell is numeric if it, or one of its space-separated tokens, is."""
+    if _is_number(cell):
+        return True
+    return any(_is_number(token) for token in str(cell).split())
 
 
 def _caption_before(lines: Sequence[str], index: int) -> str:
@@ -105,9 +121,32 @@ def tables_from_text(
     min_rows: int = MIN_ROWS,
 ) -> tuple[ExtractedTable, ...]:
     """Find whitespace-aligned table blocks in already-extracted text."""
+    tables, _rejected = tables_from_text_report(
+        text,
+        source_id=source_id,
+        table_id_prefix=table_id_prefix,
+        path=path,
+        page=page,
+        min_columns=min_columns,
+        min_rows=min_rows,
+    )
+    return tables
 
+
+def tables_from_text_report(
+    text: str,
+    *,
+    source_id: str,
+    table_id_prefix: str = "pdf",
+    path: str = "",
+    page: int = 0,
+    min_columns: int = MIN_COLUMNS,
+    min_rows: int = MIN_ROWS,
+) -> tuple[tuple[ExtractedTable, ...], tuple[dict[str, object], ...]]:
+    """Extract tables and report blocks rejected for inconsistent columns."""
     lines = text.splitlines()
     blocks: list[tuple[int, int, list[list[str]]]] = []
+    rejected: list[dict[str, object]] = []
     current: list[list[str]] = []
     width = 0
     start = 0
@@ -116,7 +155,7 @@ def tables_from_text(
         nonlocal current, width
         if len(current) >= min_rows and width >= min_columns:
             numeric_rows = sum(
-                1 for row in current[1:] if any(_is_number(cell) for cell in row)
+                1 for row in current[1:] if any(_contains_number(cell) for cell in row)
             )
             # Without numeric cells this is prose, not a table.
             if numeric_rows * 2 >= len(current) - 1:
@@ -130,6 +169,20 @@ def tables_from_text(
             flush()
             continue
         if current and len(cells) != width:
+            if (
+                width >= min_columns
+                and not all(_is_number(cell) for cell in current[0])
+                and any(_contains_number(cell) for cell in cells)
+            ):
+                rejected.append(
+                    {
+                        "line_start": start + 1,
+                        "line_end": index + 1,
+                        "expected_columns": width,
+                        "found_columns": len(cells),
+                        "reason": "inconsistent_columns",
+                    }
+                )
             flush()
         if not current:
             start = index
@@ -192,7 +245,7 @@ def tables_from_text(
                 ),
             )
         )
-    return tuple(tables)
+    return tuple(tables), tuple(rejected)
 
 
 def read_pdf_tables(
@@ -203,23 +256,43 @@ def read_pdf_tables(
     max_tables: int = 20,
 ) -> tuple[ExtractedTable, ...]:
     """Extract tables from every page of a PDF (whitespace reconstruction)."""
+    tables, _rejected, _warnings = read_pdf_report(
+        path,
+        source_id=source_id,
+        table_id_prefix=table_id_prefix,
+        max_tables=max_tables,
+    )
+    return tables
 
+
+def read_pdf_report(
+    path: str | Path,
+    *,
+    source_id: str,
+    table_id_prefix: str = "pdf",
+    max_tables: int = 20,
+) -> tuple[tuple[ExtractedTable, ...], tuple[dict[str, object], ...], tuple[str, ...]]:
+    """Extract tables plus the rejected blocks and document-level warnings."""
     document = read_pdf_text(path)
     tables: list[ExtractedTable] = []
+    rejected: list[dict[str, object]] = []
     for page_number, page_text in enumerate(document.pages, start=1):
         if not page_text.strip():
             continue
-        for table in tables_from_text(
+        produced, page_rejected = tables_from_text_report(
             page_text,
             source_id=source_id,
             table_id_prefix=table_id_prefix,
             path=str(path),
             page=page_number,
-        ):
+        )
+        for item in page_rejected:
+            rejected.append({**item, "page": page_number})
+        for table in produced:
             tables.append(table)
             if len(tables) >= max_tables:
-                return tuple(tables)
-    return tuple(tables)
+                return tuple(tables), tuple(rejected), document.warnings
+    return tuple(tables), tuple(rejected), document.warnings
 
 
 def pdf_summary(path: str | Path, *, source_id: str = "") -> dict[str, object]:
@@ -255,7 +328,9 @@ __all__ = [
     "PDF_TEXT_WARNING",
     "PdfText",
     "pdf_summary",
+    "read_pdf_report",
     "read_pdf_tables",
     "read_pdf_text",
     "tables_from_text",
+    "tables_from_text_report",
 ]

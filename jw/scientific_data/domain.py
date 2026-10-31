@@ -223,6 +223,8 @@ _PHOTOMETRY = (
             "passband",
             "bandpass",
             "photband",
+            "flt",
+            "filt",
             "滤光片",
             "波段",
         ),
@@ -408,7 +410,14 @@ def plugin_for_contract(contract: Any) -> DomainPlugin:
 
 
 def unit_from_header(header: str) -> str:
-    """Pull a trailing ``[unit]``/``(unit)``/``/ unit`` marker out of a header."""
+    """Pull a unit out of a header: brackets, ``/ unit``, or a ``_unit`` suffix.
+
+    Astronomy tables spell the same thing in several ways: ``flux [uJy]``,
+    ``flux / Jy`` and ``flux_ujy``.  The suffix form used to be invisible, which
+    made a ``flux_ujy`` column look like it already was in ``mJy``.  The suffix
+    is only accepted when the part before it is a real field name; ``e_mag``
+    is an uncertainty column, not a value measured in ``mag``.
+    """
     text = str(header or "")
     match = re.search(r"[\[\(]([^\]\)]{1,24})[\]\)]", text)
     if match:
@@ -416,12 +425,113 @@ def unit_from_header(header: str) -> str:
     match = re.search(r"/\s*(\S(?:[^\)]{0,22}\S)?)\s*$", text)
     if match:
         return match.group(1).strip()
-    return ""
+    return _header_suffix_unit(text)
+
+
+_HEADER_UNIT_ALIASES = {
+    "ab": "mag_ab",
+    "vega": "mag_vega",
+    "st": "mag_st",
+}
+
+_HEADER_UNIT_SUFFIXES = tuple(
+    sorted(
+        {
+            "mjy",
+            "ujy",
+            "njy",
+            "jy",
+            "mmag",
+            "mag",
+            "sfu",
+            "ab",
+            "vega",
+            "st",
+            "angstrom",
+            "arcsec",
+            "arcmin",
+            "kev",
+            "mev",
+            "gev",
+            "tev",
+            "ev",
+            "ghz",
+            "mhz",
+            "khz",
+            "thz",
+            "hz",
+            "kpc",
+            "mpc",
+            "pc",
+            "au",
+            "ly",
+            "myr",
+            "gyr",
+            "kyr",
+            "yr",
+            "days",
+            "day",
+            "hrs",
+            "hr",
+            "min",
+            "sec",
+            "ms",
+            "us",
+            "ns",
+            "counts",
+            "count",
+            "cts",
+            "adu",
+            "dn",
+            "percent",
+            "pct",
+            "ppm",
+            "kg",
+            "km",
+            "cm",
+            "mm",
+            "um",
+            "nm",
+            "deg",
+            "kelvin",
+        },
+        key=len,
+        reverse=True,
+    )
+)
+
+_HEADER_UNIT_RE = re.compile(
+    r"(?:^|[_\-\s])(?P<unit>" + "|".join(_HEADER_UNIT_SUFFIXES) + r")\s*$",
+    re.IGNORECASE,
+)
+
+_HEADER_UNIT_BASE_EXCEPTIONS = frozenset(
+    {"e", "err", "error", "sigma", "unc", "uncert", "uncertainty", "d"}
+)
+
+
+def _header_suffix_unit(header: str) -> str:
+    """The ``_unit`` suffix of a header, or "" when the base is not a field."""
+    text = str(header or "").strip()
+    match = _HEADER_UNIT_RE.search(text)
+    if match is None:
+        return ""
+    base = text[: match.start()].strip("_- ")
+    if not base or slug(base) in _HEADER_UNIT_BASE_EXCEPTIONS:
+        return ""
+    unit = match.group("unit")
+    return _HEADER_UNIT_ALIASES.get(unit.casefold(), unit)
 
 
 def strip_unit_from_header(header: str) -> str:
     """Header text with any trailing unit marker removed."""
-    return str(re.sub(r"[\[\(][^\]\)]{1,24}[\]\)]", "", str(header or "")).strip())
+    text = str(re.sub(r"[\[\(][^\]\)]{1,24}[\]\)]", "", str(header or "")))
+    match = _HEADER_UNIT_RE.search(text)
+    if match is not None:
+        base = text[: match.start()].strip("_- ")
+        if base and slug(base) not in _HEADER_UNIT_BASE_EXCEPTIONS:
+            text = base
+    return text.strip()
 
 
 def detect_unit_in_values(values: Sequence[Any], quantity: str) -> str:

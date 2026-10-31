@@ -329,11 +329,15 @@ def detect_missing_coverage(
 ) -> tuple[QualityIssue, ...]:
     """Report required observables (or record counts) an entity never provides."""
     wanted = tuple(
-        field.name for field in contract.observables if field.required
+        field.name
+        for field in contract.observables
+        if field.required and field.kind not in {"identifier", "time"}
     ) or tuple(
         name
         for name in plugin.observable_names()
-        if (spec := plugin.observable(name)) is not None and spec.required
+        if (spec := plugin.observable(name)) is not None
+        and spec.required
+        and spec.kind not in {"identifier", "time"}
     )
     counts: dict[str, dict[str, int]] = defaultdict(lambda: defaultdict(int))
     for record in records:

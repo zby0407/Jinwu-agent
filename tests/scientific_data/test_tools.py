@@ -166,6 +166,55 @@ def test_runs_lists_previous_runs(workspace):
     assert [item["run_id"] for item in payload["runs"]] == ["tool-run"]
 
 
+def test_column_overrides_json_is_applied(workspace: Path):
+    path = workspace / "cryptic.csv"
+    path.write_text("KEY,FLT,EPOCH,MAG\nSN 2018oh,V,58160.30,15.10\n", encoding="utf-8")
+    payload = _json(
+        tools.sci_data_run.invoke(
+            {
+                "request_json": json.dumps(REQUEST),
+                "inputs": [str(path)],
+                "column_overrides_json": json.dumps(
+                    [
+                        {
+                            "source": "cryptic.csv",
+                            "column": "KEY",
+                            "observable": "object",
+                        },
+                        {
+                            "source": "cryptic.csv",
+                            "column": "EPOCH",
+                            "observable": "time",
+                        },
+                    ]
+                ),
+                "run_id": "override",
+            }
+        )
+    )
+    assert payload["status"] == "ok"
+    assert payload["summary"]["counts"]["records"] == 1
+
+
+def test_entity_overrides_json_declares_a_source_entity(workspace: Path):
+    path = workspace / "objectless.csv"
+    path.write_text("mjd,mag\n58000.10,15.20\n", encoding="utf-8")
+    payload = _json(
+        tools.sci_data_run.invoke(
+            {
+                "request_json": json.dumps(REQUEST),
+                "inputs": [str(path)],
+                "entity_overrides_json": json.dumps(
+                    [{"source": "objectless.csv", "entity": "SN 2011fe"}]
+                ),
+                "run_id": "entity-override",
+            }
+        )
+    )
+    assert payload["status"] == "ok"
+    assert payload["summary"]["counts"]["records"] == 1
+
+
 def test_unknown_run_is_an_error_not_a_crash(workspace):
     payload = _json(tools.sci_data_status.invoke({"run_id": "missing"}))
     assert payload["status"] == "error"

@@ -207,3 +207,22 @@ def test_search_more_keeps_the_question_open_for_a_later_pass():
     assert resolution.ignored == (queue.requests[0].request_id,)
     assert resolution.applied == ()
     assert resolution.issues[0].state is IssueState.DETECTED
+
+
+def test_package_export_can_omit_wall_clock_timestamps():
+    queue = build_queue(
+        [conflict_issue()],
+        records=[record(uid="rec:a", conflict=True), record(uid="rec:b", value=16.9)],
+    )
+
+    answered = queue.answer(queue.requests[0].request_id, queue.requests[0].options[0])
+    auditable = answered.to_dict()
+    reproducible = answered.to_dict(include_timestamps=False)
+
+    assert auditable["requests"][0]["created_at"]
+    assert auditable["answers"][0]["decided_at"]
+    assert "created_at" not in reproducible["requests"][0]
+    assert "decided_at" not in reproducible["answers"][0]
+    assert (
+        reproducible["requests"][0]["question"] == auditable["requests"][0]["question"]
+    )

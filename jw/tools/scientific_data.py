@@ -66,6 +66,17 @@ def _payload(raw: str, *, what: str) -> dict[str, Any]:
     return decoded
 
 
+def _object_list(raw: str) -> tuple[dict[str, Any], ...]:
+    """Parse an optional JSON list of objects, rejecting other shapes early."""
+    text = raw.strip()
+    if not text:
+        return ()
+    decoded = json.loads(text)
+    if not isinstance(decoded, list):
+        raise ValueError("expected a JSON list of objects")
+    return tuple(item for item in decoded if isinstance(item, dict))
+
+
 def _paths(values: list[str], workspace: Path) -> tuple[Path, ...]:
     """Resolve input paths, refusing anything outside the task workspace."""
     root = workspace.resolve()
@@ -170,8 +181,22 @@ def sci_data_capabilities(config: RunnableConfig = None) -> str:
                 "sci_data_acquire_only: download candidates under policy",
                 "sci_data_run: acquire, parse, align, repair and package in one run",
             ],
+            column_overrides=(
+                "sci_data_run(column_overrides_json=[{source, column, observable, unit?}]) "
+                "maps a named column explicitly after the user explains it"
+            ),
+            entity_overrides=(
+                "sci_data_run(entity_overrides_json=[{source, entity}]) declares the "
+                "object for a table whose rows carry no object column; records are "
+                "flagged entity_override"
+            ),
+            wide_tables=(
+                "tables with one time column and one column per band are reshaped "
+                "to time/band/mag/e_mag; empty cells stay as explicit missing rows"
+            ),
             supported_formats=[
-                "csv/tsv/txt/dat (delimiter, encoding and header sniffed)",
+                "csv/tsv/txt/dat (delimiter, encoding and header sniffed; # header lines accepted)",
+                "xlsx (each worksheet, cached values only)",
                 "json/jsonl (nested payloads flattened)",
                 "html (rowspan/colspan grid)",
                 "markdown pipe tables",
@@ -248,6 +273,8 @@ def sci_data_run(
     figures_json: str = "",
     extra_sources_json: str = "",
     answers_json: str = "",
+    column_overrides_json: str = "",
+    entity_overrides_json: str = "",
     allow_network: bool = False,
     allowed_hosts: list[str] | None = None,
     run_id: str = "",
@@ -256,11 +283,24 @@ def sci_data_run(
     """Run the whole integration pipeline and write the data package.
 
     ``inputs`` are workspace paths to tabulated sources (CSV/TSV/JSON/HTML/
-    Markdown).  ``figures_json`` is a JSON list of digitisation side-cars:
-    each item carries ``figure_id`` plus axis tick positions
+    Markdown/PDF/XLSX).  ``figures_json`` is a JSON list of digitisation
+    side-cars: each item carries ``figure_id`` plus axis tick positions
     (``x_ticks``/``y_ticks``) and the plotted series points in pixels, which is
     how a figure becomes numbers.  Network access stays off unless
     ``allow_network`` is true and ``allowed_hosts`` names the permitted hosts.
+
+    ``column_overrides_json`` is a JSON list of explicit column decisions, each
+    ``{"source": "table.csv", "column": "SNID", "observable": "object",
+    "unit": "mag"}`` (``unit`` optional).  Use it after the package reports
+    ``merge_key_absent`` or ``field_unmapped`` for a source the user explained:
+    it maps that column deterministically instead of guessing.  The source may
+    be the basename or the source id; only the named columns change.
+
+    ``entity_overrides_json`` declares a source-level entity when the table has
+    no object column but the paper, file name or comment header names the
+    object: ``[{"source": "sn2011fe.public.dat", "entity": "SN 2011fe"}]``.
+    It is a user decision, not inferred from a file name, and every affected
+    record is flagged ``entity_override``.
 
     Args:
         request_json: JSON research request (see sci_data_contract).
@@ -268,6 +308,8 @@ def sci_data_run(
         figures_json: JSON list of figure digitisation side-cars.
         extra_sources_json: JSON list of discovered sources (url/title/role).
         answers_json: JSON object mapping question ids to chosen answers.
+        column_overrides_json: JSON list of explicit source-column mappings.
+        entity_overrides_json: JSON list of explicit source-level entities.
         allow_network: Whether remote sources may be fetched.
         allowed_hosts: Hostnames permitted when network access is enabled.
         run_id: Optional run id; a new one is generated when empty.
@@ -294,11 +336,15 @@ def sci_data_run(
             json.loads(extra_sources_json) if extra_sources_json.strip() else ()
         )
         answers = dict(json.loads(answers_json) if answers_json.strip() else {})
+        overrides = _object_list(column_overrides_json)
+        entity_overrides = _object_list(entity_overrides_json)
         options = WorkflowOptions(
             allow_network=bool(allow_network),
             allowed_hosts=tuple(str(host) for host in (allowed_hosts or ())),
             figure_inputs=figures,
             extra_sources=extra,
+            column_overrides=overrides,
+            entity_overrides=entity_overrides,
             answers=answers,
         )
         result = run_integration(

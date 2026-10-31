@@ -347,6 +347,7 @@ def default_repair_mode(code: IssueCode) -> RepairMode:
         IssueCode.OUT_OF_RANGE,
         IssueCode.UNIT_UNKNOWN,
         IssueCode.FIELD_UNMAPPED,
+        IssueCode.DUPLICATE_KEY,
     }
     if code in auto:
         return RepairMode.AUTO_SAFE
