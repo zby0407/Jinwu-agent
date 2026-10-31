@@ -118,3 +118,18 @@ coverage/
 /.tmp/
 /polar-server-bundle/
 /server-results/
+
+# Local working scratch: drafts, slide reviews, render/video experiments and
+# one-off eval dumps. Never published; curated results belong under outputs/.
+/output/
+/video_selfiter/
+/.docx_review_work/
+/review_ppt_pages/
+/review_ppt_shots/
+/.sync-backup-*/
+/research_review/
+
+# Local agent-tool state (same class as .claude/, .codex/, .cursor/ above)
+.crush/
+.thinkrail/
+.workbuddy/
