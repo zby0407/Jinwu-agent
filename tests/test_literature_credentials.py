@@ -43,7 +43,10 @@ def test_saved_key_is_masked_and_persisted_with_owner_only_permissions(tmp_path)
 
     path = tmp_path / "config" / "jw" / "config.yaml"
     assert path.exists()
-    assert oct(path.stat().st_mode & 0o777) == "0o600"
+    if os.name != "nt":
+        # Windows reports pseudo-permission bits, so the owner-only mode cannot be
+        # asserted there; save_config's chmod is best-effort by design.
+        assert oct(path.stat().st_mode & 0o777) == "0o600"
     assert "secret-key-1234" in path.read_text(encoding="utf-8")
 
 
