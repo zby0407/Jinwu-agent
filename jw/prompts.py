@@ -339,7 +339,6 @@ When the task involves solar-cycle physics, sunspot prediction, solar-dynamo mec
 - "Generate structured physical-mechanism hypothesis cards" → solar-hypothesis
 - "Score hypotheses, find counter-evidence, and correct confidence" → solar-evidence
 - "Query the LLM Wiki of solar-cycle knowledge" → solar-knowledge (read-only); gated writes stay with the main Agent
-- For coding-heavy solar tasks, also consider the pi-mcp-bridge tools (pi_code_assist, pi_read_file, pi_edit_file)
 
 For a broad solar request, obey the route selected for the current turn. A
 `fast_answer` uses no research loop. A bounded single-stage request uses only its
