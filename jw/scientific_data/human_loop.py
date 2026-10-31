@@ -70,8 +70,8 @@ class HumanRequest:
     created_at: str = ""
     state: RequestState = RequestState.OPEN
 
-    def to_dict(self) -> dict[str, Any]:
-        return {
+    def to_dict(self, *, include_timestamps: bool = True) -> dict[str, Any]:
+        payload = {
             "request_id": self.request_id,
             "issue_ids": list(self.issue_ids),
             "code": str(self.code),
@@ -81,9 +81,11 @@ class HumanRequest:
             "blocking": self.blocking,
             "severity": str(self.severity),
             "evidence": _jsonable(self.evidence),
-            "created_at": self.created_at,
             "state": str(self.state),
         }
+        if include_timestamps:
+            payload["created_at"] = self.created_at
+        return payload
 
     @classmethod
     def from_dict(cls, raw: Mapping[str, Any]) -> HumanRequest:
@@ -112,14 +114,16 @@ class HumanAnswer:
     actor: str = "user"
     decided_at: str = ""
 
-    def to_dict(self) -> dict[str, Any]:
-        return {
+    def to_dict(self, *, include_timestamps: bool = True) -> dict[str, Any]:
+        payload = {
             "request_id": self.request_id,
             "choice": self.choice,
             "note": self.note,
             "actor": self.actor,
-            "decided_at": self.decided_at,
         }
+        if include_timestamps:
+            payload["decided_at"] = self.decided_at
+        return payload
 
     @classmethod
     def from_dict(cls, raw: Mapping[str, Any]) -> HumanAnswer:
@@ -195,10 +199,16 @@ class HumanQueue:
         """A run may only be finalised once no blocking question is open."""
         return not self.blocking_open
 
-    def to_dict(self) -> dict[str, Any]:
+    def to_dict(self, *, include_timestamps: bool = True) -> dict[str, Any]:
         return {
-            "requests": [item.to_dict() for item in self.requests],
-            "answers": [item.to_dict() for item in self.answers],
+            "requests": [
+                item.to_dict(include_timestamps=include_timestamps)
+                for item in self.requests
+            ],
+            "answers": [
+                item.to_dict(include_timestamps=include_timestamps)
+                for item in self.answers
+            ],
             "open": len(self.open_requests),
             "blocking_open": len(self.blocking_open),
             "ready": self.ready,

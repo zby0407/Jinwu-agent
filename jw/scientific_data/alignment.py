@@ -412,6 +412,25 @@ def _claim_for(
     )
 
 
+def _entity_override(
+    table: ExtractedTable,
+    overrides: Sequence[Mapping[str, Any]],
+    source_titles: Mapping[str, str],
+) -> str:
+    """An explicit source-level entity label, if the caller supplied one."""
+    names = {table.source_id, source_titles.get(table.source_id, "")}
+    for item in overrides:
+        source = str(item.get("source") or item.get("source_id") or "")
+        if source not in names:
+            continue
+        label = str(
+            item.get("entity") or item.get("entity_label") or item.get("label") or ""
+        ).strip()
+        if label:
+            return label
+    return ""
+
+
 def align_tables(
     tables: Sequence[ExtractedTable],
     *,
@@ -419,11 +438,13 @@ def align_tables(
     plugin: DomainPlugin,
     resolver: EntityResolver | None = None,
     overrides: Sequence[Mapping[str, Any]] = (),
+    entity_overrides: Sequence[Mapping[str, Any]] = (),
     source_titles: Mapping[str, str] | None = None,
 ) -> AlignmentResult:
     """Build canonical observation records from every table that mapped."""
     entities = resolver if resolver is not None else EntityResolver(plugin=plugin)
     keys = _merge_keys(contract, plugin)
+    titles = source_titles or {}
     issues: list[QualityIssue] = []
     records: list[ObservationRecord] = []
     index: dict[tuple[str, ...], int] = {}
@@ -447,7 +468,8 @@ def align_tables(
         )
         issues.extend(mapping_issues)
         plan = _plan(table, mappings, plugin, contract)
-        if table.rows and plan.entity is None:
+        override_label = _entity_override(table, entity_overrides, titles)
+        if table.rows and plan.entity is None and not override_label:
             issues.append(
                 QualityIssue(
                     issue_id=f"issue:alignment:{table.table_id}:entity",
@@ -490,7 +512,9 @@ def align_tables(
         )
         for row in table.rows:
             stats["rows_seen"] += 1
-            label = _cell(row, plan.entity.source_column) if plan.entity else ""
+            label = override_label or (
+                _cell(row, plan.entity.source_column) if plan.entity else ""
+            )
             if not label:
                 stats["skipped_rows"] += 1
                 continue
@@ -527,6 +551,11 @@ def align_tables(
                 )
                 record_attributes = {**attributes, "label": label}
                 uncertainty = _uncertainty(row, observable, uncertainty_by_base, plugin)
+                source_column = str(row.get("_source_column") or mapping.source_column)
+                raw_excerpt = str(row.get("_source_raw") or text)
+                record_flags = (*flags, *time_flags)
+                if override_label:
+                    record_flags = (*record_flags, "entity_override")
                 record = ObservationRecord(
                     record_uid=_uid(
                         table.table_id,
@@ -555,17 +584,17 @@ def align_tables(
                             locator={
                                 "table_id": table.table_id,
                                 "row_index": str(row.get("_row_index", "")),
-                                "column": mapping.source_column,
+                                "column": source_column,
                             },
                             extractor="jw.scientific_data.alignment.align_tables",
                             value_kind=value_kind,
                             confidence=table.confidence,
                             confidence_score=_band_score(table.confidence),
-                            raw_excerpt=text,
+                            raw_excerpt=raw_excerpt,
                         ),
                     ),
-                    field_map={mapping.source_column: observable},
-                    flags=(*flags, *time_flags),
+                    field_map={source_column: observable},
+                    flags=record_flags,
                     attributes=record_attributes,
                 )
                 if number is not None:

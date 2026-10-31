@@ -211,7 +211,7 @@ def write_package(
     }
     if queue is not None:
         result.files["human_review"] = _write_json(
-            root / "human_review.json", queue.to_dict()
+            root / "human_review.json", queue.to_dict(include_timestamps=False)
         )
     result.files["report"] = _write_text(
         root / "data_quality_report.md",
@@ -518,8 +518,8 @@ def _report(
         [
             f"- 合同指纹: `{contract.fingerprint}`",
             f"- 数据模式: `{SCHEMA_VERSION}`",
-            f"- 生成时间: {utc_now()}",
             "- 同一冻结输入重跑应得到相同的 `record_uid`、`issue_id` 与文件哈希。",
+            "- 报告不写入墙钟时间，以保证同输入重跑的报告字节一致。",
             "",
         ]
     )
@@ -537,6 +537,35 @@ def _report(
     else:
         lines.append("- 未发现仍未解决的跨源冲突。")
     lines.extend(_data_loss_lines(ledger))
+    wide_tables = [
+        table
+        for table in ledger.tables.values()
+        if any(str(w).startswith("wide_photometry_") for w in table.parse_warnings)
+    ]
+    if wide_tables:
+        bands: list[str] = []
+        for table in wide_tables:
+            for warning in table.parse_warnings:
+                if str(warning).startswith("wide_photometry_reshaped:"):
+                    bands.extend(
+                        item
+                        for item in str(warning).split(":", 1)[1].split(",")
+                        if item
+                    )
+        lines.append(
+            f"- 本次有 {len(wide_tables)} 个宽表（每个波段一列，共 {len(set(bands))} 种波段）"
+            "按 `时间 + 波段 + 星等 + 误差` 重排为长表；空单元格保留为显式缺失，不删除行。"
+        )
+    overridden = [
+        record
+        for record in records
+        if any("entity_override" in flag for flag in record.flags)
+    ]
+    if overridden:
+        lines.append(
+            f"- 其中 {len(overridden)} 条记录的实体名来自用户显式声明的源级实体"
+            "（`entity_override`）；这不是从行内字段推断的，需在报告或论文中单独说明。"
+        )
     discovered = {
         str(source.discovered_via)
         for source in ledger.sources.values()

@@ -87,6 +87,7 @@ class WorkflowOptions:
     max_gap_days: float | None = None
     extra_sources: tuple[Mapping[str, Any], ...] = ()
     column_overrides: tuple[Mapping[str, Any], ...] = ()
+    entity_overrides: tuple[Mapping[str, Any], ...] = ()
     write_package_output: bool = True
     package_name: str = "package"
     notes: tuple[str, ...] = ()
@@ -292,6 +293,7 @@ def run_integration(
         contract=contract,
         plugin=plugin,
         overrides=settings.column_overrides,
+        entity_overrides=settings.entity_overrides,
         source_titles=source_titles,
     )
     _absorb_alignment(ledger, alignment)
@@ -546,6 +548,7 @@ def _stage_extract(
     from .html_tables import read_html_file
     from .markdown_tables import read_markdown_file
     from .tabular import read_table
+    from .wide import expand_wide_tables
     from .xlsx import read_xlsx_file
 
     tables: list[ExtractedTable] = []
@@ -614,6 +617,7 @@ def _stage_extract(
                 )
             )
             continue
+        produced = expand_wide_tables(produced)
         if not produced:
             detail = f"No table could be extracted from '{source.title}' ({suffix})."
             if pdf_rejected:

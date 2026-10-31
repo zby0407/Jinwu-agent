@@ -228,13 +228,23 @@ def _unique_columns(names: Sequence[str]) -> tuple[list[str], list[str]]:
 def _header_index(
     lines: Sequence[str], delimiter: str, field_count: int, comment_char: str
 ) -> int:
-    """First line that looks like a header, or -1 when none does."""
+    """First line that looks like a header, or -1 when none does.
+
+    Published astronomical tables routinely put the column header in a comment
+    line (``# MJD  Mag  Err  Passband``).  Treating every such line as prose
+    loses the header and leaves the data with synthetic ``column_1`` names, so
+    a comment line is accepted only when it has the data width, contains no
+    numeric cells, and is followed by a numeric data row of the same width.
+    """
     scanned = 0
     for index, line in enumerate(lines):
-        if not line.strip() or _is_comment(line, comment_char):
+        if not line.strip():
             continue
-        scanned += 1
-        cells = [cell.strip() for cell in _split(line, delimiter)]
+        is_comment = _is_comment(line, comment_char)
+        candidate = line.lstrip()[len(comment_char) :] if is_comment else line
+        if not is_comment:
+            scanned += 1
+        cells = _header_cells(candidate, delimiter)
         if len(cells) != field_count:
             continue
         if scanned > MAX_HEADER_SCAN:
@@ -243,8 +253,61 @@ def _header_index(
             continue
         if any(_looks_numeric(cell) for cell in cells):
             continue
+        if is_comment and not _looks_like_header_cells(cells):
+            continue
+        if is_comment and not _next_row_is_data(
+            lines, index, delimiter, field_count, comment_char
+        ):
+            continue
         return index
     return -1
+
+
+def _header_cells(line: str, delimiter: str) -> list[str]:
+    """Split a header line; whitespace tables may use single spaces there."""
+    if delimiter == "":
+        return [cell for cell in line.split() if cell]
+    return [cell.strip() for cell in _split(line, delimiter)]
+
+
+def _looks_like_header_cells(cells: Sequence[str]) -> bool:
+    """Reject prose that happens to have as many words as the data columns.
+
+    Real column names are mostly capitalised, numeric (``3SigMagLim``) or
+    bracketed (``MJD[days]``); a sentence in the comment preamble is not.
+    """
+    if any(cell.endswith((",", ".", ";")) for cell in cells):
+        return False
+    labelled = sum(
+        1
+        for cell in cells
+        if cell[:1].isupper()
+        or cell[:1].isdigit()
+        or "[" in cell
+        or "]" in cell
+        or "_" in cell
+    )
+    return labelled >= max(2, len(cells) // 2)
+
+
+def _next_row_is_data(
+    lines: Sequence[str],
+    header_index: int,
+    delimiter: str,
+    field_count: int,
+    comment_char: str,
+) -> bool:
+    """Whether the next non-comment, non-empty line looks like table data."""
+    for line in lines[header_index + 1 :]:
+        if not line.strip() or _is_comment(line, comment_char):
+            continue
+        cells = [cell.strip() for cell in _split(line, delimiter)]
+        if len(cells) != field_count:
+            return False
+        # Published tables may pack a value and its error into one cell
+        # ("18.407 0.156"), so one numeric cell is enough evidence of data.
+        return any(_looks_numeric(cell) for cell in cells)
+    return False
 
 
 def _caption(lines: Sequence[str], comment_char: str, limit: int = 6) -> str:
@@ -276,8 +339,11 @@ def sniff_table(path: str | Path, *, max_bytes: int = 65536) -> TableProfile:
     header_row = _header_index(lines, delimiter, field_count, comment_char)
     columns: tuple[str, ...] = ()
     if header_row >= 0:
+        header_line = lines[header_row]
+        if comment_char and _is_comment(header_line, comment_char):
+            header_line = header_line.lstrip()[len(comment_char) :]
         columns, column_warnings = _unique_columns(
-            [cell.strip() for cell in _split(lines[header_row], delimiter)]
+            _header_cells(header_line, delimiter)
         )
         warnings.extend(column_warnings)
     data_lines = [
@@ -381,7 +447,12 @@ def read_table(
     warnings = list(dict.fromkeys((*profile.warnings, *encoding_warnings)))
     notes = list(profile.notes)
 
-    records, kept_lines = _read_records(text, used_delimiter, used_comment)
+    records, kept_lines = _read_records(
+        text,
+        used_delimiter,
+        used_comment,
+        keep_line=profile.header_row + 1 if profile.header_row >= 0 else 0,
+    )
     if not records:
         return (
             _empty_table(
@@ -437,7 +508,11 @@ def read_table(
         warnings.append(f"ragged_rows:{ragged}")
     if overflow:
         warnings.append(f"extra_columns:{overflow}")
-    if sum(line.count('"') for line in lines) % 2 == 1:
+    if (
+        sum(line.count('"') for line in lines if not _is_comment(line, used_comment))
+        % 2
+        == 1
+    ):
         warnings.append("possible_truncation")
 
     confidence = profile.confidence_score
@@ -483,20 +558,32 @@ def read_table(
 
 
 def _read_records(
-    text: str, delimiter: str, comment_char: str
+    text: str,
+    delimiter: str,
+    comment_char: str,
+    keep_line: int = 0,
 ) -> tuple[list[tuple[int, list[str]]], list[int]]:
     """Parse delimited records while remembering each record's source line.
 
     ``csv`` handles quoted fields that span lines, so a record is not always a
     single physical line; the returned indexes point at the 1-based line a
-    record starts on. Comment lines are removed before parsing.
+    record starts on. Comment lines are removed before parsing, except
+    ``keep_line`` when it is a comment *header* (``# MJD B V R I``): that line
+    is kept with its comment marker stripped so the columns it names survive.
     """
     lines = text.splitlines()
     kept: list[int] = []
     payload: list[str] = []
     for number, line in enumerate(lines, start=1):
         if comment_char and _is_comment(line, comment_char):
-            continue
+            if number != keep_line:
+                continue
+            line = line.lstrip()[len(comment_char) :]
+            if not delimiter:
+                # The whitespace reader separates data on runs of two or more
+                # spaces.  A header such as ``Filter MJD[days] Mag`` uses one
+                # space, so normalise only the header to the same shape.
+                line = "  ".join(line.split())
         kept.append(number)
         payload.append(line)
     if not payload:

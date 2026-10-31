@@ -369,3 +369,105 @@ def test_report_records_dropped_rows_and_axis_suspect(tmp_path):
         Path(result.package.files["manifest"]).read_text(encoding="utf-8")
     )
     assert manifest["counts"]["records"] >= 1
+
+
+def test_comment_header_in_raw_whitespace_table_is_used(tmp_path):
+    from jw.scientific_data.tabular import read_table
+
+    path = tmp_path / "sndb.dat"
+    path.write_text(
+        "# SNDB photometry\n"
+        "#\n"
+        "# MJD  Mag  Err  LimMag  Passband  Telescope\n"
+        "58000.10  15.20  0.10  17.0  B  KAIT\n"
+        "58001.10  15.40  0.20  17.0  V  KAIT\n",
+        encoding="utf-8",
+    )
+    tables = read_table(path, source_id="src-raw")
+    assert len(tables) == 1
+    table = tables[0]
+    assert table.columns == ("MJD", "Mag", "Err", "LimMag", "Passband", "Telescope")
+    assert len(table.rows) == 2
+    assert table.rows[0]["MJD"] == "58000.10"
+
+
+def test_source_level_entity_override_unblocks_objectless_table(tmp_path):
+    path = tmp_path / "objectless.csv"
+    path.write_text("mjd,mag,err\n58000.10,15.20,0.10\n", encoding="utf-8")
+    request = {
+        "research_goal": "entity override",
+        "domain": "snia_light_curve",
+        "observables": [
+            "apparent_magnitude",
+            "magnitude_uncertainty",
+            "time",
+            "object",
+            "band",
+        ],
+        "entity_class": "supernova",
+    }
+    before = run_integration(
+        workspace=tmp_path / "ws",
+        contract=contract_from_request(request),
+        inputs=(path,),
+        options=WorkflowOptions(),
+        run_id="entity-before",
+    )
+    assert not before.records
+    assert any(issue.code is IssueCode.MERGE_KEY_ABSENT for issue in before.issues)
+
+    after = run_integration(
+        workspace=tmp_path / "ws",
+        contract=contract_from_request(request),
+        inputs=(path,),
+        options=WorkflowOptions(
+            entity_overrides=({"source": "objectless.csv", "entity": "SN 2011fe"},)
+        ),
+        run_id="entity-after",
+    )
+    assert len(after.records) == 1
+    record = after.records[0]
+    assert record.entity_id == "obj:sn2011fe"
+    assert "entity_override" in record.flags
+    assert record.attributes.get("label") == "SN 2011fe"
+    assert not any(issue.code is IssueCode.MERGE_KEY_ABSENT for issue in after.issues)
+
+
+def test_wide_photometry_table_is_reshaped_and_keeps_missing(tmp_path):
+    path = tmp_path / "wide.csv"
+    path.write_text(
+        "mjd,B,V\n58000.10,15.20 0.10,-\n58001.10,15.40 0.20,14.90 0.30\n",
+        encoding="utf-8",
+    )
+    result = run_integration(
+        workspace=tmp_path / "ws",
+        contract=contract_from_request(
+            {
+                "research_goal": "wide reshape",
+                "domain": "snia_light_curve",
+                "observables": [
+                    "apparent_magnitude",
+                    "magnitude_uncertainty",
+                    "time",
+                    "object",
+                    "band",
+                ],
+                "entity_class": "supernova",
+            }
+        ),
+        inputs=(path,),
+        options=WorkflowOptions(
+            entity_overrides=({"source": "wide.csv", "entity": "SN 2012ap"},)
+        ),
+        run_id="wide",
+    )
+    assert len(result.records) == 4
+    bands = sorted(record.attributes["band"] for record in result.records)
+    assert bands == ["B", "B", "V", "V"]
+    valid = [record for record in result.records if record.value is not None]
+    assert [record.value for record in valid] == [15.2, 15.4, 14.9]
+    missing = [record for record in result.records if record.value is None]
+    assert len(missing) == 1
+    assert missing[0].missing_reason.value
+    table = next(iter(result.ledger.tables.values()))
+    assert any(w.startswith("wide_photometry_reshaped:") for w in table.parse_warnings)
