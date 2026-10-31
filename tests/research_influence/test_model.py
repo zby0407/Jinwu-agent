@@ -13,6 +13,7 @@ from jw.research_influence.cohort import synthetic_cohort
 from jw.research_influence.model import (
     InfluenceModel,
     InsufficientTrainingData,
+    _conformal_quantile,
     fit_model,
     interval_coverage,
     pinball_loss,
@@ -70,11 +71,26 @@ def test_model_reports_an_interval_and_a_card(model):
     card = model.card
     assert card.horizon_years == 3
     assert card.quantiles == (0.1, 0.5, 0.9)
-    assert card.training_rows > 0 and card.holdout_rows > 0
+    assert card.training_rows > 0 and card.calibration_rows > 0
+    assert card.holdout_rows > 0
     assert set(card.offsets) == {"0.1", "0.5", "0.9"}
+    assert set(card.calibration_paper_ids).isdisjoint(card.holdout_paper_ids)
+    assert set(card.training_paper_ids).isdisjoint(card.calibration_paper_ids)
+    assert set(card.training_paper_ids).isdisjoint(card.holdout_paper_ids)
     assert card.cohort_fingerprint.startswith("sha256:")
     assert card.metrics["records"] == card.holdout_rows
     assert card.fingerprint().startswith("sha256:")
+    assert card.conformal_quantile >= 0.0
+    assert 0.0 <= card.conformal_level <= 1.0
+    payload = card.to_dict()
+    assert payload["conformal_quantile"] == card.conformal_quantile
+    assert payload["conformal_level"] == card.conformal_level
+
+
+def test_conformal_quantile_interpolates_between_scores():
+    """A step-function quantile can jump coverage on a small calibration set."""
+    assert _conformal_quantile([0.0, 1.0, 2.0, 3.0], 0.5) == pytest.approx(1.5)
+    assert _conformal_quantile([], 0.8) == 0.0
 
 
 def test_predictions_are_ordered_and_non_negative(model, cohort):
@@ -95,6 +111,8 @@ def test_interval_coverage_is_near_nominal(model, cohort):
     """
     metrics = model.metrics_for(cohort.papers)
     assert metrics["eval_subset"] == "holdout"
+    assert metrics["scored_rows"] == model.card.holdout_rows
+    assert metrics["in_sample_rows"] == 0
     assert 0.6 <= metrics["interval_coverage"] <= 0.95
     in_sample = model.metrics_for(cohort.papers, subset="all")
     assert in_sample["in_sample_rows"] > 0

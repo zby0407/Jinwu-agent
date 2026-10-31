@@ -33,12 +33,18 @@ import html
 import json
 import os
 import re
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
 import xml.etree.ElementTree as ET
 from pathlib import Path
 from typing import Any
+
+from jw.literature_credentials import (
+    contact_email,
+    credential_value,
+)
 
 from . import service
 from .contracts import (
@@ -330,16 +336,34 @@ def validate_distill_relevance(
 def _http_get(url: str, *, accept: str, headers: dict[str, str] | None = None) -> bytes:
     request_headers = {"Accept": accept, "User-Agent": USER_AGENT}
     request_headers.update(headers or {})
-    request = urllib.request.Request(
-        url,
-        headers=request_headers,
-        method="GET",
-    )
-    with urllib.request.urlopen(request, timeout=20) as response:
-        raw = response.read(MAX_REMOTE_BYTES + 1)
-    if len(raw) > MAX_REMOTE_BYTES:
-        raise ContractError(f"remote response exceeded {MAX_REMOTE_BYTES} bytes")
-    return raw
+    last_error: Exception | None = None
+    for attempt in range(3):
+        request = urllib.request.Request(
+            url,
+            headers=request_headers,
+            method="GET",
+        )
+        try:
+            with urllib.request.urlopen(request, timeout=20) as response:
+                raw = response.read(MAX_REMOTE_BYTES + 1)
+            if len(raw) > MAX_REMOTE_BYTES:
+                raise ContractError(
+                    f"remote response exceeded {MAX_REMOTE_BYTES} bytes"
+                )
+            return raw
+        except urllib.error.HTTPError as exc:
+            last_error = exc
+            if exc.code not in {429, 500, 502, 503, 504} or attempt >= 2:
+                raise
+            retry_after = (exc.headers or {}).get("Retry-After", "")
+            try:
+                delay = max(0.0, float(str(retry_after).strip()))
+            except ValueError:
+                delay = 1.0 * (2**attempt)
+            time.sleep(min(delay, 30.0))
+    if last_error is not None:  # pragma: no cover - loop always returns or raises
+        raise last_error
+    raise ContractError("remote request failed without an exception")
 
 
 def _safe_diagnostic(exc: BaseException) -> str:
@@ -351,8 +375,21 @@ def _safe_diagnostic(exc: BaseException) -> str:
         if exc.field_path:
             details.append(f"field={exc.field_path}")
         message = f"{message} ({'; '.join(details)})"
-    for name in ("ADS_API_TOKEN", "OPENALEX_API_KEY", "CROSSREF_MAILTO"):
-        secret = os.getenv(name, "")
+    secrets = [
+        os.getenv(name, "")
+        for name in (
+            "ADS_API_TOKEN",
+            "OPENALEX_API_KEY",
+            "OPENALEX_MAILTO",
+            "CROSSREF_MAILTO",
+            "UNPAYWALL_EMAIL",
+        )
+    ]
+    secrets.extend(
+        credential_value(provider)
+        for provider in ("ads", "openalex", "openalex_mailto", "crossref", "unpaywall")
+    )
+    for secret in secrets:
         if secret and len(secret) >= 4:
             message = message.replace(secret, "[redacted]")
     return message[:500]
@@ -374,7 +411,7 @@ def _search_ads(
     to_year: int | None,
     sort: str,
 ) -> list[dict[str, Any]]:
-    token = os.getenv("ADS_API_TOKEN", "").strip()
+    token = credential_value("ads")
     if not token:
         _fail(
             "NASA ADS token is not configured",
@@ -489,9 +526,12 @@ def _search_openalex(
             "abstract_inverted_index,is_retracted,publication_date"
         ),
     }
-    api_key = os.getenv("OPENALEX_API_KEY", "").strip()
+    api_key = credential_value("openalex")
     if api_key:
         params["api_key"] = api_key
+    mailto = credential_value("openalex_mailto") or contact_email()
+    if mailto:
+        params["mailto"] = mailto
     if sort == "recent":
         params["sort"] = "publication_date:desc"
     filters: list[str] = []
@@ -565,7 +605,10 @@ def _search_arxiv(
     terms = [term for term in re.split(r"\s+", query) if term]
     if not terms:
         return []
-    search_query = "+AND+".join(f"all:{term}" for term in terms)
+    # Join with spaces: urlencode turns each space into "+", which the arXiv
+    # API reads as a boolean AND. Joining with "+AND+" here made urlencode
+    # emit "%2BAND%2B", so every multi-word query silently matched nothing.
+    search_query = " AND ".join(f"all:{term}" for term in terms)
     # Fetch extra rows when year filtering happens client-side.
     batch = min(50, limit * 3 if (from_year or to_year) else limit)
     params = {
@@ -680,7 +723,7 @@ def _search_crossref(
         "rows": limit,
         "select": "DOI,title,author,published,URL,abstract,type,indexed",
     }
-    mailto = os.getenv("CROSSREF_MAILTO", "").strip()
+    mailto = credential_value("crossref")
     if mailto:
         params["mailto"] = mailto
     if sort == "recent":
@@ -1303,12 +1346,17 @@ def fetch_literature(
     filename = _source_filename(source_id)
     path = directory / filename
     archive_path = store.export_dir / "raw" / "sources" / filename
+    has_abstract = bool(str(row.get("abstract") or "").strip())
+    evidence_scope = "abstract_only" if has_abstract else "metadata_only"
+    reading_level = (
+        "cached_metadata_and_abstract" if has_abstract else "cached_metadata_only"
+    )
     if row.get("fetched_at") and path.is_file():
         text = path.read_text(encoding="utf-8")
         if not archive_path.is_file():
             archive_path.parent.mkdir(parents=True, exist_ok=True)
             archive_path.write_text(text, encoding="utf-8")
-        return {
+        result = {
             "status": "ok",
             "source_id": source_id,
             "requested_source_id": requested_source_id,
@@ -1317,17 +1365,16 @@ def fetch_literature(
             "archive_path": str(archive_path),
             "text_length": len(text),
             "cached": True,
-            "evidence_scope": "abstract_only",
+            "evidence_scope": evidence_scope,
             "full_text_retrieved": False,
-            "reading_level": "cached_metadata_and_abstract",
+            "reading_level": reading_level,
         }
-    if not str(row.get("abstract") or "").strip():
-        _fail(
-            f"no cached abstract text for {source_id!r}",
-            error_code="no_abstract_available",
-            field_path="source_id",
-            suggestion="该文献缓存中没有摘要文本；重新 lit_search 或换一篇。",
-        )
+        if not has_abstract:
+            result["note"] = (
+                "cached metadata only: this source has no abstract; identify it "
+                "from title/DOI and do not claim to have read it"
+            )
+        return result
     text = _render_source_text(row)
     directory.mkdir(parents=True, exist_ok=True)
     path.write_text(text, encoding="utf-8")
@@ -1344,9 +1391,19 @@ def fetch_literature(
         "archive_path": str(archive_path),
         "text_length": len(text),
         "cached": False,
-        "evidence_scope": "abstract_only",
+        "evidence_scope": evidence_scope,
         "full_text_retrieved": False,
-        "reading_level": "cached_metadata_and_abstract",
+        "reading_level": reading_level,
+        **(
+            {
+                "note": (
+                    "cached metadata only: this source has no abstract; identify it "
+                    "from title/DOI and do not claim to have read it"
+                )
+            }
+            if not has_abstract
+            else {}
+        ),
     }
 
 

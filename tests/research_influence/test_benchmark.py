@@ -208,11 +208,15 @@ def test_censored_papers_are_never_training_labels(fitted, baseline_papers):
     assert censored, "the benchmark cohort must contain censored papers"
     assert fitted.card.labelled == len(baseline_papers) - len(censored)
     trained = set(fitted.card.training_paper_ids)
+    calibrated = set(fitted.card.calibration_paper_ids)
     held = set(fitted.card.holdout_paper_ids)
     assert len(trained) == fitted.card.training_rows
+    assert len(calibrated) == fitted.card.calibration_rows
     assert len(held) == fitted.card.holdout_rows
     assert not trained & held, "a paper cannot be both trained on and held out"
-    assert len(trained) + len(held) == fitted.card.labelled
+    assert not trained & calibrated
+    assert not calibrated & held
+    assert len(trained) + len(calibrated) + len(held) == fitted.card.labelled
 
 
 def test_six_injected_biases_and_how_many_are_found(baseline_papers):

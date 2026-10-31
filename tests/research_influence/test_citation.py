@@ -323,3 +323,65 @@ def test_the_network_can_be_switched_off(tmp_path):
     )
     assert run.stages["citation"] == {"state": "skipped", "reason": "disabled"}
     assert run.citations == ()
+
+
+def test_resolve_works_reports_a_rate_limit_instead_of_no_results():
+    """A 429 is a missing measurement, not a paper without references."""
+    from jw.research_influence.transport import HttpResponse
+
+    transport = FakeTransport({"/works": HttpResponse(status=429, error="http_429")})
+    status: dict[str, str] = {}
+    assert resolve_works(["W1"], transport=transport, policy=_policy(), status=status) == {}
+    assert status["status"] == "rate_limited"
+    assert status["note"] == "http_429"
+
+
+def test_resolve_works_keeps_the_status_ok_when_the_page_was_read():
+    from jw.research_influence.transport import HttpResponse
+
+    transport = FakeTransport(
+        {"/works": HttpResponse(status=200, body=b'{"results": [], "meta": {"count": 0}}')}
+    )
+    status: dict[str, str] = {}
+    resolve_works(["W1"], transport=transport, policy=_policy(), status=status)
+    assert status == {}
+
+
+def test_citation_profile_resolves_a_crossref_doi_reference():
+    """A Crossref reference list is DOI-only; it must still count."""
+    paper = PaperRecord(
+        paper_id="p1",
+        title="Uses a DOI reference",
+        work_id="W1",
+        doi="10.1/source",
+        references=(
+            ReferenceRecord(index=1, raw="Ref", doi="10.1/target", title="Target"),
+        ),
+    )
+    resolved = {"W2": _work("W2", doi="10.1/target", citations=100)}
+    profile = citation_profile(
+        paper, resolved=resolved, referenced_ids=("10.1/target",)
+    )
+    assert profile.resolved_references == 1
+    assert profile.median_referenced_citations == 100
+    assert "reference_resolution_partial" not in profile.notes
+
+
+def test_pagerank_uses_a_doi_reference_edge():
+    """The graph must include a DOI edge, not only OpenAlex work ids."""
+    paper = PaperRecord(
+        paper_id="p1",
+        title="Uses a DOI reference",
+        work_id="W1",
+        doi="10.1/source",
+        references=(
+            ReferenceRecord(index=1, raw="Ref", doi="10.1/target", title="Target"),
+        ),
+    )
+    resolved = {
+        "W1": _work("W1", doi="10.1/source"),
+        "W2": _work("W2", doi="10.1/target"),
+    }
+    ranks = cohort_pagerank([paper], resolved)
+    assert set(ranks) == {"W1", "W2"}
+    assert ranks["W2"] > ranks["W1"]

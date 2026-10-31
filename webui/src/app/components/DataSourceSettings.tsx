@@ -5,6 +5,7 @@ import {
   Database,
   ExternalLink,
   FileText,
+  KeyRound,
   Loader2,
   Plus,
   RefreshCw,
@@ -14,6 +15,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { ToggleSwitch } from "@/components/ui/switch";
+import { LiteratureCredentials } from "@/app/components/LiteratureCredentials";
 import {
   fetchDataSources,
   setDataSourceEnabled,
@@ -216,6 +218,7 @@ export function DataSourceSettings() {
   const [actionError, setActionError] = useState<string | null>(null);
   const [selection, setSelection] = useState<Selection | null>(null);
   const [showFeedForm, setShowFeedForm] = useState(false);
+  const [showCredentials, setShowCredentials] = useState(false);
   const [form, setForm] = useState<CustomFeedFormState>(EMPTY_FORM);
   const [formError, setFormError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -263,7 +266,7 @@ export function DataSourceSettings() {
   // Keep a valid selection: default to the first observational source,
   // falling back to the first literature feed.
   useEffect(() => {
-    if (showFeedForm) return;
+    if (showFeedForm || showCredentials) return;
     if (selection) {
       const exists =
         selection.kind === "dataset"
@@ -278,7 +281,7 @@ export function DataSourceSettings() {
     } else {
       setSelection(null);
     }
-  }, [sources, feeds, selection, showFeedForm]);
+  }, [sources, feeds, selection, showFeedForm, showCredentials]);
 
   async function toggleSource(source: ObservationalDataSource, next: boolean) {
     setBusyId(source.id);
@@ -379,7 +382,7 @@ export function DataSourceSettings() {
       {actionError && (
         <p
           role="alert"
-          className="rounded-md bg-[var(--color-error)]/10 px-3 py-2 text-xs text-[var(--color-error)]"
+          className="bg-[var(--color-error)]/10 rounded-md px-3 py-2 text-xs text-[var(--color-error)]"
         >
           {actionError}
         </p>
@@ -437,7 +440,9 @@ export function DataSourceSettings() {
                   }
                   statusText={
                     feed.latest_run
-                      ? `候选 ${feed.source_count} 篇 · ${formatDate(feed.latest_run.started_at)}`
+                      ? `候选 ${feed.source_count} 篇 · ${formatDate(
+                          feed.latest_run.started_at
+                        )}`
                       : "尚未同步"
                   }
                   active={
@@ -448,6 +453,7 @@ export function DataSourceSettings() {
                   toggleLabel={`启用 ${feed.title_zh}`}
                   onSelect={() => {
                     setShowFeedForm(false);
+                    setShowCredentials(false);
                     setSelection({ kind: "feed", id: feed.id });
                   }}
                   onToggle={(next) => void toggleFeed(feed, next)}
@@ -457,10 +463,11 @@ export function DataSourceSettings() {
                 type="button"
                 onClick={() => {
                   setShowFeedForm(true);
+                  setShowCredentials(false);
                   setFormError(null);
                 }}
                 className={cn(
-                  "flex w-full items-center gap-1.5 rounded-lg border border-dashed border-border px-2.5 py-2 text-[11px] text-muted-foreground transition-colors hover:border-[var(--brand)]/50 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                  "hover:border-[var(--brand)]/50 flex w-full items-center gap-1.5 rounded-lg border border-dashed border-border px-2.5 py-2 text-[11px] text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
                   showFeedForm && "border-[var(--brand)]/60 text-foreground"
                 )}
               >
@@ -509,12 +516,45 @@ export function DataSourceSettings() {
                     toggleLabel={`启用 ${source.title_zh}`}
                     onSelect={() => {
                       setShowFeedForm(false);
+                      setShowCredentials(false);
                       setSelection({ kind: "dataset", id: source.id });
                     }}
                     onToggle={(next) => void toggleSource(source, next)}
                   />
                 );
               })}
+            </SidebarGroup>
+
+            <SidebarGroup
+              icon={
+                <KeyRound
+                  className="size-3"
+                  aria-hidden="true"
+                />
+              }
+              title="文献源凭据"
+            >
+              <button
+                type="button"
+                aria-pressed={showCredentials}
+                onClick={() => {
+                  setShowFeedForm(false);
+                  setShowCredentials(true);
+                }}
+                className={cn(
+                  "w-full rounded-lg border px-2.5 py-2 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                  showCredentials
+                    ? "border-[var(--brand)]/50 bg-[var(--brand)]/[0.06]"
+                    : "border-transparent hover:border-border/70 hover:bg-muted/20"
+                )}
+              >
+                <p className="text-xs font-medium leading-5">
+                  OpenAlex / Crossref / ADS…
+                </p>
+                <p className="mt-0.5 text-[10px] leading-4 text-muted-foreground">
+                  填写 API key 或联系邮箱
+                </p>
+              </button>
             </SidebarGroup>
           </div>
           <p className="mt-2 shrink-0 border-t border-border/60 px-1 pt-2 text-[10px] leading-4 text-muted-foreground/70">
@@ -525,9 +565,11 @@ export function DataSourceSettings() {
         {/* 右栏：详情与预览 */}
         <section
           aria-label="数据源详情与预览"
-          className="min-h-0 overflow-visible border-t border-border/70 pt-4 pr-1 md:overflow-y-auto md:border-l md:border-t-0 md:pl-4 md:pt-0"
+          className="min-h-0 overflow-visible border-t border-border/70 pr-1 pt-4 md:overflow-y-auto md:border-l md:border-t-0 md:pl-4 md:pt-0"
         >
-          {showFeedForm ? (
+          {showCredentials ? (
+            <LiteratureCredentials />
+          ) : showFeedForm ? (
             <div>
               <h3 className="text-sm font-semibold">接入自定义论文源</h3>
               <p className="mt-1 text-xs leading-5 text-muted-foreground">
@@ -757,7 +799,11 @@ export function DataSourceSettings() {
                   [
                     "覆盖范围",
                     selectedDataset.registration
-                      ? `${formatDate(selectedDataset.registration.coverage_start)} 至 ${formatDate(selectedDataset.registration.coverage_end)}`
+                      ? `${formatDate(
+                          selectedDataset.registration.coverage_start
+                        )} 至 ${formatDate(
+                          selectedDataset.registration.coverage_end
+                        )}`
                       : "—",
                   ],
                   [
@@ -777,10 +823,7 @@ export function DataSourceSettings() {
                         selectedDataset.registration?.registered_at
                     ),
                   ],
-                  [
-                    "存储路径",
-                    selectedDataset.registration?.data_path ?? "—",
-                  ],
+                  ["存储路径", selectedDataset.registration?.data_path ?? "—"],
                 ]}
               />
               <DatasetPreview
@@ -810,8 +853,8 @@ export function DataSourceSettings() {
                           : "warning"
                       }
                     >
-                      上次同步 {formatDate(selectedFeed.latest_run.started_at)} ·{" "}
-                      {selectedFeed.latest_run.status}
+                      上次同步 {formatDate(selectedFeed.latest_run.started_at)}{" "}
+                      · {selectedFeed.latest_run.status}
                     </Badge>
                   ) : (
                     <Badge tone="muted">尚未同步</Badge>
@@ -843,7 +886,9 @@ export function DataSourceSettings() {
                   [
                     "上次同步",
                     selectedFeed.latest_run
-                      ? `${formatDate(selectedFeed.latest_run.started_at)} · ${selectedFeed.latest_run.status} · ${selectedFeed.latest_run.result_count} 个命中`
+                      ? `${formatDate(selectedFeed.latest_run.started_at)} · ${
+                          selectedFeed.latest_run.status
+                        } · ${selectedFeed.latest_run.result_count} 个命中`
                       : "尚未同步",
                   ],
                 ]}

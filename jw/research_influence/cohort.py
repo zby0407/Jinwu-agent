@@ -38,6 +38,7 @@ __all__ = [
     "build_snapshot",
     "citations_within",
     "is_right_censored",
+    "merge_duplicate_papers",
     "openalex_snapshot",
     "select_cohort",
     "synthetic_cohort",
@@ -661,17 +662,38 @@ def openalex_snapshot(
     Kept separate from the network layer on purpose: a snapshot is taken once,
     committed to disk, and re-used, so a model run never depends on a live API.
     """
+    from .access import candidates_from_openalex, decide_access
     from .paper import build_paper
     from .providers.openalex import parse_work
 
-    built = [
-        build_paper(
-            paper_id=f"paper:{_identifier(payload)}",
-            doi=str(payload.get("doi") or ""),
-            openalex=_work_payload(payload, parse_work),
+    built = []
+    for payload in payloads:
+        work = _work_payload(payload, parse_work)
+        doi = str(work.get("doi") or payload.get("doi") or "")
+        # Choosing a route is metadata work; fetching it is a separate decision.
+        # Passing allow_network=False here used to label every locally imported
+        # open-access paper as abstract-only, which then poisoned the access
+        # features and the open-access bias audit.
+        access = decide_access(
+            doi=doi,
+            candidates=candidates_from_openalex(work),
+            has_abstract=bool(work.get("abstract")),
+            has_metadata=True,
         )
-        for payload in payloads
-    ]
+        work_id = str(work.get("work_id") or payload.get("id") or "")
+        paper_id = (
+            f"paper:{normalise_doi(doi)}"
+            if normalise_doi(doi)
+            else f"paper:openalex:{work_id.rsplit('/', 1)[-1] or 'unknown'}"
+        )
+        built.append(
+            build_paper(
+                paper_id=paper_id,
+                doi=doi,
+                openalex=work,
+                access=access,
+            )
+        )
     # OpenAlex returns the same DOI under more than one work id while a merge is
     # pending (9 of 1200 records in one 2026-10-30 sample).  Keeping both would
     # count one paper twice and double its citations, so the later record only
@@ -689,20 +711,50 @@ def openalex_snapshot(
     )
 
 
+def merge_duplicate_papers(
+    papers: Iterable[PaperRecord],
+) -> tuple[tuple[PaperRecord, ...], int]:
+    """One record per paper identity, preferring the more complete witness.
+
+    The three ingestion paths used to mint different ids for the same DOI
+    (``paper:10.1_x`` from a snapshot, ``paper:10.1/x`` from a DOI lookup and
+    ``paper:local:<hash>`` from an upload).  Keying on the id alone therefore
+    kept duplicates; the identity key below is the DOI, then the OpenAlex work
+    id, and only then the paper id.
+    """
+    merged, collapsed = _collapse_duplicates(list(papers))
+    return tuple(merged), collapsed
+
+
+def _identity_key(paper: PaperRecord) -> str:
+    """Stable key for one paper across ingestion paths."""
+    doi = normalise_doi(paper.doi)
+    if doi:
+        return f"doi:{doi}"
+    work_id = str(paper.work_id or "").strip()
+    if work_id:
+        return f"work:{work_id.rsplit('/', 1)[-1].casefold()}"
+    # Imported records sometimes carry the work id only in the paper id.
+    if paper.paper_id.startswith("paper:openalex:"):
+        return f"work:{paper.paper_id.rsplit(':', 1)[-1].casefold()}"
+    return f"paper:{paper.paper_id}"
+
+
 def _collapse_duplicates(
     papers: Sequence[PaperRecord],
 ) -> tuple[list[PaperRecord], int]:
-    """Keep one record per paper id, preferring the more complete one."""
+    """Keep one record per paper identity, preferring the more complete one."""
     best: dict[str, PaperRecord] = {}
     collapsed = 0
     for paper in papers:
-        current = best.get(paper.paper_id)
+        key = _identity_key(paper)
+        current = best.get(key)
         if current is None:
-            best[paper.paper_id] = paper
+            best[key] = paper
             continue
         collapsed += 1
         if _is_better_witness(paper, current):
-            best[paper.paper_id] = paper
+            best[key] = paper
     return list(best.values()), collapsed
 
 
@@ -721,7 +773,11 @@ def _is_better_witness(candidate: PaperRecord, current: PaperRecord) -> bool:
     current_citations = int(current.cited_by_count or 0)
     if candidate_citations != current_citations:
         return candidate_citations > current_citations
-    return candidate.work_id < current.work_id
+    if bool(candidate.work_id) != bool(current.work_id):
+        return bool(candidate.work_id)
+    return (candidate.work_id or candidate.paper_id) < (
+        current.work_id or current.paper_id
+    )
 
 
 _RAW_KEYS = frozenset({"authorships", "primary_location", "abstract_inverted_index"})

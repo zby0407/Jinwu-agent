@@ -372,16 +372,21 @@ def _audit_venue_prestige(context: _Context) -> BiasFinding:
             "venue_route_importance_share": round(share, 4),
         },
         conclusion=(
-            f"Across {combined_low['n'] + combined_high['n']} labelled papers the model "
-            f"{_verb(difference['delta'])} higher-tier venues by "
-            f"{abs(difference['delta']):.2f} log units "
-            f"(95% CI {difference['ci_low']:.2f} to {difference['ci_high']:.2f}); "
-            f"venue features carry {share:.0%} of the model's importance."
-            if status in {"detected", "not_detected"}
-            else (
-                f"The point estimate is {difference['delta']:.2f} log units but the "
-                f"95% CI ({difference['ci_low']:.2f} to {difference['ci_high']:.2f}) "
-                "does not separate the groups."
+            (
+                f"Across {combined_low['n'] + combined_high['n']} labelled papers the "
+                f"model {_verb(difference['delta'])} higher-tier venues by "
+                f"{abs(difference['delta']):.2f} log units "
+                f"(95% CI {difference['ci_low']:.2f} to {difference['ci_high']:.2f}); "
+                f"venue features carry {share:.0%} of the model's importance."
+                if status in {"detected", "not_detected"}
+                else (
+                    f"The point estimate is {difference['delta']:.2f} log units "
+                    f"(95% CI {difference['ci_low']:.2f} to "
+                    f"{difference['ci_high']:.2f}), but the smaller group has only "
+                    f"{min(combined_low['n'], combined_high['n'])} labelled papers "
+                    f"(minimum {MIN_GROUP_SIZE}); this cohort cannot establish a "
+                    "venue-tier bias."
+                )
             )
         ),
         recommendation=(
@@ -448,10 +453,22 @@ def _audit_affiliation_hierarchy(context: _Context) -> BiasFinding:
             ),
         },
         conclusion=(
-            f"Papers with a known first-author institution are {_participle(difference['delta'])} "
-            f"by {abs(difference['delta']):.2f} log units "
-            f"(95% CI {difference['ci_low']:.2f} to {difference['ci_high']:.2f}); "
-            f"affiliation features carry {share:.0%} of importance."
+            (
+                f"Papers with a known first-author institution are "
+                f"{_participle(difference['delta'])} by "
+                f"{abs(difference['delta']):.2f} log units "
+                f"(95% CI {difference['ci_low']:.2f} to {difference['ci_high']:.2f}); "
+                f"affiliation features carry {share:.0%} of importance."
+                if status in {"detected", "not_detected"}
+                else (
+                    f"The point estimate is {difference['delta']:.2f} log units, but "
+                    f"the comparison groups have only "
+                    f"{stats['institution_known']['n']} and "
+                    f"{stats['institution_unknown']['n']} labelled papers "
+                    f"(minimum {MIN_GROUP_SIZE} each); this is too unstable to call "
+                    "an institutional bias."
+                )
+            )
         ),
         recommendation=(
             "Prestigious-institution effects are confounded with data coverage: a paper "
@@ -652,14 +669,21 @@ def _audit_topic_heat(context: _Context) -> BiasFinding:
             (
                 f"Papers on hot topics are {_participle(difference['delta'])} by "
                 f"{abs(difference['delta']):.2f} log units "
-                f"(95% CI {difference['ci_low']:.2f} to {difference['ci_high']:.2f}); "
+                f"(95% CI {difference['ci_low']:.2f} to {difference['ci_high']:.2f})."
+                if difference and status in {"detected", "not_detected"}
+                else (
+                    "The hot-topic group or its comparison group is too small for a "
+                    "stable estimate, so this cohort cannot establish a topic-heat "
+                    "bias."
+                    if difference
+                    else "The cohort does not separate hot and cold topics cleanly."
+                )
             )
-            if difference
-            else "The cohort does not separate hot and cold topics cleanly; "
-        )
-        + (
-            "citation counts therefore track audience size as well as quality, and the "
-            "topic distribution of this cohort is not the field's topic distribution."
+            + (
+                " Citation counts therefore track audience size as well as quality, "
+                "and the topic distribution of this cohort is not the field's topic "
+                "distribution."
+            )
         ),
         recommendation=(
             "Report topic-stratified percentiles alongside global ones; otherwise a "
@@ -956,8 +980,11 @@ def _audit_missing_mechanism(context: _Context) -> BiasFinding:
     )
     if not math.isnan(trend) and math.isnan(spread):
         trend = math.nan
+    all_missing = all(bucket["missing_share"] >= 0.999 for bucket in buckets)
     status = (
-        "detected"
+        "cannot_assess"
+        if all_missing
+        else "detected"
         if spread >= 0.20 and (monotone or (not math.isnan(trend) and trend >= 0.80))
         else "not_detected"
         if abs(spread) < 0.10
@@ -987,10 +1014,20 @@ def _audit_missing_mechanism(context: _Context) -> BiasFinding:
             "text_level_features": list(TEXT_LEVEL),
         },
         conclusion=(
-            f"Full-text coverage differs by {abs(spread):.0%} between the lowest and "
-            f"highest predicted bucket ({'increasing' if spread > 0 else 'decreasing'} "
-            f"with predicted impact), so the text-level features are "
-            f"{'not' if status == 'detected' else 'roughly'} missing at random."
+            (
+                "Every predicted bucket has the same full-text coverage (all papers "
+                "lack text), so this audit has no discriminating power and cannot "
+                "test whether text is missing at random."
+                if all_missing
+                else (
+                    f"Full-text coverage differs by {abs(spread):.0%} between the "
+                    f"lowest and highest predicted bucket "
+                    f"({'increasing' if spread > 0 else 'decreasing'} with predicted "
+                    f"impact), so the text-level features are "
+                    f"{'not' if status == 'detected' else 'not clearly'} missing at "
+                    "random."
+                )
+            )
         ),
         recommendation=(
             "When a whole feature family is missing for exactly the papers the model "

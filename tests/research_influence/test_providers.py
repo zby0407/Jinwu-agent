@@ -28,11 +28,13 @@ OPENALEX_WORK = {
     "authorships": [
         {
             "author": {
+                "id": "https://openalex.org/A123",
                 "display_name": "Jane Q. Astro",
                 "orcid": "https://orcid.org/0000-0002-1825-0097",
             },
             "institutions": [
                 {
+                    "id": "https://openalex.org/I456",
                     "display_name": "Institute of Astronomy",
                     "country_code": "GB",
                     "type": "education",
@@ -95,6 +97,8 @@ def test_openalex_parses_the_fields_the_model_needs():
     assert parsed["abstract"] == "We present photometry"
     assert parsed["authors"][0]["orcid"] == "0000-0002-1825-0097"
     assert parsed["authors"][0]["institution"] == "Institute of Astronomy"
+    assert parsed["authors"][0]["author_id"] == "https://openalex.org/A123"
+    assert parsed["authors"][0]["institution_id"] == "https://openalex.org/I456"
     assert parsed["authors"][0]["country"] == "GB"
     assert parsed["venue"]["name"].startswith("Monthly Notices")
     assert parsed["topics"][0]["field"] == "Physics"

@@ -492,7 +492,9 @@ class AuthorRecord:
     family: str = ""
     position: int = 0
     orcid: str = ""
+    author_id: str = ""
     institution: str = ""
+    institution_id: str = ""
     country: str = ""
     is_corresponding: bool = False
     provenance: tuple[Provenance, ...] = ()
@@ -513,7 +515,9 @@ class AuthorRecord:
             "family": self.family,
             "position": self.position,
             "orcid": self.orcid,
+            "author_id": self.author_id,
             "institution": self.institution,
+            "institution_id": self.institution_id,
             "country": self.country,
             "is_corresponding": self.is_corresponding,
             "provenance": [_jsonable(item) for item in self.provenance],
@@ -528,7 +532,9 @@ class AuthorRecord:
             family=str(raw.get("family") or ""),
             position=_as_position(raw.get("position")),
             orcid=str(raw.get("orcid") or ""),
+            author_id=str(raw.get("author_id") or ""),
             institution=str(raw.get("institution") or ""),
+            institution_id=str(raw.get("institution_id") or ""),
             country=str(raw.get("country") or ""),
             is_corresponding=bool(raw.get("is_corresponding")),
             provenance=_provenance_tuple(raw.get("provenance")),

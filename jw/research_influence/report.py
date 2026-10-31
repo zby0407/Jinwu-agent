@@ -118,7 +118,8 @@ def _section_overview(
         )
         lines.append("")
         lines.append(
-            f"- 训练行数 {card.get('training_rows', 0)}，留出行数 "
+            f"- 训练行数 {card.get('training_rows', 0)}，校准行数 "
+            f"{card.get('calibration_rows', 0)}，评估行数 "
             f"{card.get('holdout_rows', 0)}，特征数 {len(card.get('feature_names', []))}"
         )
         for key in (
@@ -251,7 +252,7 @@ def _section_predictions(
         )
     lines.extend(
         _table(
-            ["论文", "标题", "年份", "窗口内已观测", "预测（三年）", "log 中位数"],
+            ["论文", "标题", "年份", "窗口内已观测", f"预测（{horizon} 年）", "log 中位数"],
             rows,
         )
     )
@@ -542,6 +543,12 @@ def _section_bias(bias_report: Any) -> list[str]:
         f"{counts['audits']} 类审计：{counts['detected']} 类检出系统性差异，"
         f"{counts['cannot_assess']} 类明确无法评估。"
     )
+    if counts["detected"] == 0:
+        lines.append("")
+        lines.append(
+            "**未检出偏差不等于没有偏差**：其余审计多数是样本量不足或证据不够，"
+            "只能说明本次数据不足以支持一个方向性结论，不能说明评价是公平的。"
+        )
     lines.append("")
     lines.extend(
         _table(
@@ -654,11 +661,18 @@ def _section_limits(cohort: Mapping[str, Any], notes: Sequence[str]) -> list[str
             f"- **样本量**：仅 {labelled} 篇论文窗口已闭合，"
             "区间外推能力有限；跨队列比较需要更大的冻结快照。"
         )
-    lines.append(
-        "- **本环境无网络**：真实 OpenAlex/Crossref/Unpaywall 抓取未在本机联网执行，"
-        "随附的抓取脚本用于在有网络的机器上重建快照；离线基准使用合成队列，"
-        "其指标反映的是生成器的已知结构，不能当作天体物理领域的真实预测能力。"
-    )
+    source = str(cohort.get("source") or "unknown")
+    if "synthetic" in source:
+        lines.append(
+            "- **合成队列**：本次指标来自生成器，反映的是其已知结构，"
+            "不能当作任何真实领域的预测能力；真实结论必须在冻结的真实快照上重跑。"
+        )
+    else:
+        lines.append(
+            f"- **数据来源**：本次跑在冻结快照 `{source}` 上；快照里的字段可得性"
+            "就是模型实际看到的输入，联网补全（Crossref 参考文献、全文、引用网络）"
+            "是显式步骤，未执行时相关特征按缺失处理。"
+        )
     for note in notes:
         lines.append(f"- {note}")
     lines.append("")

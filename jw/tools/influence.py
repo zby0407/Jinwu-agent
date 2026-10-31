@@ -24,20 +24,31 @@ from jw.research_influence.access import (
     AccessPolicy,
     acquisition_request,
     candidates_from_openalex,
+    classify_location,
     decide_access,
     rank_candidates,
+    with_attempt,
 )
 from jw.research_influence.bias import AUDIT_LABELS, AUDITS
 from jw.research_influence.cohort import (
     CohortSnapshot,
+    merge_duplicate_papers,
     openalex_snapshot,
     synthetic_cohort,
 )
+from jw.research_influence.contracts import (
+    AccessAttempt,
+    ProviderStatus,
+    normalise_doi,
+    utc_now,
+)
 from jw.research_influence.drift import diff_snapshots, drift_markdown
+from jw.research_influence.fulltext import fetch_fulltext
 from jw.research_influence.package import verify_package
-from jw.research_influence.paper import build_paper
+from jw.research_influence.paper import apply_fulltext, build_paper
 from jw.research_influence.providers.base import ProviderPolicy, credential
 from jw.research_influence.providers.openalex import fetch_work, search_works
+from jw.research_influence.references import enrich_references
 from jw.research_influence.transport import PoliteTransport, UrllibTransport
 from jw.research_influence.workflow import (
     RunOptions,
@@ -150,6 +161,45 @@ def _transport_or_refuse(allow_network: bool) -> tuple[Any, str]:
     return transport, ""
 
 
+def _source_status() -> list[dict[str, object]]:
+    """Which literature sources are wired, and whether their credential is set.
+
+    This reports presence, never the secret.  A keyless source is usable but
+    slower; a keyed source without its key is honestly listed as unavailable
+    rather than silently skipped.
+    """
+    policy = ProviderPolicy.from_environment()
+    specs = (
+        ("openalex", "OPENALEX_API_KEY", True, "keyless search works; a key enables the polite pool and cursor paging"),
+        ("crossref", "CROSSREF_MAILTO", True, "keyless DOI lookup; a contact email joins the polite pool"),
+        ("arxiv", "", True, "keyless Atom API; only id lookup and title search are implemented"),
+        ("europepmc", "", True, "keyless, biomedical coverage"),
+        ("unpaywall", "UNPAYWALL_EMAIL", False, "requires an email; it is never invented"),
+        ("semantic_scholar", "SEMANTIC_SCHOLAR_API_KEY", False, "unauthenticated access is heavily rate-limited"),
+        ("core", "CORE_API_KEY", False, "requires an API key"),
+        ("ads", "ADS_API_TOKEN", False, "requires a NASA ADS token"),
+        ("elsevier_tdm", "ELSEVIER_API_KEY", False, "publisher TDM needs the operator's own licence"),
+        ("wiley_tdm", "WILEY_TDM_TOKEN", False, "publisher TDM needs the operator's own licence"),
+        ("springer_tdm", "SPRINGER_API_KEY", False, "publisher TDM needs the operator's own licence"),
+    )
+    wired = {"openalex", "crossref"}
+    out: list[dict[str, object]] = []
+    for provider, env_name, keyless, note in specs:
+        configured = bool(policy.credential(provider))
+        out.append(
+            {
+                "provider": provider,
+                "wired": provider in wired,
+                "keyless_usable": keyless,
+                "credential_env": env_name,
+                "credential_configured": configured,
+                "usable_now": provider in wired and (keyless or configured),
+                "note": note,
+            }
+        )
+    return out
+
+
 @tool(parse_docstring=True)
 def infl_capabilities(config: RunnableConfig = None) -> str:
     """Describe what the influence pipeline can and cannot do.
@@ -222,6 +272,7 @@ def infl_capabilities(config: RunnableConfig = None) -> str:
                 "author_demographics": "name-based inference is unreliable",
                 "self_citation": "needs author-level reference ownership, absent here",
             },
+            sources=_source_status(),
             output_files=[
                 "papers.csv",
                 "predictions.csv",
@@ -241,7 +292,9 @@ def infl_capabilities(config: RunnableConfig = None) -> str:
             ],
             suggested_flow=[
                 "infl_cohorts / infl_snapshot_synthetic / infl_snapshot_search: get a cohort",
+                "infl_enrich_references: replace id-only OpenAlex references with Crossref deposits",
                 "infl_fetch_paper or infl_parse_pdf: add papers the operator supplied",
+                "infl_fetch_fulltext: download a legal open copy and attach its sections",
                 "infl_run: fit, explain, audit and write the bundle",
                 "infl_status / infl_report / infl_bias / infl_explain: report back",
             ],
@@ -340,6 +393,10 @@ def infl_snapshot_search(
     name: str = "",
     limit: int = 40,
     reference_year: int = 0,
+    from_year: int = 0,
+    to_year: int = 0,
+    filter_expression: str = "",
+    sort: str = "relevance",
     allow_network: bool = False,
     config: RunnableConfig = None,
 ) -> str:
@@ -347,12 +404,19 @@ def infl_snapshot_search(
 
     Needs network access, which is off by default. Every paper keeps its route
     (metadata only here: no full text is downloaded) and its field provenance.
+    A cohort meant for prediction needs a historical window: use ``from_year``
+    and ``to_year`` so the citation horizon has actually elapsed for enough
+    papers, instead of taking the relevance-ranked top of a recent query.
 
     Args:
         query: Topic or title query, e.g. "supernova Ia light curve cosmology".
         name: Snapshot name (defaults to a slug of the query).
         limit: Maximum papers to freeze.
         reference_year: Year the citation window is measured at (0 = current).
+        from_year: Earliest publication year (0 means no filter).
+        to_year: Latest publication year (0 means no filter).
+        filter_expression: Additional OpenAlex filter expression.
+        sort: ``relevance``, ``recent``, or ``cited``.
         allow_network: Must be true for this tool to make any request.
         config: Runtime-injected task workspace configuration.
 
@@ -361,10 +425,37 @@ def infl_snapshot_search(
     """
     try:
         workspace = _workspace(config)
+        start_year = max(0, int(from_year or 0))
+        end_year = max(0, int(to_year or 0))
+        if start_year and end_year and start_year > end_year:
+            return _result(
+                status="error",
+                error="from_year cannot be later than to_year",
+            )
+        sort_value = {
+            "": "",
+            "relevance": "",
+            "recent": "publication_date:desc",
+            "cited": "cited_by_count:desc",
+        }.get(str(sort or "relevance").strip().lower())
+        if sort_value is None:
+            return _result(
+                status="error",
+                error="sort must be one of: relevance, recent, cited",
+            )
         transport, refusal = _transport_or_refuse(bool(allow_network))
         if transport is None:
             return _result(status="error", error=refusal)
         policy = ProviderPolicy.from_environment()
+        filter_parts: list[str] = []
+        if start_year:
+            filter_parts.append(f"from_publication_date:{start_year}-01-01")
+        if end_year:
+            filter_parts.append(f"to_publication_date:{end_year}-12-31")
+        extra_filter = str(filter_expression or "").strip()
+        if extra_filter:
+            filter_parts.append(extra_filter)
+        filter_value = ",".join(filter_parts)
         wanted = max(1, int(limit))
         records: list[dict[str, Any]] = []
         statuses: dict[str, int] = {}
@@ -382,8 +473,10 @@ def infl_snapshot_search(
                 transport=transport,
                 policy=policy,
                 per_page=min(200, wanted - len(records)),
+                filter_expression=filter_value,
                 page=page,
                 cursor=cursor,
+                sort=sort_value,
             )
             statuses[str(result.status.value)] = (
                 statuses.get(result.status.value, 0) + 1
@@ -418,20 +511,31 @@ def infl_snapshot_search(
             doi = str(work.get("doi") or "")
             access = decide_access(
                 doi=doi,
-                # The parser flattens locations into placeholders; the
-                # candidate classifier needs the raw location mappings, so the
-                # recorded payload is what gets passed here.
-                candidates=candidates_from_openalex(parsed),
+                # The parsed work carries normalized locations; the classifier
+                # needs those, not the flattened raw fields.
+                candidates=candidates_from_openalex(work),
                 has_abstract=bool(work.get("abstract")),
                 has_metadata=True,
-                policy=AccessPolicy(allow_network=False),
             )
+            work_id = str(work.get("work_id") or "")
             paper_id = (
-                f"paper:{doi}" if doi else f"paper:openalex:{work.get('work_id')}"
+                f"paper:{doi}" if doi else f"paper:openalex:{work_id.rsplit('/', 1)[-1]}"
             )
             papers.append(
                 build_paper(paper_id=paper_id, doi=doi, openalex=work, access=access)
             )
+        papers, collapsed = merge_duplicate_papers(papers)
+        notes = [
+            "metadata_only_snapshot",
+            (
+                "cursor_paging"
+                if paging == "cursor"
+                else "page_number_paging_needs_api_key_for_cursor"
+            ),
+            "relevance_ranked_sample_is_a_moment_not_a_fixed_cohort",
+        ]
+        if collapsed:
+            notes.append(f"merged_{collapsed}_duplicate_records")
         snapshot = CohortSnapshot(
             cohort_id=f"cohort:{name.strip() or _slug(query)}",
             papers=tuple(sorted(papers, key=lambda paper: paper.paper_id)),
@@ -440,18 +544,14 @@ def infl_snapshot_search(
             reference_year=int(reference_year or 0),
             filters={
                 "limit": int(limit),
+                "from_year": start_year,
+                "to_year": end_year,
+                "filter": filter_value,
+                "sort": sort,
                 "pages_fetched": pages_fetched,
                 "paging": paging,
             },
-            notes=(
-                "metadata_only_snapshot",
-                (
-                    "cursor_paging"
-                    if paging == "cursor"
-                    else "page_number_paging_needs_api_key_for_cursor"
-                ),
-                "relevance_ranked_sample_is_a_moment_not_a_fixed_cohort",
-            ),
+            notes=tuple(notes),
         )
         path = _cohort_dir(workspace) / f"{name.strip() or _slug(query)}.json"
         snapshot.write(path)
@@ -463,6 +563,7 @@ def infl_snapshot_search(
             fingerprint=snapshot.fingerprint(),
             pages_fetched=pages_fetched,
             paging=paging,
+            filters=dict(snapshot.filters),
             provider_statuses=statuses,
             missing={
                 field: sum(1 for paper in snapshot.papers if paper.missing.get(field))
@@ -578,16 +679,13 @@ def infl_fetch_paper(
                 acquisition=acquisition_request_placeholder(doi),
             )
         work = _parse_work(result.payload or {})
+        # Deciding which route exists is metadata work; only fetching it needs
+        # network permission, and that permission is checked by the transport.
         access = decide_access(
-            doi,
-            rank_candidates(
-                doi,
-                candidates_from_openalex(work.get("locations") or ()),
-                policy=AccessPolicy(allow_network=False),
-            ),
+            doi=doi,
+            candidates=candidates_from_openalex(work),
             has_abstract=bool(work.get("abstract")),
             has_metadata=True,
-            policy=AccessPolicy(allow_network=False),
         )
         paper = build_paper(
             paper_id=f"paper:{work.get('doi') or doi}",
@@ -601,6 +699,10 @@ def infl_fetch_paper(
         papers = list(existing.papers) if existing is not None else []
         papers = [item for item in papers if item.paper_id != paper.paper_id]
         papers.append(paper)
+        papers, collapsed = merge_duplicate_papers(papers)
+        notes = ["manual_additions"]
+        if collapsed:
+            notes.append(f"merged_{collapsed}_duplicate_records")
         snapshot = CohortSnapshot(
             cohort_id=(existing.cohort_id if existing else f"cohort:{cohort_name}"),
             papers=tuple(sorted(papers, key=lambda item: item.paper_id)),
@@ -608,7 +710,7 @@ def infl_fetch_paper(
             source="manual",
             reference_year=(existing.reference_year if existing else 0),
             filters=dict(existing.filters) if existing else {},
-            notes=("manual_additions",),
+            notes=tuple(notes),
         )
         snapshot.write(path)
         return _result(
@@ -625,7 +727,180 @@ def infl_fetch_paper(
                 if not paper.has_full_text
                 else "Full text is available."
             ),
-            acquisition_request=acquisition_request(paper),
+            acquisition_request=acquisition_request(paper.to_dict()),
+        )
+    except (OSError, ValueError, TypeError, KeyError, RuntimeError) as exc:
+        return _result(status="error", error=str(exc))
+
+
+@tool(parse_docstring=True)
+def infl_fetch_fulltext(
+    cohort: str,
+    paper_id: str = "",
+    doi: str = "",
+    url: str = "",
+    name: str = "",
+    max_candidates: int = 3,
+    allow_network: bool = False,
+    config: RunnableConfig = None,
+) -> str:
+    """Download one paper's legal open copy and attach its text layer.
+
+    The access ladder can say that a readable copy exists; this tool is the rung
+    that actually fetches it. It tries OpenAlex's posted locations in preference
+    order, verifies the bytes are a PDF, extracts sections and the data
+    statement, and writes a new snapshot so the input one stays frozen.
+
+    Args:
+        cohort: Existing cohort snapshot to take the paper from.
+        paper_id: Paper id inside that snapshot (optional when ``doi`` is given).
+        doi: DOI to look up inside the snapshot (optional when ``paper_id`` is given).
+        url: Explicit legal URL to fetch instead of asking OpenAlex.
+        name: New snapshot name (defaults to ``<cohort>_fulltext``).
+        max_candidates: How many OpenAlex locations to try before giving up.
+        allow_network: Must be true for this tool to make any request.
+        config: Runtime-injected task workspace configuration.
+
+    Returns:
+        JSON with the stored file, sections found, and any refused/failed rungs.
+    """
+    try:
+        workspace = _workspace(config)
+        transport, refusal = _transport_or_refuse(bool(allow_network))
+        if transport is None:
+            return _result(status="error", error=refusal)
+        path = _snapshot_path(workspace, cohort)
+        if not path.is_file():
+            return _result(status="error", error=f"cohort not found: {cohort}")
+        snapshot = CohortSnapshot.load(path)
+        wanted = normalise_doi(doi)
+        selected = None
+        for paper in snapshot.papers:
+            if paper_id and paper.paper_id == paper_id:
+                selected = paper
+                break
+            if wanted and normalise_doi(paper.doi) == wanted:
+                selected = paper
+                break
+        if selected is None:
+            return _result(
+                status="error",
+                error="paper not found in cohort",
+                hint="pass paper_id from infl_status or a DOI present in the snapshot",
+            )
+        canonical = normalise_doi(wanted or selected.doi)
+        if not canonical and not url:
+            return _result(status="error", error="paper has no DOI and no url was given")
+
+        policy = AccessPolicy(allow_network=True)
+        candidates = []
+        if url:
+            candidate = classify_location(
+                {"pdf_url": url, "is_oa": True, "source_name": "operator"},
+                provider="operator",
+            )
+            if candidate is None:
+                return _result(status="error", error="the url could not be classified")
+            candidates = [candidate]
+        else:
+            policy_meta = ProviderPolicy.from_environment()
+            resolved = fetch_work(canonical, transport=transport, policy=policy_meta)
+            if not resolved.ok:
+                return _result(
+                    status="error",
+                    error=f"openalex_{resolved.status.value}",
+                    detail=resolved.note,
+                    acquisition=acquisition_request(selected.to_dict()),
+                )
+            work = _parse_work(resolved.payload or {})
+            candidates = list(rank_candidates(candidates_from_openalex(work), policy=policy))
+            candidates = [item for item in candidates if item.route.has_full_text]
+
+        store = _root(workspace) / "fulltext"
+        attempts = []
+        chosen = None
+        result = None
+        for candidate in candidates[: max(1, int(max_candidates or 1))]:
+            result = fetch_fulltext(
+                candidate.url,
+                transport=transport,
+                policy=policy,
+                directory=store,
+                doi=canonical,
+                timeout=30.0,
+            )
+            attempt = AccessAttempt(
+                route=candidate.route,
+                provider=candidate.provider,
+                status=(
+                    ProviderStatus.OK
+                    if result.available
+                    else ProviderStatus.INVALID_PAYLOAD
+                ),
+                url=candidate.url,
+                byte_count=result.byte_count,
+                sha256=result.sha256,
+                path=result.path,
+                license=candidate.license,
+                note=",".join(result.warnings),
+                retrieved_at=utc_now(),
+            )
+            attempts.append(attempt)
+            if result.available:
+                chosen = candidate
+                break
+
+        if result is None or not result.available or chosen is None:
+            return _result(
+                status="error",
+                error="full_text_unavailable",
+                paper_id=selected.paper_id,
+                tried=[attempt.to_dict() for attempt in attempts],
+                acquisition=acquisition_request(selected.to_dict()),
+                honesty_note=(
+                    "No legal open copy could be read. The paper stays at its "
+                    "metadata/abstract level and no text-level features were invented."
+                ),
+            )
+
+        decision = decide_access(
+            doi=canonical,
+            candidates=(chosen,),
+            has_abstract=bool(selected.abstract),
+            has_metadata=True,
+        )
+        decision = with_attempt(decision, attempts[-1], route=chosen.route)
+        updated = apply_fulltext(selected, result, access=decision)
+        papers = [updated if item.paper_id == selected.paper_id else item for item in snapshot.papers]
+        label = _safe_stem(name.strip() or f"{path.stem}_fulltext")
+        output = CohortSnapshot(
+            cohort_id=f"cohort:{label}",
+            papers=tuple(papers),
+            query=snapshot.query,
+            source=f"{snapshot.source}+fulltext",
+            reference_year=snapshot.reference_year,
+            filters={**dict(snapshot.filters), "fulltext_fetch": "legal_open_copy"},
+            notes=("full_text_fetched", "input_snapshot_unchanged"),
+        )
+        output.write(_cohort_dir(workspace) / f"{label}.json")
+        return _result(
+            status="ok",
+            paper_id=updated.paper_id,
+            cohort=label,
+            path=str(_cohort_dir(workspace) / f"{label}.json"),
+            papers=len(output.papers),
+            file=result.path,
+            pages=result.page_count,
+            sections=sorted(updated.sections),
+            open_data=[record.url for record in updated.open_data],
+            references=len(updated.references),
+            missing=updated.missing_fields(),
+            access=decision.to_dict(),
+            tried=[attempt.to_dict() for attempt in attempts],
+            honesty_note=(
+                "Only text recovered from the downloaded PDF was added; index "
+                "bibliometrics were not replaced."
+            ),
         )
     except (OSError, ValueError, TypeError, KeyError, RuntimeError) as exc:
         return _result(status="error", error=str(exc))
@@ -677,6 +952,10 @@ def infl_parse_pdf(
                     "missing": paper.missing_fields(),
                 }
             )
+        papers, collapsed = merge_duplicate_papers(papers)
+        notes = ["user_supplied_full_text"]
+        if collapsed:
+            notes.append(f"merged_{collapsed}_duplicate_records")
         snapshot = CohortSnapshot(
             cohort_id=(existing.cohort_id if existing else f"cohort:{cohort_name}"),
             papers=tuple(sorted(papers, key=lambda item: item.paper_id)),
@@ -684,7 +963,7 @@ def infl_parse_pdf(
             source="user_supplied",
             reference_year=(existing.reference_year if existing else 0),
             filters=dict(existing.filters) if existing else {},
-            notes=("user_supplied_full_text",),
+            notes=tuple(notes),
         )
         snapshot.write(path)
         return _result(
@@ -695,7 +974,100 @@ def infl_parse_pdf(
             parsed=parsed,
             honesty_note=(
                 "A user-supplied PDF has no citation history until it is matched to "
-                "an indexed record, so it can be explained but not scored."
+                "an indexed record, so it can be explained but not scored. Pass "
+                "allow_network=true to infl_run, or infl_fetch_paper for its DOI, "
+                "to match it before scoring."
+            ),
+        )
+    except (OSError, ValueError, TypeError, KeyError, RuntimeError) as exc:
+        return _result(status="error", error=str(exc))
+
+
+@tool(parse_docstring=True)
+def infl_enrich_references(
+    cohort: str,
+    name: str = "",
+    limit: int = 0,
+    workers: int = 4,
+    allow_network: bool = False,
+    config: RunnableConfig = None,
+) -> str:
+    """Replace opaque OpenAlex reference ids with Crossref deposit metadata.
+
+    OpenAlex lists which works a paper cites but often only as ids. Crossref
+    publishes the reference list the publisher deposited, including titles and
+    DOIs. This pass fetches those deposits, caches them by DOI, and writes a new
+    frozen cohort; the input snapshot is never modified. Run it once, then run
+    the model offline against the enriched cohort.
+
+    Args:
+        cohort: Cohort name or snapshot path (see infl_cohorts).
+        name: Name for the enriched snapshot; defaults to <cohort>_refs.
+        limit: Maximum eligible papers to fetch (0 means all of them).
+        workers: Concurrent Crossref requests (clamped to 1..8).
+        allow_network: Must be true; the pass contacts api.crossref.org.
+        config: Runtime-injected task workspace configuration.
+
+    Returns:
+        JSON with the new snapshot path, before/after readable-reference counts,
+        and a status breakdown (enriched, cached, no_references, not_found).
+    """
+    try:
+        if not allow_network:
+            return _result(
+                status="error",
+                error=(
+                    "network_disabled: no request was sent. Pass "
+                    "allow_network=true only when the operator has agreed to "
+                    "online lookups."
+                ),
+            )
+        workspace = _workspace(config)
+        path = _snapshot_path(workspace, cohort.strip())
+        snapshot = CohortSnapshot.load(path)
+        cache_file = _root(workspace) / "crossref_references.json"
+        policy = ProviderPolicy.from_environment()
+        papers, report = enrich_references(
+            snapshot.papers,
+            transport_factory=lambda: _transport(True),
+            policy=policy,
+            cache_path=cache_file,
+            max_papers=max(0, int(limit)),
+            workers=max(1, min(8, int(workers))),
+        )
+        papers, collapsed = merge_duplicate_papers(papers)
+        label = _safe_stem(name.strip()) if name.strip() else f"{path.stem}_refs"
+        output = _cohort_dir(workspace) / f"{label}.json"
+        enriched = CohortSnapshot(
+            cohort_id=f"cohort:{label}",
+            papers=tuple(sorted(papers, key=lambda paper: paper.paper_id)),
+            query=snapshot.query,
+            source=f"{snapshot.source}+crossref",
+            reference_year=snapshot.reference_year,
+            filters={
+                **dict(snapshot.filters),
+                "reference_enrichment": "crossref_deposit",
+            },
+            notes=tuple(snapshot.notes)
+            + (
+                "references_enriched_from_crossref_deposit",
+                "input_snapshot_unchanged",
+            ),
+        )
+        enriched.write(output)
+        return _result(
+            status="ok",
+            cohort=label,
+            path=str(output),
+            papers=len(enriched.papers),
+            merged_duplicates=collapsed,
+            fingerprint=enriched.fingerprint(),
+            enrichment=report.to_dict(),
+            cache=str(cache_file),
+            honesty_note=(
+                "A Crossref deposit can be incomplete or stale; references that "
+                "remain id-only stay visible in the counts rather than being "
+                "invented."
             ),
         )
     except (OSError, ValueError, TypeError, KeyError, RuntimeError) as exc:
@@ -713,6 +1085,8 @@ def infl_run(
     horizon: int = 3,
     max_subjects: int = 5,
     run_id: str = "",
+    allow_network: bool = False,
+    enrich_uploads: bool = True,
     config: RunnableConfig = None,
 ) -> str:
     """Fit, explain, audit and write the bundle for one cohort.
@@ -727,6 +1101,11 @@ def infl_run(
         horizon: Citation window length in years.
         max_subjects: Maximum papers to explain in one run.
         run_id: Explicit run id (defaults to a timestamped id).
+        allow_network: Let uploads be matched to OpenAlex and let the citation
+            stage query reference neighbourhoods. Off by default; without it an
+            uploaded PDF has no citation history and cannot be scored.
+        enrich_uploads: Try to match uploaded PDFs to an indexed record. True by
+            default, but it only contacts the network when allow_network is true.
         config: Runtime-injected task workspace configuration.
 
     Returns:
@@ -748,6 +1127,8 @@ def infl_run(
             max_subjects=int(max_subjects),
             subject_ids=tuple(subject_ids or ()),
             audits=tuple(audits) if audits else AUDITS,
+            allow_network=bool(allow_network),
+            enrich_uploads=bool(enrich_uploads),
         )
         paths = tuple(_resolve(value, workspace) for value in (uploads or ()))
         result = run_influence(
@@ -1197,7 +1578,9 @@ INFLUENCE_TOOLS = [
     infl_snapshot_synthetic,
     infl_snapshot_search,
     infl_snapshot_import,
+    infl_enrich_references,
     infl_fetch_paper,
+    infl_fetch_fulltext,
     infl_parse_pdf,
     infl_run,
     infl_status,

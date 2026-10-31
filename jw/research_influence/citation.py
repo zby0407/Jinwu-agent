@@ -196,8 +196,14 @@ def _paged(
     policy: ProviderPolicy,
     per_page: int = 50,
     max_pages: int = 1,
+    status: dict[str, str] | None = None,
 ) -> tuple[list[dict[str, object]], int]:
-    """Walk one filtered query and return the parsed works plus the total count."""
+    """Walk one filtered query and return the parsed works plus the total count.
+
+    ``status`` is filled with the upstream reason when the page could not be
+    read.  It exists so the caller can say "rate limited" instead of treating
+    an empty result as "this paper has no references".
+    """
     works: list[dict[str, object]] = []
     total = 0
     for page in range(1, max_pages + 1):
@@ -214,12 +220,21 @@ def _paged(
             max_bytes=policy.max_bytes,
         )
         if not response.ok:
+            if status is not None:
+                status["status"] = (
+                    "rate_limited"
+                    if response.status == 429
+                    else f"http_{response.status}"
+                    if response.status
+                    else "unavailable"
+                )
+                status["note"] = response.error or f"http_{response.status}"
             return works, total
-        try:
-            payload = response.json()
-        except ValueError:
-            return works, total
+        payload = response.json()
         if not isinstance(payload, Mapping):
+            if status is not None:
+                status["status"] = "invalid_payload"
+                status["note"] = "response was not a JSON object"
             return works, total
         meta = payload.get("meta")
         if isinstance(meta, Mapping):
@@ -239,6 +254,7 @@ def resolve_works(
     *,
     transport: Transport,
     policy: ProviderPolicy,
+    status: dict[str, str] | None = None,
 ) -> dict[str, dict[str, object]]:
     """Look up many works at once, keyed by bare work id *or* by DOI.
 
@@ -266,12 +282,16 @@ def resolve_works(
         unique = list(dict.fromkeys(values))
         for start in range(0, len(unique), RESOLVE_CHUNK):
             chunk = unique[start : start + RESOLVE_CHUNK]
+            chunk_status: dict[str, str] = {}
             works, _total = _paged(
                 f"{field_name}:{'|'.join(chunk)}",
                 transport=transport,
                 policy=policy,
                 per_page=len(chunk),
+                status=chunk_status,
             )
+            if status is not None and chunk_status:
+                status.update(chunk_status)
             for work in works:
                 key = str(work.get("work_id") or "")
                 if key:
@@ -291,13 +311,17 @@ def citing_works(
     bare = bare_work_id(work_id)
     if not bare:
         return (), 0, "no_work_id"
+    status: dict[str, str] = {}
     works, total = _paged(
         f"cites:{bare}",
         transport=transport,
         policy=policy,
         per_page=per_page,
         max_pages=max_pages,
+        status=status,
     )
+    if status:
+        return (), total, status.get("status") or "unavailable"
     if not works and not total:
         return (), 0, "unavailable"
     return tuple(works), total, "ok"
@@ -446,8 +470,18 @@ def cohort_pagerank(
     """
     nodes: list[str] = []
     edges: list[tuple[str, str]] = []
+    by_doi = {
+        normalise_doi(work.get("doi")): bare_work_id(
+            work.get("work_id") or work.get("id")
+        )
+        for work in resolved.values()
+        if normalise_doi(work.get("doi"))
+        and bare_work_id(work.get("work_id") or work.get("id"))
+    }
     for paper in papers:
         source = bare_work_id(paper.work_id)
+        if not source:
+            source = by_doi.get(normalise_doi(paper.doi), "")
         if not source or source not in resolved:
             continue
         nodes.append(source)
@@ -456,6 +490,15 @@ def cohort_pagerank(
             referenced, (str, bytes)
         ):
             edges.extend((source, str(target)) for target in referenced)
+        # Crossref reference deposits carry DOIs; add those edges too, because
+        # otherwise a paper enriched with readable references would still look
+        # disconnected in the graph.
+        for reference in paper.references:
+            target = bare_work_id(reference.resolved_work_id or reference.raw)
+            if not target:
+                target = by_doi.get(normalise_doi(reference.doi), "")
+            if target:
+                edges.append((source, target))
     edges = [(source, target) for source, target in edges if target in resolved]
     for _source, target in edges:
         nodes.append(target)
@@ -476,12 +519,29 @@ def citation_profile(
 ) -> CitationProfile:
     """Assemble one paper's network measurements from already-fetched data."""
     work_id = bare_work_id(paper.work_id)
-    # The index knows which works a paper cites; the parsed reference list is
-    # free text and mostly cannot be turned into work ids (an uploaded PDF gives
-    # us "M. Sullivan et al. 2011, ApJ 732, 118", not a DOI).  When the index
-    # answers we prefer its list, and we say so rather than pretending the two
-    # lists are the same thing.
-    wanted = [bare_work_id(item) for item in referenced_ids]
+    by_doi = {
+        normalise_doi(work.get("doi")): work
+        for work in resolved.values()
+        if normalise_doi(work.get("doi"))
+    }
+    # The index knows which works a paper cites; a Crossref deposit adds DOIs.
+    # Both are identifiers for the same target, so resolve them against the
+    # works we already fetched and keep unresolved ones counted as partial.
+    wanted: list[str] = []
+    for item in referenced_ids:
+        bare = bare_work_id(item)
+        if bare:
+            wanted.append(bare)
+            continue
+        doi = normalise_doi(item)
+        if not doi:
+            continue
+        target = by_doi.get(doi)
+        wanted.append(
+            bare_work_id(target.get("work_id") or target.get("id"))
+            if target
+            else f"doi:{doi}"
+        )
     wanted = [item for item in wanted if item]
     if wanted:
         referenced = [resolved[item] for item in wanted if item in resolved]
@@ -490,14 +550,19 @@ def citation_profile(
         )
         note_extra: tuple[str, ...] = ("reference_list_from_index",)
     else:
-        referenced = [
-            resolved[target]
-            for target in (
-                bare_work_id(item.resolved_work_id or item.raw)
-                for item in paper.references
-            )
-            if target and target in resolved
-        ]
+        targets = []
+        for item in paper.references:
+            target = bare_work_id(item.resolved_work_id or item.raw)
+            if not target:
+                work = by_doi.get(normalise_doi(item.doi))
+                target = (
+                    bare_work_id(work.get("work_id") or work.get("id"))
+                    if work
+                    else ""
+                )
+            if target:
+                targets.append(target)
+        referenced = [resolved[target] for target in targets if target in resolved]
         note_prefix = (
             ("reference_resolution_partial",)
             if len(referenced) < len(paper.references)
