@@ -238,11 +238,24 @@ def build_queue(
         by_observable.setdefault(record.observable, []).append(record)
 
     requests: list[HumanRequest] = []
+    seen_unit_questions: set[tuple[IssueCode, str]] = set()
     for issue in issues:
         if issue.repair_mode is RepairMode.AUTO_SAFE and issue.auto_applied:
             continue
         if issue.state in {IssueState.REVALIDATED, IssueState.REJECTED}:
             continue
+        # Informational findings stay in quality_issues.csv; turning them into
+        # questions would bury the decisions that actually block a run.
+        if issue.severity is IssueSeverity.INFO:
+            continue
+        if issue.code in {
+            IssueCode.UNIT_UNKNOWN,
+            IssueCode.UNIT_INCONSISTENCY,
+        }:
+            key = (issue.code, str(issue.subject.get("observable") or ""))
+            if key in seen_unit_questions:
+                continue
+            seen_unit_questions.add(key)
         requests.append(_request_for(issue, by_observable))
     return HumanQueue(requests=tuple(requests))
 

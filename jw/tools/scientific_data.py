@@ -170,8 +170,13 @@ def sci_data_capabilities(config: RunnableConfig = None) -> str:
                 "sci_data_acquire_only: download candidates under policy",
                 "sci_data_run: acquire, parse, align, repair and package in one run",
             ],
+            column_overrides=(
+                "sci_data_run(column_overrides_json=[{source, column, observable, unit?}]) "
+                "maps a named column explicitly after the user explains it"
+            ),
             supported_formats=[
                 "csv/tsv/txt/dat (delimiter, encoding and header sniffed)",
+                "xlsx (each worksheet, cached values only)",
                 "json/jsonl (nested payloads flattened)",
                 "html (rowspan/colspan grid)",
                 "markdown pipe tables",
@@ -248,6 +253,7 @@ def sci_data_run(
     figures_json: str = "",
     extra_sources_json: str = "",
     answers_json: str = "",
+    column_overrides_json: str = "",
     allow_network: bool = False,
     allowed_hosts: list[str] | None = None,
     run_id: str = "",
@@ -256,11 +262,18 @@ def sci_data_run(
     """Run the whole integration pipeline and write the data package.
 
     ``inputs`` are workspace paths to tabulated sources (CSV/TSV/JSON/HTML/
-    Markdown).  ``figures_json`` is a JSON list of digitisation side-cars:
-    each item carries ``figure_id`` plus axis tick positions
+    Markdown/PDF/XLSX).  ``figures_json`` is a JSON list of digitisation
+    side-cars: each item carries ``figure_id`` plus axis tick positions
     (``x_ticks``/``y_ticks``) and the plotted series points in pixels, which is
     how a figure becomes numbers.  Network access stays off unless
     ``allow_network`` is true and ``allowed_hosts`` names the permitted hosts.
+
+    ``column_overrides_json`` is a JSON list of explicit column decisions, each
+    ``{"source": "table.csv", "column": "SNID", "observable": "object",
+    "unit": "mag"}`` (``unit`` optional).  Use it after the package reports
+    ``merge_key_absent`` or ``field_unmapped`` for a source the user explained:
+    it maps that column deterministically instead of guessing.  The source may
+    be the basename or the source id; only the named columns change.
 
     Args:
         request_json: JSON research request (see sci_data_contract).
@@ -268,6 +281,7 @@ def sci_data_run(
         figures_json: JSON list of figure digitisation side-cars.
         extra_sources_json: JSON list of discovered sources (url/title/role).
         answers_json: JSON object mapping question ids to chosen answers.
+        column_overrides_json: JSON list of explicit source-column mappings.
         allow_network: Whether remote sources may be fetched.
         allowed_hosts: Hostnames permitted when network access is enabled.
         run_id: Optional run id; a new one is generated when empty.
@@ -294,11 +308,21 @@ def sci_data_run(
             json.loads(extra_sources_json) if extra_sources_json.strip() else ()
         )
         answers = dict(json.loads(answers_json) if answers_json.strip() else {})
+        overrides = tuple(
+            item
+            for item in (
+                json.loads(column_overrides_json)
+                if column_overrides_json.strip()
+                else []
+            )
+            if isinstance(item, dict)
+        )
         options = WorkflowOptions(
             allow_network=bool(allow_network),
             allowed_hosts=tuple(str(host) for host in (allowed_hosts or ())),
             figure_inputs=figures,
             extra_sources=extra,
+            column_overrides=overrides,
             answers=answers,
         )
         result = run_integration(

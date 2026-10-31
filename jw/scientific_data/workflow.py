@@ -86,6 +86,7 @@ class WorkflowOptions:
     max_rows: int | None = None
     max_gap_days: float | None = None
     extra_sources: tuple[Mapping[str, Any], ...] = ()
+    column_overrides: tuple[Mapping[str, Any], ...] = ()
     write_package_output: bool = True
     package_name: str = "package"
     notes: tuple[str, ...] = ()
@@ -270,7 +271,9 @@ def run_integration(
     tables, extraction_stats = _stage_extract(ledger, catalog, settings)
     _record_stage(ledger, result, "extract", **extraction_stats)
 
-    mapping_issues = _stage_map(ledger, tables, contract, plugin)
+    mapping_issues = _stage_map(
+        ledger, tables, contract, plugin, settings.column_overrides
+    )
     _record_stage(
         ledger,
         result,
@@ -280,7 +283,17 @@ def run_integration(
         issues=len(mapping_issues),
     )
 
-    alignment = align_tables(tables, contract=contract, plugin=plugin)
+    source_titles = {
+        source_id: Path(source.title).name
+        for source_id, source in ledger.sources.items()
+    }
+    alignment = align_tables(
+        tables,
+        contract=contract,
+        plugin=plugin,
+        overrides=settings.column_overrides,
+        source_titles=source_titles,
+    )
     _absorb_alignment(ledger, alignment)
     _record_stage(
         ledger,
@@ -307,8 +320,7 @@ def run_integration(
         plugin=plugin,
         max_gap_days=settings.max_gap_days,
     )
-    for issue in detection.issues:
-        ledger.add_issue(issue)
+    _merge_new_issues(ledger, detection)
     _record_stage(
         ledger,
         result,
@@ -523,16 +535,18 @@ _READER_SUFFIXES = {
     ".md": "markdown",
     ".markdown": "markdown",
     ".pdf": "pdf",
+    ".xlsx": "xlsx",
 }
 
 
 def _stage_extract(
     ledger: Any, catalog: SourceCatalog, settings: WorkflowOptions
 ) -> tuple[list[ExtractedTable], dict[str, int]]:
-    from .documents import read_pdf_tables
+    from .documents import read_pdf_report
     from .html_tables import read_html_file
     from .markdown_tables import read_markdown_file
     from .tabular import read_table
+    from .xlsx import read_xlsx_file
 
     tables: list[ExtractedTable] = []
     skipped = 0
@@ -543,13 +557,39 @@ def _stage_extract(
             continue
         suffix = Path(path).suffix.lower()
         reader = _READER_SUFFIXES.get(suffix)
+        if reader is None:
+            skipped += 1
+            _extract_issue(
+                ledger,
+                code=IssueCode.EMPTY_EXTRACT,
+                source_id=source.source_id,
+                detail=(
+                    f"Source format '{suffix or '(none)'}' is not supported, so no "
+                    "table was extracted from this source."
+                ),
+                evidence={
+                    "suffix": suffix,
+                    "supported": sorted(set(_READER_SUFFIXES)),
+                },
+            )
+            continue
+        pdf_rejected: tuple[dict[str, object], ...] = ()
+        pdf_warnings: tuple[str, ...] = ()
         try:
             if reader == "html":
                 produced = read_html_file(path, source_id=source.source_id)
             elif reader == "markdown":
                 produced = read_markdown_file(path, source_id=source.source_id)
             elif reader == "pdf":
-                produced = read_pdf_tables(path, source_id=source.source_id)
+                produced, pdf_rejected, pdf_warnings = read_pdf_report(
+                    path, source_id=source.source_id
+                )
+            elif reader == "xlsx":
+                produced = read_xlsx_file(
+                    path,
+                    source_id=source.source_id,
+                    max_rows=settings.max_rows,
+                )
             elif reader == "delimited":
                 produced = read_table(
                     path,
@@ -574,6 +614,45 @@ def _stage_extract(
                 )
             )
             continue
+        if not produced:
+            detail = f"No table could be extracted from '{source.title}' ({suffix})."
+            if pdf_rejected:
+                detail += (
+                    f" {len(pdf_rejected)} block(s) were rejected because their "
+                    "columns could not be aligned."
+                )
+            if pdf_warnings:
+                detail += f" PDF warnings: {', '.join(pdf_warnings)}."
+            _extract_issue(
+                ledger,
+                code=IssueCode.EMPTY_EXTRACT,
+                source_id=source.source_id,
+                detail=detail,
+                evidence={
+                    "suffix": suffix,
+                    "rejected_blocks": list(pdf_rejected),
+                    "warnings": list(pdf_warnings),
+                },
+            )
+        elif pdf_rejected:
+            ranges = ", ".join(
+                f"p{item.get('page', '?')}:{item.get('line_start', '?')}-"
+                f"{item.get('line_end', '?')}"
+                for item in pdf_rejected
+            )
+            _extract_issue(
+                ledger,
+                code=IssueCode.TRUNCATED_TABLE,
+                source_id=source.source_id,
+                detail=(
+                    "Some PDF text blocks were not turned into tables because "
+                    f"their columns did not line up: {ranges}."
+                ),
+                evidence={
+                    "rejected_blocks": list(pdf_rejected),
+                    "warnings": list(pdf_warnings),
+                },
+            )
         for table in produced:
             ledger.add_table(table)
             tables.append(table)
@@ -585,18 +664,53 @@ def _stage_extract(
     }
 
 
+def _extract_issue(
+    ledger: Any,
+    *,
+    code: IssueCode,
+    source_id: str,
+    detail: str,
+    evidence: dict[str, Any],
+) -> None:
+    ledger.add_issue(
+        QualityIssue(
+            issue_id=f"issue:extract:{slug(code)}:{source_id}",
+            code=code,
+            severity=IssueSeverity.WARNING,
+            stage="extract",
+            subject={"source_id": source_id},
+            detail=detail,
+            evidence=evidence,
+            proposed_action=(
+                "Use a tabulated source or provide the missing columns; the "
+                "source is reported, not silently ignored."
+            ),
+            repair_mode=default_repair_mode(code),
+        )
+    )
+
+
 def _stage_map(
     ledger: Any,
     tables: Sequence[ExtractedTable],
     contract: DataRequirementContract,
     plugin: DomainPlugin,
+    overrides: Sequence[Mapping[str, Any]] = (),
 ) -> tuple[QualityIssue, ...]:
-    from .semantics import map_table
+    from .semantics import map_table, select_overrides
 
+    title_by_source = {
+        source_id: Path(source.title).name
+        for source_id, source in ledger.sources.items()
+    }
     issues: list[QualityIssue] = []
     for table in tables:
         mappings, mapping_issues = map_table(
-            table, contract=contract, plugin=plugin, stage="semantics"
+            table,
+            contract=contract,
+            plugin=plugin,
+            stage="semantics",
+            overrides=select_overrides(table, overrides, source_titles=title_by_source),
         )
         ledger.mappings.extend(mappings)
         for issue in mapping_issues:
@@ -794,11 +908,40 @@ def _stage_human(ledger: Any, settings: WorkflowOptions) -> tuple[HumanQueue, in
 def _merge_new_issues(ledger: Any, report: DetectionReport) -> tuple[QualityIssue, ...]:
     added: list[QualityIssue] = []
     for issue in report.issues:
-        if issue.issue_id in ledger.issues:
+        if _already_reported(ledger, issue):
             continue
         ledger.add_issue(issue)
         added.append(issue)
     return tuple(added)
+
+
+def _already_reported(ledger: Any, issue: QualityIssue) -> bool:
+    """Whether this issue is the same finding as one already in the ledger.
+
+    Alignment reports a cross-source disagreement with the full merge key and
+    every record uid; the quality pass sees the same conflict through the
+    records.  Keeping both would ask the reviewer the same question twice, and
+    answering one would leave the other open.
+    """
+    if issue.issue_id in ledger.issues:
+        return True
+    if issue.code is IssueCode.CROSS_SOURCE_CONFLICT:
+        record_uids = set(issue.evidence.get("record_uids") or ())
+        for existing in ledger.issues.values():
+            if existing.code is not IssueCode.CROSS_SOURCE_CONFLICT:
+                continue
+            if record_uids & set(existing.evidence.get("record_uids") or ()):
+                return True
+    if issue.code is IssueCode.OUT_OF_RANGE:
+        record_uid = str(issue.subject.get("record_uid") or "")
+        if record_uid:
+            for existing in ledger.issues.values():
+                if (
+                    existing.code is IssueCode.OUT_OF_RANGE
+                    and str(existing.subject.get("record_uid") or "") == record_uid
+                ):
+                    return True
+    return False
 
 
 def _register_artifacts(ledger: Any, package: PackageResult) -> None:

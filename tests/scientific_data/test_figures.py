@@ -33,6 +33,25 @@ def _calibration(
     )
 
 
+def test_low_confidence_digitised_points_are_flagged():
+    calibration = FigureCalibration(
+        x=fit_axis([(100.0, 54000.0), (200.0, 54016.0), (300.0, 54034.0)], axis="x"),
+        y=fit_axis([(400.0, 20.0), (200.0, 10.0)], axis="y", unit="mag"),
+        pixel_noise=1.0,
+        figure_id="bad-figure",
+        source_id="src:local:001",
+    )
+    records = digitise_points(
+        DigitisedSeries(label="g", points=((150.0, 300.0),)),
+        calibration,
+        entity_id="obj:sn2018oh",
+        observable="apparent_magnitude",
+        unit="mag",
+    )
+    assert records
+    assert "low_confidence" in records[0].flags
+
+
 def test_linear_axis_fit_maps_pixels_to_values():
     axis = fit_axis([(100.0, 10.0), (200.0, 20.0), (300.0, 30.0)])
     assert axis.usable

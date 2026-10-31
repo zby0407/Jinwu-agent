@@ -269,6 +269,9 @@ def digitise_points(
         time_value = x_value if is_time_on_x else y_value
         time_uncertainty = uncertainty_x if is_time_on_x else uncertainty_y
         score = _quality_score(calibration)
+        flags = ["digitised_from_figure", f"series:{series.label}"]
+        if score < 0.6:
+            flags.append("low_confidence")
         records.append(
             ObservationRecord(
                 record_uid=f"rec:{calibration.figure_id}:{index:03d}",
@@ -314,7 +317,7 @@ def digitise_points(
                         ),
                     ),
                 ),
-                flags=("digitised_from_figure", f"series:{series.label}"),
+                flags=tuple(flags),
                 attributes={
                     **({"label": series.label} if series.label else {}),
                     **dict(attributes or {}),

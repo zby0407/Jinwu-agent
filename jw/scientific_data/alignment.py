@@ -29,7 +29,7 @@ from .contracts import (
 )
 from .domain import DomainPlugin, plausibility_issue, slug
 from .entities import AliasClaim, EntityResolver, EntityRef, parse_coordinates
-from .semantics import map_table
+from .semantics import map_table, select_overrides
 from .timescales import detect_time_system, to_time
 from .units import convert, dimension_of, resolve_unit
 
@@ -252,15 +252,40 @@ def _canonical_value(
     number, value_kind = _parse_number(text)
     if number is None:
         return None, target_unit, MissingReason.NOT_PARSED, value_kind, (), ()
-    source_unit = mapping.source_unit or target_unit
+    source_unit = mapping.source_unit
     if not source_unit:
+        if not target_unit:
+            return (
+                number,
+                "",
+                MissingReason.UNKNOWN,
+                value_kind,
+                (),
+                (),
+            )
         return (
             number,
-            target_unit,
+            "",
             MissingReason.UNKNOWN,
             value_kind,
-            ("unit_assumed",),
-            (),
+            ("unit_missing",),
+            (
+                _unit_issue(
+                    code=IssueCode.UNIT_UNKNOWN,
+                    observable=observable,
+                    detail=(
+                        f"Column '{mapping.source_column}' reports no unit and the "
+                        f"expected unit is '{target_unit}'; the raw number is kept "
+                        "without rescaling instead of being assumed to be in the "
+                        "target unit."
+                    ),
+                    evidence={
+                        "column": mapping.source_column,
+                        "raw": text,
+                        "target_unit": target_unit,
+                    },
+                ),
+            ),
         )
     if not target_unit or source_unit == target_unit:
         return (
@@ -393,6 +418,8 @@ def align_tables(
     contract: DataRequirementContract,
     plugin: DomainPlugin,
     resolver: EntityResolver | None = None,
+    overrides: Sequence[Mapping[str, Any]] = (),
+    source_titles: Mapping[str, str] | None = None,
 ) -> AlignmentResult:
     """Build canonical observation records from every table that mapped."""
     entities = resolver if resolver is not None else EntityResolver(plugin=plugin)
@@ -412,7 +439,12 @@ def align_tables(
     }
 
     for table in tables:
-        mappings, mapping_issues = map_table(table, contract=contract, plugin=plugin)
+        mappings, mapping_issues = map_table(
+            table,
+            contract=contract,
+            plugin=plugin,
+            overrides=select_overrides(table, overrides, source_titles=source_titles),
+        )
         issues.extend(mapping_issues)
         plan = _plan(table, mappings, plugin, contract)
         if table.rows and plan.entity is None:
@@ -541,7 +573,14 @@ def align_tables(
                         quantity=observable, value=number, plugin=plugin
                     )
                     if range_issue is not None:
-                        issues.append(_tag_range_issue(range_issue, table, observable))
+                        issues.append(
+                            _tag_range_issue(
+                                range_issue,
+                                table,
+                                observable,
+                                record_uid=record.record_uid,
+                            )
+                        )
                 key = record.alignment_key(keys)
                 existing = index.get(key)
                 if existing is None:
@@ -717,7 +756,11 @@ def _duplicate_issue(key: tuple[str, ...], record: ObservationRecord) -> Quality
 
 
 def _tag_range_issue(
-    issue: QualityIssue, table: ExtractedTable, observable: str
+    issue: QualityIssue,
+    table: ExtractedTable,
+    observable: str,
+    *,
+    record_uid: str = "",
 ) -> QualityIssue:
     return QualityIssue(
         issue_id=f"issue:alignment:{table.table_id}:{slug(observable)}:range",
@@ -728,6 +771,7 @@ def _tag_range_issue(
             "table_id": table.table_id,
             "source_id": table.source_id,
             "observable": observable,
+            **({"record_uid": record_uid} if record_uid else {}),
         },
         detail=issue.detail,
         evidence={**dict(issue.evidence), "table_id": table.table_id},

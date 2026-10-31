@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import re
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any
 
 from .contracts import (
@@ -43,6 +43,7 @@ __all__ = [
     "map_table",
     "profile_column",
     "propose_mappings",
+    "select_overrides",
 ]
 
 MAPPING_MIN_SCORE = 0.5
@@ -149,14 +150,13 @@ def profile_column(
         inferred_unit, unit_source = value_unit, "values"
     else:
         inferred_unit, unit_source = "", "none"
-    base = strip_unit_from_header(column)
     time_system = detect_time_system(column)
     if not time_system:
         for sample in present[:3]:
             time_system = detect_time_system(sample)
             if time_system:
                 break
-    tokens = set(_tokens(base))
+    tokens = set(_header_tokens(column))
     marker = bool(tokens & _UNCERTAINTY_TOKENS) or bool(
         _UNCERTAINTY_PREFIX.match(slug(column))
     )
@@ -189,6 +189,101 @@ def _tokens(text: str) -> tuple[str, ...]:
         token
         for token in re.split(r"[^0-9a-zA-Z\u4e00-\u9fff]+", text.lower())
         if token
+    )
+
+
+# Vocabulary used only to split concatenated published headers such as
+# ``SNID``, ``OBSMJD`` and ``MAGERR``.  It is deliberately small: a header is
+# split only when *both* halves are known words, so ``FILTER`` and ``MAGNITUDE``
+# stay whole.
+_HEADER_SPLIT_VOCAB = frozenset(
+    {
+        "sn",
+        "id",
+        "obs",
+        "mjd",
+        "jd",
+        "bjd",
+        "date",
+        "time",
+        "mag",
+        "magnitude",
+        "err",
+        "error",
+        "unc",
+        "uncert",
+        "uncertainty",
+        "sigma",
+        "flux",
+        "fluxdensity",
+        "f",
+        "fnu",
+        "filter",
+        "band",
+        "flt",
+        "filt",
+        "name",
+        "object",
+        "obj",
+        "ra",
+        "dec",
+        "redshift",
+        "z",
+        "type",
+        "class",
+        "apparent",
+        "peak",
+        "e",
+        "d",
+        "value",
+        "val",
+        "measure",
+        "measurement",
+        "jy",
+        "mjy",
+        "ujy",
+        "njy",
+        "sfu",
+        "kev",
+        "mev",
+        "gev",
+        "ghz",
+        "mhz",
+        "hz",
+        "nm",
+        "um",
+        "cm",
+        "mm",
+        "km",
+        "kg",
+        "deg",
+        "count",
+        "counts",
+        "cts",
+        "rate",
+        "unit",
+        "units",
+        "单位",
+    }
+)
+
+
+def _split_header_token(token: str) -> tuple[str, ...]:
+    if token in _HEADER_SPLIT_VOCAB or len(token) < 4:
+        return (token,)
+    for index in range(len(token) - 1, 1, -1):
+        left, right = token[:index], token[index:]
+        if left in _HEADER_SPLIT_VOCAB and right in _HEADER_SPLIT_VOCAB:
+            return (left, right)
+    return (token,)
+
+
+def _header_tokens(text: str) -> tuple[str, ...]:
+    """Words in a raw header, splitting the common concatenated spellings."""
+    return tuple(
+        piece
+        for token in _tokens(strip_unit_from_header(str(text or "")))
+        for piece in _split_header_token(token)
     )
 
 
@@ -246,7 +341,7 @@ def score_column(
     elif normalise_identifier(spec.name) == normalise_identifier(base_slug):
         score, score_source = 0.9, "name_alias"
     else:
-        header_tokens = set(_tokens(strip_unit_from_header(profile.column)))
+        header_tokens = set(_header_tokens(profile.column))
         spec_tokens = set(_tokens(spec.name))
         hint_tokens = {token for hint in raw_hints for token in _tokens(hint)}
         if spec_tokens and spec_tokens <= header_tokens:
@@ -340,6 +435,17 @@ def propose_mappings(
         ambiguous = runner is not None and (best_score - runner[0]) <= AMBIGUITY_MARGIN
         target_unit = best_spec.canonical_unit
         source_unit = profile.inferred_unit
+        reasons = tuple(best_reasons)
+        if (
+            not source_unit
+            and target_unit == "mag"
+            and {"mag", "magnitude", "星等"} & set(_header_tokens(profile.column))
+        ):
+            # ``MAG`` / ``Magnitude`` name the observable itself; unlike a bare
+            # ``flux`` column, assuming the canonical magnitude unit is not a
+            # hidden scale change (all magnitude systems still stay separate).
+            source_unit = "mag"
+            reasons = (*reasons, "unit_inferred_from_header:mag")
         transformation = ""
         if source_unit and target_unit and source_unit != target_unit:
             resolution = resolve_unit(
@@ -354,7 +460,7 @@ def propose_mappings(
                 column=profile.column,
                 observable=best_spec.name,
                 score=best_score,
-                reasons=best_reasons,
+                reasons=reasons,
                 target_unit=target_unit,
                 source_unit=source_unit,
                 transformation=transformation,
@@ -399,12 +505,106 @@ class MappingProposal:
         }
 
 
+def _is_unit_header(column: str) -> bool:
+    return bool(set(_header_tokens(column)) & {"unit", "units", "单位"}) or slug(
+        column
+    ) in {"unit", "units"}
+
+
+def _unit_column(table: ExtractedTable) -> tuple[str, tuple[str, ...]]:
+    """A column that carries units, plus the distinct spellings it uses."""
+    for column in table.columns:
+        if not _is_unit_header(column):
+            continue
+        present = [
+            str(row.get(column, "") or "").strip()
+            for row in table.rows
+            if str(row.get(column, "") or "").strip()
+        ]
+        if present and all(dimension_of(value) for value in present):
+            return column, tuple(sorted(set(present)))
+    return "", ()
+
+
+def _unit_transformation(
+    source: str, target: str, observable: str, plugin: DomainPlugin
+) -> str:
+    if not (source and target and source != target):
+        return ""
+    resolution = resolve_unit(source, quantity=observable, plugin=plugin)
+    if resolution.exact and resolution.canonical == target:
+        return f"unit_scale:{source}->{target}"
+    return f"unit_unresolved:{resolution.note}" if resolution.note else ""
+
+
+def _unit_column_issue(
+    *,
+    table: ExtractedTable,
+    column: str,
+    detail: str,
+    evidence: Mapping[str, Any],
+    code: IssueCode = IssueCode.UNIT_INCONSISTENCY,
+) -> QualityIssue:
+    return QualityIssue(
+        issue_id=f"issue:map:{table.table_id}:{slug(column)}:unit-column",
+        code=code,
+        severity=IssueSeverity.WARNING,
+        stage="semantics",
+        subject={
+            "table_id": table.table_id,
+            "source_id": table.source_id,
+            "field": column,
+        },
+        detail=detail,
+        evidence=dict(evidence),
+        proposed_action=(
+            "Keep the original unit strings, or split this table so each value "
+            "column has one unambiguous unit."
+        ),
+        repair_mode=default_repair_mode(code),
+    )
+
+
+def select_overrides(
+    table: ExtractedTable,
+    overrides: Sequence[Mapping[str, Any]],
+    *,
+    source_titles: Mapping[str, str] | None = None,
+) -> list[Mapping[str, Any]]:
+    """Overrides that target this table, by source id or file basename."""
+    titles = source_titles or {}
+    names = {table.source_id, titles.get(table.source_id, "")}
+    return [
+        item
+        for item in overrides
+        if str(item.get("source") or item.get("source_id") or "") in names
+    ]
+
+
+def _override_issue(*, table: ExtractedTable, column: str, detail: str) -> QualityIssue:
+    return QualityIssue(
+        issue_id=f"issue:map:{table.table_id}:{slug(column)}:override",
+        code=IssueCode.FIELD_UNMAPPED,
+        severity=IssueSeverity.WARNING,
+        stage="semantics",
+        subject={
+            "table_id": table.table_id,
+            "source_id": table.source_id,
+            "field": column,
+        },
+        detail=detail,
+        proposed_action="Correct the column override or leave the column untouched.",
+        repair_mode=default_repair_mode(IssueCode.FIELD_UNMAPPED),
+    )
+
+
 def map_table(
     table: ExtractedTable,
     *,
     contract: DataRequirementContract,
     plugin: DomainPlugin,
     stage: str = "semantics",
+    overrides: Sequence[Mapping[str, Any]] = (),
 ) -> tuple[tuple[FieldMapping, ...], tuple[QualityIssue, ...]]:
     """Map a table's columns; return accepted mappings plus the issues raised.
 
@@ -414,8 +614,169 @@ def map_table(
     """
     mappings: list[FieldMapping] = []
     issues: list[QualityIssue] = []
-    proposals = propose_mappings(table, contract=contract, plugin=plugin)
+    proposals = list(propose_mappings(table, contract=contract, plugin=plugin))
+    overrides_by_column = {
+        str(item.get("column") or ""): item
+        for item in overrides
+        if str(item.get("column") or "")
+    }
+    for column, item in overrides_by_column.items():
+        if column not in table.columns:
+            issues.append(
+                _override_issue(
+                    table=table,
+                    column=column,
+                    detail=(
+                        f"Column override names '{column}', which is not in this "
+                        "table; it was ignored."
+                    ),
+                )
+            )
+            continue
+        observable = str(item.get("observable") or "")
+        spec = plugin.observable(observable)
+        if spec is None:
+            issues.append(
+                _override_issue(
+                    table=table,
+                    column=column,
+                    detail=(
+                        f"Column override for '{column}' names unknown observable "
+                        f"'{observable}'; it was ignored."
+                    ),
+                )
+            )
+            continue
+        index = next(
+            (
+                index
+                for index, proposal in enumerate(proposals)
+                if proposal.column == column
+            ),
+            None,
+        )
+        source_unit = str(item.get("unit") or "")
+        if index is None:
+            proposals.append(
+                MappingProposal(
+                    column=column,
+                    observable=observable,
+                    score=1.0,
+                    reasons=("user_override",),
+                    target_unit=spec.canonical_unit,
+                    source_unit=source_unit,
+                    transformation=_unit_transformation(
+                        source_unit, spec.canonical_unit, observable, plugin
+                    ),
+                )
+            )
+        else:
+            existing = proposals[index]
+            proposals[index] = replace(
+                existing,
+                observable=observable,
+                score=1.0,
+                reasons=(*existing.reasons, "user_override"),
+                target_unit=spec.canonical_unit,
+                source_unit=source_unit or existing.source_unit,
+                transformation=_unit_transformation(
+                    source_unit or existing.source_unit,
+                    spec.canonical_unit,
+                    observable,
+                    plugin,
+                ),
+                alternative="",
+                alternative_score=0.0,
+                ambiguous=False,
+            )
+    unit_column, unit_values = _unit_column(table)
+    if unit_column:
+        value_proposals = [
+            proposal
+            for proposal in proposals
+            if (
+                plugin.observable(proposal.observable) is not None
+                and plugin.observable(proposal.observable).kind
+                in {"quantity", "quality"}
+            )
+        ]
+        if value_proposals and len(unit_values) == 1:
+            source_unit = unit_values[0]
+            targets = {proposal.target_unit for proposal in value_proposals}
+            if len(targets) <= 1:
+                for index, proposal in enumerate(proposals):
+                    if proposal not in value_proposals:
+                        continue
+                    if proposal.source_unit and proposal.source_unit != source_unit:
+                        issues.append(
+                            _unit_column_issue(
+                                table=table,
+                                column=unit_column,
+                                detail=(
+                                    f"Column '{proposal.column}' declares unit "
+                                    f"'{proposal.source_unit}' but the unit column "
+                                    f"says '{source_unit}'."
+                                ),
+                                evidence={
+                                    "column": proposal.column,
+                                    "header_unit": proposal.source_unit,
+                                    "unit_column_value": source_unit,
+                                },
+                            )
+                        )
+                        continue
+                    proposals[index] = replace(
+                        proposal,
+                        source_unit=source_unit,
+                        transformation=_unit_transformation(
+                            source_unit,
+                            proposal.target_unit,
+                            proposal.observable,
+                            plugin,
+                        ),
+                        reasons=(
+                            *proposal.reasons,
+                            f"unit_from_column:{source_unit}",
+                        ),
+                    )
+            else:
+                issues.append(
+                    _unit_column_issue(
+                        table=table,
+                        column=unit_column,
+                        detail=(
+                            "One unit column serves value columns with different "
+                            "target units; the unit cannot be assigned without "
+                            "guessing."
+                        ),
+                        evidence={
+                            "columns": [p.column for p in value_proposals],
+                            "target_units": sorted(targets),
+                            "unit_column_value": source_unit,
+                        },
+                        code=IssueCode.UNIT_UNKNOWN,
+                    )
+                )
+        elif value_proposals:
+            issues.append(
+                _unit_column_issue(
+                    table=table,
+                    column=unit_column,
+                    detail=(
+                        "The unit column uses several spellings "
+                        f"({', '.join(unit_values)}); the values are kept but no "
+                        "single unit is assumed."
+                    ),
+                    evidence={
+                        "unit_values": list(unit_values),
+                        "columns": [p.column for p in value_proposals],
+                    },
+                )
+            )
     covered = {proposal.column for proposal in proposals}
+    if unit_column:
+        covered.add(unit_column)
+
     for proposal in proposals:
         accepted = proposal.score >= MAPPING_MIN_SCORE and not proposal.ambiguous
         confidence = confidence_from_score(proposal.score)
