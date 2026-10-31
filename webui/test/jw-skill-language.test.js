@@ -46,15 +46,17 @@ test("skills assigned to JW agents have Chinese discovery descriptions", async (
   }
 });
 
-test("JW topology provides Chinese profiles for six primary and support agents", async () => {
+test("JW topology provides Chinese profiles for every primary and support agent", async () => {
   const projectRoot = fileURLToPath(new URL("../..", import.meta.url));
   const topology = await readSkillTopology(projectRoot);
 
-  assert.equal(topology.primaryAgents.length, 6);
+  assert.equal(topology.primaryAgents.length, 8);
   assert.deepEqual(
     topology.primaryAgents.map((agent) => agent.name),
     [
       "solar-planner",
+      "scientific-data",
+      "research-influence",
       "solar-data",
       "solar-hypothesis",
       "solar-experiment",
