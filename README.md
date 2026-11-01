@@ -3,11 +3,11 @@
   &nbsp;&nbsp;
   <img alt="Jinwu" src=".github/assets/logo.png" width="208" align="middle">
 
-  <h3>From a research question to verifiable results</h3>
+  <h3>From a research question to verifiable research results</h3>
 
   <p>
     Jinwu (JW) is an end-to-end autonomous research agent.<br>
-    It links research planning, literature discovery, code execution, data analysis, experiment verification and report writing into one continuous workflow.
+    It strings research planning, literature search, code execution, data analysis, experiment verification and report writing into one complete workflow.
   </p>
 
   <p>
@@ -28,42 +28,42 @@
 
 ---
 
-## Not just answering questions — advancing research
+## Not just answering questions, but advancing research
 
-Give Jinwu a research goal and it will break the work down, call tools, run the analysis and save the results. It keeps evidence at key steps and tracks hypotheses, experiments and context as the research unfolds.
+Give Jinwu a research goal, and it decomposes the task, calls tools, runs analysis and saves the results; it keeps evidence at key steps and continuously manages hypotheses, experiments and context throughout the research.
 
-- **Literature review**: discover, screen and read papers in a structured way, then produce a survey with citations.
+- **Literature research**: discover, screen and read papers in a structured way, and produce a survey with citations.
 - **Data analysis**: write and run code to process data, generate figures and verify results.
 - **Experimental research**: manage hypotheses and experiments, record the process, review the evidence and iterate on the approach.
-- **Writing**: turn the research process into reports, surveys and reproducible artifacts.
+- **Writing**: distill the research process into reports, surveys and reproducible artifacts.
 
 ## Core capabilities
 
-| Capability | What it does |
+| Capability | Description |
 | --- | --- |
-| **End-to-end research orchestration** | Organizes the whole task around a research goal, from planning and retrieval through execution to verification, writing and delivery. |
-| **Specialist sub-agents** | Coordinates dedicated roles for literature, code, data analysis, scientific hypotheses, experiments and evidence review. |
-| **Traceable research process** | Manages evidence and counter-evidence, retaining tool calls, task state and artifacts so you get more than a conclusion without support. |
-| **Persistent memory and knowledge base** | Preserves research context across sessions and accumulates searchable, source-attributed project knowledge. |
-| **Extensible skills and tools** | Install domain skills and connect MCP servers and third-party tools so the agent fits your research workflow. |
-| **Flexible model choice** | Works with Claude, GPT, Gemini, Qwen, DeepSeek, Kimi, GLM, Ollama, OpenRouter and custom compatible endpoints. |
+| **End-to-end research orchestration** | Organizes the complete task around the research goal, from planning, retrieval and execution to verification, writing and delivery. |
+| **Specialist sub-agents** | Coordinates specialist roles such as literature, code, data analysis, scientific hypothesis, experiment and evidence review to work together. |
+| **Traceable research process** | Manages evidence and counter-evidence, keeps tool calls, task state and research results, and reduces "conclusions with no basis". |
+| **Persistent memory and knowledge base** | Keeps research context across sessions and accumulates searchable, source-attributed project knowledge. |
+| **Extensible skills and tools** | Install domain skills and connect MCP and third-party tools, so the agent adapts to your research workflow. |
+| **Flexible model choice** | Supports Claude, GPT, Gemini, Qwen, DeepSeek, Kimi, GLM, Ollama, OpenRouter and custom compatible endpoints. |
 
 ## See how it works
 
-The Jinwu desktop app brings scientific research, domain skills and long-term memory into a single window, so you can start a research task without managing a Python or Node.js environment yourself.
+The Jinwu desktop app integrates scientific research, domain skills and long-term memory into a single window. Without managing a Python or Node.js environment separately, you can start a research task directly.
 
 <div align="center">
-  <img alt="Jinwu desktop home screen" src=".github/assets/desktop-home.png" width="960">
-  <p><sub>Jinwu desktop: start from a research question, and let the agent plan and execute the work</sub></p>
+  <img alt="Jinwu desktop main interface" src=".github/assets/desktop-home.png" width="960">
+  <p><sub>Jinwu desktop: start from a research question and let the agent plan and execute the research task</sub></p>
 </div>
 
-**[See the full example and its output →](docs/examples/survey-literature/README.md)**
+**[See the full example and generated results →](docs/examples/survey-literature/README.md)**
 
 ## Quick start
 
 ### Download the desktop app
 
-No need to install Python, Node.js or any other runtime. Pick your platform and download:
+No need to install Python, Node.js or other runtimes separately; choose your platform and download directly:
 
 | Platform | Installer |
 | --- | --- |
@@ -72,11 +72,11 @@ No need to install Python, Node.js or any other runtime. Pick your platform and 
 
 [See release notes and SHA256 checksums →](https://github.com/zby0407/Jinwu-agent/releases/tag/v0.3.5-desktop.1)
 
-> The current installers are not signed. On macOS, right-click the app and choose "Open" the first time; on Windows, choose "More info → Run anyway" if SmartScreen appears.
+> The current installers are not signed. On macOS, right-click the app and choose "Open" on first launch; if Windows shows a SmartScreen prompt, choose "Run anyway".
 
 ### Run from source
 
-Requirements: Python 3.11+, [uv](https://docs.astral.sh/uv/); Node.js 20+ to build the WebUI.
+Requirements: Python 3.11+, [uv](https://docs.astral.sh/uv/); Node.js 20+ is required to build the WebUI.
 
 ```bash
 git clone https://github.com/zby0407/Jinwu-agent.git
@@ -91,26 +91,26 @@ uv run jw
 ```bash
 jw                         # default TUI
 jw --ui cli                # interactive CLI
-jw --ui webui              # browser-based WebUI
-jw -p "survey this area and produce a cited literature review"  # one-shot task
+jw --ui webui              # browser WebUI
+jw -p "survey this area and output a survey with citations"  # one-shot task
 jw --resume                # resume a session
 ```
 
-The default config lives in `~/.config/jw/config.yaml`, and runtime data lives in `~/.jw/`. You can also provide model credentials through environment variables; see [`.env.example`](.env.example).
+The default config is stored in `~/.config/jw/config.yaml`, and runtime data is stored in `~/.jw/`. You can also refer to [`.env.example`](.env.example) to provide model keys through environment variables.
 
 ## Three research modes
 
-| Mode | When to use it |
+| Mode | When to use |
 | --- | --- |
 | `fast_answer` | Answer factual questions quickly; handle lightweight tasks. |
-| `verified_analysis` | Tasks that need tool execution, data analysis and checking of results. |
-| `full_research` | Complete research tasks that need planning, retrieval, experiments, evidence review and writing. |
+| `verified_analysis` | Tasks that require tool execution, data analysis and result verification. |
+| `full_research` | Complete research tasks that require planning, retrieval, experiments, evidence review and writing. |
 
 ## Docker
 
 ```bash
 cp .env.example .env
-# Set the API key of at least one model provider in .env
+# Configure at least one model provider's API key in .env
 docker compose build
 docker compose run --rm jw
 ```
@@ -118,14 +118,14 @@ docker compose run --rm jw
 ## Documentation and examples
 
 - **[Documentation hub](docs/README.md)**: examples, deployment options and usage guides
-- **[Full literature review example](docs/examples/survey-literature/README.md)**: from a topic to a bilingual survey of 68 papers across 10 sections
-- **[Project layout and data locations](docs/PROJECT_LAYOUT.md)**: source tree, workspace and runtime artifacts
-- **[WebUI guide](webui/README.md)**: what the browser interface does and how to develop it
-- **[H1/H2 one-shot reproduction guide](docs/guides/solar-h1-h2-reproduction.md)**: fixed models, inputs and prompts for reproducible runs
+- **[Full literature review example](docs/examples/survey-literature/README.md)**: a Chinese-English survey from a topic to 68 papers in 10 sections
+- **[Project layout and data locations](docs/PROJECT_LAYOUT.md)**: source code, workspace and runtime artifacts
+- **[WebUI guide](webui/README.md)**: features of the browser interface and how to develop it
+- **[H1/H2 one-shot reproduction guide](docs/guides/solar-h1-h2-reproduction.md)**: a reproduction process with fixed models, inputs and prompts
 
 ## Contributing
 
-Issues, pull requests, new research skills and usage examples are all welcome. Please read the [contributing guide](CONTRIBUTING.md) before you start.
+Issues, pull requests, and new research skills or usage examples are welcome. Please read the [contributing guide](CONTRIBUTING.md) before you start.
 
 ```bash
 # Backend checks
@@ -141,4 +141,4 @@ npm run dev
 
 ## License
 
-Jinwu's original code is licensed under the [Apache License 2.0](LICENSE). The project includes or adapts code from other open-source projects; see [NOTICE](NOTICE) and the [third-party license inventory](THIRD_PARTY_LICENSES.md) for attribution and license details.
+Jinwu's original code is licensed under the [Apache License 2.0](LICENSE). The project includes or adapts part of the code from other open-source projects; see [NOTICE](NOTICE) and the [third-party dependency license list](THIRD_PARTY_LICENSES.md) for copyright attribution and licenses.
