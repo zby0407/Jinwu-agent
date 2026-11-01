@@ -753,9 +753,7 @@ def _openalex_pdf(work: Mapping[str, Any]) -> tuple[str, str, bool]:
 
 def _source_type(location: Mapping[str, Any]) -> str:
     source = location.get("source")
-    return (
-        str(source.get("type") or "") if isinstance(source, Mapping) else ""
-    )
+    return str(source.get("type") or "") if isinstance(source, Mapping) else ""
 
 
 def _has_journal_location(locations: Sequence[Mapping[str, Any]]) -> bool:

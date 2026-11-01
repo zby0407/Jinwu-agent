@@ -103,7 +103,9 @@ def test_acquired_local_filenames_are_safe_on_windows(tmp_path):
 
 def test_arxiv_identifier_suffix_does_not_become_the_file_extension(tmp_path):
     class PdfFetcher:
-        def fetch(self, url: str, *, policy: AcquisitionPolicy) -> tuple[int, bytes, str]:
+        def fetch(
+            self, url: str, *, policy: AcquisitionPolicy
+        ) -> tuple[int, bytes, str]:
             return 200, b"%PDF-1.4 fake", "application/pdf"
 
     catalog = SourceCatalog()
