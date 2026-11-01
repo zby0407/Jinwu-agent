@@ -74,6 +74,20 @@ No need to install Python, Node.js or other runtimes separately; choose your pla
 
 > The current installers are not signed. On macOS, right-click the app and choose "Open" on first launch; if Windows shows a SmartScreen prompt, choose "Run anyway".
 
+### One-line install (CLI / TUI)
+
+macOS or Linux:
+
+```bash
+curl -LsSf https://raw.githubusercontent.com/zby0407/Jinwu-agent/main/install.sh | sh
+```
+
+Windows PowerShell:
+
+```powershell
+powershell -ExecutionPolicy Bypass -Command "irm https://raw.githubusercontent.com/zby0407/Jinwu-agent/main/install.ps1 | iex"
+```
+
 ### Run from source
 
 Requirements: Python 3.11+, [uv](https://docs.astral.sh/uv/); Node.js 20+ is required to build the WebUI.

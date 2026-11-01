@@ -74,6 +74,20 @@
 
 > 当前安装包尚未签名。macOS 首次打开请右键应用并选择「打开」；Windows 显示 SmartScreen 提示时，请选择「仍要运行」。
 
+### 一行命令安装（CLI / TUI）
+
+macOS 或 Linux：
+
+```bash
+curl -LsSf https://raw.githubusercontent.com/zby0407/Jinwu-agent/main/install.sh | sh
+```
+
+Windows PowerShell：
+
+```powershell
+powershell -ExecutionPolicy Bypass -Command "irm https://raw.githubusercontent.com/zby0407/Jinwu-agent/main/install.ps1 | iex"
+```
+
 ### 从源码运行
 
 环境要求：Python 3.11+、[uv](https://docs.astral.sh/uv/)；构建 WebUI 需要 Node.js 20+。
