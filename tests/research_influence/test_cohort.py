@@ -13,7 +13,7 @@ from jw.research_influence.cohort import (
     select_cohort,
     synthetic_cohort,
 )
-from jw.research_influence.contracts import PaperRecord
+from jw.research_influence.contracts import AccessRoute, PaperRecord
 
 
 def test_snapshot_fingerprint_is_order_independent():
@@ -39,6 +39,69 @@ def test_snapshot_round_trips_through_disk(tmp_path):
     assert reloaded.fingerprint() == snapshot.fingerprint()
     assert reloaded.reference_year == 2024
     assert reloaded.papers[0].cited_by_count == 9
+
+
+def test_merge_duplicate_papers_uses_doi_not_the_id():
+    """The same DOI arriving through two tools must not become two rows."""
+    from jw.research_influence.cohort import merge_duplicate_papers
+
+    first = PaperRecord(
+        paper_id="paper:10.1_x",
+        doi="10.1/x",
+        title="T",
+        year=2015,
+        cited_by_count=10,
+    )
+    second = PaperRecord(
+        paper_id="paper:10.1/x",
+        doi="10.1/x",
+        title="T",
+        year=2015,
+        abstract="A",
+        cited_by_count=10,
+    )
+    merged, collapsed = merge_duplicate_papers([first, second])
+    assert collapsed == 1
+    assert len(merged) == 1
+    assert merged[0].abstract == "A"
+
+
+def test_imported_snapshot_decides_access_from_metadata_without_network():
+    """An OA location must survive import even though no download is allowed."""
+    record = {
+        "id": "https://openalex.org/W1",
+        "doi": "https://doi.org/10.1093/mnras/stv1947",
+        "title": "An open paper",
+        "publication_year": 2015,
+        "authorships": [],
+        "cited_by_count": 3,
+        "locations": [
+            {
+                "pdf_url": "https://example.org/paper.pdf",
+                "landing_page_url": "https://doi.org/10.1093/mnras/stv1947",
+                "is_oa": True,
+                "license": "cc-by",
+                "version": "publishedVersion",
+                "source": {"type": "journal"},
+            }
+        ],
+    }
+    snapshot = openalex_snapshot([record], cohort_id="cohort:oa")
+    assert snapshot.papers[0].access_route is AccessRoute.OPEN_ACCESS_GOLD
+    assert snapshot.papers[0].access is not None
+    assert snapshot.papers[0].access.fulltext_path == ""
+
+
+def test_imported_snapshot_uses_one_id_for_a_doi():
+    record = {
+        "id": "https://openalex.org/W1",
+        "doi": "https://doi.org/10.1093/mnras/stv1947",
+        "title": "A paper",
+        "publication_year": 2015,
+        "authorships": [],
+    }
+    snapshot = openalex_snapshot([record], cohort_id="cohort:id")
+    assert snapshot.papers[0].paper_id == "paper:10.1093/mnras/stv1947"
 
 
 def test_synthetic_cohort_is_deterministic():

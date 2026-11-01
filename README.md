@@ -11,8 +11,7 @@
 ├── tests/              # 后端测试
 ├── src/                # 独立科研工作流源码
 ├── research/           # 科研合同、规范、示例与开发资源
-├── workspace/          # 数据、项目任务、运行产物与知识库导出
-└── pi-mcp-bridge/      # Pi Agent MCP 桥接
+└── workspace/          # 数据、项目任务、运行产物与知识库导出
 ```
 
 `research/` 是版本化的只读资源层；所有可变状态统一写入

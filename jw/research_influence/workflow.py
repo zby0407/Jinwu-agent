@@ -37,6 +37,7 @@ from .cohort import (
     HORIZON_YEARS,
     CohortSnapshot,
     build_snapshot,
+    merge_duplicate_papers,
     synthetic_cohort,
 )
 from .contracts import (
@@ -158,11 +159,19 @@ class RunResult:
 
     def summary(self) -> dict[str, Any]:
         """Counts for a chat reply, not for the report."""
+        predicted_ids = (
+            set(self.predictions.paper_ids) if self.predictions is not None else set()
+        )
         return {
             "run_id": self.run_id,
             "directory": self.directory,
             "papers": len(self.papers),
             "uploads": len(self.uploads),
+            "scored_uploads": sum(
+                1
+                for paper in self.uploads
+                if paper.paper_id in predicted_ids and paper.year is not None
+            ),
             "explanations": len(self.explanations),
             "model": self.model is not None,
             "metrics": dict(self.metrics),
@@ -220,6 +229,12 @@ def run_influence(
         enrichment = _enrich_uploads(uploaded, settings)
         uploaded = enrichment.papers
     papers = tuple(evidence.papers) + uploaded
+    papers, collapsed = merge_duplicate_papers(papers)
+    notes = tuple(evidence.notes) + tuple(
+        f"uploaded:{paper.paper_id}" for paper in uploaded
+    )
+    if collapsed:
+        notes += (f"merged_{collapsed}_duplicate_records",)
     snapshot_all = build_snapshot(
         papers,
         cohort_id=evidence.cohort_id,
@@ -227,13 +242,13 @@ def run_influence(
         source=evidence.source,
         reference_year=reference_year,
         filters=dict(evidence.filters),
-        notes=tuple(evidence.notes)
-        + tuple(f"uploaded:{paper.paper_id}" for paper in uploaded),
+        notes=notes,
     )
     stages["load"] = {
         "state": "complete",
         "papers": len(papers),
         "uploads": len(uploaded),
+        "merged_duplicates": collapsed,
         "cohort_fingerprint": snapshot_all.fingerprint(),
         "synthetic": evidence.is_synthetic,
     }
@@ -586,7 +601,10 @@ def _citation_stage(
     seeds = [bare_work_id(paper.work_id) for paper in (*sample, *subjects)]
     seeds = [item for item in seeds if item]
     seeds.extend(paper.doi for paper in subjects if paper.doi and not paper.work_id)
-    resolved = resolve_works(seeds, transport=transport, policy=policy)
+    resolution_status: dict[str, str] = {}
+    resolved = resolve_works(
+        seeds, transport=transport, policy=policy, status=resolution_status
+    )
 
     referenced_by_paper: dict[str, list[str]] = {}
     for paper in subjects:
@@ -594,9 +612,9 @@ def _citation_stage(
         work = resolved.get(work_id or "")
         identifiers = [str(item) for item in (work or {}).get("referenced_works") or ()]
         identifiers.extend(
-            reference.resolved_work_id
+            reference.resolved_work_id or reference.doi
             for reference in paper.references
-            if reference.resolved_work_id
+            if reference.resolved_work_id or reference.doi
         )
         referenced_by_paper[paper.paper_id] = list(
             dict.fromkeys(item for item in identifiers if item)
@@ -605,7 +623,10 @@ def _citation_stage(
     if wanted:
         resolved.update(
             resolve_works(
-                wanted[:NETWORK_REFERENCE_BUDGET], transport=transport, policy=policy
+                wanted[:NETWORK_REFERENCE_BUDGET],
+                transport=transport,
+                policy=policy,
+                status=resolution_status,
             )
         )
 
@@ -651,6 +672,8 @@ def _citation_stage(
         "resolved_works": len(resolved),
         "network_nodes": len(ranks),
         "statuses": _count_by(item.status for item in profiles),
+        "resolution_status": resolution_status.get("status", "ok"),
+        "resolution_note": resolution_status.get("note", ""),
     }
 
 

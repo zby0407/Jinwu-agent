@@ -7,12 +7,35 @@ lets the caller blame the cap instead of the provider.
 
 from __future__ import annotations
 
+import urllib.error
+import urllib.request
+
 from jw.research_influence.contracts import ProviderStatus
 from jw.research_influence.providers import openalex
 from jw.research_influence.providers.base import ProviderPolicy, json_result
-from jw.research_influence.transport import HttpResponse, _read_capped
+from jw.research_influence.transport import (
+    HttpResponse,
+    UrllibTransport,
+    _read_capped,
+)
 
 from .conftest import FakeTransport
+
+
+class _FakeResponse:
+    def __init__(self, body: bytes, status: int = 200) -> None:
+        self._body = body
+        self.status = status
+        self.headers = {"content-type": "application/json"}
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args):
+        return False
+
+    def read(self, size: int = -1) -> bytes:
+        return self._body if size is None or size < 0 else self._body[:size]
 
 
 class _CappedResponse:
@@ -71,3 +94,83 @@ def test_openalex_reports_the_size_cap_through_the_transport_seam():
     result = openalex.fetch_work("10.1/x", transport=transport, policy=ProviderPolicy())
     assert result.status is ProviderStatus.UNAVAILABLE
     assert "response_too_large" in result.note
+
+
+def test_transport_retries_a_429_then_returns_the_success(monkeypatch):
+    """A transient 429 is retried instead of becoming a permanent empty result."""
+    calls: list[str] = []
+    responses = [
+        urllib.error.HTTPError(
+            "https://example.test", 429, "Too Many Requests", {}, None
+        ),
+        _FakeResponse(b'{"ok": true}'),
+    ]
+
+    def fake_urlopen(request, timeout):
+        calls.append(request.full_url)
+        answer = responses.pop(0)
+        if isinstance(answer, Exception):
+            raise answer
+        return answer
+
+    monkeypatch.setattr(urllib.request, "urlopen", fake_urlopen)
+    monkeypatch.setattr(
+        "jw.research_influence.transport.time.sleep", lambda _seconds: None
+    )
+    result = UrllibTransport(max_retries=1, backoff_seconds=0).get(
+        "https://example.test"
+    )
+    assert result.status == 200
+    assert result.json() == {"ok": True}
+    assert len(calls) == 2
+
+
+def test_transport_retries_a_connection_reset_then_returns_the_success(monkeypatch):
+    """A TLS EOF on a read is transient, not evidence the source is unavailable."""
+    calls: list[str] = []
+    responses = [
+        urllib.error.URLError(
+            "SSL: UNEXPECTED_EOF_WHILE_READING EOF occurred in violation of protocol"
+        ),
+        _FakeResponse(b'{"ok": true}'),
+    ]
+
+    def fake_urlopen(request, timeout):
+        calls.append(request.full_url)
+        answer = responses.pop(0)
+        if isinstance(answer, Exception):
+            raise answer
+        return answer
+
+    monkeypatch.setattr(urllib.request, "urlopen", fake_urlopen)
+    monkeypatch.setattr(
+        "jw.research_influence.transport.time.sleep", lambda _seconds: None
+    )
+    result = UrllibTransport(max_retries=1, backoff_seconds=0).get(
+        "https://example.test"
+    )
+    assert result.status == 200
+    assert result.json() == {"ok": True}
+    assert len(calls) == 2
+
+
+def test_transport_keeps_the_last_429_after_retries_are_exhausted(monkeypatch):
+    """A persistent 429 stays a rate-limit response, not a fake success."""
+    calls: list[str] = []
+
+    def fake_urlopen(request, timeout):
+        calls.append(request.full_url)
+        raise urllib.error.HTTPError(
+            "https://example.test", 429, "Too Many Requests", {}, None
+        )
+
+    monkeypatch.setattr(urllib.request, "urlopen", fake_urlopen)
+    monkeypatch.setattr(
+        "jw.research_influence.transport.time.sleep", lambda _seconds: None
+    )
+    result = UrllibTransport(max_retries=1, backoff_seconds=0).get(
+        "https://example.test"
+    )
+    assert result.status == 429
+    assert result.error == "http_429"
+    assert len(calls) == 2

@@ -45,6 +45,11 @@ def test_capabilities_state_what_is_refused(workspace):
     assert "names" in refusals
     assert payload["not_attempted"]["author_demographics"]
     assert len(payload["audits"]) == 10
+    sources = {item["provider"]: item for item in payload["sources"]}
+    assert sources["openalex"]["wired"] is True
+    assert sources["crossref"]["wired"] is True
+    assert sources["ads"]["credential_env"] == "ADS_API_TOKEN"
+    assert "credential_value" not in sources["ads"]
 
 
 def test_snapshot_synthetic_is_reproducible(workspace):
@@ -153,6 +158,7 @@ def test_run_produces_a_self_describing_bundle(workspace):
     directory = Path(payload["package_dir"])
     assert (directory / "report.md").is_file()
     assert payload["papers"] == 80
+    assert payload["scored_uploads"] == 0
     # Right-censored papers are excluded from training, never silently labelled.
     assert 0 < payload["metrics_summary"]["labelled"] <= 80
     assert payload["metrics_summary"]["interval_coverage"] is not None
@@ -371,6 +377,90 @@ def test_fetch_writes_an_export_and_reports_network_failure_honestly(
     assert printed["status"] == "error"
 
 
+def test_fetch_paper_builds_an_access_decision_and_acquisition_line(
+    workspace, monkeypatch
+):
+    """One DOI must survive the whole tool: no crash and a usable route.
+
+    The three calls this tool makes into the access module used to disagree
+    about their argument shapes, so the tool raised ``AttributeError`` before
+    returning anything.  A fake transport keeps the test offline.
+    """
+    from tests.research_influence.conftest import FakeTransport
+
+    record = dict(OPENALEX_RECORD)
+    record["best_oa_location"] = {
+        "pdf_url": "https://example.org/paper.pdf",
+        "landing_page_url": "https://doi.org/10.1093/mnras/stv1947",
+        "is_oa": True,
+        "license": "cc-by",
+        "version": "publishedVersion",
+        "source": {
+            "display_name": "Monthly Notices of the Royal Astronomical Society",
+            "type": "journal",
+            "host_organization_name": "Oxford University Press",
+        },
+    }
+    transport = FakeTransport().add("api.openalex.org/works", record)
+    monkeypatch.setattr(tools, "_transport", lambda *a, **k: transport)
+
+    payload = _load(
+        tools.infl_fetch_paper.invoke(
+            {
+                "doi": "10.1093/mnras/stv1947",
+                "name": "one",
+                "allow_network": True,
+            }
+        )
+    )
+    assert payload["status"] == "ok", payload
+    assert payload["access"]["route"] == "open_access_gold", payload["access"]
+    assert payload["coverage"] >= 0.8
+    assert "sections" in payload["missing"]
+    assert "Photometric calibration" in payload["acquisition_request"]["citation"]
+
+
+def test_snapshot_search_passes_a_historical_filter(workspace, monkeypatch):
+    """A prediction cohort needs a closed citation window, not the newest page."""
+    from tests.research_influence.conftest import FakeTransport
+
+    transport = FakeTransport().add(
+        "api.openalex.org/works", {"results": [OPENALEX_RECORD]}
+    )
+    monkeypatch.setattr(tools, "_transport", lambda *a, **k: transport)
+
+    payload = _load(
+        tools.infl_snapshot_search.invoke(
+            {
+                "query": "supernova",
+                "name": "historical",
+                "limit": 1,
+                "from_year": 2015,
+                "to_year": 2015,
+                "sort": "cited",
+                "allow_network": True,
+            }
+        )
+    )
+    assert payload["status"] == "ok", payload
+    assert payload["filters"]["from_year"] == 2015
+    assert payload["filters"]["to_year"] == 2015
+    url = transport.calls[0][1]
+    assert "from_publication_date%3A2015-01-01" in url
+    assert "to_publication_date%3A2015-12-31" in url
+    assert "sort=cited_by_count:desc" in url
+
+
+def test_snapshot_search_rejects_an_inverted_year_window(workspace):
+    payload = _load(
+        tools.infl_snapshot_search.invoke(
+            {"query": "x", "from_year": 2020, "to_year": 2010}
+        )
+    )
+    assert payload["status"] == "error"
+    assert "from_year" in payload["error"]
+
+
 def test_snapshot_search_pages_instead_of_keeping_the_first_page(
     workspace, monkeypatch
 ):
@@ -492,3 +582,226 @@ def test_verify_reports_drift_instead_of_trusting_the_manifest(workspace):
     drifted = _load(tools.infl_verify.invoke({"run_id": run_id}))
     assert drifted["status"] == "drift"
     assert "papers" in drifted["verification"]["failed"]
+
+
+def test_enrich_references_writes_a_new_snapshot_and_reuses_the_cache(
+    workspace, monkeypatch
+):
+    """Crossref deposits replace id-only refs; the input snapshot stays frozen."""
+    from tests.research_influence.conftest import FakeTransport
+
+    source = _write_records(workspace, "openalex.json", {"results": [OPENALEX_RECORD]})
+    imported = _load(
+        tools.infl_snapshot_import.invoke(
+            {"paths": [str(source)], "name": "before", "query": "supernova"}
+        )
+    )
+    assert imported["status"] == "ok", imported
+    transport = FakeTransport().add(
+        "api.crossref.org/works",
+        {
+            "message": {
+                "DOI": "10.1093/mnras/stv1947",
+                "title": ["Photometric calibration of nearby supernovae light curves"],
+                "reference": [
+                    {
+                        "unstructured": "A. Author 2010, ApJ, 1, 1",
+                        "DOI": "10.1234/reference",
+                        "article-title": "A cited paper",
+                        "year": 2010,
+                        "journal-title": "ApJ",
+                    }
+                ],
+            }
+        },
+    )
+    monkeypatch.setattr(tools, "_transport", lambda *a, **k: transport)
+
+    disabled = _load(tools.infl_enrich_references.invoke({"cohort": "before"}))
+    assert disabled["status"] == "error"
+    assert "network_disabled" in disabled["error"]
+
+    payload = _load(
+        tools.infl_enrich_references.invoke(
+            {"cohort": "before", "name": "after", "workers": 1, "allow_network": True}
+        )
+    )
+    assert payload["status"] == "ok", payload
+    assert payload["enrichment"]["enriched"] == 1
+    assert payload["enrichment"]["readable_after"] >= 1
+    assert Path(payload["path"]).is_file()
+    assert payload["cache"]
+
+    from jw.research_influence.cohort import CohortSnapshot
+
+    before = CohortSnapshot.load(Path(imported["path"]))
+    after = CohortSnapshot.load(Path(payload["path"]))
+    assert before.papers[0].references == ()
+    assert after.papers[0].references[0].doi == "10.1234/reference"
+    assert after.papers[0].references[0].title == "A cited paper"
+    assert after.fingerprint() != before.fingerprint()
+
+    calls_before = len(transport.calls)
+    again = _load(
+        tools.infl_enrich_references.invoke(
+            {"cohort": "before", "name": "after2", "workers": 1, "allow_network": True}
+        )
+    )
+    assert again["status"] == "ok", again
+    assert len(transport.calls) == calls_before
+
+
+def test_enrich_references_replaces_ids_with_crossref_deposits(workspace, monkeypatch):
+    """An id-only reference list becomes readable, and the cache avoids a refetch."""
+    from tests.research_influence.conftest import FakeTransport
+
+    record = dict(OPENALEX_RECORD)
+    record["referenced_works"] = [
+        "https://openalex.org/W111",
+        "https://openalex.org/W222",
+    ]
+    source = _write_records(workspace, "openalex_ids.json", {"results": [record]})
+    imported = _load(
+        tools.infl_snapshot_import.invoke(
+            {"paths": [str(source)], "name": "ids", "query": "supernova"}
+        )
+    )
+    assert imported["status"] == "ok", imported
+
+    deposit = {
+        "message": {
+            "DOI": "10.1093/mnras/stv1947",
+            "title": ["A title"],
+            "reference": [
+                {"index": 1, "DOI": "10.1/a", "article-title": "Ref one"},
+                {"index": 2, "article-title": "Ref two", "journal-title": "ApJ"},
+            ],
+        }
+    }
+    transport = FakeTransport().add("api.crossref.org/works", deposit)
+    monkeypatch.setattr(tools, "_transport", lambda *a, **k: transport)
+
+    first = _load(
+        tools.infl_enrich_references.invoke(
+            {"cohort": "ids", "allow_network": True, "workers": 1}
+        )
+    )
+    assert first["status"] == "ok", first
+    enrichment = first["enrichment"]
+    assert enrichment["enriched"] == 1
+    assert enrichment["references_before"] == 2
+    assert enrichment["readable_before"] == 0
+    assert enrichment["readable_after"] == 2
+
+    from jw.research_influence.cohort import CohortSnapshot
+
+    enriched = CohortSnapshot.load(Path(first["path"]))
+    assert [ref.title for ref in enriched.papers[0].references] == [
+        "Ref one",
+        "Ref two",
+    ]
+    assert enriched.papers[0].references[0].doi == "10.1/a"
+
+    second = _load(
+        tools.infl_enrich_references.invoke(
+            {"cohort": "ids", "name": "ids_again", "allow_network": True}
+        )
+    )
+    assert second["status"] == "ok", second
+    assert second["enrichment"]["cached"] == 1
+    assert second["enrichment"]["fetched"] == 0
+
+
+def test_enrich_references_refuses_network_without_consent(workspace):
+    payload = _load(
+        tools.infl_enrich_references.invoke(
+            {"cohort": "missing", "allow_network": False}
+        )
+    )
+    assert payload["status"] == "error"
+    assert "network_disabled" in payload["error"]
+
+
+def _pdf_with_text(path: Path) -> bytes:
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    figure = plt.figure(figsize=(8.5, 11))
+    figure.text(0.1, 0.95, "Abstract", fontsize=12)
+    figure.text(0.1, 0.90, "We present photometry of a nearby supernova.", fontsize=10)
+    figure.text(0.1, 0.70, "1. Introduction", fontsize=12)
+    figure.text(0.1, 0.65, "The light curve spans sixty nights.", fontsize=10)
+    figure.text(0.1, 0.40, "Data availability", fontsize=12)
+    figure.text(0.1, 0.35, "Data at https://zenodo.org/record/1234567", fontsize=10)
+    figure.savefig(path)
+    plt.close(figure)
+    return path.read_bytes()
+
+
+def test_fetch_fulltext_attaches_sections_to_an_indexed_paper(
+    workspace, monkeypatch, tmp_path
+):
+    """An index record plus a legal open PDF becomes a readable paper."""
+    from tests.research_influence.conftest import FakeTransport
+    from jw.research_influence.cohort import CohortSnapshot
+
+    record = dict(OPENALEX_RECORD)
+    record["best_oa_location"] = {
+        "pdf_url": "https://example.org/paper.pdf",
+        "landing_page_url": "https://doi.org/10.1093/mnras/stv1947",
+        "is_oa": True,
+        "license": "cc-by",
+        "version": "publishedVersion",
+        "source": {"display_name": "MNRAS", "type": "journal"},
+    }
+    records = workspace / "records.json"
+    records.write_text(json.dumps([record]), encoding="utf-8")
+    imported = _load(
+        tools.infl_snapshot_import.invoke({"paths": [str(records)], "name": "ft"})
+    )
+    assert imported["status"] == "ok", imported
+    paper_id = CohortSnapshot.load(Path(imported["path"])).papers[0].paper_id
+
+    transport = (
+        FakeTransport()
+        .add(
+            "example.org/paper.pdf",
+            _pdf_with_text(tmp_path / "paper.pdf"),
+            content_type="application/pdf",
+        )
+        .add("api.openalex.org/works", record)
+    )
+    monkeypatch.setattr(tools, "_transport", lambda *a, **k: transport)
+
+    payload = _load(
+        tools.infl_fetch_fulltext.invoke(
+            {
+                "cohort": "ft",
+                "paper_id": paper_id,
+                "name": "ft_read",
+                "allow_network": True,
+            }
+        )
+    )
+    assert payload["status"] == "ok", payload
+    assert payload["pages"] == 1
+    assert "abstract" in payload["sections"]
+    assert payload["access"]["route"] == "open_access_gold"
+    assert Path(payload["file"]).is_file()
+    assert payload["open_data"] == ["https://zenodo.org/record/1234567"]
+
+    original = CohortSnapshot.load(Path(imported["path"]))
+    assert original.papers[0].fulltext_path == ""
+    assert original.papers[0].sections == {}
+
+
+def test_fetch_fulltext_refuses_without_network(workspace):
+    payload = _load(
+        tools.infl_fetch_fulltext.invoke(
+            {"cohort": "whatever", "paper_id": "paper:x", "allow_network": False}
+        )
+    )
+    assert payload["status"] == "error"
+    assert "network_disabled" in payload["error"]

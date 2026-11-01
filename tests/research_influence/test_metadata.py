@@ -293,7 +293,20 @@ def test_the_arxiv_doi_is_tried_when_the_pdf_carries_only_an_identifier():
     work, status, similarity, candidates, _notes = lookup_work(
         paper=paper, transport=fake_transport, policy=ProviderPolicy()
     )
-    assert status == "enriched_arxiv_doi"
+    assert status == "enriched_doi"
     assert work is not None
     assert similarity == 1.0
     assert candidates == 1
+
+
+def test_an_arxiv_stamp_supplies_doi_year_and_venue():
+    """A preprint PDF without a printed DOI still has an exact DataCite DOI."""
+    metadata = extract_pdf_metadata([PAGE_ONE])
+    paper = apply_pdf_metadata(_paper(), metadata)
+    assert paper.doi == "10.48550/arxiv.2401.00123"
+    assert paper.year == 2024
+    assert paper.venue.name == "arXiv"
+    assert "doi" not in paper.missing
+    assert "year" not in paper.missing
+    assert "venue" not in paper.missing
+    assert "venue_from_arxiv_id" in metadata.notes

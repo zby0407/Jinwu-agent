@@ -10,9 +10,10 @@ closed access.
 
 from __future__ import annotations
 
-import os
 from collections.abc import Mapping
 from dataclasses import dataclass, field
+
+from jw.literature_credentials import contact_email, credential_value
 
 from ..contracts import ProviderResult, ProviderStatus
 from ..transport import HttpResponse, Transport
@@ -58,19 +59,18 @@ class ProviderPolicy:
     @classmethod
     def from_environment(cls, *, overrides: Mapping[str, str] | None = None):
         """Build a policy whose contact email comes from the environment."""
-        email = (
-            os.getenv(DEFAULT_MAILTO_ENV, "").strip()
-            or os.getenv("UNPAYWALL_EMAIL", "").strip()
-        )
-        return cls(email=email, overrides=dict(overrides or {}))
+        return cls(email=contact_email(), overrides=dict(overrides or {}))
 
     def credential(self, provider: str) -> str:
-        """Resolve one provider's credential, or an empty string."""
+        """Resolve one provider's credential, or an empty string.
+
+        Environment variables win over ``config.yaml``; see
+        :mod:`jw.literature_credentials`.
+        """
         override = self.overrides.get(provider)
         if override:
             return override.strip()
-        name = CREDENTIAL_ENV.get(provider, "")
-        return os.getenv(name, "").strip() if name else ""
+        return credential_value(provider)
 
     def headers(self) -> dict[str, str]:
         """Headers every request carries (polite-pool identification)."""

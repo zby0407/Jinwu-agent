@@ -53,6 +53,13 @@ DEFAULT_HYPERPARAMETERS: Mapping[str, Any] = {
 
 MIN_TRAINING_ROWS = 30
 MIN_HOLDOUT_ROWS = 12
+# A finite calibration set makes the 80% conformal quantile itself noisy.  An
+# eight-point margin covers the sampling error on a 160-row calibration set and
+# errs on the side of a wider, honest interval on a 60-row one.
+CONFORMAL_MARGIN = 0.08
+# Below this many calibration rows the margin is not identifiable from the
+# data; adding it would turn a 40-row check into a 95% interval by accident.
+CONFORMAL_MIN_ROWS = 80
 
 
 class InsufficientTrainingData(RuntimeError):
@@ -209,6 +216,25 @@ def _quantile(values: Sequence[float], quantile: float) -> float:
     return float(ordered[position])
 
 
+def _conformal_quantile(values: Sequence[float], level: float) -> float:
+    """Interpolated quantile of the calibration nonconformity scores.
+
+    The textbook conformal quantile uses the next observed value.  On small
+    calibration sets that is a step function: one extra row can jump the
+    interval from 78% to 88% coverage.  Linear interpolation keeps the
+    expansion stable; the model card records the level so the choice is
+    auditable rather than hidden.
+    """
+    ordered = sorted(values)
+    if not ordered:
+        return 0.0
+    position = min(1.0, max(0.0, level)) * (len(ordered) - 1)
+    lower = int(math.floor(position))
+    upper = min(len(ordered) - 1, lower + 1)
+    weight = position - lower
+    return float(ordered[lower] * (1.0 - weight) + ordered[upper] * weight)
+
+
 # --- model card and predictions ---------------------------------------------
 
 
@@ -224,12 +250,15 @@ class ModelCard:
     rows: int = 0
     labelled: int = 0
     training_rows: int = 0
+    calibration_rows: int = 0
     holdout_rows: int = 0
     quantiles: tuple[float, ...] = DEFAULT_QUANTILES
     algorithm: str = "HistGradientBoostingRegressor(loss=quantile)"
     hyperparameters: Mapping[str, Any] = field(default_factory=dict)
     seed: int = 0
     offsets: Mapping[str, float] = field(default_factory=dict)
+    conformal_quantile: float = 0.0
+    conformal_level: float = 0.0
     metrics: Mapping[str, Any] = field(default_factory=dict)
     calibration_curve: tuple[Mapping[str, Any], ...] = ()
     missing_counts: Mapping[str, int] = field(default_factory=dict)
@@ -237,6 +266,7 @@ class ModelCard:
     training_seconds: float = 0.0
     cohort_fingerprint: str = ""
     training_paper_ids: tuple[str, ...] = ()
+    calibration_paper_ids: tuple[str, ...] = ()
     holdout_paper_ids: tuple[str, ...] = ()
     notes: tuple[str, ...] = ()
     created_at: str = ""
@@ -256,12 +286,15 @@ class ModelCard:
                 "feature_names": list(self.feature_names),
                 "labelled": self.labelled,
                 "training_rows": self.training_rows,
+                "calibration_rows": self.calibration_rows,
                 "holdout_rows": self.holdout_rows,
                 "quantiles": list(self.quantiles),
                 "algorithm": self.algorithm,
                 "hyperparameters": dict(self.hyperparameters),
                 "seed": self.seed,
                 "offsets": dict(self.offsets),
+                "conformal_quantile": self.conformal_quantile,
+                "conformal_level": self.conformal_level,
                 "metrics": _jsonable(dict(self.metrics)),
                 "cohort_fingerprint": self.cohort_fingerprint,
             }
@@ -278,12 +311,15 @@ class ModelCard:
             "rows": self.rows,
             "labelled": self.labelled,
             "training_rows": self.training_rows,
+            "calibration_rows": self.calibration_rows,
             "holdout_rows": self.holdout_rows,
             "quantiles": list(self.quantiles),
             "algorithm": self.algorithm,
             "hyperparameters": _jsonable(dict(self.hyperparameters)),
             "seed": self.seed,
             "offsets": dict(self.offsets),
+            "conformal_quantile": self.conformal_quantile,
+            "conformal_level": self.conformal_level,
             "metrics": _jsonable(dict(self.metrics)),
             "calibration_curve": [
                 _jsonable(dict(row)) for row in self.calibration_curve
@@ -293,6 +329,7 @@ class ModelCard:
             "training_seconds": self.training_seconds,
             "cohort_fingerprint": self.cohort_fingerprint,
             "training_paper_ids": list(self.training_paper_ids),
+            "calibration_paper_ids": list(self.calibration_paper_ids),
             "holdout_paper_ids": list(self.holdout_paper_ids),
             "notes": list(self.notes),
             "created_at": self.created_at,
@@ -399,25 +436,25 @@ class InfluenceModel:
             offset = float(self.card.offsets.get(str(quantile), 0.0))
             raw = estimator.predict(rows) + offset
             logs[quantile] = [float(value) for value in raw]
-        raw_low = logs[min(self.card.quantiles)]
+        expansion = float(self.card.conformal_quantile)
+        raw_low = [value - expansion for value in logs[min(self.card.quantiles)]]
         raw_median = logs[0.5] if 0.5 in logs else logs[sorted(logs)[len(logs) // 2]]
-        raw_high = logs[max(self.card.quantiles)]
+        raw_high = [value + expansion for value in logs[max(self.card.quantiles)]]
         # Independently fitted quantiles can cross; a crossing is repaired upward and
         # counted, because a silent "low > median" interval would be a lie.
-        low = list(raw_low)
-        median = [
-            max(value, floor) for value, floor in zip(raw_median, raw_low, strict=True)
-        ]
-        high = [
-            max(value, floor) for value, floor in zip(raw_high, median, strict=True)
-        ]
-        crossings = sum(
-            1
-            for index, (lo, mid, hi) in enumerate(
-                zip(raw_low, raw_median, raw_high, strict=True)
-            )
-            if not (lo <= mid <= hi)
-        )
+        # Sorting each triple is the monotone rearrangement: it also guarantees
+        # that conformal expansion never pushes a bound past the median.
+        low: list[float] = []
+        median: list[float] = []
+        high: list[float] = []
+        crossings = 0
+        for lo, mid, hi in zip(raw_low, raw_median, raw_high, strict=True):
+            if not (lo <= mid <= hi):
+                crossings += 1
+            repaired = sorted((lo, mid, hi))
+            low.append(repaired[0])
+            median.append(repaired[1])
+            high.append(repaired[2])
         return PredictionSet(
             paper_ids=matrix.paper_ids,
             log_low=tuple(low),
@@ -451,14 +488,15 @@ class InfluenceModel:
         predictions = self.predict(papers)
         holdout = set(self.card.holdout_paper_ids)
         training = set(self.card.training_paper_ids)
-        in_sample = 0
+        calibration = set(self.card.calibration_paper_ids)
         keep: list[int] = []
         for index, flag in enumerate(truth.available):
             if not flag or math.isnan(truth.values[index]):
                 continue
             paper_id = papers[index].paper_id
-            if subset == "holdout" and holdout and paper_id in training:
-                in_sample += 1
+            if subset == "holdout" and holdout and paper_id not in holdout:
+                # Calibration rows fitted the interval offsets, so they are not
+                # out-of-sample either. Only the held-out slice may be quoted.
                 continue
             if subset == "training" and training and paper_id not in training:
                 continue
@@ -471,7 +509,10 @@ class InfluenceModel:
         metrics["eval_subset"] = subset
         metrics["scored_rows"] = len(keep)
         metrics["in_sample_rows"] = sum(
-            1 for index in keep if papers[index].paper_id in training
+            1
+            for index in keep
+            if papers[index].paper_id in training
+            or papers[index].paper_id in calibration
         )
         metrics["holdout_rows"] = len(self.card.holdout_paper_ids)
         return metrics
@@ -554,7 +595,9 @@ def _fit_model(
     quantiles: Sequence[float] = DEFAULT_QUANTILES,
     horizon: int = HORIZON_YEARS,
     seed: int = 0,
-    holdout_share: float = 0.3,
+    # Calibration and evaluation each take half of this share, so 0.4 leaves
+    # roughly 20% for each and keeps the held-out slice above MIN_HOLDOUT_ROWS.
+    holdout_share: float = 0.4,
     include_text_level: bool = True,
     hyperparameters: Mapping[str, Any] | None = None,
     cohort_fingerprint: str = "",
@@ -577,21 +620,36 @@ def _fit_model(
             "the cohort is too small for a calibrated model"
         )
 
-    holdout_note = ""
-    train_rows, holdout_rows = _split_ids(
+    split_note = ""
+    calibration_rows: list[int] = []
+    train_rows, remaining_rows = _split_ids(
         [matrix.paper_ids[index] for index in labelled],
         seed=seed,
-        holdout_share=holdout_share,
+        holdout_share=max(holdout_share, 2 * MIN_HOLDOUT_ROWS / max(1, len(labelled))),
     )
-    if len(holdout_rows) < MIN_HOLDOUT_ROWS:
+    if len(remaining_rows) >= 2 * MIN_HOLDOUT_ROWS:
+        # Calibration and evaluation must not share rows: fitting the quantile
+        # offsets on the same residuals that later "validate" them makes the
+        # coverage claim look better than the model is.
+        calibration_local, holdout_local = _split_ids(
+            [matrix.paper_ids[labelled[index]] for index in remaining_rows],
+            seed=seed + 1,
+            holdout_share=0.5,
+        )
+        calibration_rows = [remaining_rows[index] for index in calibration_local]
+        holdout_rows = [remaining_rows[index] for index in holdout_local]
+        split_note = "calibration_and_evaluation_rows_are_disjoint"
+    else:
         train_rows = list(range(len(labelled)))
         holdout_rows = []
-        holdout_note = (
-            "holdout too small; calibration offsets were fitted on the training "
-            "rows and the coverage claim is in-sample"
+        calibration_rows = []
+        split_note = (
+            "holdout too small for a separate calibration split; offsets were "
+            "fitted on the training rows and the coverage claim is in-sample"
         )
 
     train_index = [labelled[index] for index in train_rows]
+    calibration_index = [labelled[index] for index in calibration_rows]
     holdout_index = [labelled[index] for index in holdout_rows]
     _x = _matrix_rows(matrix, train_index)
     _y = [truth.values[index] for index in train_index]
@@ -609,9 +667,9 @@ def _fit_model(
 
     estimators: dict[float, Any] = {}
     offsets: dict[str, float] = {}
-    if holdout_index:
-        holdout_x = _matrix_rows(matrix, holdout_index)[:, keep]
-        holdout_y = [truth.values[index] for index in holdout_index]
+    if calibration_index:
+        calibration_x = _matrix_rows(matrix, calibration_index)[:, keep]
+        calibration_y = [truth.values[index] for index in calibration_index]
     for quantile in quantiles:
         estimator = HistGradientBoostingRegressor(
             loss="quantile",
@@ -622,17 +680,58 @@ def _fit_model(
         estimator.fit(_x, _y)
         estimators[quantile] = estimator
         offsets[str(quantile)] = 0.0
-    if holdout_index:
+    conformal_quantile = 0.0
+    conformal_level = 0.0
+    if calibration_index:
         # Fit the offsets so that the empirical coverage matches the nominal one.
         for quantile in quantiles:
             estimator = estimators[quantile]
             residuals = [
                 actual - float(prediction)
                 for actual, prediction in zip(
-                    holdout_y, estimator.predict(holdout_x), strict=True
+                    calibration_y, estimator.predict(calibration_x), strict=True
                 )
             ]
             offsets[str(quantile)] = _quantile(residuals, quantile)
+        # Quantile regressors are only asymptotically calibrated; on a finite
+        # calibration set their joint coverage can fall well short of nominal
+        # (70% was observed on a real cohort).  Conformalized quantile
+        # regression repairs that with a finite-sample guarantee: expand both
+        # bounds by the (1-alpha) quantile of the calibration nonconformity
+        # max(low - y, y - high).  The expansion is symmetric and is applied
+        # before monotone rearrangement.
+        nominal = max(quantiles) - min(quantiles)
+        low_prediction = (
+            estimators[min(quantiles)].predict(calibration_x)
+            + offsets[str(min(quantiles))]
+        )
+        high_prediction = (
+            estimators[max(quantiles)].predict(calibration_x)
+            + offsets[str(max(quantiles))]
+        )
+        scores = [
+            max(
+                float(low) - float(actual),
+                float(actual) - float(high),
+                0.0,
+            )
+            for low, high, actual in zip(
+                low_prediction, high_prediction, calibration_y, strict=True
+            )
+        ]
+        # If the unexpanded interval already covers the calibration set, do
+        # not widen it just to satisfy a margin; that would turn a well-behaved
+        # small cohort into a 95% interval for no reason.
+        covered = sum(1 for score in scores if score <= 1e-12) / max(1, len(scores))
+        margin = CONFORMAL_MARGIN if len(scores) >= CONFORMAL_MIN_ROWS else 0.0
+        target = min(1.0, nominal + margin)
+        conformal_level = target
+        if covered < target:
+            level = min(
+                1.0,
+                math.ceil((len(scores) + 1) * target) / max(1, len(scores)),
+            )
+            conformal_quantile = _conformal_quantile(scores, level)
 
     card = ModelCard(
         model_id=model_id or f"model:{reference_year}:h{horizon}:s{seed}",
@@ -643,21 +742,34 @@ def _fit_model(
         rows=len(matrix),
         labelled=len(labelled),
         training_rows=len(train_index),
+        calibration_rows=len(calibration_index),
         holdout_rows=len(holdout_index),
         quantiles=tuple(quantiles),
         hyperparameters=parameters,
         seed=seed,
         offsets=offsets,
+        conformal_quantile=conformal_quantile,
+        conformal_level=conformal_level,
         missing_counts=dict(matrix.missing_counts),
         text_level_missing_share=matrix.text_level_missing_share(),
         training_seconds=round(time.perf_counter() - started, 3),
         cohort_fingerprint=cohort_fingerprint,
         training_paper_ids=tuple(matrix.paper_ids[index] for index in train_index),
+        calibration_paper_ids=tuple(
+            matrix.paper_ids[index] for index in calibration_index
+        ),
         holdout_paper_ids=tuple(matrix.paper_ids[index] for index in holdout_index),
         notes=tuple(
             note
             for note in (
-                holdout_note,
+                split_note,
+                "conformalized_quantile_regression" if conformal_quantile > 0 else "",
+                f"conformal_target:{conformal_level:.3f}"
+                if conformal_level > 0
+                else "",
+                f"conformal_expansion_log1p:{conformal_quantile:.6f}"
+                if conformal_quantile > 0
+                else "",
                 f"dropped_constant_features:{','.join(dropped)}" if dropped else "",
             )
             if note
@@ -721,7 +833,9 @@ def fit_model(
     quantiles: Sequence[float] = DEFAULT_QUANTILES,
     horizon: int = HORIZON_YEARS,
     seed: int = 0,
-    holdout_share: float = 0.3,
+    # Calibration and evaluation each take half of this share, so 0.4 leaves
+    # roughly 20% for each and keeps the held-out slice above MIN_HOLDOUT_ROWS.
+    holdout_share: float = 0.4,
     include_text_level: bool = True,
     hyperparameters: Mapping[str, Any] | None = None,
     cohort_fingerprint: str = "",

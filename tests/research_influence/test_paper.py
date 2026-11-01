@@ -147,6 +147,24 @@ def test_full_text_paper_carries_sections_and_open_data():
     assert paper.coverage() == 1.0
 
 
+def test_pdf_abstract_section_fills_a_missing_index_abstract():
+    """A parsed Abstract section is used when no provider reported one."""
+    page = (
+        "Abstract\n"
+        "We present photometry of a nearby supernova.\n"
+        "1. Introduction\n"
+        "Type Ia supernovae are standardisable candles.\n"
+    )
+    paper = build_paper(
+        paper_id="paper:pdf-abstract",
+        fulltext=FulltextResult(path="/tmp/x.pdf", is_pdf=True, pages=(page,)),
+    )
+    assert paper.abstract == "We present photometry of a nearby supernova."
+    assert "abstract" not in paper.missing
+    assert "abstract_from_pdf_text_layer" in paper.notes
+    assert paper.provenance["abstract"][0].provider == "pdf_text"
+
+
 def test_crossref_reference_deposit_beats_text_parsing():
     """Deposited references are authoritative; text parsing is the fallback."""
     paper = build_paper(

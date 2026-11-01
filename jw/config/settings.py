@@ -176,6 +176,17 @@ class JWConfig:
     ollama_base_url: str = ""
     tavily_api_key: str = ""
 
+    # Literature source credentials. These are resolved by
+    # ``jw.literature_credentials`` with environment variables taking
+    # precedence, so an operator can keep keys in either place.
+    openalex_api_key: str = ""
+    openalex_mailto: str = ""
+    crossref_mailto: str = ""
+    unpaywall_email: str = ""
+    ads_api_token: str = ""
+    semantic_scholar_api_key: str = ""
+    core_api_key: str = ""
+
     # LLM Settings
     # JW is a Qwen-first research agent. Other models remain selectable for
     # diagnostics, but fresh installations start on the production family.

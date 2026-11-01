@@ -89,6 +89,7 @@ def search_works(
     filter_expression: str = "",
     page: int = 1,
     cursor: str = "",
+    sort: str = "",
 ) -> ProviderResult:
     """Search works, used to build cohorts and to match titles.
 
@@ -112,6 +113,10 @@ def search_works(
     ]
     if filter_expression:
         params.append(f"filter={quote(filter_expression, safe='')}")
+    if sort:
+        # OpenAlex sort values are field:direction, e.g.
+        # publication_date:desc; keep the colon readable.
+        params.append(f"sort={quote(sort, safe=':')}")
     if cursor:
         params.append(f"cursor={quote(str(cursor), safe='')}")
     elif int(page or 1) > 1:
@@ -160,6 +165,7 @@ def parse_work(payload: Mapping[str, object]) -> dict[str, object]:
                 "family": "",
                 "position": as_int(authorship.get("author_position")) or position,
                 "orcid": _bare_orcid(author.get("orcid")),
+                "author_id": as_text(author.get("id")),
                 "institution": as_text(primary_institution.get("display_name")),
                 "institution_id": as_text(primary_institution.get("id")),
                 "institution_type": as_text(primary_institution.get("type")),

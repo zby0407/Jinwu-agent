@@ -388,6 +388,15 @@ def _year_from_page_one(pages: Sequence[str]) -> int | None:
     return None
 
 
+def _year_from_arxiv_id(arxiv_id: str) -> int | None:
+    """arXiv ids start with a two-digit year; a stamped id is better than nothing."""
+    if len(arxiv_id) < 4 or not arxiv_id[:2].isdigit():
+        return None
+    two_digit = int(arxiv_id[:2])
+    # 0704+ is 2007+, 9108 is 1991; the 1991-2006 window is still used by old ids.
+    return 2000 + two_digit if two_digit < 91 else 1900 + two_digit
+
+
 def extract_pdf_metadata(pages: Sequence[str]) -> PdfMetadata:
     """Everything the text layer will give up about one paper."""
     notes: list[str] = []
@@ -426,15 +435,31 @@ def extract_pdf_metadata(pages: Sequence[str]) -> PdfMetadata:
     if doi_match:
         doi = doi_match.group(0).rstrip(".")
         evidence["doi"] = "page_1_text"
+    if not doi and arxiv_id:
+        # arXiv registers every preprint under a DataCite DOI; deriving it is
+        # exact, not a guess, so a PDF without a printed DOI still gets one.
+        doi = f"10.48550/arXiv.{arxiv_id}"
+        evidence["doi"] = "arxiv_id_convention"
+        notes.append("doi_derived_from_arxiv_id")
 
     year = _year_from_page_one(pages)
     if year is not None:
         evidence["year"] = "page_1_text"
+    if year is None and arxiv_id[:4].isdigit():
+        # arXiv ids start YYMM; use the submission year when the stamp is the
+        # only date on the page. Marked LOW like every other text-layer guess.
+        year = 2000 + int(arxiv_id[:2])
+        evidence["year"] = "arxiv_id_prefix"
+        notes.append("year_derived_from_arxiv_id")
 
     venue = _venue_from_page_one(pages)
     if venue:
         evidence["venue"] = "page_1_text"
         notes.append("venue_matched_by_name_only")
+    elif arxiv_id:
+        venue = "arXiv"
+        evidence["venue"] = "arxiv_id_convention"
+        notes.append("venue_from_arxiv_id")
 
     title = " ".join(title_lines)
     if len(title_lines) > 1:
@@ -508,23 +533,33 @@ def apply_pdf_metadata(paper: PaperRecord, metadata: PdfMetadata) -> PaperRecord
         provenance["authors"] = (_prov("authors"),)
         missing.pop("authors", None)
         filled.append("authors")
-    if paper.year is None and metadata.year is not None:
-        changes["year"] = metadata.year
-        provenance["year"] = (_prov("year"),)
-        missing.pop("year", None)
-        filled.append("year")
-    if not paper.doi and metadata.doi:
-        changes["doi"] = metadata.doi
-        provenance["doi"] = (_prov("doi"),)
-        missing.pop("doi", None)
-        filled.append("doi")
-    if not paper.venue.name and metadata.venue:
-        changes["venue"] = VenueRecord(
-            name=metadata.venue, provenance=(_prov("venue"),)
-        )
-        provenance["venue"] = (_prov("venue"),)
-        missing.pop("venue", None)
-        filled.append("venue")
+    if paper.year is None:
+        derived_year = metadata.year or _year_from_arxiv_id(metadata.arxiv_id)
+        if derived_year is not None:
+            changes["year"] = derived_year
+            provenance["year"] = (
+                _prov("year_from_arxiv_id" if metadata.year is None else "year"),
+            )
+            missing.pop("year", None)
+            filled.append("year")
+    if not paper.doi:
+        derived_doi = metadata.doi or metadata.arxiv_doi
+        if derived_doi:
+            changes["doi"] = derived_doi
+            provenance["doi"] = (
+                _prov("doi_from_arxiv_id" if not metadata.doi else "doi"),
+            )
+            missing.pop("doi", None)
+            filled.append("doi")
+    if not paper.venue.name:
+        venue_name = metadata.venue or ("arXiv" if metadata.arxiv_id else "")
+        if venue_name:
+            changes["venue"] = VenueRecord(
+                name=venue_name, provenance=(_prov("venue"),)
+            )
+            provenance["venue"] = (_prov("venue"),)
+            missing.pop("venue", None)
+            filled.append("venue")
     import json
 
     notes = (

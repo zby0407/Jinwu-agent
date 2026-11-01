@@ -34,6 +34,7 @@ from starlette.middleware import Middleware
 from jw.config import get_effective_config
 from jw.langgraph_dev.data_sources_api import DATA_SOURCE_ROUTES
 from jw.langgraph_dev.knowledge_api import KB_ROUTES
+from jw.langgraph_dev.literature_credentials_api import LITERATURE_CREDENTIAL_ROUTES
 from jw.langgraph_dev.reproduction_api import REPRODUCTION_ROUTES
 from jw.langgraph_dev.runtime import runtime_status
 from jw.langgraph_dev.maintenance import (
@@ -126,5 +127,7 @@ app = Starlette(
         *KB_ROUTES,
         # Observational data-source status and toggles (see data_sources_api.py).
         *DATA_SOURCE_ROUTES,
+        # Literature-source credential status and local saves.
+        *LITERATURE_CREDENTIAL_ROUTES,
     ],
 )

@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import re
 from collections.abc import Iterable, Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from .contracts import (
     CORE_FIELDS,
@@ -46,6 +46,7 @@ __all__ = [
     "section_provenance",
     "sections_from_pages",
     "title_line",
+    "apply_fulltext",
 ]
 
 #: Section names the downstream features understand.  Anything else is kept
@@ -641,6 +642,27 @@ def build_paper(
             provenance["open_data"] = tuple(
                 entry for record in open_data for entry in record.provenance
             )
+        if not abstract and sections.get("abstract"):
+            # The PDF parser found an Abstract section but the index record is
+            # absent or silent (normal for a user upload). Keep the text layer's
+            # abstract rather than reporting the paper as having none.
+            abstract_text = sections["abstract"].strip()
+            heading, _, rest = abstract_text.partition("\n")
+            if normalise_section_name(heading) == "abstract" and rest.strip():
+                abstract_text = rest.strip()
+            abstract = abstract_text
+            missing.pop("abstract", None)
+            provenance["abstract"] = (
+                Provenance(
+                    provider="pdf_text",
+                    route=route,
+                    method="abstract_section",
+                    retrieved_at=utc_now(),
+                    confidence=ConfidenceBand.MEDIUM,
+                    note="abstract read from the PDF text layer",
+                ),
+            )
+            note_list.append("abstract_from_pdf_text_layer")
     else:
         missing["sections"] = MissingReason.FULL_TEXT_UNAVAILABLE
 
@@ -673,6 +695,88 @@ def build_paper(
     )
     paper.missing = _finalise_missing(paper, missing)
     return paper
+
+
+def apply_fulltext(
+    paper: PaperRecord,
+    fulltext: FulltextResult,
+    *,
+    access: AccessDecision | None = None,
+) -> PaperRecord:
+    """Attach a downloaded PDF text layer to an indexed paper.
+
+    Index metadata stays authoritative for bibliometrics; the PDF supplies
+    sections, a data statement and, when the index only had ids, readable
+    reference candidates.  Fields already present are never overwritten.
+    """
+    if not fulltext.pages:
+        return paper
+    route = access.route if access is not None else paper.access_route
+    sections = sections_from_pages(fulltext.pages)
+    open_data = open_data_from_text(fulltext.pages)
+    provenance = dict(paper.provenance)
+    missing = dict(paper.missing)
+    notes = list(paper.notes)
+
+    abstract = paper.abstract
+    if not abstract and sections.get("abstract"):
+        abstract_text = sections["abstract"].strip()
+        heading, _, rest = abstract_text.partition("\n")
+        if normalise_section_name(heading) == "abstract" and rest.strip():
+            abstract_text = rest.strip()
+        abstract = abstract_text
+        missing.pop("abstract", None)
+        provenance["abstract"] = (
+            Provenance(
+                provider="pdf_text",
+                route=route,
+                method="abstract_section",
+                retrieved_at=utc_now(),
+                confidence=ConfidenceBand.MEDIUM,
+                note="abstract read from the PDF text layer",
+            ),
+        )
+        notes.append("abstract_from_pdf_text_layer")
+
+    references = paper.references
+    if not references or all(not ref.doi and not ref.title for ref in references):
+        parsed = references_from_text(fulltext.pages)
+        if parsed:
+            references = parsed
+            missing.pop("references", None)
+            provenance["references"] = tuple(
+                entry for record in references for entry in record.provenance
+            )
+            notes.append("references_parsed_from_pdf_text")
+
+    provenance["sections"] = section_provenance(fulltext.pages, route=route)
+    if open_data:
+        provenance["open_data"] = tuple(
+            entry for record in open_data for entry in record.provenance
+        )
+    missing.pop("sections", None)
+    notes.append("full_text_fetched")
+    if not open_data:
+        notes.append("data_availability_not_state_in_text")
+
+    updated = replace(
+        paper,
+        abstract=abstract,
+        references=references,
+        reference_count=len(references) if references else paper.reference_count,
+        open_data=open_data or paper.open_data,
+        sections=sections,
+        fulltext_path=fulltext.path,
+        fulltext_pages=fulltext.page_count,
+        access_route=route,
+        access=access or paper.access,
+        source_paths=tuple(dict.fromkeys((*paper.source_paths, fulltext.path))),
+        missing=missing,
+        provenance=provenance,
+        notes=tuple(dict.fromkeys(notes)),
+    )
+    updated.missing = _finalise_missing(updated, missing)
+    return updated
 
 
 def _finalise_missing(
@@ -751,7 +855,9 @@ def _authors(
                 family=str(item.get("family") or ""),
                 position=int(item.get("position") or position),
                 orcid=str(item.get("orcid") or ""),
+                author_id=str(item.get("author_id") or ""),
                 institution=str(item.get("institution") or ""),
+                institution_id=str(item.get("institution_id") or ""),
                 country=str(item.get("country") or ""),
                 is_corresponding=bool(item.get("is_corresponding")),
                 provenance=(
@@ -799,6 +905,46 @@ def _venue(
     return VenueRecord()
 
 
+def reference_records_from_crossref(
+    references: object,
+) -> tuple[ReferenceRecord, ...]:
+    """Turn a Crossref ``reference`` deposit into typed reference records.
+
+    Kept separate from :func:`_references` so a snapshot can be enriched later
+    without re-fetching or re-assembling the paper around it.
+    """
+    if not references:
+        return ()
+    sequence = references if isinstance(references, (list, tuple)) else ()
+    out: list[ReferenceRecord] = []
+    for item in sequence:
+        if not isinstance(item, Mapping):
+            continue
+        out.append(
+            ReferenceRecord(
+                index=int(item.get("index") or len(out) + 1),
+                raw=str(item.get("raw") or ""),
+                doi=normalise_doi(str(item.get("doi") or "")),
+                title=str(item.get("title") or ""),
+                year=_first_int(item.get("year")),
+                venue=str(item.get("venue") or ""),
+                match_confidence=ConfidenceBand.HIGH
+                if item.get("doi")
+                else ConfidenceBand.MEDIUM,
+                provenance=(
+                    Provenance(
+                        provider="crossref",
+                        route=AccessRoute.METADATA_ONLY,
+                        method="deposited_reference_list",
+                        retrieved_at=utc_now(),
+                        confidence=ConfidenceBand.HIGH,
+                    ),
+                ),
+            )
+        )
+    return tuple(out)
+
+
 def _references(
     openalex: Mapping[str, object],
     crossref: Mapping[str, object],
@@ -807,33 +953,10 @@ def _references(
     """Reference list plus a note explaining which source produced it."""
     crossref_refs = crossref.get("references") or ()
     if crossref_refs:
-        out: list[ReferenceRecord] = []
-        for item in crossref_refs:
-            if not isinstance(item, Mapping):
-                continue
-            out.append(
-                ReferenceRecord(
-                    index=int(item.get("index") or len(out) + 1),
-                    raw=str(item.get("raw") or ""),
-                    doi=normalise_doi(str(item.get("doi") or "")),
-                    title=str(item.get("title") or ""),
-                    year=_first_int(item.get("year")),
-                    venue=str(item.get("venue") or ""),
-                    match_confidence=ConfidenceBand.HIGH
-                    if item.get("doi")
-                    else ConfidenceBand.MEDIUM,
-                    provenance=(
-                        Provenance(
-                            provider="crossref",
-                            route=AccessRoute.METADATA_ONLY,
-                            method="deposited_reference_list",
-                            retrieved_at=utc_now(),
-                            confidence=ConfidenceBand.HIGH,
-                        ),
-                    ),
-                )
-            )
-        return tuple(out), "references_from_crossref_deposit"
+        return (
+            reference_records_from_crossref(crossref_refs),
+            "references_from_crossref_deposit",
+        )
     referenced = openalex.get("referenced_works") or ()
     if referenced:
         out = []
@@ -864,6 +987,54 @@ def _references(
         if parsed:
             return parsed, "references_parsed_from_pdf_text"
     return (), ""
+
+
+def needs_crossref_references(paper: PaperRecord) -> bool:
+    """Whether the current reference list carries no human-readable evidence.
+
+    OpenAlex ``referenced_works`` is identifier-only: it is useful for
+    resolution, but it cannot tell a reader what the paper cited.  A PDF list
+    with titles is already better and is left alone.
+    """
+    if not paper.references:
+        return True
+    return all(not entry.doi and not entry.title for entry in paper.references)
+
+
+def apply_crossref_references(
+    paper: PaperRecord, crossref: Mapping[str, object]
+) -> tuple[PaperRecord, int]:
+    """Replace an id-only reference list with a Crossref deposit.
+
+    The paper identity, sections, abstract and access decision are untouched;
+    only the reference list, its count, provenance and absence marker change.
+    """
+    references = reference_records_from_crossref(crossref.get("references"))
+    if not references:
+        return paper, 0
+    provenance = dict(paper.provenance)
+    provenance["references"] = tuple(
+        entry for record in references for entry in record.provenance
+    )
+    missing = dict(paper.missing)
+    missing.pop("references", None)
+    notes = tuple(
+        note
+        for note in paper.notes
+        if note
+        not in {"references_from_openalex_ids", "references_parsed_from_pdf_text"}
+    ) + ("references_from_crossref_deposit",)
+    return (
+        replace(
+            paper,
+            references=references,
+            reference_count=len(references),
+            provenance=provenance,
+            missing=missing,
+            notes=notes,
+        ),
+        len(references),
+    )
 
 
 def _keywords(openalex: Mapping[str, object]) -> tuple[str, ...]:
