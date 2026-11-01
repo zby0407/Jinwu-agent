@@ -1,36 +1,55 @@
 """Recover tables from PDF text, with the limits of that recovery made loud.
 
 A PDF has no table structure to read: the text layer only tells us where glyphs
-landed. Reconstructing columns from whitespace is therefore a *guess*, and these
-tables are marked as such — low confidence, a ``pdf_text_reconstruction``
-warning, and a provenance locator naming the page and the strategy used. The
-alternative (producing a confident-looking table from a guess) is worse than
-saying nothing.
+landed. Reconstructing columns is therefore a *guess*, and these tables are
+marked as such — low confidence, a ``pdf_text_reconstruction`` warning, and a
+provenance locator naming the page and the strategy used. The alternative
+(producing a confident-looking table from a guess) is worse than saying
+nothing.
+
+Two readers share this module.  PyMuPDF reads word geometry, so a column break
+is a measurable gap rather than a run of spaces; pypdf remains the fallback when
+PyMuPDF is unavailable.  A page with almost no text layer is a scan or an
+image-only table: only then, and only when the caller allows network access, is
+it sent to the configured cloud OCR adapter.
 """
 
 from __future__ import annotations
 
 import re
-from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
-from .contracts import (
-    ExtractedTable,
-    ProvenanceRef,
-    SCHEMA_VERSION,
-    ValueKind,
+from .cloud_figures import CloudFigureConfig, extract_cloud_figures
+from .cloud_tables import CloudTableConfig, Opener, extract_cloud_tables
+from .contracts import ExtractedTable
+from .domain import slug
+from .pdf_layout import (
+    MIN_COLUMNS,
+    MIN_ROWS,
+    PdfPageLayout,
+    read_pdf_layout,
+    tables_from_layout_page,
 )
-from .domain import confidence_from_score, slug
+from .table_builder import build_table, contains_number, is_number
 
 _TWO_SPACES = re.compile(r"\s{2,}")
-_CAPTION = re.compile(r"^\s*(?:table|tab\.|表)\s*[\dIVX]+", re.IGNORECASE)
-_NUMBER = re.compile(r"^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?$")
 
 PDF_TEXT_WARNING = "pdf_text_reconstruction"
-MIN_COLUMNS = 3
-MIN_ROWS = 3
 PDF_COLUMN_CONFIDENCE = 0.45
+CLOUD_TEXT_FLOOR = 200
+
+__all__ = [
+    "CLOUD_TEXT_FLOOR",
+    "PDF_TEXT_WARNING",
+    "PdfText",
+    "pdf_summary",
+    "read_pdf_report",
+    "read_pdf_tables",
+    "read_pdf_text",
+    "tables_from_text",
+    "tables_from_text_report",
+]
 
 
 @dataclass(slots=True)
@@ -40,6 +59,7 @@ class PdfText:
     path: str
     pages: tuple[str, ...] = ()
     warnings: tuple[str, ...] = ()
+    engine: str = ""
 
     @property
     def text(self) -> str:
@@ -48,6 +68,7 @@ class PdfText:
     def to_dict(self) -> dict[str, object]:
         return {
             "path": self.path,
+            "engine": self.engine or "pypdf",
             "page_count": len(self.pages),
             "characters": len(self.text),
             "warnings": list(self.warnings),
@@ -55,22 +76,48 @@ class PdfText:
 
 
 def read_pdf_text(path: str | Path) -> PdfText:
-    """Extract the text layer. A missing ``pypdf`` is reported, not raised."""
+    """Extract the text layer, preferring word-aware PyMuPDF output."""
 
     target = Path(path)
+    layout = read_pdf_layout(target, detect_tables=False)
+    if layout.pages:
+        pages = tuple(page.text for page in layout.pages)
+        warnings = list(layout.warnings)
+        if not any(page.strip() for page in pages):
+            warnings.append("no_text_layer")
+        return PdfText(
+            str(target),
+            pages=pages,
+            warnings=tuple(dict.fromkeys(warnings)),
+            engine=layout.engine,
+        )
+
     try:
         from pypdf import PdfReader
     except ImportError:
-        return PdfText(str(target), warnings=("pypdf_not_installed",))
+        return PdfText(
+            str(target),
+            warnings=tuple(dict.fromkeys((*layout.warnings, "pypdf_not_installed"))),
+            engine="",
+        )
     try:
         reader = PdfReader(str(target))
         pages = tuple((page.extract_text() or "") for page in reader.pages)
     except Exception as exc:  # an encrypted or broken PDF must not crash a run
-        return PdfText(str(target), warnings=(f"unreadable_pdf:{exc}",))
-    warnings: list[str] = []
+        return PdfText(
+            str(target),
+            warnings=tuple(dict.fromkeys((*layout.warnings, f"unreadable_pdf:{exc}"))),
+            engine="",
+        )
+    warnings: list[str] = list(layout.warnings)
     if not any(page.strip() for page in pages):
         warnings.append("no_text_layer")
-    return PdfText(str(target), pages=pages, warnings=tuple(warnings))
+    return PdfText(
+        str(target),
+        pages=pages,
+        warnings=tuple(dict.fromkeys(warnings)),
+        engine="pypdf",
+    )
 
 
 def _cells(line: str) -> list[str]:
@@ -84,30 +131,6 @@ def _cells(line: str) -> list[str]:
     if len(tokens) >= MIN_COLUMNS:
         return tokens
     return cells
-
-
-def _is_number(cell: str) -> bool:
-    return bool(_NUMBER.match(cell.replace(",", "")))
-
-
-def _contains_number(cell: str) -> bool:
-    """A cell is numeric if it, or one of its space-separated tokens, is."""
-    if _is_number(cell):
-        return True
-    return any(_is_number(token) for token in str(cell).split())
-
-
-def _caption_before(lines: Sequence[str], index: int) -> str:
-    for offset in (1, 2, 3):
-        position = index - offset
-        if position < 0:
-            break
-        candidate = lines[position].strip()
-        if not candidate:
-            continue
-        if _CAPTION.match(candidate):
-            return candidate
-    return ""
 
 
 def tables_from_text(
@@ -155,7 +178,7 @@ def tables_from_text_report(
         nonlocal current, width
         if len(current) >= min_rows and width >= min_columns:
             numeric_rows = sum(
-                1 for row in current[1:] if any(_contains_number(cell) for cell in row)
+                1 for row in current[1:] if any(contains_number(cell) for cell in row)
             )
             # Without numeric cells this is prose, not a table.
             if numeric_rows * 2 >= len(current) - 1:
@@ -171,8 +194,8 @@ def tables_from_text_report(
         if current and len(cells) != width:
             if (
                 width >= min_columns
-                and not all(_is_number(cell) for cell in current[0])
-                and any(_contains_number(cell) for cell in cells)
+                and not all(is_number(cell) for cell in current[0])
+                and any(contains_number(cell) for cell in cells)
             ):
                 rejected.append(
                     {
@@ -190,61 +213,24 @@ def tables_from_text_report(
         current.append(cells)
     flush()
 
-    tables: list[ExtractedTable] = []
-    for position, (first, last, rows) in enumerate(blocks):
-        header = rows[0]
-        body = rows[1:]
-        warnings = [PDF_TEXT_WARNING]
-        offset = 2
-        if not any(not _is_number(cell) for cell in header):
-            warnings.append("no_header_row")
-            header = [f"column_{number + 1}" for number in range(len(rows[0]))]
-            body = rows
-            offset = 1
-        columns = _unique_columns(header)
-        records: list[dict[str, str]] = []
-        for row_number, row in enumerate(body):
-            padded = list(row) + [""] * (len(columns) - len(row))
-            record: dict[str, str] = {}
-            for name, cell in zip(columns, padded, strict=False):
-                record[name] = cell
-            record["_row_index"] = first + offset + row_number
-            records.append(record)
-        caption = _caption_before(lines, first)
-        tables.append(
-            ExtractedTable(
-                table_id=f"{table_id_prefix}:p{page}:t{position}",
-                source_id=source_id,
-                columns=columns,
-                rows=tuple(records),
-                header_row=first + 1,
-                caption=caption,
-                format="pdf_text",
-                parse_warnings=tuple(warnings),
-                confidence=confidence_from_score(PDF_COLUMN_CONFIDENCE),
-                provenance=ProvenanceRef(
-                    source_id=source_id,
-                    locator={
-                        "path": path,
-                        "page": page,
-                        "line_start": first + 1,
-                        "line_end": last + 1,
-                        "table_index": position,
-                        "format": "pdf_text",
-                        "columns_from": "whitespace_runs",
-                        "page_caption": caption,
-                    },
-                    extractor="jw.scientific_data.documents.tables_from_text",
-                    extractor_version=SCHEMA_VERSION,
-                    value_kind=ValueKind.REPORTED,
-                    confidence=confidence_from_score(PDF_COLUMN_CONFIDENCE),
-                    confidence_score=PDF_COLUMN_CONFIDENCE,
-                    raw_excerpt="\n".join(line for line in lines[first : last + 1])[
-                        :400
-                    ],
-                ),
-            )
+    tables = [
+        build_table(
+            rows,
+            source_id=source_id,
+            table_id=f"{table_id_prefix}:p{page}:t{position}",
+            table_index=position,
+            page=page,
+            path=path,
+            lines=lines,
+            first=first,
+            last=last,
+            columns_from="whitespace_runs",
+            confidence_score=PDF_COLUMN_CONFIDENCE,
+            warning=PDF_TEXT_WARNING,
+            extractor="jw.scientific_data.documents.tables_from_text",
         )
+        for position, (first, last, rows) in enumerate(blocks)
+    ]
     return tuple(tables), tuple(rejected)
 
 
@@ -254,15 +240,42 @@ def read_pdf_tables(
     source_id: str,
     table_id_prefix: str = "pdf",
     max_tables: int = 20,
+    allow_network: bool = False,
+    cloud_config: CloudTableConfig | None = None,
+    cloud_opener: Opener | None = None,
+    figures: bool = False,
+    figure_config: CloudFigureConfig | None = None,
+    figure_opener: Opener | None = None,
 ) -> tuple[ExtractedTable, ...]:
-    """Extract tables from every page of a PDF (whitespace reconstruction)."""
+    """Extract tables from every page of a PDF (local geometry, cloud fallback)."""
     tables, _rejected, _warnings = read_pdf_report(
         path,
         source_id=source_id,
         table_id_prefix=table_id_prefix,
         max_tables=max_tables,
+        allow_network=allow_network,
+        cloud_config=cloud_config,
+        cloud_opener=cloud_opener,
+        figures=figures,
+        figure_config=figure_config,
+        figure_opener=figure_opener,
     )
     return tables
+
+
+def _wants_cloud(page: PdfPageLayout) -> bool:
+    """Whether a page is plausibly a scan rather than ordinary text.
+
+    A page without any text layer is the obvious case.  A page with a short
+    caption above an embedded image is the other: papers often ship a table as
+    a picture, and the caption is the only text on the page.  Prose pages, even
+    short ones, are never sent out.
+    """
+
+    text = page.text.strip()
+    if not text:
+        return True
+    return page.has_images and len(text) < CLOUD_TEXT_FLOOR
 
 
 def read_pdf_report(
@@ -271,28 +284,100 @@ def read_pdf_report(
     source_id: str,
     table_id_prefix: str = "pdf",
     max_tables: int = 20,
+    allow_network: bool = False,
+    cloud_config: CloudTableConfig | None = None,
+    cloud_opener: Opener | None = None,
+    figures: bool = False,
+    figure_config: CloudFigureConfig | None = None,
+    figure_opener: Opener | None = None,
 ) -> tuple[tuple[ExtractedTable, ...], tuple[dict[str, object], ...], tuple[str, ...]]:
-    """Extract tables plus the rejected blocks and document-level warnings."""
-    document = read_pdf_text(path)
+    """Extract tables plus the rejected blocks and document-level warnings.
+
+    ``allow_network`` only gates the escalation step.  Local geometry and any
+    cached cloud response work regardless of it, so an offline run still replays
+    exactly the tables a networked run produced.
+
+    ``figures`` opts into chart reading through the cloud figure adapter for
+    pages that carry an image, a real text layer and no local table.  Pages
+    without a usable text layer stay on the table-OCR path: a scan is not a
+    chart, and sending it to a chart prompt would only produce invented points.
+    """
+
+    target = str(path)
+    layout = read_pdf_layout(target)
     tables: list[ExtractedTable] = []
     rejected: list[dict[str, object]] = []
-    for page_number, page_text in enumerate(document.pages, start=1):
-        if not page_text.strip():
-            continue
-        produced, page_rejected = tables_from_text_report(
-            page_text,
+    warnings: list[str] = list(layout.warnings)
+    cloud_pages: list[int] = []
+    figure_pages: list[int] = []
+
+    if layout.pages:
+        if not any(page.text.strip() for page in layout.pages):
+            warnings.append("no_text_layer")
+        for page in layout.pages:
+            produced, page_rejected = tables_from_layout_page(
+                page,
+                source_id=source_id,
+                table_id_prefix=table_id_prefix,
+                path=target,
+            )
+            for item in page_rejected:
+                rejected.append({**item, "page": page.page_number})
+            tables.extend(produced)
+            if len(tables) >= max_tables:
+                break
+            if not produced and _wants_cloud(page):
+                cloud_pages.append(page.page_number)
+            elif figures and not produced and page.has_images and page.text.strip():
+                figure_pages.append(page.page_number)
+    else:
+        document = read_pdf_text(target)
+        warnings.extend(document.warnings)
+        for page_number, page_text in enumerate(document.pages, start=1):
+            if not page_text.strip():
+                continue
+            produced, page_rejected = tables_from_text_report(
+                page_text,
+                source_id=source_id,
+                table_id_prefix=table_id_prefix,
+                path=target,
+                page=page_number,
+            )
+            for item in page_rejected:
+                rejected.append({**item, "page": page_number})
+            tables.extend(produced)
+            if len(tables) >= max_tables:
+                break
+
+    if cloud_pages and len(tables) < max_tables:
+        cloud_tables, _cloud_rejected, cloud_warnings = extract_cloud_tables(
+            target,
             source_id=source_id,
             table_id_prefix=table_id_prefix,
-            path=str(path),
-            page=page_number,
+            pages=cloud_pages,
+            config=cloud_config,
+            allow_network=allow_network,
+            opener=cloud_opener,
+            max_tables=max_tables - len(tables),
         )
-        for item in page_rejected:
-            rejected.append({**item, "page": page_number})
-        for table in produced:
-            tables.append(table)
-            if len(tables) >= max_tables:
-                return tuple(tables), tuple(rejected), document.warnings
-    return tuple(tables), tuple(rejected), document.warnings
+        tables.extend(cloud_tables)
+        warnings.extend(cloud_warnings)
+
+    if figures and figure_pages and len(tables) < max_tables:
+        figure_tables, _figure_rejected, figure_warnings = extract_cloud_figures(
+            target,
+            source_id=source_id,
+            table_id_prefix=table_id_prefix,
+            pages=figure_pages,
+            config=figure_config,
+            allow_network=allow_network,
+            opener=figure_opener,
+            max_tables=max_tables - len(tables),
+        )
+        tables.extend(figure_tables)
+        warnings.extend(figure_warnings)
+
+    return tuple(tables), tuple(rejected), tuple(dict.fromkeys(warnings))
 
 
 def pdf_summary(path: str | Path, *, source_id: str = "") -> dict[str, object]:
@@ -307,30 +392,9 @@ def pdf_summary(path: str | Path, *, source_id: str = "") -> dict[str, object]:
         "tables": len(tables),
         "source_id": source_id,
         "warning": (
-            "Tables here are reconstructed from whitespace in the text layer; "
-            "column boundaries are a reading, not a fact."
+            "Tables here are reconstructed from text-layer layout; column "
+            "boundaries are a reading, not a fact. Image-only pages are read "
+            "through the cloud adapter only when the caller allows network "
+            "access and credentials are configured."
         ),
     }
-
-
-def _unique_columns(header: Sequence[str]) -> tuple[str, ...]:
-    seen: dict[str, int] = {}
-    columns: list[str] = []
-    for index, name in enumerate(header):
-        base = name.strip() or f"column_{index + 1}"
-        count = seen.get(base, 0) + 1
-        seen[base] = count
-        columns.append(base if count == 1 else f"{base}#{count}")
-    return tuple(columns)
-
-
-__all__ = [
-    "PDF_TEXT_WARNING",
-    "PdfText",
-    "pdf_summary",
-    "read_pdf_report",
-    "read_pdf_tables",
-    "read_pdf_text",
-    "tables_from_text",
-    "tables_from_text_report",
-]

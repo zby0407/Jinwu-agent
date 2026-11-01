@@ -40,6 +40,9 @@ dependencies = [
     "lazy-loader>=0.5",
     "markdownify>=1.2",
     "pypdf>=5.0",
+    # Geometry-aware PDF text/table extraction (AGPL-3.0; optional at import
+    # time, with pypdf as the fallback).
+    "pymupdf>=1.24,<2",
     "nest-asyncio>=1.6",
     "tzlocal>=5.0",
     "langchain-mcp-adapters>=0.2",

@@ -36,8 +36,6 @@ __all__ = [
     "acquire",
 ]
 
-_MAX_EXTENSION = 8
-
 #: Characters reserved by Windows file names; source ids may contain colons.
 _UNSAFE_FILENAME = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
 
@@ -343,14 +341,42 @@ def _filename_stem(source_id: str) -> str:
     return cleaned.rstrip(" .") or "source"
 
 
+_KNOWN_SUFFIXES = frozenset(
+    {
+        "csv",
+        "tsv",
+        "txt",
+        "dat",
+        "tab",
+        "json",
+        "jsonl",
+        "md",
+        "markdown",
+        "html",
+        "htm",
+        "pdf",
+        "xlsx",
+        "xls",
+        "zip",
+        "fits",
+        "fit",
+        "png",
+        "jpg",
+        "jpeg",
+    }
+)
+
+
 def _extension(url: str, content_type: str) -> str:
     if url.lower().startswith("file:"):
         candidate = _local_path(url)
     else:
         candidate = Path(unquote(urlsplit(url).path))
-    suffix = candidate.suffix.lstrip(".")
-    if suffix and len(suffix) <= _MAX_EXTENSION:
-        return f".{suffix.lower()}"
+    suffix = candidate.suffix.lstrip(".").lower()
+    # arXiv-style URLs end in an identifier, not a suffix: "/pdf/1205.3828"
+    # would otherwise be stored as ".3828" and never reach a reader.
+    if suffix in _KNOWN_SUFFIXES:
+        return f".{suffix}"
     hinted = {
         "text/csv": ".csv",
         "text/tab-separated-values": ".tsv",

@@ -101,6 +101,34 @@ def test_acquired_local_filenames_are_safe_on_windows(tmp_path):
     assert stored.exists()
 
 
+def test_arxiv_identifier_suffix_does_not_become_the_file_extension(tmp_path):
+    class PdfFetcher:
+        def fetch(self, url: str, *, policy: AcquisitionPolicy) -> tuple[int, bytes, str]:
+            return 200, b"%PDF-1.4 fake", "application/pdf"
+
+    catalog = SourceCatalog()
+    catalog.add(
+        url="https://arxiv.org/pdf/1205.3828",
+        title="THE INFRARED LIGHT CURVE OF SN 2011fe",
+        role=SourceRole.PRIMARY_PUBLISHED,
+        provider="openalex",
+        identifier="https://doi.org/10.1088/0004-637X/754/1/19",
+        format_hint="pdf",
+    )
+
+    report = acquire(
+        catalog,
+        policy=AcquisitionPolicy(allow_network=True),
+        workdir=tmp_path / "run",
+        contract=contract(),
+        fetcher=PdfFetcher(),
+    )
+
+    stored = Path(report.catalog.to_records()[0].local_path)
+    assert stored.suffix == ".pdf"
+    assert stored.exists()
+
+
 def test_retrieval_plan_names_the_source_roles_the_goal_needs():
     steps = plan_retrieval(contract(), plugin=PLUGIN)
 

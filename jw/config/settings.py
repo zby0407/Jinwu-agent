@@ -187,6 +187,29 @@ class JWConfig:
     semantic_scholar_api_key: str = ""
     core_api_key: str = ""
 
+    # PDF table recognition fallback for image-only pages. Local text-layer
+    # extraction always runs first; these credentials are only used when a
+    # page has no readable text and the caller allows network access.
+    pdf_cloud_provider: str = ""  # "baidu" or "generic"; empty = infer
+    baidu_ocr_api_key: str = ""
+    baidu_ocr_secret_key: str = ""
+    pdf_cloud_endpoint: str = ""
+    pdf_cloud_api_key: str = ""
+
+    # Cloud chart reading for pages whose figure is an image. Opt-in, needs an
+    # endpoint that accepts an image + prompt and answers with a table.
+    figure_cloud_provider: str = ""  # "generic"; empty = infer from endpoint
+    figure_cloud_endpoint: str = ""
+    figure_cloud_api_key: str = ""
+    figure_cloud_model: str = ""
+
+    # Multi-source data discovery (scientific-data workflow). Provider names
+    # are comma-separated; endpoints are overridable for mirrors and tests.
+    data_providers: str = ""
+    zenodo_endpoint: str = ""
+    dataverse_endpoint: str = ""
+    openalex_endpoint: str = ""
+
     # LLM Settings
     # JW is a Qwen-first research agent. Other models remain selectable for
     # diagnostics, but fresh installations start on the production family.
@@ -807,6 +830,19 @@ _ENV_MAPPINGS = {
     "custom_anthropic_base_url": "CUSTOM_ANTHROPIC_BASE_URL",
     "ollama_base_url": "OLLAMA_BASE_URL",
     "tavily_api_key": "TAVILY_API_KEY",
+    "pdf_cloud_provider": "JW_PDF_CLOUD_PROVIDER",
+    "baidu_ocr_api_key": "BAIDU_OCR_API_KEY",
+    "baidu_ocr_secret_key": "BAIDU_OCR_SECRET_KEY",
+    "pdf_cloud_endpoint": "JW_PDF_CLOUD_ENDPOINT",
+    "pdf_cloud_api_key": "JW_PDF_CLOUD_API_KEY",
+    "figure_cloud_provider": "JW_FIGURE_CLOUD_PROVIDER",
+    "figure_cloud_endpoint": "JW_FIGURE_CLOUD_ENDPOINT",
+    "figure_cloud_api_key": "JW_FIGURE_CLOUD_API_KEY",
+    "figure_cloud_model": "JW_FIGURE_CLOUD_MODEL",
+    "data_providers": "JW_DATA_PROVIDERS",
+    "zenodo_endpoint": "JW_ZENODO_ENDPOINT",
+    "dataverse_endpoint": "JW_DATAVERSE_ENDPOINT",
+    "openalex_endpoint": "JW_OPENALEX_ENDPOINT",
     "default_mode": "JW_DEFAULT_MODE",
     "default_workdir": "JW_WORKSPACE_DIR",
     "ui_backend": "JW_UI_BACKEND",

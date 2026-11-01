@@ -9,7 +9,7 @@ provably safe, collect what a human must decide, and write the package.
 from __future__ import annotations
 
 from collections.abc import Iterable, Mapping, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
 
@@ -30,6 +30,11 @@ from .contracts import (
     SourceRole,
     StageState,
     default_repair_mode,
+)
+from .data_providers import (
+    DataProviderSettings,
+    ProviderError,
+    discover_data_sources,
 )
 from .domain import DomainPlugin, get_plugin, slug
 from .entities import AliasClaim, EntityResolver
@@ -81,6 +86,11 @@ class WorkflowOptions:
     allowed_hosts: tuple[str, ...] = ()
     denied_hosts: tuple[str, ...] = ()
     fetcher: Fetcher | None = None
+    auto_discover: bool = True
+    discovery_providers: tuple[str, ...] = ()
+    discovery_limit: int = 5
+    discovery_settings: DataProviderSettings | None = None
+    extract_figures: bool = False
     figure_inputs: tuple[FigureInput, ...] = ()
     answers: Mapping[str, str] = field(default_factory=dict)
     max_rows: int | None = None
@@ -480,6 +490,28 @@ def apply_human_answers(
 # -- stages --------------------------------------------------------------
 
 
+def _fetcher_opener(fetcher: Fetcher | None, policy: AcquisitionPolicy) -> Any:
+    """Adapt the run's fetcher to the discovery opener protocol.
+
+    Tests inject a fake fetcher; routing discovery through it keeps network
+    calls out of the test suite while production falls back to urllib.
+    """
+
+    if fetcher is None:
+        return None
+
+    def opener(request: Any, timeout: float) -> bytes:
+        del timeout
+        status, body, _content_type = fetcher.fetch(request.full_url, policy=policy)
+        if status >= 400:
+            raise ProviderError(
+                f"http_{status}", f"HTTP {status} for {request.full_url}"
+            )
+        return body
+
+    return opener
+
+
 def _stage_discover_and_acquire(
     ledger: Any,
     contract: DataRequirementContract,
@@ -511,6 +543,26 @@ def _stage_discover_and_acquire(
         allowed_hosts=tuple(settings.allowed_hosts),
         denied_hosts=tuple(settings.denied_hosts),
     )
+    if settings.allow_network and settings.auto_discover:
+        discovery = discover_data_sources(
+            contract,
+            plugin=plugin,
+            providers=settings.discovery_providers or None,
+            limit=settings.discovery_limit,
+            allow_network=True,
+            catalog=catalog,
+            opener=_fetcher_opener(settings.fetcher, policy),
+            settings=settings.discovery_settings,
+            policy=policy,
+        )
+        for issue in discovery.issues:
+            ledger.add_issue(issue)
+        if discovery.provider_status:
+            summary = ", ".join(
+                f"{name}={status.get('status')}({status.get('hits', 0)})"
+                for name, status in discovery.provider_status.items()
+            )
+            ledger.notes = (*ledger.notes, f"discovery: {summary}")
     report = acquire(
         catalog,
         policy=policy,
@@ -544,6 +596,7 @@ _READER_SUFFIXES = {
 def _stage_extract(
     ledger: Any, catalog: SourceCatalog, settings: WorkflowOptions
 ) -> tuple[list[ExtractedTable], dict[str, int]]:
+    from .archives import expand_zip
     from .documents import read_pdf_report
     from .html_tables import read_html_file
     from .markdown_tables import read_markdown_file
@@ -553,19 +606,16 @@ def _stage_extract(
 
     tables: list[ExtractedTable] = []
     skipped = 0
-    for source in catalog.acquired():
-        path = source.local_path
-        if not path:
-            skipped += 1
-            continue
-        suffix = Path(path).suffix.lower()
+
+    def _consume(path: Path, source_id: str, title: str, suffix: str) -> None:
+        nonlocal skipped
         reader = _READER_SUFFIXES.get(suffix)
         if reader is None:
             skipped += 1
             _extract_issue(
                 ledger,
                 code=IssueCode.EMPTY_EXTRACT,
-                source_id=source.source_id,
+                source_id=source_id,
                 detail=(
                     f"Source format '{suffix or '(none)'}' is not supported, so no "
                     "table was extracted from this source."
@@ -574,29 +624,33 @@ def _stage_extract(
                     "suffix": suffix,
                     "supported": sorted(set(_READER_SUFFIXES)),
                 },
+                member=path.name,
             )
-            continue
+            return
         pdf_rejected: tuple[dict[str, object], ...] = ()
         pdf_warnings: tuple[str, ...] = ()
         try:
             if reader == "html":
-                produced = read_html_file(path, source_id=source.source_id)
+                produced = read_html_file(path, source_id=source_id)
             elif reader == "markdown":
-                produced = read_markdown_file(path, source_id=source.source_id)
+                produced = read_markdown_file(path, source_id=source_id)
             elif reader == "pdf":
                 produced, pdf_rejected, pdf_warnings = read_pdf_report(
-                    path, source_id=source.source_id
+                    path,
+                    source_id=source_id,
+                    allow_network=settings.allow_network,
+                    figures=settings.extract_figures,
                 )
             elif reader == "xlsx":
                 produced = read_xlsx_file(
                     path,
-                    source_id=source.source_id,
+                    source_id=source_id,
                     max_rows=settings.max_rows,
                 )
             elif reader == "delimited":
                 produced = read_table(
                     path,
-                    source_id=source.source_id,
+                    source_id=source_id,
                     max_rows=settings.max_rows,
                 )
             else:
@@ -605,21 +659,23 @@ def _stage_extract(
             skipped += 1
             ledger.add_issue(
                 QualityIssue(
-                    issue_id=f"issue:extract:unreadable_source:{source.source_id}",
+                    issue_id=(
+                        f"issue:extract:unreadable_source:{source_id}:{slug(path.name)}"
+                    ),
                     code=IssueCode.UNREADABLE_SOURCE,
                     severity=IssueSeverity.ERROR,
                     stage="extract",
-                    subject={"source_id": source.source_id},
+                    subject={"source_id": source_id, "path": str(path)},
                     detail=f"Could not read {path}: {error}",
                     evidence={"suffix": suffix},
                     proposed_action="Provide a readable copy of this source.",
                     repair_mode=default_repair_mode(IssueCode.UNREADABLE_SOURCE),
                 )
             )
-            continue
+            return
         produced = expand_wide_tables(produced)
         if not produced:
-            detail = f"No table could be extracted from '{source.title}' ({suffix})."
+            detail = f"No table could be extracted from '{title}' ({suffix})."
             if pdf_rejected:
                 detail += (
                     f" {len(pdf_rejected)} block(s) were rejected because their "
@@ -630,13 +686,14 @@ def _stage_extract(
             _extract_issue(
                 ledger,
                 code=IssueCode.EMPTY_EXTRACT,
-                source_id=source.source_id,
+                source_id=source_id,
                 detail=detail,
                 evidence={
                     "suffix": suffix,
                     "rejected_blocks": list(pdf_rejected),
                     "warnings": list(pdf_warnings),
                 },
+                member=path.name,
             )
         elif pdf_rejected:
             ranges = ", ".join(
@@ -647,7 +704,7 @@ def _stage_extract(
             _extract_issue(
                 ledger,
                 code=IssueCode.TRUNCATED_TABLE,
-                source_id=source.source_id,
+                source_id=source_id,
                 detail=(
                     "Some PDF text blocks were not turned into tables because "
                     f"their columns did not line up: {ranges}."
@@ -656,16 +713,72 @@ def _stage_extract(
                     "rejected_blocks": list(pdf_rejected),
                     "warnings": list(pdf_warnings),
                 },
+                member=path.name,
             )
         for table in produced:
+            table = _unique_table(table, ledger)
             ledger.add_table(table)
             tables.append(table)
+
+    for source in catalog.acquired():
+        path = source.local_path
+        if not path:
+            skipped += 1
+            continue
+        source_path = Path(path)
+        suffix = source_path.suffix.lower()
+        if suffix == ".zip":
+            expansion = expand_zip(
+                source_path,
+                target_dir=source_path.parent / f"{source_path.stem}_unzipped",
+            )
+            if expansion.warnings:
+                _extract_issue(
+                    ledger,
+                    code=IssueCode.EMPTY_EXTRACT,
+                    source_id=source.source_id,
+                    detail=(
+                        "Some archive members were skipped: "
+                        + "; ".join(expansion.warnings[:10])
+                        + "."
+                    ),
+                    evidence={"archive_warnings": list(expansion.warnings)},
+                )
+            if not expansion.members:
+                skipped += 1
+                _extract_issue(
+                    ledger,
+                    code=IssueCode.EMPTY_EXTRACT,
+                    source_id=source.source_id,
+                    detail=(
+                        f"The archive '{source.title}' contained no readable member."
+                    ),
+                    evidence={"archive_warnings": list(expansion.warnings)},
+                )
+                continue
+            for member in expansion.members:
+                _consume(member, source.source_id, source.title, member.suffix.lower())
+            continue
+        _consume(source_path, source.source_id, source.title, suffix)
+
     return tables, {
         "sources": len(catalog.sources),
         "tables": len(tables),
         "rows": sum(len(table.rows) for table in tables),
         "skipped_sources": skipped,
     }
+
+
+def _unique_table(table: ExtractedTable, ledger: Any) -> ExtractedTable:
+    """Give each extracted table a stable id when an archive repeats names."""
+
+    table_id = table.table_id
+    if table_id not in ledger.tables:
+        return table
+    counter = 2
+    while f"{table_id}~{counter}" in ledger.tables:
+        counter += 1
+    return replace(table, table_id=f"{table_id}~{counter}")
 
 
 def _extract_issue(
@@ -675,10 +788,14 @@ def _extract_issue(
     source_id: str,
     detail: str,
     evidence: dict[str, Any],
+    member: str = "",
 ) -> None:
+    issue_id = f"issue:extract:{slug(code)}:{source_id}"
+    if member:
+        issue_id += f":{slug(member)}"
     ledger.add_issue(
         QualityIssue(
-            issue_id=f"issue:extract:{slug(code)}:{source_id}",
+            issue_id=issue_id,
             code=code,
             severity=IssueSeverity.WARNING,
             stage="extract",
