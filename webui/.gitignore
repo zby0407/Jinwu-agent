@@ -53,3 +53,6 @@ CLAUDE.md
 AGENTS.md
 /.claude/
 /.codex-qa/
+
+# dsh-genui lazy engine bundles (copied from node_modules by scripts/sync-genui-assets.mjs)
+/public/genui-assets

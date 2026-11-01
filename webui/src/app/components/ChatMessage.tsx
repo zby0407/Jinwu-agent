@@ -73,6 +73,8 @@ interface ChatMessageProps {
   autoApprove?: boolean;
   /** Live intermediate steps per task tool-call id (sub-agent activity). */
   subAgentSteps?: Record<string, SubAgentStep[]>;
+  /** Owning thread id — scopes durable GenUI interaction state. */
+  threadId?: string | null;
 }
 
 const FINISH_REASON_SUCCESS = new Set([
@@ -122,6 +124,7 @@ export const ChatMessage = React.memo<ChatMessageProps>(
     messageVersions,
     autoApprove,
     subAgentSteps,
+    threadId,
   }) => {
     const isUser = message.type === "human";
     const messageContent = extractStringFromMessageContent(message);
@@ -516,6 +519,8 @@ export const ChatMessage = React.memo<ChatMessageProps>(
                   <MarkdownContent
                     content={messageContent}
                     isStreaming={isStreaming}
+                    genuiSessionId={threadId ?? undefined}
+                    genuiFenceKey={message.id}
                   />
                 ) : null}
               </div>

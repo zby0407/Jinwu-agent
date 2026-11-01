@@ -35,6 +35,7 @@ import {
   ActionGroup,
   type GroupedActionItem,
 } from "@/app/components/ActionGroup";
+import { GenuiProvider } from "@/app/components/GenuiProvider";
 import { CompactionSummary } from "@/app/components/CompactionSummary";
 import { ResearchDashboard } from "@/app/components/ResearchDashboard";
 import { ResearchReviewPanel } from "@/app/components/ResearchReviewPanel";
@@ -1604,8 +1605,42 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
       return new Map<string, ReviewConfig>(entries);
     }, [interrupt]);
 
+    // GenUI actions arrive as follow-up chat messages. While a run is in
+    // flight the message joins the queue instead of interrupting the turn —
+    // same policy as a user-typed message during a busy run.
+    const handleGenuiAction = useCallback(
+      (message: string) => {
+        if (isLoading) {
+          setQueuedMessages((prev) => [
+            ...prev,
+            {
+              id: (queueIdRef.current += 1),
+              text: message,
+              files: [],
+              threadId,
+            },
+          ]);
+          return;
+        }
+        if (!assistant || !canSend || hasPendingInterrupt) {
+          toast.error("当前无法发送 GenUI 操作，请稍后重试。");
+          return;
+        }
+        sendMessage(message);
+      },
+      [
+        isLoading,
+        assistant,
+        canSend,
+        hasPendingInterrupt,
+        sendMessage,
+        threadId,
+      ]
+    );
+
     return (
-      <div className="flex flex-1 flex-col overflow-hidden" data-jw-queued-count={queuedMessages.length}>
+      <GenuiProvider onAction={(message) => handleGenuiAction(message)}>
+        <div className="flex flex-1 flex-col overflow-hidden" data-jw-queued-count={queuedMessages.length}>
         <Dialog
           open={autoApproveDialogOpen}
           onOpenChange={setAutoApproveDialogOpen}
@@ -1919,6 +1954,7 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
                           autoApprove={autoApprove}
                           subAgentSteps={subAgentSteps}
                           ui={ui}
+                          threadId={threadId}
                           compactionAnchorId={compactionAnchorId}
                           summarizationEvent={summarizationEvent ?? null}
                         />
@@ -1946,6 +1982,7 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
                         toolCalls={data.toolCalls}
                         isLoading={isLoading}
                         isStreaming={isLoading && isLastMessage && isAssistant}
+                        threadId={threadId}
                         actionRequests={
                           isLastMessage ? actionRequests : undefined
                         }
@@ -2659,6 +2696,7 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
           </div>
         </div>
       </div>
+      </GenuiProvider>
     );
   }
 );

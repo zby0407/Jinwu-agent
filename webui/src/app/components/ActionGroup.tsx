@@ -40,6 +40,8 @@ interface ActionGroupProps {
   autoApprove: boolean;
   subAgentSteps: Record<string, SubAgentStep[]>;
   ui: any[] | undefined;
+  /** Owning thread id — scopes durable GenUI interaction state. */
+  threadId?: string | null;
   // CompactionSummary anchoring: rendered before the matching item inside the group.
   compactionAnchorId: string | null;
   summarizationEvent: { content: string; cutoffIndex: number } | null;
@@ -71,6 +73,7 @@ export const ActionGroup = React.memo<ActionGroupProps>(function ActionGroup({
   autoApprove,
   subAgentSteps,
   ui,
+  threadId,
   compactionAnchorId,
   summarizationEvent,
 }) {
@@ -189,6 +192,7 @@ export const ActionGroup = React.memo<ActionGroupProps>(function ActionGroup({
               graphId={graphId}
               autoApprove={autoApprove}
               subAgentSteps={subAgentSteps}
+              threadId={threadId}
             />
           </div>
         );
@@ -226,6 +230,7 @@ export const ActionGroup = React.memo<ActionGroupProps>(function ActionGroup({
                   graphId={graphId}
                   autoApprove={autoApprove}
                   subAgentSteps={subAgentSteps}
+                  threadId={threadId}
                 />
               </React.Fragment>
             );
