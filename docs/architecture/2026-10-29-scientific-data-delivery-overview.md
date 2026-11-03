@@ -37,6 +37,19 @@
 **实际处于哪个状态**：`ok` / `unavailable` / `policy_blocked` / `no_results` /
 `skipped_all`。检索不可用时不会用编造的文献填空——这是硬约束，不是礼貌。
 
+文献检索只回答“哪篇论文提到这个目标”，不回答“哪个文件能直接下载”。多源数据
+发现（`data_providers.py`）补上后半段：一次有界查询并发访问 Zenodo、Dataverse、
+OpenAlex，把命中规范化为文件级候选（下载直链、格式、大小、许可、DOI、角色），
+再交给同一个 `SourceCatalog` 与获取策略。单个仓库超时或限流只记 `unavailable`
+与 `provider_status`，不拖垮其它仓库，也不产生编造的候选。大于预算的文件（默认
+50 MB）直接跳过并给出 `too_large` 原因；`.zip` 下载后由 `archives.py` 在成员数、
+单成员大小、总量三重上限内展开，路径穿越、绝对路径、`__MACOSX` 元数据一律拒绝
+或忽略，展开出的表格沿用同一套解析与溯源。`sci_data_run` 在
+`allow_network=True` 且 `auto_discover=True` 时自动执行这一发现步骤，结果写入
+ledger 的 `notes`（每个仓库的状态与命中数）。仓库开关与端点在
+`JW_DATA_PROVIDERS`（逗号分隔，默认 `zenodo,dataverse,openalex`）与
+`JW_ZENODO_ENDPOINT` / `JW_DATAVERSE_ENDPOINT` / `JW_OPENALEX_ENDPOINT`。
+
 抓取由 `AcquisitionPolicy` 把关：默认**禁止联网**，只在用户给出 `allowed_hosts`
 白名单并显式开启时才下载；被拒绝的来源记 `SOURCE_HOST_DENIED` 并说明理由。
 落盘文件名带内容哈希前缀，同内容重复抓取只存一份。
@@ -47,7 +60,7 @@
 | --- | --- | --- |
 | discover | `discovery.py`/`sources.py` | 检索候选、登记本地来源、去重、排优先级 |
 | acquire | `acquisition.py` | 策略内抓取、哈希校验、断点续取 |
-| extract | `tabular.py`/`html_tables.py`/`markdown_tables.py`/`documents.py`(PDF) | CSV/TSV/JSON/JSONL/HTML/Markdown/PDF 表格解析 |
+| extract | `tabular.py`/`html_tables.py`/`markdown_tables.py`/`documents.py`(PDF)/`archives.py`(ZIP) | CSV/TSV/JSON/JSONL/HTML/Markdown/PDF 表格解析；ZIP 在安全上限内展开后按成员格式解析 |
 | semantics | `semantics.py` | 列 → 观测量映射（含歧义检测与备选） |
 | identity | `entities.py` | 实体识别与合并（别名、坐标） |
 | alignment | `alignment.py` | 长表化、单位与时间规范化、去重与冲突保留 |
@@ -74,6 +87,50 @@
   生成带 `options`/`recommended`/`evidence` 的问题；回答写入 `RepairLedgerEntry`
   （actor=user）并触发重校验。评审结论是证据——被否决的候选值不会被静默删除，
   而是加 `superseded_by:<authority>` 标记保留。
+
+### PDF 表格：先看版面，再谈兜底
+
+PDF 是唯一没有"单元格"概念的格式，因此读取分两级，且每级都留痕：
+
+1. **文本层（默认，本地）**：PyMuPDF 读取每个词的坐标，按纵向中心聚类成行；
+   有框线的表交给 `find_tables()` 按结构还原，无框线的表按词间距聚类切列
+   （`columns_from="find_tables"` / `"word_geometry"`）。词坐标保留"SN 2011fe"
+   这类含空格单元格，不再被空白切分拆成两列。
+2. **云端兜底（显式开启）**：仅当页面没有可用文本、或页面含图且文本过短
+   （`CLOUD_TEXT_FLOOR=200`）时，才把该页渲染成 PNG 调表格识别 API；需要
+   `allow_network=True` 且配置了凭据，否则返回结构化警告而不是静默跳过。
+   结果按文件哈希+页码+供应商缓存，断网可用缓存回放。云端表置信度 0.45、
+   `format="pdf_cloud_ocr"`，并标记 `cloud_table_ocr`，供人工复核。
+
+凭据走环境变量（优先）或 `config.yaml`：`BAIDU_OCR_API_KEY` /
+`BAIDU_OCR_SECRET_KEY`（百度表格文字识别），或通用端点
+`JW_PDF_CLOUD_ENDPOINT` + `JW_PDF_CLOUD_API_KEY`。`JW_PDF_CLOUD_PROVIDER`
+可显式指定 `baidu`/`generic`，不填时按已有凭据推断。缓存目录
+`JW_PDF_CLOUD_CACHE_DIR`（默认 `~/.cache/jw/pdf_cloud`）。
+
+前端也有入口：**配置 → 数据源 → 解析接口**（`/api/scientific-data/interfaces`）。
+PDF 表格、图表、数据仓库三组设置都可以在那里填写；保存写入本机
+`~/.config/jw/config.yaml`（0600），界面只显示掩码，环境变量始终优先。
+
+### 图表：本地只做有标定的数字化，读图交给云端
+
+图表有两条路径，按证据强度分开：
+
+1. **本地数字化（默认，可离线校验）**：调用方给出轴刻度与像素点（`figures_json`
+   的 `x_ticks`/`y_ticks`/`series`），系统拟合坐标变换、换算单位、生成叠加图
+   并核对残差。数值标记为 `digitized`，永远不冒充原始测量。
+2. **云端读图（显式开启）**：页面含图、有真实文本层（图表标题/轴标签/图注）、
+   且本地没有产出表时，才可把整页渲染成 PNG，按固定提示词要求模型返回
+   `series | x | y` 的 markdown 表（`cloud_figures.py`）。结果置信度 0.4、
+   `format="pdf_cloud_figure"`、标记 `cloud_figure_extraction`，按文件哈希+
+   页码+模型+DPI 缓存，断网可回放。没有文本层的页面仍走表格 OCR：扫描件不是
+   图表，拿读图提示词去问只会得到编造的点。
+
+开关是 `sci_data_run(extract_figures=true)` 或 `WorkflowOptions.extract_figures`；
+端点 `JW_FIGURE_CLOUD_ENDPOINT`（接受 `{image_base64, prompt, mode}` 并返回
+`text`/`markdown`/`tables` 的 JSON 网关），凭据 `JW_FIGURE_CLOUD_API_KEY`，
+模型名 `JW_FIGURE_CLOUD_MODEL`，缓存目录 `JW_FIGURE_CLOUD_CACHE_DIR`
+（默认 `~/.cache/jw/pdf_figures`）。每一页都是一次计费调用，所以默认关闭。
 
 ## 4. 结构化输出：一个目录即可交付
 
@@ -112,7 +169,7 @@
 | 从正文、表格、附件、图表提取 | `tabular.py`、`html_tables.py`、`markdown_tables.py`、`documents.py`、`figures.py` | `test_tabular.py`、`test_html_markdown.py`、`test_documents.py`、`test_figures.py` |
 | 输出合并的多源 CSV | `package.py` | `test_package.py`、基准 `package_self_explaining` |
 | 数据清洗、字段对齐、来源标注 | `semantics.py`、`alignment.py`、`package.py` | `test_semantics.py`、`test_alignment.py` |
-| 图表数据识别/提取/校验方式说明 | `figures.py` + 报告第 6 节 | `test_figures.py`、基准 `axis_calibration_drives_values` |
+| 图表数据识别/提取/校验方式说明 | `figures.py`（标定数字化）/ `cloud_figures.py`（云端读图）+ 报告第 6 节 | `test_figures.py`、`test_cloud_figures.py`、基准 `axis_calibration_drives_values` |
 | **加分**：识别缺失、重复、单位不一致 | `quality.py` | `test_quality.py`、基准 6 类注入 |
 | **加分**：识别坐标轴/图例解析错误 | `figures.py` | 基准 `misdeclared_axis_scale_reported` |
 | **加分**：修正或寻求人类建议后修正 | `repair.py`、`human_loop.py` | `test_repair.py`、`test_human_loop.py`、基准 `answering_conflict_changes_package` |
@@ -121,9 +178,13 @@
 ## 7. 明确的边界
 
 1. **不联网也能跑**，联网需显式白名单；发现能力的召回率未在真实目录上测过。
-2. **PDF 表格是按空白重建的推断**，低置信、带 `pdf_text_reconstruction` 标记；
-   多行单元格、跨列表头、双栏页面会让它失效。
-3. **图表数字化需要像素标定旁文件**：Agent 不能"看见"像素，读数由上游读图
-   步骤或用户提供，本模块负责拟合、换算、校验与标记。
+2. **PDF 文本层由 PyMuPDF 按版面读取**：有框线用结构识别，无框线按词间距聚类；
+   重建表仍带 `pdf_text_reconstruction` 标记。多行单元格、跨列表头、双栏页面会
+   失效。扫描件本地不 OCR，只有在允许联网且配置凭据时才走云端表格识别。
+3. **图表数字化默认需要像素标定旁文件**：读数由上游读图步骤或用户提供，本模块
+   负责拟合、换算、校验与标记。云端读图（`extract_figures`）省掉标定旁文件，
+   但返回的是模型对整页的转写，置信度 0.4：不会区分拟合线/数据点、对对数轴和
+   双轴图的读数可能错、颜色与图例的对应关系也可能错；它适合"先拿到候选数值再
+   人工核对"，不适合直接当原始测量使用。
 4. 基准只用一份 PDF 之外的九类来源、单图两标记点、六类注入异常；更宽的真实
    语料仍是下一步工作。

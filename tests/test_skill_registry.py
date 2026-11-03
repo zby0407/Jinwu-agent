@@ -41,6 +41,7 @@ def test_skill_registry_assigns_shared_and_role_specific_skills():
     assert "/skills/solar-evidence-figure-production" in data_skills
     assert "/skills/solar-evidence-figure-production" in evidence_skills
     assert skills_for_agent("debug-agent") == [
+        "/skills/genui",
         "/skills/verification-before-completion",
         "/skills/scientific-writing",
         "/skills/scientific-visualization",
@@ -49,7 +50,8 @@ def test_skill_registry_assigns_shared_and_role_specific_skills():
 
 def test_main_agent_gets_only_orchestration_skills():
     skills = skills_for_agent("JW")
-    assert skills[:3] == [
+    assert skills[:4] == [
+        "/skills/genui",
         "/skills/verification-before-completion",
         "/skills/scientific-writing",
         "/skills/scientific-visualization",
@@ -161,6 +163,7 @@ def test_disabling_a_shared_skill_hides_it_from_every_solar_agent():
         assert "/skills/verification-before-completion" not in skills_for_agent(agent)
     # Other shared entries keep their place and order.
     assert skills_for_agent("debug-agent") == [
+        "/skills/genui",
         "/skills/scientific-writing",
         "/skills/scientific-visualization",
     ]
@@ -217,6 +220,7 @@ def test_real_enabling_restores_the_source():
 
 def test_skills_for_agent_accepts_an_injected_disabled_set():
     assert skills_for_agent("debug-agent", disabled={"scientific-writing"}) == [
+        "/skills/genui",
         "/skills/verification-before-completion",
         "/skills/scientific-visualization",
     ]

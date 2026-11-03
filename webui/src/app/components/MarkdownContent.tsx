@@ -10,6 +10,7 @@ import rehypeSanitize, { defaultSchema } from "rehype-sanitize";
 import { cn } from "@/lib/utils";
 import { CodeBlock } from "./CodeBlock";
 import { MermaidDiagram } from "./MermaidDiagram";
+import { GenuiFence, isDshUiLanguageTag } from "./GenuiFence";
 import {
   detectFileLink,
   dispatchFileLink,
@@ -24,6 +25,10 @@ interface MarkdownContentProps {
   isStreaming?: boolean;
   /** Let wide tables participate in an ancestor's horizontal scrolling. */
   allowHorizontalOverflow?: boolean;
+  /** Owning session for durable GenUI interaction state (threadId). */
+  genuiSessionId?: string;
+  /** Stable fence slot identity for GenUI state keys (message id + index). */
+  genuiFenceKey?: string | number;
 }
 
 const sanitizeSchema = {
@@ -43,6 +48,8 @@ export const MarkdownContent = React.memo<MarkdownContentProps>(
     className = "",
     isStreaming = false,
     allowHorizontalOverflow = false,
+    genuiSessionId,
+    genuiFenceKey,
   }) => {
     return (
       <div
@@ -69,7 +76,7 @@ export const MarkdownContent = React.memo<MarkdownContentProps>(
               className?: string;
               children?: React.ReactNode;
             }) {
-              const match = /language-(\w+)/.exec(className || "");
+              const match = /language-([\w-]+)/.exec(className || "");
               const raw = String(children);
               // Fenced blocks always end with \n; inline code does not. Use
               // this to distinguish unlanguaged fenced blocks from inline code
@@ -79,6 +86,16 @@ export const MarkdownContent = React.memo<MarkdownContentProps>(
               // react-markdown v9 dropped the `inline` prop. Block code carries
               // a `language-*` className from the fenced ```lang form; inline
               // code does not. Treat absence of a language match as inline.
+              if (isBlock && match && isDshUiLanguageTag(match[1])) {
+                return (
+                  <GenuiFence
+                    raw={code}
+                    isStreaming={isStreaming}
+                    sessionId={genuiSessionId}
+                    fenceKey={genuiFenceKey}
+                  />
+                );
+              }
               if (match?.[1] === "mermaid") {
                 return (
                   <MermaidDiagram

@@ -1,115 +1,158 @@
-# 金乌（JW）
+<div align="center">
+  <img alt="Jinwu JW" src="webui/public/jw-logo.jpg" width="104" align="middle">
+  &nbsp;&nbsp;
+  <img alt="Jinwu" src=".github/assets/logo.png" width="208" align="middle">
 
-金乌是一个面向端到端科研工作的自主智能体。它把研究规划、资料检索、代码执行、数据分析、假设管理、实验编排、长期记忆和报告写作放在同一套工作流中，并提供 CLI、TUI 与浏览器 WebUI。
+  <h3>From a research question to verifiable research results</h3>
 
-## 项目结构
+  <p>
+    Jinwu (JW) is an end-to-end autonomous research agent.<br>
+    It strings research planning, literature search, code execution, data analysis, experiment verification and report writing into one complete workflow.
+  </p>
 
-```text
-.
-├── jw/                 # Python 主程序与智能体运行时
-├── webui/              # Next.js WebUI（与后端共用本仓库）
-├── tests/              # 后端测试
-├── src/                # 独立科研工作流源码
-├── research/           # 科研合同、规范、示例与开发资源
-└── workspace/          # 数据、项目任务、运行产物与知识库导出
-```
+  <p>
+    <a href="https://github.com/zby0407/Jinwu-agent/actions/workflows/test.yml"><img alt="Tests" src="https://github.com/zby0407/Jinwu-agent/actions/workflows/test.yml/badge.svg"></a>
+    <a href="https://github.com/zby0407/Jinwu-agent/blob/main/LICENSE"><img alt="License: Apache 2.0" src="https://img.shields.io/badge/license-Apache--2.0-blue"></a>
+    <img alt="Python 3.11+" src="https://img.shields.io/badge/python-3.11%2B-blue">
+  </p>
 
-`research/` 是版本化的只读资源层；所有可变状态统一写入
-`workspace/`（可通过 `JW_WORKSPACE_DIR` 迁移到其他位置）。
+  <p>
+    <a href="README.zh-CN.md">中文</a> ·
+    <a href="#quick-start">Quick start</a> ·
+    <a href="#core-capabilities">Core capabilities</a> ·
+    <a href="docs/examples/survey-literature/README.md">Examples</a> ·
+    <a href="docs/README.md">Documentation</a> ·
+    <a href="CONTRIBUTING.md">Contributing</a>
+  </p>
+</div>
 
-项目根目录是唯一 Git 仓库，`webui/` 不包含独立的 Git 元数据。
+---
 
-## 一键安装
+## Not just answering questions, but advancing research
 
-macOS 或 Linux：
+Give Jinwu a research goal, and it decomposes the task, calls tools, runs analysis and saves the results; it keeps evidence at key steps and continuously manages hypotheses, experiments and context throughout the research.
+
+- **Literature research**: discover, screen and read papers in a structured way, and produce a survey with citations.
+- **Data analysis**: write and run code to process data, generate figures and verify results.
+- **Experimental research**: manage hypotheses and experiments, record the process, review the evidence and iterate on the approach.
+- **Writing**: distill the research process into reports, surveys and reproducible artifacts.
+
+## Core capabilities
+
+| Capability | Description |
+| --- | --- |
+| **End-to-end research orchestration** | Organizes the complete task around the research goal, from planning, retrieval and execution to verification, writing and delivery. |
+| **Specialist sub-agents** | Coordinates specialist roles such as literature, code, data analysis, scientific hypothesis, experiment and evidence review to work together. |
+| **Traceable research process** | Manages evidence and counter-evidence, keeps tool calls, task state and research results, and reduces "conclusions with no basis". |
+| **Persistent memory and knowledge base** | Keeps research context across sessions and accumulates searchable, source-attributed project knowledge. |
+| **Extensible skills and tools** | Install domain skills and connect MCP and third-party tools, so the agent adapts to your research workflow. |
+| **Flexible model choice** | Supports Claude, GPT, Gemini, Qwen, DeepSeek, Kimi, GLM, Ollama, OpenRouter and custom compatible endpoints. |
+
+## See how it works
+
+The Jinwu desktop app integrates scientific research, domain skills and long-term memory into a single window. Without managing a Python or Node.js environment separately, you can start a research task directly.
+
+<div align="center">
+  <img alt="Jinwu desktop main interface" src=".github/assets/desktop-home.png" width="960">
+  <p><sub>Jinwu desktop: start from a research question and let the agent plan and execute the research task</sub></p>
+</div>
+
+**[See the full example and generated results →](docs/examples/survey-literature/README.md)**
+
+## Quick start
+
+### Download the desktop app
+
+No need to install Python, Node.js or other runtimes separately; choose your platform and download directly:
+
+| Platform | Installer |
+| --- | --- |
+| **macOS (Apple Silicon)** | **[Download `.dmg`](https://github.com/zby0407/Jinwu-agent/releases/download/v0.3.5-desktop.1/Jinwu-0.3.5-mac-arm64.dmg)** |
+| **Windows (x64)** | **[Download `.exe`](https://github.com/zby0407/Jinwu-agent/releases/download/v0.3.5-desktop.1/Jinwu-0.3.5-win-x64.exe)** |
+
+[See release notes and SHA256 checksums →](https://github.com/zby0407/Jinwu-agent/releases/tag/v0.3.5-desktop.1)
+
+> The current installers are not signed. On macOS, right-click the app and choose "Open" on first launch; if Windows shows a SmartScreen prompt, choose "Run anyway".
+
+### One-line install (CLI / TUI)
+
+macOS or Linux:
 
 ```bash
 curl -LsSf https://raw.githubusercontent.com/zby0407/Jinwu-agent/main/install.sh | sh
 ```
 
-Windows PowerShell：
+Windows PowerShell:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -Command "irm https://raw.githubusercontent.com/zby0407/Jinwu-agent/main/install.ps1 | iex"
 ```
 
-安装脚本会在需要时自动安装 `uv` 和兼容的 Python，并从公开 GitHub
-源码安装最新版 `jw`。如果机器已有 Node.js 20+ 和 npm，脚本也会自动构建 WebUI。
-重复执行同一命令即可刷新安装。完成后打开一个新终端并运行：
+### Run from source
+
+Requirements: Python 3.11+, [uv](https://docs.astral.sh/uv/); Node.js 20+ is required to build the WebUI.
 
 ```bash
-jw onboard
-jw
-```
-
-没有 Node.js 时仍可正常使用 CLI/TUI；安装 Node.js 20+ 后重新执行安装命令即可补齐 WebUI。
-
-## 环境要求
-
-- Python 3.11–3.13
-- [uv](https://docs.astral.sh/uv/)
-- Node.js 20+（仅 WebUI 开发或构建需要）
-
-## 从源码快速开始
-
-```bash
+git clone https://github.com/zby0407/Jinwu-agent.git
+cd Jinwu-agent
 uv sync
 uv run jw onboard
 uv run jw
 ```
 
-启动浏览器界面：
+### Choose how you work
 
 ```bash
-uv run jw --ui webui
+jw                         # default TUI
+jw --ui cli                # interactive CLI
+jw --ui webui              # browser WebUI
+jw -p "survey this area and output a survey with citations"  # one-shot task
+jw --resume                # resume a session
 ```
 
-配置默认保存在 `~/.config/jw/config.yaml`，运行数据保存在 `~/.jw/`。也可以复制 `.env.example` 并通过环境变量提供模型密钥。
+The default config is stored in `~/.config/jw/config.yaml`, and runtime data is stored in `~/.jw/`. You can also refer to [`.env.example`](.env.example) to provide model keys through environment variables.
 
-## 开发
+## Three research modes
 
-后端检查：
+| Mode | When to use |
+| --- | --- |
+| `fast_answer` | Answer factual questions quickly; handle lightweight tasks. |
+| `verified_analysis` | Tasks that require tool execution, data analysis and result verification. |
+| `full_research` | Complete research tasks that require planning, retrieval, experiments, evidence review and writing. |
+
+## Docker
 
 ```bash
+cp .env.example .env
+# Configure at least one model provider's API key in .env
+docker compose build
+docker compose run --rm jw
+```
+
+## Documentation and examples
+
+- **[Documentation hub](docs/README.md)**: examples, deployment options and usage guides
+- **[Full literature review example](docs/examples/survey-literature/README.md)**: a Chinese-English survey from a topic to 68 papers in 10 sections
+- **[Project layout and data locations](docs/PROJECT_LAYOUT.md)**: source code, workspace and runtime artifacts
+- **[WebUI guide](webui/README.md)**: features of the browser interface and how to develop it
+- **[H1/H2 one-shot reproduction guide](docs/guides/solar-h1-h2-reproduction.md)**: a reproduction process with fixed models, inputs and prompts
+
+## Contributing
+
+Issues, pull requests, and new research skills or usage examples are welcome. Please read the [contributing guide](CONTRIBUTING.md) before you start.
+
+```bash
+# Backend checks
 uv run ruff check --select F .
 uv run ruff format --check jw tests
 uv run pytest
-```
 
-WebUI：
-
-```bash
+# WebUI development
 cd webui
 npm install
 npm run dev
 ```
 
-生产构建：
-
-```bash
-cd webui
-npm run build
-```
-
-## Docker
-
-```bash
-docker compose build
-docker compose run --rm jw
-```
-
-## 文档
-
-- [H1/H2 一次性复现指南](./docs/guides/solar-h1-h2-reproduction.md)
-- [已登记太阳数据及许可证](./projects/default/shared/DATA_LICENSES.md)
-- [第三方依赖许可证清单](./THIRD_PARTY_LICENSES.md)
-- [贡献指南](./CONTRIBUTING.md)
-- [项目文档](./docs/)
-- [项目目录与数据位置](./docs/PROJECT_LAYOUT.md)
-- [WebUI 说明](./webui/README.md)
-- [中文说明](./README.zh-CN.md)
-
 ## License
 
-JW 原创代码采用 Apache License 2.0，详见 [LICENSE](./LICENSE)。项目包含或改编了
-其他开源项目的部分代码；相应版权归属和许可证全文见 [NOTICE](./NOTICE)。
+Jinwu's original code is licensed under the [Apache License 2.0](LICENSE). The project includes or adapts part of the code from other open-source projects; see [NOTICE](NOTICE) and the [third-party dependency license list](THIRD_PARTY_LICENSES.md) for copyright attribution and licenses.

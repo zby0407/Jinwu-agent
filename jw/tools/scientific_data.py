@@ -20,6 +20,11 @@ from langgraph.types import Command
 
 from jw.scientific_data.acquisition import acquire
 from jw.scientific_data.contracts import IssueCode, default_repair_mode
+from jw.scientific_data.data_providers import (
+    discover_data_sources,
+    list_providers,
+    resolve_provider_settings,
+)
 from jw.scientific_data.discovery import discover_sources
 from jw.scientific_data.domain import get_plugin, list_plugins
 from jw.scientific_data.figures import (
@@ -178,9 +183,13 @@ def sci_data_capabilities(config: RunnableConfig = None) -> str:
             ),
             discovery=[
                 "sci_data_discover: literature search returns candidate URLs",
+                "sci_data_discover: with network access, public data archives "
+                "(Zenodo, Dataverse, OpenAlex) return file-level candidates",
                 "sci_data_acquire_only: download candidates under policy",
-                "sci_data_run: acquire, parse, align, repair and package in one run",
+                "sci_data_run: acquire, parse, align, repair and package in one run; "
+                "auto_discover searches the archives when network is enabled",
             ],
+            data_providers=list(list_providers()),
             column_overrides=(
                 "sci_data_run(column_overrides_json=[{source, column, observable, unit?}]) "
                 "maps a named column explicitly after the user explains it"
@@ -201,7 +210,8 @@ def sci_data_capabilities(config: RunnableConfig = None) -> str:
                 "html (rowspan/colspan grid)",
                 "markdown pipe tables",
                 "pdf (text-layer table reconstruction, low confidence, flagged)",
-                "figures (axis-calibrated point digitisation with overlay check)",
+                "figures (axis-calibrated point digitisation with overlay check; "
+                "chart images can instead be read by the configured cloud chart API)",
             ],
             network_default="disabled; enable only with an explicit host allowlist",
         )
@@ -277,6 +287,10 @@ def sci_data_run(
     entity_overrides_json: str = "",
     allow_network: bool = False,
     allowed_hosts: list[str] | None = None,
+    auto_discover: bool = True,
+    discovery_providers: list[str] | None = None,
+    discovery_limit: int = 5,
+    extract_figures: bool = False,
     run_id: str = "",
     config: RunnableConfig = None,
 ) -> str:
@@ -288,6 +302,13 @@ def sci_data_run(
     (``x_ticks``/``y_ticks``) and the plotted series points in pixels, which is
     how a figure becomes numbers.  Network access stays off unless
     ``allow_network`` is true and ``allowed_hosts`` names the permitted hosts.
+    With network access on, ``auto_discover`` also searches public data
+    archives (Zenodo, Dataverse, OpenAlex) for candidate tables and downloads
+    them through the same policy; restrict the archive set with
+    ``discovery_providers``.  ``extract_figures`` reads chart images inside PDFs
+    through the configured cloud chart API (``JW_FIGURE_CLOUD_ENDPOINT``); it is
+    opt-in because every page is a billed call, and a page whose text layer is
+    missing stays on the table-OCR path instead.
 
     ``column_overrides_json`` is a JSON list of explicit column decisions, each
     ``{"source": "table.csv", "column": "SNID", "observable": "object",
@@ -312,6 +333,10 @@ def sci_data_run(
         entity_overrides_json: JSON list of explicit source-level entities.
         allow_network: Whether remote sources may be fetched.
         allowed_hosts: Hostnames permitted when network access is enabled.
+        auto_discover: Search public data archives when network is enabled.
+        discovery_providers: Archive names to search (default: all enabled).
+        discovery_limit: Maximum candidate hits per archive.
+        extract_figures: Read chart images through the cloud chart API.
         run_id: Optional run id; a new one is generated when empty.
         config: Runtime-injected task workspace configuration.
 
@@ -341,6 +366,12 @@ def sci_data_run(
         options = WorkflowOptions(
             allow_network=bool(allow_network),
             allowed_hosts=tuple(str(host) for host in (allowed_hosts or ())),
+            auto_discover=bool(auto_discover),
+            discovery_providers=tuple(
+                str(name) for name in (discovery_providers or ())
+            ),
+            discovery_limit=int(discovery_limit),
+            extract_figures=bool(extract_figures),
             figure_inputs=figures,
             extra_sources=extra,
             column_overrides=overrides,
@@ -384,6 +415,35 @@ def _run_summary(result: Any) -> dict[str, Any]:
             "Automatically repaired issues are listed in repair_log.csv with before/after hashes.",
         ],
     }
+
+
+def _discover_archives(
+    contract: Any,
+    catalog: SourceCatalog,
+    *,
+    limit: int,
+    providers: list[str] | None,
+) -> dict[str, Any]:
+    """Search the public data archives and report only the new candidates."""
+
+    before = set(catalog.sources)
+    report = discover_data_sources(
+        contract,
+        plugin=get_plugin(contract.domain_plugin),
+        providers=tuple(str(name) for name in (providers or ())) or None,
+        limit=int(limit),
+        allow_network=True,
+        catalog=catalog,
+        settings=resolve_provider_settings(None),
+        policy=AcquisitionPolicy.from_contract(contract, allow_network=True),
+    )
+    payload = report.to_dict()
+    payload["found"] = [
+        record.to_dict()
+        for source_id, record in catalog.sources.items()
+        if source_id not in before
+    ]
+    return payload
 
 
 @tool(parse_docstring=True)
@@ -694,20 +754,23 @@ def sci_data_discover(
     limit: int = 5,
     allow_network: bool = False,
     extra_urls_json: str = "",
+    providers: list[str] | None = None,
     config: RunnableConfig = None,
 ) -> str:
     """Find candidate sources for a research request before downloading anything.
 
-    Discovery never invents a reference: it asks the literature search for hits
-    and reports whether the search ran, failed, was refused by policy, or came
-    back empty. Nothing is fetched here — pass the returned URLs to
-    sci_data_acquire_only or sci_data_run once the user has seen them.
+    Discovery never invents a reference: it asks the literature search and, when
+    network access is allowed, the public data archives (Zenodo, Dataverse,
+    OpenAlex) for hits. It reports whether each search ran, failed, was refused
+    by policy, or came back empty. Nothing is fetched here — pass the returned
+    URLs to sci_data_acquire_only or sci_data_run once the user has seen them.
 
     Args:
         request_json: JSON research request (see sci_data_contract).
-        limit: Maximum number of literature hits to consider.
-        allow_network: Whether the literature search may reach the network.
+        limit: Maximum number of hits to consider per search.
+        allow_network: Whether discovery may reach the network.
         extra_urls_json: JSON list of URLs the user supplied directly.
+        providers: Archive names to search (default: all enabled).
         config: Runtime-injected task workspace configuration.
 
     Returns:
@@ -724,9 +787,18 @@ def sci_data_discover(
             allow_network=bool(allow_network),
             extra_urls=[str(item) for item in extra],
         )
+        data_discovery = None
+        if allow_network:
+            data_discovery = _discover_archives(
+                contract,
+                report.catalog,
+                limit=limit,
+                providers=providers,
+            )
         return _result(
             status="ok",
             discovery=report.to_dict(),
+            data_discovery=data_discovery,
             urls=[record.url for record in report.found],
             suggested_next_step=(
                 "Show these candidates to the user, then call sci_data_run with "

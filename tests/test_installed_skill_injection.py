@@ -56,9 +56,10 @@ def _install(root, name, *, body=""):
     return skill_dir
 
 
-# ``debug-agent`` is the smallest registry role: three shared skills, no
+# ``debug-agent`` is the smallest registry role: the shared skills, no
 # role-specific extras.
 REGISTRY_ONLY = [
+    "/skills/genui",
     "/skills/verification-before-completion",
     "/skills/scientific-writing",
     "/skills/scientific-visualization",

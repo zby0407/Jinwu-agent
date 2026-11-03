@@ -26,20 +26,23 @@ import asyncio
 from contextlib import asynccontextmanager
 
 from starlette.applications import Starlette
+from starlette.middleware import Middleware
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 from starlette.routing import Route
-from starlette.middleware import Middleware
 
 from jw.config import get_effective_config
 from jw.langgraph_dev.data_sources_api import DATA_SOURCE_ROUTES
 from jw.langgraph_dev.knowledge_api import KB_ROUTES
 from jw.langgraph_dev.literature_credentials_api import LITERATURE_CREDENTIAL_ROUTES
-from jw.langgraph_dev.reproduction_api import REPRODUCTION_ROUTES
-from jw.langgraph_dev.runtime import runtime_status
 from jw.langgraph_dev.maintenance import (
     DesktopMaintenanceMiddleware,
     desktop_maintenance,
+)
+from jw.langgraph_dev.reproduction_api import REPRODUCTION_ROUTES
+from jw.langgraph_dev.runtime import runtime_status
+from jw.langgraph_dev.scientific_data_interfaces_api import (
+    SCIENTIFIC_DATA_INTERFACE_ROUTES,
 )
 
 
@@ -129,5 +132,8 @@ app = Starlette(
         *DATA_SOURCE_ROUTES,
         # Literature-source credential status and local saves.
         *LITERATURE_CREDENTIAL_ROUTES,
+        # PDF/chart/discovery interface settings (see
+        # scientific_data_interfaces_api.py).
+        *SCIENTIFIC_DATA_INTERFACE_ROUTES,
     ],
 )
