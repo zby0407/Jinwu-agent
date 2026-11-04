@@ -86,7 +86,6 @@
     }
   },
   "shared": [
-    "genui",
     "verification-before-completion",
     "scientific-writing",
     "scientific-visualization"

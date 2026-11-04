@@ -31,6 +31,35 @@ interface MarkdownContentProps {
   genuiFenceKey?: string | number;
 }
 
+/** Rewrite an image src from the model's markdown into a workspace file URL.
+ *
+ * Accepted forms:
+ * - "outputs/roc.png" / "./outputs/roc.png" — workspace-relative (the form the
+ *   system prompt asks the model to use);
+ * - "/abs/run_dir/outputs/roc.png" or a macOS absolute path that contains a
+ *   "/runs/<run-dir>/" segment — the part after the run dir is used relative
+ *   to the thread workspace.
+ * Returns null for anything else (external URLs pass through unchanged).
+ */
+function resolveWorkspaceImageSrc(
+  src: string | undefined,
+  threadId: string | undefined
+): string | null {
+  if (!src) return null;
+  if (/^https?:\/\//i.test(src)) return src;
+  let rel = src;
+  if (/^\/Users\//.test(src) || src.startsWith("/")) {
+    const runsMatch = src.match(/\/runs\/[^/]+\/(.+)$/);
+    if (!runsMatch) return null;
+    rel = runsMatch[1];
+  }
+  rel = rel.replace(/^\.\//, "").replace(/^\//, "");
+  if (!rel) return null;
+  const params = new URLSearchParams({ path: rel });
+  if (threadId) params.set("threadId", threadId);
+  return `/api/workspace/file?${params.toString()}`;
+}
+
 const sanitizeSchema = {
   ...defaultSchema,
   attributes: {
@@ -142,6 +171,27 @@ export const MarkdownContent = React.memo<MarkdownContentProps>(
                 <div className="my-4 max-w-full overflow-hidden last:mb-0">
                   {children}
                 </div>
+              );
+            },
+            img({ src, alt }: { src?: string; alt?: string }) {
+              // Workspace image artifacts: the model embeds produced figures
+              // with markdown image syntax and a workspace-relative path
+              // (e.g. outputs/roc.png) or an absolute run path. Serve the
+              // bytes through the workspace file API so they render inline.
+              const resolved = resolveWorkspaceImageSrc(
+                src,
+                genuiSessionId ?? undefined
+              );
+              if (!resolved) {
+                return <span className="opacity-70">[图片无法解析]</span>;
+              }
+              return (
+                <img
+                  src={resolved}
+                  alt={alt ?? ""}
+                  loading="lazy"
+                  className="my-2 h-auto max-w-full rounded-md border border-border"
+                />
               );
             },
             a({

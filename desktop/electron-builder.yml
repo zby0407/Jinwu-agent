@@ -16,6 +16,7 @@ directories:
 # 只打包主进程代码与最小资源；运行时通过 extraResources 注入，不进 asar。
 files:
   - electron/**/*
+  - assets/icon.png
   - package.json
   - '!**/*.map'
   - '!**/*.md'

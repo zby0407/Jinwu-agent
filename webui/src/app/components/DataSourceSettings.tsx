@@ -16,7 +16,6 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { ToggleSwitch } from "@/components/ui/switch";
 import { LiteratureCredentials } from "@/app/components/LiteratureCredentials";
-import { ScientificDataInterfaces } from "@/app/components/ScientificDataInterfaces";
 import {
   fetchDataSources,
   setDataSourceEnabled,
@@ -207,7 +206,14 @@ const EMPTY_FORM: CustomFeedFormState = {
   required_any_terms: "",
 };
 
-export function DataSourceSettings() {
+export function DataSourceSettings({
+  section = "all",
+}: {
+  /** "data" = 仅观测数据源；"literature" = 仅论文源与文献凭据；"all" = 全部。 */
+  section?: "all" | "data" | "literature";
+}) {
+  const dataOnly = section === "data";
+  const litOnly = section === "literature";
   const [sources, setSources] = useState<ObservationalDataSource[] | null>(
     null
   );
@@ -220,7 +226,6 @@ export function DataSourceSettings() {
   const [selection, setSelection] = useState<Selection | null>(null);
   const [showFeedForm, setShowFeedForm] = useState(false);
   const [showCredentials, setShowCredentials] = useState(false);
-  const [showInterfaces, setShowInterfaces] = useState(false);
   const [form, setForm] = useState<CustomFeedFormState>(EMPTY_FORM);
   const [formError, setFormError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -268,7 +273,27 @@ export function DataSourceSettings() {
   // Keep a valid selection: default to the first observational source,
   // falling back to the first literature feed.
   useEffect(() => {
-    if (showFeedForm || showCredentials || showInterfaces) return;
+    if (showFeedForm || showCredentials) return;
+    if (litOnly) {
+      // 文献源视图只认 feed 选择。
+      if (selection?.kind === "feed") {
+        if ((feeds ?? []).some((item) => item.id === selection.id)) return;
+      }
+      setSelection(feeds && feeds.length > 0 ? { kind: "feed", id: feeds[0].id } : null);
+      return;
+    }
+    if (dataOnly) {
+      // 数据源视图只认观测数据集选择。
+      if (selection?.kind === "dataset") {
+        if ((sources ?? []).some((item) => item.id === selection.id)) return;
+      }
+      setSelection(
+        sources && sources.length > 0
+          ? { kind: "dataset", id: sources[0].id }
+          : null
+      );
+      return;
+    }
     if (selection) {
       const exists =
         selection.kind === "dataset"
@@ -283,7 +308,7 @@ export function DataSourceSettings() {
     } else {
       setSelection(null);
     }
-  }, [sources, feeds, selection, showFeedForm, showCredentials, showInterfaces]);
+  }, [sources, feeds, selection, showFeedForm, showCredentials, dataOnly, litOnly]);
 
   async function toggleSource(source: ObservationalDataSource, next: boolean) {
     setBusyId(source.id);
@@ -398,7 +423,7 @@ export function DataSourceSettings() {
         >
           <div className="mb-2 flex items-center justify-between px-1">
             <p className="text-[11px] font-medium text-muted-foreground">
-              数据源
+              {litOnly ? "文献源" : "数据源"}
             </p>
             <button
               type="button"
@@ -413,6 +438,7 @@ export function DataSourceSettings() {
             </button>
           </div>
           <div className="min-h-0 flex-1 space-y-4 overflow-y-auto pr-1">
+            {!dataOnly && (
             <SidebarGroup
               icon={
                 <FileText
@@ -456,7 +482,6 @@ export function DataSourceSettings() {
                   onSelect={() => {
                     setShowFeedForm(false);
                     setShowCredentials(false);
-                    setShowInterfaces(false);
                     setSelection({ kind: "feed", id: feed.id });
                   }}
                   onToggle={(next) => void toggleFeed(feed, next)}
@@ -467,7 +492,6 @@ export function DataSourceSettings() {
                 onClick={() => {
                   setShowFeedForm(true);
                   setShowCredentials(false);
-                  setShowInterfaces(false);
                   setFormError(null);
                 }}
                 className={cn(
@@ -482,7 +506,9 @@ export function DataSourceSettings() {
                 接入自定义论文源
               </button>
             </SidebarGroup>
+            )}
 
+            {!litOnly && (
             <SidebarGroup
               icon={
                 <Database
@@ -521,7 +547,6 @@ export function DataSourceSettings() {
                     onSelect={() => {
                       setShowFeedForm(false);
                       setShowCredentials(false);
-                      setShowInterfaces(false);
                       setSelection({ kind: "dataset", id: source.id });
                     }}
                     onToggle={(next) => void toggleSource(source, next)}
@@ -529,7 +554,9 @@ export function DataSourceSettings() {
                 );
               })}
             </SidebarGroup>
+            )}
 
+            {!dataOnly && (
             <SidebarGroup
               icon={
                 <KeyRound
@@ -545,7 +572,6 @@ export function DataSourceSettings() {
                 onClick={() => {
                   setShowFeedForm(false);
                   setShowCredentials(true);
-                  setShowInterfaces(false);
                 }}
                 className={cn(
                   "w-full rounded-lg border px-2.5 py-2 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
@@ -562,39 +588,8 @@ export function DataSourceSettings() {
                 </p>
               </button>
             </SidebarGroup>
+            )}
 
-            <SidebarGroup
-              icon={
-                <FileText
-                  className="size-3"
-                  aria-hidden="true"
-                />
-              }
-              title="解析接口"
-            >
-              <button
-                type="button"
-                aria-pressed={showInterfaces}
-                onClick={() => {
-                  setShowFeedForm(false);
-                  setShowCredentials(false);
-                  setShowInterfaces(true);
-                }}
-                className={cn(
-                  "w-full rounded-lg border px-2.5 py-2 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                  showInterfaces
-                    ? "border-[var(--brand)]/50 bg-[var(--brand)]/[0.06]"
-                    : "border-transparent hover:border-border/70 hover:bg-muted/20"
-                )}
-              >
-                <p className="text-xs font-medium leading-5">
-                  PDF / 图表 / 数据仓库
-                </p>
-                <p className="mt-0.5 text-[10px] leading-4 text-muted-foreground">
-                  配置云端识别与发现服务
-                </p>
-              </button>
-            </SidebarGroup>
           </div>
           <p className="mt-2 shrink-0 border-t border-border/60 px-1 pt-2 text-[10px] leading-4 text-muted-foreground/70">
             开关即时生效并保存在后端配置中。
@@ -606,9 +601,7 @@ export function DataSourceSettings() {
           aria-label="数据源详情与预览"
           className="min-h-0 overflow-visible border-t border-border/70 pr-1 pt-4 md:overflow-y-auto md:border-l md:border-t-0 md:pl-4 md:pt-0"
         >
-          {showInterfaces ? (
-            <ScientificDataInterfaces />
-          ) : showCredentials ? (
+          {showCredentials ? (
             <LiteratureCredentials />
           ) : showFeedForm ? (
             <div>
