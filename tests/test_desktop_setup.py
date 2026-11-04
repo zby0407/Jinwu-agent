@@ -225,9 +225,7 @@ def test_list_models_uses_saved_key_and_filters_non_chat(
         seen["base_url"] = base_url
         return ["deepseek-v4-pro", "deepseek-embedding-v1", "deepseek-flash"]
 
-    monkeypatch.setattr(
-        desktop_setup, "_list_openai_compatible_models", fake_list
-    )
+    monkeypatch.setattr(desktop_setup, "_list_openai_compatible_models", fake_list)
     result = desktop_setup.list_provider_models({"provider": "deepseek"})
 
     assert seen == {
@@ -250,9 +248,7 @@ def test_list_models_redacts_key_from_provider_errors(
     def fake_list(api_key: str, base_url: str) -> list[str]:
         raise RuntimeError(f"Incorrect API key provided: {api_key}")
 
-    monkeypatch.setattr(
-        desktop_setup, "_list_openai_compatible_models", fake_list
-    )
+    monkeypatch.setattr(desktop_setup, "_list_openai_compatible_models", fake_list)
     with pytest.raises(desktop_setup.SetupError) as excinfo:
         desktop_setup.list_provider_models({"provider": "deepseek"})
 

@@ -477,9 +477,8 @@ def _resolve_model_endpoint(provider: str, config: Any) -> tuple[str, str]:
         return "anthropic", base_url
     if provider == "minimax":
         base_url = (
-            (config.minimax_base_url or "").strip()
-            or _ANTHROPIC_COMPAT_BASE_URLS["minimax"]
-        )
+            config.minimax_base_url or ""
+        ).strip() or _ANTHROPIC_COMPAT_BASE_URLS["minimax"]
         return "anthropic", base_url
     if provider in _OPENAI_COMPAT_BASE_URLS:
         base_url = _OPENAI_COMPAT_BASE_URLS[provider]
@@ -576,9 +575,7 @@ def list_provider_models(payload: Any) -> dict[str, Any]:
     except SetupError:
         raise
     except Exception as exc:
-        raise SetupError(
-            f"获取模型列表失败：{_redact_error(exc, api_key)}"
-        ) from None
+        raise SetupError(f"获取模型列表失败：{_redact_error(exc, api_key)}") from None
 
     models = _filter_chat_models(model_ids)[:_MODEL_LIST_LIMIT]
     if not models:
