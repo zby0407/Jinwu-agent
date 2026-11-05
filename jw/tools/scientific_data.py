@@ -910,12 +910,18 @@ def sci_astronomy_query(
         JSON with source URL, query, returned rows and retrieval timestamp.
     """
     try:
-        params = _payload(params_json, what="params_json") if params_json.strip() != "{}" else {}
+        params = (
+            _payload(params_json, what="params_json")
+            if params_json.strip() != "{}"
+            else {}
+        )
         from jw.astronomy_data_sources import query_astronomy_data_source
         from jw.data_source_settings import load_source_settings
 
         if not load_source_settings().get(source_id, True):
-            return _result(status="disabled", source_id=source_id, error="data source is disabled")
+            return _result(
+                status="disabled", source_id=source_id, error="data source is disabled"
+            )
         result = query_astronomy_data_source(source_id, params)
         if result["rows"]:
             workspace = _workspace(config)
@@ -929,7 +935,9 @@ def sci_astronomy_query(
                 f"{hashlib.sha256(result['query'].encode()).hexdigest()[:10]}.csv"
             )
             output = io.StringIO(newline="")
-            writer = csv.DictWriter(output, fieldnames=result["columns"], extrasaction="ignore")
+            writer = csv.DictWriter(
+                output, fieldnames=result["columns"], extrasaction="ignore"
+            )
             writer.writeheader()
             writer.writerows(result["rows"])
             content = output.getvalue().encode("utf-8")
@@ -956,7 +964,14 @@ def sci_astronomy_query(
             )
             result["provenance_path"] = str(provenance_path)
         return json.dumps(result, ensure_ascii=False)
-    except (OSError, TimeoutError, ValueError, KeyError, TypeError, json.JSONDecodeError) as exc:
+    except (
+        OSError,
+        TimeoutError,
+        ValueError,
+        KeyError,
+        TypeError,
+        json.JSONDecodeError,
+    ) as exc:
         return _result(status="error", source_id=source_id, error=str(exc))
 
 

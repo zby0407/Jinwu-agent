@@ -98,7 +98,9 @@ def _open(url: str, data: bytes | None = None, *, timeout: float = 20.0) -> byte
     return payload
 
 
-def _result(source_id: str, rows: list[dict[str, Any]], *, query: str) -> dict[str, Any]:
+def _result(
+    source_id: str, rows: list[dict[str, Any]], *, query: str
+) -> dict[str, Any]:
     columns = list(rows[0]) if rows else []
     return {
         "status": "ok",
@@ -117,9 +119,16 @@ def _tap_query(source_id: str, query: str) -> dict[str, Any]:
     text = " ".join(query.strip().split())
     if not text or len(text) > 5_000:
         raise ValueError("query must contain 1-5000 characters")
-    if not re.match(r"(?is)^SELECT\b", text) or ";" in text or "--" in text or "/*" in text:
+    if (
+        not re.match(r"(?is)^SELECT\b", text)
+        or ";" in text
+        or "--" in text
+        or "/*" in text
+    ):
         raise ValueError("only one read-only SELECT statement is allowed")
-    if re.search(r"(?i)\b(insert|update|delete|drop|create|alter|grant|revoke|call)\b", text):
+    if re.search(
+        r"(?i)\b(insert|update|delete|drop|create|alter|grant|revoke|call)\b", text
+    ):
         raise ValueError("query contains a disallowed SQL keyword")
     top_match = re.search(r"(?i)\bTOP\s+(\d+)\b", text)
     if top_match:
@@ -133,7 +142,9 @@ def _tap_query(source_id: str, query: str) -> dict[str, Any]:
             count=1,
         )
     endpoint = str(_BY_ID[source_id]["authority_url"])
-    body = urllib.parse.urlencode({"REQUEST": "doQuery", "LANG": "ADQL", "FORMAT": "csv", "QUERY": text}).encode()
+    body = urllib.parse.urlencode(
+        {"REQUEST": "doQuery", "LANG": "ADQL", "FORMAT": "csv", "QUERY": text}
+    ).encode()
     decoded = _open(endpoint, body).decode("utf-8-sig")
     reader = csv.DictReader(io.StringIO(decoded))
     rows = [dict(row) for row in reader if row]
@@ -151,8 +162,14 @@ def _mast_query(target: str, radius_arcmin: Any) -> dict[str, Any]:
     if not 0.01 <= radius <= 60:
         raise ValueError("radius_arcmin must be a number from 0.01 to 60")
     endpoint = str(_BY_ID["mast-archive"]["authority_url"])
-    lookup = {"service": "Mast.Name.Lookup", "format": "json", "params": {"input": name}}
-    lookup_url = endpoint + "?" + urllib.parse.urlencode({"request": json.dumps(lookup)})
+    lookup = {
+        "service": "Mast.Name.Lookup",
+        "format": "json",
+        "params": {"input": name},
+    }
+    lookup_url = (
+        endpoint + "?" + urllib.parse.urlencode({"request": json.dumps(lookup)})
+    )
     resolved = json.loads(_open(lookup_url))
     hits = resolved.get("resolvedCoordinate") or []
     if not hits:
@@ -163,21 +180,35 @@ def _mast_query(target: str, radius_arcmin: Any) -> dict[str, Any]:
     cone = {
         "service": "Mast.Caom.Cone",
         "format": "json",
-        "params": {"ra": ra, "dec": dec, "radius": radius / 60, "pagesize": _MAX_ROWS, "page": 1},
+        "params": {
+            "ra": ra,
+            "dec": dec,
+            "radius": radius / 60,
+            "pagesize": _MAX_ROWS,
+            "page": 1,
+        },
     }
     cone_url = endpoint + "?" + urllib.parse.urlencode({"request": json.dumps(cone)})
     payload = json.loads(_open(cone_url))
     rows = payload if isinstance(payload, list) else payload.get("data", [])
     rows = [dict(row) for row in rows if isinstance(row, dict)]
-    return _result("mast-archive", rows, query=f"target={name}; radius_arcmin={radius:g}; ra={ra}; dec={dec}")
+    return _result(
+        "mast-archive",
+        rows,
+        query=f"target={name}; radius_arcmin={radius:g}; ra={ra}; dec={dec}",
+    )
 
 
 def _horizons_query(target: str) -> dict[str, Any]:
     command = str(target or "").strip()
     if not command or len(command) > 120:
         raise ValueError("target must contain 1-120 characters")
-    params = urllib.parse.urlencode({"format": "json", "COMMAND": command, "OBJ_DATA": "YES", "MAKE_EPHEM": "NO"})
-    payload = json.loads(_open(str(_BY_ID["jpl-horizons"]["authority_url"]) + "?" + params))
+    params = urllib.parse.urlencode(
+        {"format": "json", "COMMAND": command, "OBJ_DATA": "YES", "MAKE_EPHEM": "NO"}
+    )
+    payload = json.loads(
+        _open(str(_BY_ID["jpl-horizons"]["authority_url"]) + "?" + params)
+    )
     result_text = str(payload.get("result") or "")
     rows = [{"line": line} for line in result_text.splitlines() if line.strip()][:200]
     if payload.get("error"):
@@ -193,15 +224,22 @@ def _goes_query() -> dict[str, Any]:
     return _result("noaa-goes-xrs", rows, query="latest one-day GOES XRS")
 
 
-def query_astronomy_data_source(source_id: str, params: dict[str, Any]) -> dict[str, Any]:
+def query_astronomy_data_source(
+    source_id: str, params: dict[str, Any]
+) -> dict[str, Any]:
     source = _BY_ID.get(source_id)
     if source is None:
         raise KeyError(f"unknown astronomy data source: {source_id}")
     mode = source["query_mode"]
     if mode == "tap":
-        return _tap_query(source_id, str(params.get("query") or source["default_query"]))
+        return _tap_query(
+            source_id, str(params.get("query") or source["default_query"])
+        )
     if mode == "mast":
-        return _mast_query(params.get("target", source["default_query"]), params.get("radius_arcmin", 2))
+        return _mast_query(
+            params.get("target", source["default_query"]),
+            params.get("radius_arcmin", 2),
+        )
     if mode == "horizons":
         return _horizons_query(str(params.get("target") or source["default_query"]))
     if mode == "goes":
@@ -209,4 +247,8 @@ def query_astronomy_data_source(source_id: str, params: dict[str, Any]) -> dict[
     raise ValueError(f"unsupported query mode: {mode}")
 
 
-__all__ = ["ASTRONOMY_DATA_SOURCES", "describe_astronomy_data_sources", "query_astronomy_data_source"]
+__all__ = [
+    "ASTRONOMY_DATA_SOURCES",
+    "describe_astronomy_data_sources",
+    "query_astronomy_data_source",
+]

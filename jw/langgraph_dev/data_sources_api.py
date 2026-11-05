@@ -147,9 +147,13 @@ async def query_data_source(request: Request) -> JSONResponse:
     source_id = request.path_params["dataset_id"]
     known = {str(source["id"]) for source in describe_astronomy_data_sources()}
     if source_id not in known:
-        return _json({"error": f"unknown queryable data source: {source_id}"}, status_code=404)
+        return _json(
+            {"error": f"unknown queryable data source: {source_id}"}, status_code=404
+        )
     if not load_source_settings().get(source_id, True):
-        return _json({"error": "data source is disabled", "code": "disabled"}, status_code=409)
+        return _json(
+            {"error": "data source is disabled", "code": "disabled"}, status_code=409
+        )
     try:
         body = await request.json()
     except (json.JSONDecodeError, ValueError):

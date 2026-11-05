@@ -49,7 +49,9 @@ def test_tap_query_applies_row_cap_and_returns_csv_rows(monkeypatch) -> None:
         sent["timeout"] = timeout
         return _Response(b"pl_name,hostname\nKepler-1 b,Kepler-1\n")
 
-    monkeypatch.setattr("jw.astronomy_data_sources.urllib.request.urlopen", fake_urlopen)
+    monkeypatch.setattr(
+        "jw.astronomy_data_sources.urllib.request.urlopen", fake_urlopen
+    )
 
     result = query_astronomy_data_source(
         "exoplanet-archive-tap",
@@ -81,7 +83,9 @@ def test_mast_resolves_target_then_queries_cone(monkeypatch) -> None:
     calls: list[dict] = []
     payloads = [
         json.dumps({"resolvedCoordinate": [{"ra": 10.0, "decl": -20.0}]}).encode(),
-        json.dumps({"data": [{"obs_id": "mast123", "obs_collection": "TESS"}]}).encode(),
+        json.dumps(
+            {"data": [{"obs_id": "mast123", "obs_collection": "TESS"}]}
+        ).encode(),
     ]
 
     def fake_urlopen(request, *, timeout):
@@ -96,7 +100,9 @@ def test_mast_resolves_target_then_queries_cone(monkeypatch) -> None:
         calls.append(request_json)
         return _Response(payloads.pop(0))
 
-    monkeypatch.setattr("jw.astronomy_data_sources.urllib.request.urlopen", fake_urlopen)
+    monkeypatch.setattr(
+        "jw.astronomy_data_sources.urllib.request.urlopen", fake_urlopen
+    )
 
     result = query_astronomy_data_source(
         "mast-archive", {"target": "M31", "radius_arcmin": 3}
