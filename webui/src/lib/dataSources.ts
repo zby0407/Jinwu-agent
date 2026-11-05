@@ -20,10 +20,15 @@ export interface DataSourceRegistration {
 
 export interface ObservationalDataSource {
   id: string;
-  relative: string;
+  relative?: string;
   title_zh: string;
   provider: string;
   authority_url: string;
+  docs_url?: string;
+  category: "solar" | "astronomy";
+  query_mode: "local_dataset" | "tap" | "mast" | "horizons" | "goes";
+  default_query?: string;
+  description?: string;
   enabled: boolean;
   registration: DataSourceRegistration | null;
 }
@@ -31,6 +36,18 @@ export interface ObservationalDataSource {
 export interface DataSourceCatalog {
   status: string;
   sources: ObservationalDataSource[];
+}
+
+export interface DataSourceQueryResult {
+  status: string;
+  source_id: string;
+  query: string;
+  columns: string[];
+  rows: Array<Record<string, unknown>>;
+  row_count: number;
+  truncated: boolean;
+  fetched_at: string;
+  source_url: string;
 }
 
 async function getJson<T>(path: string): Promise<T> {
@@ -100,4 +117,15 @@ export async function setDataSourceEnabled(
   return kbSend(`/api/data-sources/${encodeURIComponent(datasetId)}`, "PUT", {
     enabled,
   });
+}
+
+export async function queryDataSource(
+  sourceId: string,
+  params: Record<string, string | number>
+): Promise<DataSourceQueryResult> {
+  return kbSend(
+    `/api/data-sources/${encodeURIComponent(sourceId)}/query`,
+    "POST",
+    params
+  );
 }

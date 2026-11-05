@@ -9,7 +9,11 @@ decide lands in a numbered question queue instead of being guessed.
 
 from __future__ import annotations
 
+import csv
+import hashlib
+import io
 import json
+from datetime import datetime
 from pathlib import Path
 from typing import Annotated, Any
 
@@ -139,6 +143,8 @@ def sci_data_capabilities(config: RunnableConfig = None) -> str:
         JSON with stages, plugins, output files and the repair policy boundary.
     """
     try:
+        from jw.astronomy_data_sources import describe_astronomy_data_sources
+
         auto = {
             code.value: default_repair_mode(code).value
             for code in IssueCode
@@ -190,6 +196,16 @@ def sci_data_capabilities(config: RunnableConfig = None) -> str:
                 "auto_discover searches the archives when network is enabled",
             ],
             data_providers=list(list_providers()),
+            astronomy_services=[
+                {
+                    "id": item["id"],
+                    "title_zh": item["title_zh"],
+                    "query_mode": item["query_mode"],
+                    "description": item["description"],
+                    "docs_url": item["docs_url"],
+                }
+                for item in describe_astronomy_data_sources()
+            ],
             column_overrides=(
                 "sci_data_run(column_overrides_json=[{source, column, observable, unit?}]) "
                 "maps a named column explicitly after the user explains it"
@@ -213,7 +229,10 @@ def sci_data_capabilities(config: RunnableConfig = None) -> str:
                 "figures (axis-calibrated point digitisation with overlay check; "
                 "chart images can instead be read by the configured cloud chart API)",
             ],
-            network_default="disabled; enable only with an explicit host allowlist",
+            network_default=(
+                "automatic discovery/download disabled; direct astronomy queries run only "
+                "when explicitly requested and use fixed official endpoints"
+            ),
         )
     except (OSError, ValueError, RuntimeError) as exc:
         return _result(status="error", error=str(exc))
@@ -869,8 +888,81 @@ def sci_data_solar_monthly(
     )
 
 
+@tool(parse_docstring=True)
+def sci_astronomy_query(
+    source_id: str,
+    params_json: str = "{}",
+    config: RunnableConfig = None,
+) -> str:
+    """Query one enabled public astronomy data service.
+
+    Supported sources are NASA Exoplanet Archive TAP, ESA Gaia TAP, MAST,
+    JPL Horizons object lookup, and the latest NOAA GOES XRS day. TAP sources
+    accept a read-only ADQL SELECT in params_json; MAST and Horizons accept a
+    target name, with optional radius_arcmin for MAST. Query result size is
+    bounded by the source adapter.
+
+    Args:
+        source_id: Stable source id from the astronomy data-source catalog.
+        params_json: JSON object with query or target parameters.
+
+    Returns:
+        JSON with source URL, query, returned rows and retrieval timestamp.
+    """
+    try:
+        params = _payload(params_json, what="params_json") if params_json.strip() != "{}" else {}
+        from jw.astronomy_data_sources import query_astronomy_data_source
+        from jw.data_source_settings import load_source_settings
+
+        if not load_source_settings().get(source_id, True):
+            return _result(status="disabled", source_id=source_id, error="data source is disabled")
+        result = query_astronomy_data_source(source_id, params)
+        if result["rows"]:
+            workspace = _workspace(config)
+            artifact_dir = workspace / "scientific_data" / "astronomy_queries"
+            artifact_dir.mkdir(parents=True, exist_ok=True)
+            fetched_stamp = datetime.fromisoformat(result["fetched_at"]).strftime(
+                "%Y%m%dT%H%M%S%f"
+            )
+            csv_path = artifact_dir / (
+                f"{source_id}-{fetched_stamp}-"
+                f"{hashlib.sha256(result['query'].encode()).hexdigest()[:10]}.csv"
+            )
+            output = io.StringIO(newline="")
+            writer = csv.DictWriter(output, fieldnames=result["columns"], extrasaction="ignore")
+            writer.writeheader()
+            writer.writerows(result["rows"])
+            content = output.getvalue().encode("utf-8")
+            csv_path.write_bytes(content)
+            result["artifact_path"] = str(csv_path)
+            result["artifact_sha256"] = hashlib.sha256(content).hexdigest()
+            provenance_path = csv_path.with_suffix(".provenance.json")
+            provenance_path.write_text(
+                json.dumps(
+                    {
+                        "schema_version": "astronomy-query-provenance-v1",
+                        "source_id": source_id,
+                        "source_url": result["source_url"],
+                        "query": result["query"],
+                        "fetched_at": result["fetched_at"],
+                        "row_count": result["row_count"],
+                        "sha256": result["artifact_sha256"],
+                    },
+                    ensure_ascii=False,
+                    indent=2,
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            result["provenance_path"] = str(provenance_path)
+        return json.dumps(result, ensure_ascii=False)
+    except (OSError, TimeoutError, ValueError, KeyError, TypeError, json.JSONDecodeError) as exc:
+        return _result(status="error", source_id=source_id, error=str(exc))
+
+
 SCIENTIFIC_DATA_TOOLS = [
     sci_data_solar_monthly,
+    sci_astronomy_query,
     sci_data_capabilities,
     sci_data_contract,
     sci_data_plan,

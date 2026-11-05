@@ -121,6 +121,32 @@ ADS_PAYLOAD = json.dumps(
     }
 ).encode("utf-8")
 
+INSPIRE_PAYLOAD = json.dumps(
+    {
+        "hits": {
+            "hits": [
+                {
+                    "id": "1234567",
+                    "updated": "2026-10-30T12:00:00.000000+00:00",
+                    "metadata": {
+                        "control_number": 1234567,
+                        "titles": [{"title": "Cosmology from gravitational waves"}],
+                        "authors": [{"full_name": "Ada Researcher"}],
+                        "abstracts": [
+                            {"value": "A study of cosmology and gravitational waves."}
+                        ],
+                        "arxiv_eprints": [{"value": "2610.01234"}],
+                        "dois": [{"value": "10.1234/inspire.1"}],
+                        "publication_info": [{"year": 2026}],
+                        "earliest_date": "2026-10-30",
+                        "document_type": ["article"],
+                    },
+                }
+            ]
+        }
+    }
+).encode("utf-8")
+
 
 class FakeResponse:
     def __init__(self, payload: bytes):
@@ -399,6 +425,8 @@ class TestLitSearchCrossref(StoreTestCase):
 
     def test_all_search_interleaves_providers_and_tolerates_partial_failure(self):
         def _open(request, timeout=0):
+            if "inspirehep.net" in request.full_url:
+                return FakeResponse(INSPIRE_PAYLOAD)
             if "openalex.org" in request.full_url:
                 return FakeResponse(OPENALEX_PAYLOAD)
             if "arxiv.org" in request.full_url:
@@ -414,9 +442,61 @@ class TestLitSearchCrossref(StoreTestCase):
         self.assertEqual(result["status"], "partial")
         self.assertEqual(
             {row["source_id"].split(":", 1)[0] for row in result["results"]},
-            {"openalex", "crossref"},
+            {"inspirehep", "openalex", "crossref"},
         )
         self.assertIn("arxiv", result["provider_diagnostics"])
+
+
+class TestLitSearchInspireHEP(StoreTestCase):
+    def test_search_maps_metadata_and_year_filters(self):
+        seen_urls = []
+
+        def _open(request, timeout=0):
+            seen_urls.append(request.full_url)
+            return FakeResponse(INSPIRE_PAYLOAD)
+
+        with mock.patch("urllib.request.urlopen", _open):
+            result = literature.search_literature(
+                self.store,
+                "cosmology gravitational waves",
+                source="inspirehep",
+                from_year=2020,
+                to_year=2026,
+                sort="recent",
+            )
+
+        self.assertEqual(result["status"], "ok")
+        row = result["results"][0]
+        self.assertEqual(row["source_id"], "inspirehep:1234567")
+        self.assertEqual(
+            self.store.get_lit_source("inspirehep:1234567")["provider"],
+            "inspirehep",
+        )
+        self.assertEqual(row["authors"], ["Ada Researcher"])
+        self.assertEqual(row["doi"], "10.1234/inspire.1")
+        self.assertEqual(row["url"], "https://arxiv.org/abs/2610.01234")
+        self.assertIn("size=15", seen_urls[0])
+        self.assertIn("sort=mostrecent", seen_urls[0])
+
+    def test_all_search_tolerates_inspire_partial_failure(self):
+        def _open(request, timeout=0):
+            if "inspirehep.net" in request.full_url:
+                raise urllib.error.URLError("INSPIRE temporarily unavailable")
+            if "openalex.org" in request.full_url:
+                return FakeResponse(OPENALEX_PAYLOAD)
+            if "arxiv.org" in request.full_url:
+                raise urllib.error.URLError("arxiv temporarily unavailable")
+            if "crossref.org" in request.full_url:
+                return FakeResponse(CROSSREF_PAYLOAD)
+            raise AssertionError(request.full_url)
+
+        with mock.patch("urllib.request.urlopen", _open):
+            result = literature.search_literature(
+                self.store, "solar cycle precursor", source="all", limit=3
+            )
+
+        self.assertEqual(result["status"], "partial")
+        self.assertIn("inspirehep", result["provider_diagnostics"])
 
 
 class TestLiteratureFeeds(StoreTestCase):

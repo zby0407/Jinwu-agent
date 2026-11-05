@@ -3,23 +3,28 @@
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import {
   Database,
+  Download,
   ExternalLink,
   FileText,
   KeyRound,
   Loader2,
   Plus,
   RefreshCw,
+  Search,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { ToggleSwitch } from "@/components/ui/switch";
 import { LiteratureCredentials } from "@/app/components/LiteratureCredentials";
 import {
   fetchDataSources,
+  queryDataSource,
   setDataSourceEnabled,
   type ObservationalDataSource,
+  type DataSourceQueryResult,
 } from "@/lib/dataSources";
 import {
   createLiteratureFeed,
@@ -29,7 +34,20 @@ import {
 } from "@/lib/knowledgeBase";
 import { DatasetPreview, FeedPreview } from "@/app/components/SourcePreview";
 
-const PROVIDER_OPTIONS = ["ads", "arxiv", "openalex", "crossref"] as const;
+const PROVIDER_OPTIONS = [
+  "ads",
+  "arxiv",
+  "inspirehep",
+  "openalex",
+  "crossref",
+] as const;
+const PROVIDER_LABELS: Record<(typeof PROVIDER_OPTIONS)[number], string> = {
+  ads: "NASA ADS",
+  arxiv: "arXiv",
+  inspirehep: "INSPIRE-HEP",
+  openalex: "OpenAlex",
+  crossref: "Crossref",
+};
 
 type Selection = { kind: "dataset" | "feed"; id: string };
 
@@ -184,6 +202,229 @@ function SidebarGroup({
   );
 }
 
+function AstronomyQueryPanel({ source }: { source: ObservationalDataSource }) {
+  const [query, setQuery] = useState(source.default_query ?? "");
+  const [target, setTarget] = useState(source.default_query ?? "");
+  const [radius, setRadius] = useState("2");
+  const [loadingQuery, setLoadingQuery] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [result, setResult] = useState<DataSourceQueryResult | null>(null);
+
+  useEffect(() => {
+    setQuery(source.default_query ?? "");
+    setTarget(source.default_query ?? "");
+    setRadius("2");
+    setResult(null);
+    setError(null);
+  }, [source.id, source.default_query]);
+
+  async function runQuery() {
+    setLoadingQuery(true);
+    setError(null);
+    try {
+      const params: Record<string, string | number> =
+        source.query_mode === "tap"
+          ? { query }
+          : source.query_mode === "mast"
+          ? { target, radius_arcmin: Number(radius) }
+          : source.query_mode === "horizons"
+          ? { target }
+          : {};
+      setResult(await queryDataSource(source.id, params));
+    } catch (queryError) {
+      setResult(null);
+      setError(
+        queryError instanceof Error ? queryError.message : "数据源查询失败。"
+      );
+    } finally {
+      setLoadingQuery(false);
+    }
+  }
+
+  function downloadCsv() {
+    if (!result) return;
+    const escape = (value: unknown) => {
+      const text = String(value ?? "");
+      return /[",\r\n]/.test(text) ? `"${text.replaceAll('"', '""')}"` : text;
+    };
+    const content = [
+      result.columns.map(escape).join(","),
+      ...result.rows.map((row) =>
+        result.columns.map((column) => escape(row[column])).join(",")
+      ),
+    ].join("\r\n");
+    const url = URL.createObjectURL(
+      new Blob([content], { type: "text/csv;charset=utf-8" })
+    );
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = `${source.id}-${result.fetched_at.slice(0, 10)}.csv`;
+    anchor.click();
+    URL.revokeObjectURL(url);
+  }
+
+  return (
+    <div className="space-y-3 border-t border-border/70 pt-3">
+      <div className="flex items-center justify-between gap-3">
+        <h4 className="text-xs font-semibold">在线查询</h4>
+        <a
+          href={source.docs_url ?? source.authority_url}
+          target="_blank"
+          rel="noreferrer"
+          className="inline-flex items-center gap-1 text-[11px] text-[var(--brand)] hover:underline"
+        >
+          API 文档
+          <ExternalLink
+            className="size-3"
+            aria-hidden="true"
+          />
+        </a>
+      </div>
+      <p className="text-xs leading-5 text-muted-foreground">
+        {source.description}
+      </p>
+      {source.query_mode === "tap" ? (
+        <div className="grid gap-1.5">
+          <Label htmlFor={`query-${source.id}`}>只读 ADQL 查询</Label>
+          <Textarea
+            id={`query-${source.id}`}
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            className="min-h-28 font-mono text-xs"
+            spellCheck={false}
+          />
+          <p className="text-[11px] text-muted-foreground">
+            只接受 SELECT，单次最多返回 200 行。
+          </p>
+        </div>
+      ) : source.query_mode === "mast" ? (
+        <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_10rem]">
+          <div className="grid gap-1.5">
+            <Label htmlFor="mast-target">天体名称</Label>
+            <Input
+              id="mast-target"
+              value={target}
+              onChange={(event) => setTarget(event.target.value)}
+            />
+          </div>
+          <div className="grid gap-1.5">
+            <Label htmlFor="mast-radius">搜索半径（角分）</Label>
+            <Input
+              id="mast-radius"
+              type="number"
+              min="0.01"
+              max="60"
+              step="0.1"
+              value={radius}
+              onChange={(event) => setRadius(event.target.value)}
+            />
+          </div>
+        </div>
+      ) : source.query_mode === "horizons" ? (
+        <div className="grid gap-1.5">
+          <Label htmlFor="horizons-target">目标名称或 Horizons ID</Label>
+          <Input
+            id="horizons-target"
+            value={target}
+            onChange={(event) => setTarget(event.target.value)}
+          />
+        </div>
+      ) : (
+        <p className="text-xs text-muted-foreground">
+          读取 NOAA 提供的近一天 X 射线通量记录。
+        </p>
+      )}
+      <Button
+        type="button"
+        size="sm"
+        disabled={loadingQuery || !source.enabled}
+        onClick={() => void runQuery()}
+      >
+        {loadingQuery ? (
+          <Loader2
+            className="size-4 animate-spin"
+            aria-hidden="true"
+          />
+        ) : (
+          <Search
+            className="size-4"
+            aria-hidden="true"
+          />
+        )}
+        查询
+      </Button>
+      {error && (
+        <p
+          role="alert"
+          className="text-xs text-[var(--color-error)]"
+        >
+          {error}
+        </p>
+      )}
+      {result && (
+        <div className="space-y-2">
+          <p className="text-[11px] text-muted-foreground">
+            {result.row_count} 行 · {formatDate(result.fetched_at)}
+            {result.truncated ? " · 已截断" : ""}
+          </p>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={downloadCsv}
+          >
+            <Download
+              className="size-4"
+              aria-hidden="true"
+            />
+            下载 CSV
+          </Button>
+          {result.columns.length > 0 ? (
+            <div className="max-h-80 overflow-auto rounded-md border border-border">
+              <table className="min-w-full border-collapse text-left text-[11px]">
+                <thead className="sticky top-0 bg-muted/90 text-muted-foreground">
+                  <tr>
+                    {result.columns.map((column) => (
+                      <th
+                        key={column}
+                        className="whitespace-nowrap border-b border-border px-2 py-1.5 font-medium"
+                      >
+                        {column}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {result.rows.slice(0, 50).map((row, index) => (
+                    <tr
+                      key={index}
+                      className="even:bg-muted/30"
+                    >
+                      {result.columns.map((column) => (
+                        <td
+                          key={column}
+                          className="max-w-64 whitespace-nowrap border-b border-border/50 px-2 py-1.5"
+                        >
+                          {String(row[column] ?? "—")}
+                        </td>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <pre className="max-h-80 overflow-auto rounded-md border border-border bg-muted/20 p-2 text-[11px] leading-5">
+              {result.rows.map((row) => String(row.line ?? "")).join("\n") ||
+                "没有命中记录。"}
+            </pre>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 interface CustomFeedFormState {
   id: string;
   title_zh: string;
@@ -279,7 +520,9 @@ export function DataSourceSettings({
       if (selection?.kind === "feed") {
         if ((feeds ?? []).some((item) => item.id === selection.id)) return;
       }
-      setSelection(feeds && feeds.length > 0 ? { kind: "feed", id: feeds[0].id } : null);
+      setSelection(
+        feeds && feeds.length > 0 ? { kind: "feed", id: feeds[0].id } : null
+      );
       return;
     }
     if (dataOnly) {
@@ -308,7 +551,15 @@ export function DataSourceSettings({
     } else {
       setSelection(null);
     }
-  }, [sources, feeds, selection, showFeedForm, showCredentials, dataOnly, litOnly]);
+  }, [
+    sources,
+    feeds,
+    selection,
+    showFeedForm,
+    showCredentials,
+    dataOnly,
+    litOnly,
+  ]);
 
   async function toggleSource(source: ObservationalDataSource, next: boolean) {
     setBusyId(source.id);
@@ -439,157 +690,187 @@ export function DataSourceSettings({
           </div>
           <div className="min-h-0 flex-1 space-y-4 overflow-y-auto pr-1">
             {!dataOnly && (
-            <SidebarGroup
-              icon={
-                <FileText
-                  className="size-3"
-                  aria-hidden="true"
-                />
-              }
-              title="论文源"
-              count={feeds?.length}
-            >
-              {feedsError && (
-                <p className="px-1 text-[10px] leading-4 text-muted-foreground">
-                  {feedsError}
-                </p>
-              )}
-              {(feeds ?? []).map((feed) => (
-                <NavItem
-                  key={feed.id}
-                  title={feed.title_zh}
-                  subtitle={feed.query}
-                  statusTone={
-                    feed.latest_run
-                      ? feed.latest_run.status === "ok"
-                        ? "success"
-                        : "warning"
-                      : "muted"
-                  }
-                  statusText={
-                    feed.latest_run
-                      ? `候选 ${feed.source_count} 篇 · ${formatDate(
-                          feed.latest_run.started_at
-                        )}`
-                      : "尚未同步"
-                  }
-                  active={
-                    selection?.kind === "feed" && selection.id === feed.id
-                  }
-                  enabled={feed.enabled}
-                  busy={busyId === feed.id}
-                  toggleLabel={`启用 ${feed.title_zh}`}
-                  onSelect={() => {
-                    setShowFeedForm(false);
-                    setShowCredentials(false);
-                    setSelection({ kind: "feed", id: feed.id });
-                  }}
-                  onToggle={(next) => void toggleFeed(feed, next)}
-                />
-              ))}
-              <button
-                type="button"
-                onClick={() => {
-                  setShowFeedForm(true);
-                  setShowCredentials(false);
-                  setFormError(null);
-                }}
-                className={cn(
-                  "hover:border-[var(--brand)]/50 flex w-full items-center gap-1.5 rounded-lg border border-dashed border-border px-2.5 py-2 text-[11px] text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                  showFeedForm && "border-[var(--brand)]/60 text-foreground"
-                )}
+              <SidebarGroup
+                icon={
+                  <FileText
+                    className="size-3"
+                    aria-hidden="true"
+                  />
+                }
+                title="论文源"
+                count={feeds?.length}
               >
-                <Plus
-                  className="size-3"
-                  aria-hidden="true"
-                />
-                接入自定义论文源
-              </button>
-            </SidebarGroup>
-            )}
-
-            {!litOnly && (
-            <SidebarGroup
-              icon={
-                <Database
-                  className="size-3"
-                  aria-hidden="true"
-                />
-              }
-              title="观测数据源"
-              count={sources?.length}
-            >
-              {sourcesError && (
-                <p className="px-1 text-[10px] leading-4 text-muted-foreground">
-                  {sourcesError}
-                </p>
-              )}
-              {(sources ?? []).map((source) => {
-                const registration = source.registration;
-                return (
+                {feedsError && (
+                  <p className="px-1 text-[10px] leading-4 text-muted-foreground">
+                    {feedsError}
+                  </p>
+                )}
+                {(feeds ?? []).map((feed) => (
                   <NavItem
-                    key={source.id}
-                    title={source.title_zh}
-                    subtitle={source.provider}
-                    statusTone={registration ? "success" : "muted"}
+                    key={feed.id}
+                    title={feed.title_zh}
+                    subtitle={feed.query}
+                    statusTone={
+                      feed.latest_run
+                        ? feed.latest_run.status === "ok"
+                          ? "success"
+                          : "warning"
+                        : "muted"
+                    }
                     statusText={
-                      registration
-                        ? `已接入 · ${formatDate(registration.coverage_end)}`
-                        : "尚未接入"
+                      feed.latest_run
+                        ? `候选 ${feed.source_count} 篇 · ${formatDate(
+                            feed.latest_run.started_at
+                          )}`
+                        : "尚未同步"
                     }
                     active={
-                      selection?.kind === "dataset" &&
-                      selection.id === source.id
+                      selection?.kind === "feed" && selection.id === feed.id
                     }
-                    enabled={source.enabled}
-                    busy={busyId === source.id}
-                    toggleLabel={`启用 ${source.title_zh}`}
+                    enabled={feed.enabled}
+                    busy={busyId === feed.id}
+                    toggleLabel={`启用 ${feed.title_zh}`}
                     onSelect={() => {
                       setShowFeedForm(false);
                       setShowCredentials(false);
-                      setSelection({ kind: "dataset", id: source.id });
+                      setSelection({ kind: "feed", id: feed.id });
                     }}
-                    onToggle={(next) => void toggleSource(source, next)}
+                    onToggle={(next) => void toggleFeed(feed, next)}
                   />
-                );
-              })}
-            </SidebarGroup>
+                ))}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowFeedForm(true);
+                    setShowCredentials(false);
+                    setFormError(null);
+                  }}
+                  className={cn(
+                    "hover:border-[var(--brand)]/50 flex w-full items-center gap-1.5 rounded-lg border border-dashed border-border px-2.5 py-2 text-[11px] text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                    showFeedForm && "border-[var(--brand)]/60 text-foreground"
+                  )}
+                >
+                  <Plus
+                    className="size-3"
+                    aria-hidden="true"
+                  />
+                  接入自定义论文源
+                </button>
+              </SidebarGroup>
+            )}
+
+            {!litOnly && (
+              <>
+                {sourcesError && (
+                  <p className="px-1 text-[10px] leading-4 text-muted-foreground">
+                    {sourcesError}
+                  </p>
+                )}
+                {(
+                  [
+                    [
+                      "solar",
+                      "太阳观测",
+                      <Database
+                        className="size-3"
+                        aria-hidden="true"
+                      />,
+                    ],
+                    [
+                      "astronomy",
+                      "天文档案与 API",
+                      <Search
+                        className="size-3"
+                        aria-hidden="true"
+                      />,
+                    ],
+                  ] as const
+                ).map(([category, title, icon]) => {
+                  const items = (sources ?? []).filter(
+                    (item) => item.category === category
+                  );
+                  return (
+                    <SidebarGroup
+                      key={category}
+                      icon={icon}
+                      title={title}
+                      count={items.length}
+                    >
+                      {items.map((source) => {
+                        const registration = source.registration;
+                        const isApi = source.query_mode !== "local_dataset";
+                        return (
+                          <NavItem
+                            key={source.id}
+                            title={source.title_zh}
+                            subtitle={source.provider}
+                            statusTone={
+                              isApi || registration ? "success" : "muted"
+                            }
+                            statusText={
+                              isApi
+                                ? "在线查询"
+                                : registration
+                                ? `已登记 · ${formatDate(
+                                    registration.coverage_end
+                                  )}`
+                                : "未登记"
+                            }
+                            active={
+                              selection?.kind === "dataset" &&
+                              selection.id === source.id
+                            }
+                            enabled={source.enabled}
+                            busy={busyId === source.id}
+                            toggleLabel={`启用 ${source.title_zh}`}
+                            onSelect={() => {
+                              setShowFeedForm(false);
+                              setShowCredentials(false);
+                              setSelection({ kind: "dataset", id: source.id });
+                            }}
+                            onToggle={(next) => void toggleSource(source, next)}
+                          />
+                        );
+                      })}
+                    </SidebarGroup>
+                  );
+                })}
+              </>
             )}
 
             {!dataOnly && (
-            <SidebarGroup
-              icon={
-                <KeyRound
-                  className="size-3"
-                  aria-hidden="true"
-                />
-              }
-              title="文献源凭据"
-            >
-              <button
-                type="button"
-                aria-pressed={showCredentials}
-                onClick={() => {
-                  setShowFeedForm(false);
-                  setShowCredentials(true);
-                }}
-                className={cn(
-                  "w-full rounded-lg border px-2.5 py-2 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                  showCredentials
-                    ? "border-[var(--brand)]/50 bg-[var(--brand)]/[0.06]"
-                    : "border-transparent hover:border-border/70 hover:bg-muted/20"
-                )}
+              <SidebarGroup
+                icon={
+                  <KeyRound
+                    className="size-3"
+                    aria-hidden="true"
+                  />
+                }
+                title="文献源凭据"
               >
-                <p className="text-xs font-medium leading-5">
-                  OpenAlex / Crossref / ADS…
-                </p>
-                <p className="mt-0.5 text-[10px] leading-4 text-muted-foreground">
-                  填写 API key 或联系邮箱
-                </p>
-              </button>
-            </SidebarGroup>
+                <button
+                  type="button"
+                  aria-pressed={showCredentials}
+                  onClick={() => {
+                    setShowFeedForm(false);
+                    setShowCredentials(true);
+                  }}
+                  className={cn(
+                    "w-full rounded-lg border px-2.5 py-2 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                    showCredentials
+                      ? "border-[var(--brand)]/50 bg-[var(--brand)]/[0.06]"
+                      : "border-transparent hover:border-border/70 hover:bg-muted/20"
+                  )}
+                >
+                  <p className="text-xs font-medium leading-5">
+                    OpenAlex / Crossref / ADS…
+                  </p>
+                  <p className="mt-0.5 text-[10px] leading-4 text-muted-foreground">
+                    填写 API key 或联系邮箱
+                  </p>
+                </button>
+              </SidebarGroup>
             )}
-
           </div>
           <p className="mt-2 shrink-0 border-t border-border/60 px-1 pt-2 text-[10px] leading-4 text-muted-foreground/70">
             开关即时生效并保存在后端配置中。
@@ -700,7 +981,7 @@ export function DataSourceSettings({
                           }
                           className="size-3.5 rounded border-border accent-[var(--brand)]"
                         />
-                        {provider}
+                        {PROVIDER_LABELS[provider]}
                       </label>
                     ))}
                   </div>
@@ -798,72 +1079,113 @@ export function DataSourceSettings({
                   <h3 className="text-sm font-semibold">
                     {selectedDataset.title_zh}
                   </h3>
-                  {selectedDataset.registration ? (
+                  {selectedDataset.query_mode !== "local_dataset" ? (
+                    <Badge tone="success">在线 API</Badge>
+                  ) : selectedDataset.registration ? (
                     <Badge tone="success">已接入</Badge>
                   ) : (
-                    <Badge tone="muted">尚未接入</Badge>
+                    <Badge tone="muted">尚未登记</Badge>
                   )}
                   {!selectedDataset.enabled && (
                     <Badge tone="warning">已停用</Badge>
                   )}
                 </div>
                 <p className="mt-1 text-xs text-muted-foreground">
-                  {selectedDataset.provider} · 权威太阳活动观测数据集
+                  {selectedDataset.provider} ·{" "}
+                  {selectedDataset.category === "solar"
+                    ? "太阳观测数据"
+                    : "天文档案服务"}
                 </p>
               </div>
-              <MetaGrid
-                rows={[
-                  ["数据集 ID", selectedDataset.id],
-                  [
-                    "权威地址",
-                    <a
-                      key="url"
-                      href={selectedDataset.authority_url}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="inline-flex items-center gap-1 text-[var(--brand)] underline-offset-2 hover:underline"
-                    >
-                      {selectedDataset.authority_url}
-                      <ExternalLink
-                        className="size-3"
-                        aria-hidden="true"
-                      />
-                    </a>,
-                  ],
-                  [
-                    "覆盖范围",
-                    selectedDataset.registration
-                      ? `${formatDate(
-                          selectedDataset.registration.coverage_start
-                        )} 至 ${formatDate(
-                          selectedDataset.registration.coverage_end
-                        )}`
-                      : "—",
-                  ],
-                  [
-                    "记录数",
-                    selectedDataset.registration?.row_count != null
-                      ? String(selectedDataset.registration.row_count)
-                      : "—",
-                  ],
-                  [
-                    "文件大小",
-                    formatBytes(selectedDataset.registration?.bytes),
-                  ],
-                  [
-                    "最近获取",
-                    formatDate(
-                      selectedDataset.registration?.retrieved_at ??
-                        selectedDataset.registration?.registered_at
-                    ),
-                  ],
-                  ["存储路径", selectedDataset.registration?.data_path ?? "—"],
-                ]}
-              />
-              <DatasetPreview
-                datasetId={selectedDataset.id}
-                ingested={Boolean(selectedDataset.registration)}
-              />
+              {selectedDataset.query_mode !== "local_dataset" && (
+                <>
+                  <MetaGrid
+                    rows={[
+                      ["服务 ID", selectedDataset.id],
+                      ["查询类型", selectedDataset.query_mode.toUpperCase()],
+                      [
+                        "服务端点",
+                        <a
+                          key="endpoint"
+                          href={selectedDataset.authority_url}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="break-all text-[var(--brand)] hover:underline"
+                        >
+                          {selectedDataset.authority_url}
+                        </a>,
+                      ],
+                    ]}
+                  />
+                  {selectedDataset.enabled ? (
+                    <AstronomyQueryPanel source={selectedDataset} />
+                  ) : (
+                    <p className="border-t border-border/70 pt-3 text-xs text-muted-foreground">
+                      启用此数据源后可发起在线查询。
+                    </p>
+                  )}
+                </>
+              )}
+              {selectedDataset.query_mode === "local_dataset" && (
+                <>
+                  <MetaGrid
+                    rows={[
+                      ["数据集 ID", selectedDataset.id],
+                      [
+                        "权威地址",
+                        <a
+                          key="url"
+                          href={selectedDataset.authority_url}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="inline-flex items-center gap-1 text-[var(--brand)] underline-offset-2 hover:underline"
+                        >
+                          {selectedDataset.authority_url}
+                          <ExternalLink
+                            className="size-3"
+                            aria-hidden="true"
+                          />
+                        </a>,
+                      ],
+                      [
+                        "覆盖范围",
+                        selectedDataset.registration
+                          ? `${formatDate(
+                              selectedDataset.registration.coverage_start
+                            )} 至 ${formatDate(
+                              selectedDataset.registration.coverage_end
+                            )}`
+                          : "—",
+                      ],
+                      [
+                        "记录数",
+                        selectedDataset.registration?.row_count != null
+                          ? String(selectedDataset.registration.row_count)
+                          : "—",
+                      ],
+                      [
+                        "文件大小",
+                        formatBytes(selectedDataset.registration?.bytes),
+                      ],
+                      [
+                        "最近获取",
+                        formatDate(
+                          selectedDataset.registration?.retrieved_at ??
+                            selectedDataset.registration?.registered_at
+                        ),
+                      ],
+                      [
+                        "存储路径",
+                        selectedDataset.registration?.data_path ?? "—",
+                      ],
+                    ]}
+                  />
+                  <DatasetPreview
+                    datasetId={selectedDataset.id}
+                    ingested={Boolean(selectedDataset.registration)}
+                  />
+                </>
+              )}
             </div>
           ) : selectedFeed ? (
             <div className="space-y-4">
