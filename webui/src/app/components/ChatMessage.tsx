@@ -39,6 +39,7 @@ import {
 } from "@/app/utils/utils";
 import { cn } from "@/lib/utils";
 import { copyText } from "@/lib/clipboard";
+import { submitApprovalDecision } from "@/lib/approvalDecisions.js";
 import { toast } from "sonner";
 import { parseResearchTerminalMessage } from "@/lib/researchReviewTerminal";
 
@@ -62,7 +63,7 @@ interface ChatMessageProps {
   reviewConfigsMap?: Map<string, ReviewConfig>;
   ui?: any[];
   stream?: any;
-  onResumeInterrupt?: (value: any) => void;
+  onResumeInterrupt?: (value: any) => Promise<boolean>;
   graphId?: string;
   onEditMessage?: (content: string) => void;
   canEditMessage?: boolean;
@@ -287,34 +288,25 @@ export const ChatMessage = React.memo<ChatMessageProps>(
     }, [actionRequestsKey]);
 
     const handleResumeActionRequest = useCallback(
-      (actionIndex: number, value: any) => {
+      async (actionIndex: number, value: any) => {
         const decisions = value?.decisions;
         if (!Array.isArray(decisions) || !actionRequests?.length) {
-          onResumeInterrupt?.(value);
-          return;
+          return (await onResumeInterrupt?.(value)) ?? false;
         }
         if (
           actionRequests.length === 1 ||
           decisions.length === actionRequests.length
         ) {
-          onResumeInterrupt?.(value);
-          return;
+          return (await onResumeInterrupt?.(value)) ?? false;
         }
 
-        const decision = decisions[0];
-        const next = {
-          ...pendingReviewDecisionsRef.current,
-          [actionIndex]: decision,
-        };
-        pendingReviewDecisionsRef.current = next;
-
-        const allDecided = actionRequests.every((_, index) => next[index]);
-        if (!allDecided) return;
-
-        pendingReviewDecisionsRef.current = {};
-        onResumeInterrupt?.({
-          decisions: actionRequests.map((_, index) => next[index]),
-        });
+        return submitApprovalDecision(
+          pendingReviewDecisionsRef,
+          actionRequests.length,
+          actionIndex,
+          decisions[0],
+          async (batch) => (await onResumeInterrupt?.(batch)) ?? false
+        );
       },
       [actionRequests, onResumeInterrupt]
     );

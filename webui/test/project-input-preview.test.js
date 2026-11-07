@@ -314,3 +314,16 @@ test("GET previews/downloads verified bytes and PUT/DELETE cannot reach a projec
   assert.equal((await route.GET(new NextRequest(url))).status, 400);
   assert.equal(projectReads, 3, "short paths must not search the project");
 });
+
+
+test("document-relative file links resolve CSV and ZIP paths without leaving the workspace", async () => {
+  const { resolveWorkspaceLink, detectFileLink } = await loadTsModule("../src/lib/fileLink.ts");
+  const document = "outputs/delivery/README.md";
+  assert.equal(resolveWorkspaceLink("package/table.csv", document).path, "outputs/delivery/package/table.csv");
+  assert.equal(resolveWorkspaceLink("../delivery.zip?download=1#file", document).path, "outputs/delivery.zip");
+  assert.equal(resolveWorkspaceLink("/outputs/delivery.zip", document).path, "outputs/delivery.zip");
+  assert.equal(detectFileLink("outputs/delivery.zip").kind, "workspace");
+  for (const href of ["../../../outside.csv", "%2e%2e/%2e%2e/%2e%2e/outside.csv", "https://example.test/table.csv", "//example.test/table.csv", "#heading", "%invalid", "bad\\path.csv", "%00.csv"]) {
+    assert.equal(resolveWorkspaceLink(href, document), null, href);
+  }
+});

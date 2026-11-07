@@ -13,6 +13,7 @@ import { MermaidDiagram } from "./MermaidDiagram";
 import { GenuiFence, isDshUiLanguageTag } from "./GenuiFence";
 import {
   detectFileLink,
+  resolveWorkspaceLink,
   dispatchFileLink,
   FILE_LINK_HREF_PREFIX,
   rehypePathLinks,
@@ -20,6 +21,8 @@ import {
 
 interface MarkdownContentProps {
   content: string;
+  /** Workspace path of a previewed document; chat messages omit this. */
+  workspaceDocumentPath?: string;
   className?: string;
   /** When true, defer expensive renders (e.g. mermaid) until streaming ends. */
   isStreaming?: boolean;
@@ -30,6 +33,8 @@ interface MarkdownContentProps {
   /** Stable fence slot identity for GenUI state keys (message id + index). */
   genuiFenceKey?: string | number;
 }
+
+const FileLinkLabelContext = React.createContext(false);
 
 const sanitizeSchema = {
   ...defaultSchema,
@@ -45,6 +50,7 @@ const sanitizeSchema = {
 export const MarkdownContent = React.memo<MarkdownContentProps>(
   ({
     content,
+    workspaceDocumentPath,
     className = "",
     isStreaming = false,
     allowHorizontalOverflow = false,
@@ -68,7 +74,7 @@ export const MarkdownContent = React.memo<MarkdownContentProps>(
             [rehypeKatex, { throwOnError: false, strict: false }],
           ]}
           components={{
-            code({
+            code: function MarkdownCode({
               className,
               children,
               ...props
@@ -76,6 +82,7 @@ export const MarkdownContent = React.memo<MarkdownContentProps>(
               className?: string;
               children?: React.ReactNode;
             }) {
+              const isLinkLabel = React.useContext(FileLinkLabelContext);
               const match = /language-([\w-]+)/.exec(className || "");
               const raw = String(children);
               // Fenced blocks always end with \n; inline code does not. Use
@@ -115,7 +122,7 @@ export const MarkdownContent = React.memo<MarkdownContentProps>(
               // Inline code that names a workspace or memory file becomes a
               // click-to-open link. ChatInterface (or any ancestor) listens
               // for `jw:open-file` and routes to the right dialog.
-              const link = !isBlock ? detectFileLink(code) : null;
+              const link = !isBlock && !isLinkLabel ? detectFileLink(code) : null;
               if (link) {
                 return (
                   <button
@@ -164,7 +171,7 @@ export const MarkdownContent = React.memo<MarkdownContentProps>(
                 }
                 const link = detectFileLink(raw);
                 if (!link) {
-                  return <span>{children}</span>;
+                  return <span><FileLinkLabelContext.Provider value={true}>{children}</FileLinkLabelContext.Provider></span>;
                 }
                 return (
                   <button
@@ -173,7 +180,22 @@ export const MarkdownContent = React.memo<MarkdownContentProps>(
                     title={`打开 ${link.display}`}
                     className="text-primary underline underline-offset-2 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                   >
-                    {children}
+                    <FileLinkLabelContext.Provider value={true}>{children}</FileLinkLabelContext.Provider>
+                  </button>
+                );
+              }
+              const relativeFile = href && workspaceDocumentPath
+                ? resolveWorkspaceLink(href, workspaceDocumentPath)
+                : null;
+              if (relativeFile) {
+                return (
+                  <button
+                    type="button"
+                    onClick={() => dispatchFileLink(relativeFile)}
+                    title={`打开 ${relativeFile.display}`}
+                    className="text-primary underline underline-offset-2 hover:text-foreground"
+                  >
+                    <FileLinkLabelContext.Provider value={true}>{children}</FileLinkLabelContext.Provider>
                   </button>
                 );
               }
@@ -184,7 +206,7 @@ export const MarkdownContent = React.memo<MarkdownContentProps>(
                   rel="noopener noreferrer"
                   className="text-primary no-underline hover:underline"
                 >
-                  {children}
+                  <FileLinkLabelContext.Provider value={true}>{children}</FileLinkLabelContext.Provider>
                 </a>
               );
             },
