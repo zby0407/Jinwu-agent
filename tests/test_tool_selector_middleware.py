@@ -13,6 +13,127 @@ from jw.middleware.tool_selector import (
 )
 
 
+def _local_computation_request(*, specialist="none", computation=True, model=None):
+    from langchain_core.messages import HumanMessage
+
+    return ModelRequest(
+        model=model or MagicMock(),
+        messages=[
+            HumanMessage(
+                content="Edit local files and verify checksums", id="same-turn"
+            )
+        ],
+        tools=[
+            _tool("read_file"),
+            _tool("write_file"),
+            _tool("execute"),
+            _tool("other"),
+        ],
+        state={
+            "research_route": {
+                "mode": "verified_analysis",
+                "source_mode": "local",
+                "needs_computation": computation,
+                "required_specialist": specialist,
+            }
+        },
+    )
+
+
+def _narrow_selector_factory(required):
+    class Selector:
+        def wrap_model_call(self, request, handler):
+            return handler(
+                request.override(
+                    tools=[
+                        tool
+                        for tool in request.tools
+                        if tool.name in {"read_file", *required}
+                    ]
+                )
+            )
+
+        async def awrap_model_call(self, request, handler):
+            return await handler(
+                request.override(
+                    tools=[
+                        tool
+                        for tool in request.tools
+                        if tool.name in {"read_file", *required}
+                    ]
+                )
+            )
+
+    return Selector()
+
+
+def test_local_computation_keeps_execution_after_selection_and_cache(monkeypatch):
+    import jw.middleware.tool_selector as module
+
+    monkeypatch.setattr(
+        module, "get_config", lambda: {"configurable": {"thread_id": "local-task"}}
+    )
+    condition = _ConditionalToolSelectorMiddleware(
+        _narrow_selector_factory, threshold=0
+    )
+    request = _local_computation_request()
+    seen = []
+    for _ in range(2):
+        condition.wrap_model_call(
+            request, lambda r: seen.append({t.name for t in r.tools})
+        )
+    assert seen == [{"read_file", "write_file", "execute"}] * 2
+    assert "other" not in seen[0]
+
+
+def test_route_change_does_not_reuse_read_only_selection(monkeypatch):
+    import jw.middleware.tool_selector as module
+
+    monkeypatch.setattr(
+        module, "get_config", lambda: {"configurable": {"thread_id": "local-task"}}
+    )
+    condition = _ConditionalToolSelectorMiddleware(
+        _narrow_selector_factory, threshold=0
+    )
+    request = _local_computation_request(computation=False)
+    seen = []
+    condition.wrap_model_call(request, lambda r: seen.append({t.name for t in r.tools}))
+    route = {**request.state["research_route"], "needs_computation": True}
+    condition.wrap_model_call(
+        request.override(state={"research_route": route}),
+        lambda r: seen.append({t.name for t in r.tools}),
+    )
+    assert seen[0] == {"read_file"}
+    assert seen[1] == {"read_file", "write_file", "execute"}
+
+
+def test_specialist_route_does_not_gain_general_execution():
+    condition = _ConditionalToolSelectorMiddleware(
+        _narrow_selector_factory, threshold=0
+    )
+    seen = []
+    condition.wrap_model_call(
+        _local_computation_request(specialist="scientific-data"),
+        lambda r: seen.append({t.name for t in r.tools}),
+    )
+    assert seen == [{"read_file"}]
+
+
+def test_async_selection_keeps_required_local_runtime():
+    import asyncio
+
+    condition = _ConditionalToolSelectorMiddleware(
+        _narrow_selector_factory, threshold=0
+    )
+    seen = []
+
+    async def handler(request):
+        seen.append({t.name for t in request.tools})
+
+    asyncio.run(condition.awrap_model_call(_local_computation_request(), handler))
+    assert seen == [{"read_file", "write_file", "execute"}]
+
+
 def _tool(name: str) -> BaseTool:
     def _func(value: str = "") -> str:
         return value

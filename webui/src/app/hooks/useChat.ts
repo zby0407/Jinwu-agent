@@ -47,8 +47,11 @@ import {
 } from "@/lib/runRecovery.js";
 import { setThreadModelOverride } from "@/app/hooks/useThreads";
 import { bindThreadWorkspace } from "@/lib/workspaceBinding.js";
+import { mergeStoppedMessages } from "@/lib/stoppedMessages.js";
+import { continuedTaskTurn } from "@/lib/taskTurn.js";
 
 export type StateType = {
+  task_turn_started_at_ms?: number;
   messages: Message[];
   todos: TodoItem[];
   files: Record<string, string>;
@@ -95,6 +98,9 @@ function projectWebUiState(values: StateType | null | undefined): StateType {
   // after a run has started.
   const source = values ?? ({} as Partial<StateType>);
   return {
+    ...(source.task_turn_started_at_ms !== undefined
+      ? { task_turn_started_at_ms: source.task_turn_started_at_ms }
+      : {}),
     messages: Array.isArray(source.messages) ? source.messages : [],
     todos: Array.isArray(source.todos) ? source.todos : [],
     files: source.files && typeof source.files === "object" ? source.files : {},
@@ -541,6 +547,7 @@ export function useChat({
     run_id: string;
     thread_id: string;
   } | null>(null);
+  const approvalAttemptRef = useRef<{ threadId: string; interrupt: any; failed: boolean } | null>(null);
   const streamStopRef = useRef<(() => Promise<void>) | null>(null);
   const stoppedMessagesRef = useRef<{
     threadId: string;
@@ -617,6 +624,14 @@ export function useChat({
       onHistoryRevalidate?.();
     },
     onError: (error, run) => {
+      const approval = approvalAttemptRef.current;
+      if (!run && approval?.threadId === threadId) {
+        approval.failed = true;
+        setResolvedInterruptKey(null);
+        setFetchedInterrupt(approval.interrupt);
+        setFetchedThreadId(threadId);
+        setServerPending(false);
+      }
       if (run && run.thread_id === threadId) setFailure({ message: formatStreamError(error), error, run, recoverable: isRecoverableProviderError(error) });
       if (!run || activeRunRef.current?.run_id === run.run_id) {
         activeRunRef.current = null;
@@ -1162,8 +1177,8 @@ export function useChat({
         configurable.model_provider = modelOverride.model_provider;
       }
     }
-    return { ...base, configurable };
-  }, [activeAssistant?.config, modelOverride]);
+    return continuedTaskTurn({ ...base, configurable }, stream.values.task_turn_started_at_ms);
+  }, [activeAssistant?.config, modelOverride, stream.values.task_turn_started_at_ms]);
 
   const persistPendingRecovery = useCallback(
     (
@@ -1479,8 +1494,10 @@ export function useChat({
           }
         }
 
+        const runConfig = buildRunConfig();
+        const taskTurnStartedAtMs = Date.now();
         stream.submit(
-          { messages: [newMessage] },
+          { messages: [newMessage], task_turn_started_at_ms: taskTurnStartedAtMs },
           {
             optimisticValues: (prev) => ({
               messages: [
@@ -1494,7 +1511,10 @@ export function useChat({
             // server update would erase the optimistic copy. Pin this one turn
             // to the newly saved checkpoint instead.
             checkpoint: stoppedCheckpoint,
-            config: buildRunConfig(),
+            config: {
+              ...runConfig,
+              configurable: { ...runConfig.configurable, task_turn_started_at_ms: taskTurnStartedAtMs },
+            },
             metadata:
               threadId === null
                 ? {
@@ -1768,8 +1788,10 @@ export function useChat({
   );
 
   const resumeInterrupt = useCallback(
-    (value: any) => {
-      if (!runtime.canSend || stream.isLoading || serverPending) return;
+    async (value: any) => {
+      if (!runtime.canSend || stream.isLoading || serverPending || !threadId || approvalAttemptRef.current) return false;
+      const approval = { threadId, interrupt, failed: false };
+      approvalAttemptRef.current = approval;
       // Same as sendMessage: clear the prior snapshot before resuming so a stale
       // fetchedInterrupt/fetchedMessages can't briefly re-surface a resolved
       // approval card or shadow the resumed run's messages.
@@ -1785,7 +1807,11 @@ export function useChat({
       stopRequestedRef.current = false;
       setStopState("idle");
       recoveryRunRef.current += 1;
-      stream.submit(null, {
+      try {
+        await stream.submit(null, {
+        // Resume the current head, never the provisional history checkpoint.
+        // The SDK otherwise implicitly serializes checkpoint_id=null.
+        checkpoint: null,
         command: { resume: value },
         config: buildRunConfig(),
         streamSubgraphs: true,
@@ -1793,10 +1819,22 @@ export function useChat({
         streamResumable: true,
         onDisconnect: "continue",
       });
-      // Update thread list when resuming from interrupt
-      onHistoryRevalidate?.();
+        onHistoryRevalidate?.();
+        return !approval.failed;
+      } catch (error) {
+        if (approval.threadId === threadId) {
+          setResolvedInterruptKey(null);
+          setFetchedInterrupt(approval.interrupt);
+          setFetchedThreadId(threadId);
+          setServerPending(false);
+        }
+        toast.error(formatStreamError(error));
+        return false;
+      } finally {
+        if (approvalAttemptRef.current === approval) approvalAttemptRef.current = null;
+      }
     },
-    [stream, buildRunConfig, onHistoryRevalidate, interrupt, runtime.canSend, serverPending]
+    [stream, buildRunConfig, onHistoryRevalidate, interrupt, runtime.canSend, serverPending, threadId]
   );
 
   const stopStream = useCallback(async () => {
@@ -1851,9 +1889,11 @@ export function useChat({
           )
         );
 
-        if (stoppedMessages.length > 0) {
+        const durableState = await client.threads.getState<StateType>(threadId);
+        const mergedStoppedMessages = mergeStoppedMessages(durableState.values?.messages ?? [], stoppedMessages);
+        if (mergedStoppedMessages.length > 0) {
           await client.threads.updateState(threadId, {
-            values: { messages: stoppedMessages },
+            values: { messages: mergedStoppedMessages },
           });
           const savedState = await client.threads.getState<StateType>(threadId);
           if (savedState.checkpoint) {
@@ -1863,22 +1903,19 @@ export function useChat({
           }
           stoppedMessagesRef.current = {
             threadId,
-            messages: stoppedMessages,
+            messages: mergedStoppedMessages,
           };
           setFetchedThreadId(threadId);
-          setFetchedMessages(stoppedMessages);
+          setFetchedMessages(mergedStoppedMessages);
           setFetchedMessagesScope("branch");
         }
 
-        void fetch("/api/task-stop", {
+        const stopResponse = await fetch("/api/task-stop", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ threadId }),
-        }).catch(() => {
-          // Parent cancellation and partial-message persistence already
-          // succeeded. This route only propagates the stop to experiment
-          // subprocesses and contract sub-agents.
         });
+        if (!stopResponse.ok) throw new Error("任务已停止，但取消状态保存失败。请检查服务后再继续。");
       }
     } catch (error) {
       toast.error(

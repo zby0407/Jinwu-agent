@@ -30,7 +30,9 @@ import os
 import re
 import shutil
 import sqlite3
+import tempfile
 import threading
+import time
 from collections.abc import Mapping, Sequence
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
@@ -188,12 +190,29 @@ def _run_id(thread_id: str) -> str:
 
 def _atomic_write_json(path: Path, payload: Mapping[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    temp = path.with_name(f".{path.name}.{os.getpid()}.tmp")
-    temp.write_text(
-        json.dumps(dict(payload), ensure_ascii=False, indent=2, sort_keys=True) + "\n",
-        encoding="utf-8",
+    # Checkpoint reads and running tools can refresh this metadata concurrently
+    # within one process. A PID alone is not a unique temporary filename.
+    fd, filename = tempfile.mkstemp(
+        prefix=f".{path.name}.", suffix=".tmp", dir=path.parent
     )
-    os.replace(temp, path)
+    temp = Path(filename)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as stream:
+            stream.write(
+                json.dumps(dict(payload), ensure_ascii=False, indent=2, sort_keys=True)
+                + "\n"
+            )
+        for attempt in range(5):
+            try:
+                os.replace(temp, path)
+                break
+            except PermissionError:
+                # Windows readers can briefly hold the destination open.
+                if attempt == 4:
+                    raise
+                time.sleep(0.01 * (attempt + 1))
+    finally:
+        temp.unlink(missing_ok=True)
 
 
 @dataclass(frozen=True, slots=True)

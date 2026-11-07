@@ -1331,7 +1331,7 @@ def _get_default_middleware(
         )
     mw.extend(
         [
-            *([TaskCancellationMiddleware()] if for_async_subagent else []),
+            TaskCancellationMiddleware(),
             *(
                 [AutomaticExperimentTerminalGuardMiddleware()]
                 if for_async_subagent and memory_source_agent == "solar-experiment"

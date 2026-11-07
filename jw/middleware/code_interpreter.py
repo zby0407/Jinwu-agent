@@ -50,7 +50,23 @@ class JWCodeInterpreterMiddleware(CodeInterpreterMiddleware):
     """Code interpreter middleware with JW's memory preflight hint."""
 
     def _prepare_for_call(self, request: ModelRequest) -> str:
-        return super()._prepare_for_call(request) + _MEMORY_FIRST_INTERPRETER_PROMPT
+        prompt = super()._prepare_for_call(request) + _MEMORY_FIRST_INTERPRETER_PROMPT
+        direct = sorted(
+            tool.name
+            for tool in request.tools
+            if getattr(tool, "name", None) in {"execute", "write_file", "edit_file"}
+        )
+        if direct:
+            prompt += (
+                "\nThe eval tools.* namespace intentionally exposes only read-only "
+                "batch helpers. Object.keys(tools) is NOT the full agent tool menu. "
+                "Side-effectful tools available as SEPARATE top-level tool calls: "
+                + ", ".join(direct)
+                + ". Call them directly, never as tools.execute/tools.writeFile "
+                "inside eval. An undefined eval bridge does not mean the separate "
+                "tool is unavailable. Shell execution must retain its normal approval."
+            )
+        return prompt
 
 
 # Read-only, batchable tools that benefit from being callable inside JS.

@@ -62,6 +62,7 @@ OBSERVATION_COLUMNS = (
     "source_ids",
     "source_count",
     "provenance",
+    "attributes_json",
 )
 
 _ISSUE_COLUMNS = (
@@ -110,6 +111,8 @@ _MAPPING_COLUMNS = (
     "source_unit",
     "transformation",
     "evidence",
+    "time_system",
+    "reference_mjd",
 )
 
 _FIGURE_COLUMNS = (
@@ -178,10 +181,14 @@ def write_package(
 
     result = PackageResult(directory=str(root))
     records = _sorted_records(ledger.records)
+    attribute_columns = tuple(
+        f"attribute:{name}"
+        for name in sorted({name for record in records for name in record.attributes})
+    )
 
     result.files["observations"] = _write_csv(
         root / "integrated_observations.csv",
-        OBSERVATION_COLUMNS,
+        (*OBSERVATION_COLUMNS, *attribute_columns),
         (_observation_row(record) for record in records),
     )
     result.files["sources"] = _write_csv(
@@ -321,6 +328,10 @@ def _observation_row(record: ObservationRecord) -> dict[str, Any]:
         "source_ids": " | ".join(record.source_ids),
         "source_count": len(record.source_ids),
         "provenance": _locator_summary(reference.locator) if reference else "",
+        "attributes_json": json.dumps(
+            dict(record.attributes), ensure_ascii=False, sort_keys=True
+        ),
+        **{f"attribute:{name}": value for name, value in record.attributes.items()},
     }
 
 
@@ -335,12 +346,23 @@ def _provenance_rows(records: Sequence[ObservationRecord]) -> Iterable[dict[str,
             "value_raw": record.value_raw,
             "value_kind": str(record.value_kind),
             "source_ids": list(record.source_ids),
+            "attributes": dict(record.attributes),
             "provenance": [item.to_dict() for item in record.provenance],
         }
 
 
 def _locator_summary(locator: Mapping[str, Any]) -> str:
-    keys = ("path", "line_start", "line_end", "header_row", "figure_id", "series")
+    keys = (
+        "path",
+        "table_id",
+        "row_index",
+        "column",
+        "line_start",
+        "line_end",
+        "header_row",
+        "figure_id",
+        "series",
+    )
     parts = [
         f"{key}={locator[key]}" for key in keys if locator.get(key) not in (None, "")
     ]
@@ -390,6 +412,8 @@ def _mapping_rows(ledger: IntegrationLedger) -> Iterable[dict[str, Any]]:
             "source_unit": mapping.source_unit,
             "transformation": mapping.transformation,
             "evidence": mapping.evidence,
+            "time_system": mapping.time_system,
+            "reference_mjd": mapping.reference_mjd,
         }
 
 

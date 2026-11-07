@@ -29,6 +29,7 @@ from .domain import (
     confidence_from_score,
     detect_unit_in_values,
     normalise_identifier,
+    plugin_for_contract,
     slug,
     strip_unit_from_header,
     unit_from_header,
@@ -417,6 +418,7 @@ def propose_mappings(
     plugin: DomainPlugin,
 ) -> tuple[MappingProposal, ...]:
     """Best canonical field for each column, with the runner-up recorded."""
+    plugin = plugin_for_contract(contract, plugin)
     specs = _quantities(plugin, contract)
     proposals: list[MappingProposal] = []
     for profile in column_profiles(table):
@@ -612,6 +614,7 @@ def map_table(
     the closest field name, and a near-tie between two fields is escalated to a
     human decision rather than resolved by argument order.
     """
+    plugin = plugin_for_contract(contract, plugin)
     mappings: list[FieldMapping] = []
     issues: list[QualityIssue] = []
     proposals = list(propose_mappings(table, contract=contract, plugin=plugin))
@@ -783,6 +786,9 @@ def map_table(
         if proposal.ambiguous:
             confidence = ConfidenceBand.LOW
         mapping_id = f"map:{table.table_id}:{slug(proposal.column)}"
+        decision = overrides_by_column.get(proposal.column, {})
+        spec = plugin.observable(proposal.observable)
+        is_time = spec is not None and spec.kind == "time"
         mappings.append(
             FieldMapping(
                 mapping_id=mapping_id,
@@ -796,6 +802,18 @@ def map_table(
                 confidence=confidence,
                 evidence="; ".join(proposal.reasons),
                 applied=accepted,
+                time_system=(
+                    str(decision.get("time_system") or contract.time_system)
+                    if is_time
+                    else ""
+                ),
+                reference_mjd=(
+                    float(decision["reference_mjd"])
+                    if is_time and decision.get("reference_mjd") is not None
+                    else contract.reference_mjd
+                    if is_time
+                    else None
+                ),
             )
         )
         if proposal.ambiguous:

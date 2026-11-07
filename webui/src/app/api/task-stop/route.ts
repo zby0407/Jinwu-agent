@@ -86,6 +86,7 @@ export async function POST(request: NextRequest) {
           schema_version: 1,
           thread_id: body.threadId,
           cancelled_at: new Date().toISOString(),
+          cancelled_at_epoch_ms: Date.now(),
         },
         null,
         2

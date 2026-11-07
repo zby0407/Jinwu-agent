@@ -9,6 +9,7 @@ import os
 import sqlite3
 from pathlib import Path
 from types import SimpleNamespace
+from concurrent.futures import ThreadPoolExecutor
 
 import pytest
 from langchain_core.messages import HumanMessage
@@ -34,6 +35,42 @@ def _is_relative_to(path: Path, root: Path) -> bool:
         return True
     except ValueError:
         return False
+
+
+def test_atomic_workspace_metadata_writers_do_not_share_temporary_files(tmp_path):
+    from jw.workspaces import _atomic_write_json
+
+    target = tmp_path / "context.json"
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        list(
+            pool.map(
+                lambda value: _atomic_write_json(target, {"value": value}), range(40)
+            )
+        )
+    assert json.loads(target.read_text(encoding="utf-8"))["value"] in range(40)
+    assert list(tmp_path.glob(".*.tmp")) == []
+
+
+def test_atomic_workspace_metadata_retries_transient_windows_reader(
+    tmp_path, monkeypatch
+):
+    from jw.workspaces import _atomic_write_json
+
+    target = tmp_path / "context.json"
+    replace = os.replace
+    attempts = []
+
+    def busy_once(source, destination):
+        attempts.append(source)
+        if len(attempts) == 1:
+            raise PermissionError("destination temporarily open")
+        replace(source, destination)
+
+    monkeypatch.setattr(os, "replace", busy_once)
+    _atomic_write_json(target, {"complete": True})
+    assert json.loads(target.read_text(encoding="utf-8")) == {"complete": True}
+    assert len(attempts) == 2
+    assert list(tmp_path.glob(".*.tmp")) == []
 
 
 def test_new_threads_get_stable_distinct_run_workspaces(tmp_path, monkeypatch):

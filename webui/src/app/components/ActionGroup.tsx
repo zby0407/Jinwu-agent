@@ -35,7 +35,7 @@ interface ActionGroupProps {
   onActionRequestSubmitted: (key: string) => void;
   reviewConfigsMap: Map<string, ReviewConfig> | null;
   stream: unknown;
-  onResumeInterrupt: (value: unknown) => void;
+  onResumeInterrupt: (value: unknown) => Promise<boolean>;
   graphId?: string;
   autoApprove: boolean;
   subAgentSteps: Record<string, SubAgentStep[]>;

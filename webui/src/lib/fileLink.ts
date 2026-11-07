@@ -10,6 +10,7 @@
 // listener that opens the right dialog/view.
 
 const KNOWN_EXTS = new Set<string>([
+  "zip",
   "md",
   "txt",
   "json",
@@ -87,6 +88,30 @@ export function detectFileLink(text: string): FileLink | null {
   // hidden-entry guard doesn't reject the `.` segment.
   const workspacePath = s.replace(/^\/+/, "").replace(/^\.\/+/, "");
   return { kind: "workspace", display: s, path: workspacePath };
+}
+
+/** Resolve document-relative file links within the current task workspace. */
+export function resolveWorkspaceLink(href: string, documentPath: string): FileLink | null {
+  if (!href || /^(?:[a-z][a-z0-9+.-]*:|\/\/|#)/i.test(href)) return null;
+  let decoded: string;
+  try {
+    decoded = decodeURIComponent(href.split(/[?#]/, 1)[0]);
+  } catch {
+    return null;
+  }
+  if (decoded.includes("\\") || decoded.includes("\0")) return null;
+  const rooted = decoded.startsWith("/") || /^(?:outputs|inputs|work|scientific_data|project)\//.test(decoded);
+  const base = rooted ? [] : documentPath.replace(/^\/+/, "").split("/").slice(0, -1);
+  for (const part of decoded.split("/")) {
+    if (!part || part === ".") continue;
+    if (part === "..") {
+      if (!base.length) return null;
+      base.pop();
+    } else {
+      base.push(part);
+    }
+  }
+  return detectFileLink("/" + base.join("/"));
 }
 
 export const FILE_LINK_EVENT = "jw:open-file";

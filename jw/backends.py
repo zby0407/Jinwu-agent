@@ -949,6 +949,45 @@ def _inline_code_executable_flag(executable: str) -> str | None:
     return None
 
 
+def _windows_source_command_error(command: str) -> str | None:
+    """Reject source forms cmd.exe can silently truncate instead of executing."""
+    if not _is_windows():
+        return None
+    source, root = _parse_shell(command)
+    for node in _walk_nodes(root):
+        if node.type.startswith("heredoc"):
+            return (
+                "[WINDOWS SHELL FORMAT] Bash heredocs are not executable by cmd.exe. "
+                "Use write_file to save the complete script under /work, then execute "
+                "python work/script.py (or the appropriate interpreter). "
+                "No command was executed."
+            )
+        if node.type != "command":
+            continue
+        name_node = node.child_by_field_name("name")
+        if name_node is None:
+            continue
+        name = _decoded_shell_word(source, name_node) or _node_text(source, name_node)
+        flag = _inline_code_executable_flag(
+            name.replace("\\", "/").removesuffix(".exe")
+        )
+        if flag is None:
+            continue
+        arguments = list(node.children_by_field_name("argument"))
+        for index, argument in enumerate(arguments[:-1]):
+            if _decoded_shell_word(source, argument) == flag:
+                text = _node_text(source, arguments[index + 1])
+                if "\n" in text or "\r" in text:
+                    return (
+                        "[WINDOWS SHELL FORMAT] Multiline inline interpreter source "
+                        "can return exit code 0 without running the intended body in "
+                        "cmd.exe. Use write_file to save the full script under /work, "
+                        "then execute the script file. No command was executed."
+                    )
+                break
+    return None
+
+
 def _inline_virtual_path(
     path: str,
     virtual_mounts: Mapping[str, Path] | None = None,
@@ -1217,10 +1256,22 @@ def _structured_artifact_manifest(
     after: dict[str, tuple[int, int, str | None]],
 ) -> str | None:
     """Render a bounded, machine-readable manifest for changed data artifacts."""
+
+    def content_changed(relative: str, signature: tuple[int, int, str | None]) -> bool:
+        previous = before.get(relative)
+        if previous is None:
+            return True
+        # Context preparation can rewrite identical JSON while a shell tool is
+        # running. A timestamp change is not a new data artifact when both
+        # bounded snapshots have the same content hash and byte count.
+        if previous[2] is not None and signature[2] is not None:
+            return previous[1:] != signature[1:]
+        return previous != signature
+
     changed = [
         relative
         for relative, signature in after.items()
-        if before.get(relative) != signature
+        if content_changed(relative, signature)
     ]
     if not changed:
         return None
@@ -1902,6 +1953,9 @@ def prepare_sandbox_command(
         return command, ssh_error
 
     command, ssh_replacements = _mask_ssh_remote_commands(command)
+    source_error = _windows_source_command_error(command)
+    if source_error:
+        return _restore_spans(command, ssh_replacements), source_error
     mounts = dict(read_only_mounts or {})
     mount_error = _validate_read_only_mount_command(command, mounts)
     if mount_error:

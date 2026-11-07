@@ -140,7 +140,7 @@ def resolve_provider_settings(
         return str(config_value or "").strip() or fallback
 
     providers_raw = pick(
-        env.get("JW_DATA_PROVIDERS", ""), "data_providers", " ".join(base.providers)
+        env.get("JW_DATA_PROVIDERS", ""), "data_providers", ",".join(base.providers)
     )
     providers = tuple(
         item.strip().lower()
@@ -528,7 +528,8 @@ def dataverse_search(
     data = payload.get("data") if isinstance(payload.get("data"), Mapping) else {}
     items = [item for item in (data.get("items") or ()) if isinstance(item, Mapping)]
     result = ProviderResult()
-    for index, item in enumerate(items):
+    listings = 0
+    for index, item in enumerate(items[:limit]):
         name = str(item.get("name") or "dataverse dataset").strip()
         persistent_id = str(item.get("global_id") or "").strip()
         landing = str(item.get("url") or "").strip()
@@ -550,6 +551,34 @@ def dataverse_search(
             else:
                 result.skipped.append(f"dataverse:{name} (no_url)")
             continue
+        if listings >= 2:
+            result.status = "partial"
+            result.detail = "Dataset file listing limited to two datasets per query; remaining landing pages are candidates only"
+            if landing:
+                result.hits.append(
+                    ProviderHit(
+                        url=landing,
+                        title=name,
+                        provider="dataverse",
+                        identifier=persistent_id,
+                        format_hint="html",
+                        role=SourceRole.CATALOG,
+                        trust=0.5,
+                        relevance=_rank(index),
+                        discovered_via="dataverse_search",
+                        notes=(
+                            "dataverse",
+                            "landing_page",
+                            "file_listing_deferred_budget",
+                        ),
+                    )
+                )
+            else:
+                result.skipped.append(
+                    f"dataverse:{persistent_id} (file_listing_deferred_budget)"
+                )
+            continue
+        listings += 1
         encoded = urllib.parse.quote(persistent_id, safe="")
         try:
             listing = _get_json(
