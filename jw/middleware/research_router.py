@@ -317,8 +317,8 @@ _CURRENT_OBSERVATION_HYPOTHESIS = re.compile(
 )
 _NEGATED_FULL_FALLBACK = re.compile(
     r"(?:"
-    r"(?:不要|无需|不需要|不必|不用|避免|跳过|禁止)"
-    r"[^\n。.!?]{0,20}(?:完整研究|完整科研|科研闭环|端到端研究|系统(?:性)?研究|研究包)"
+    r"(?:不要|无需|不需要|不必|不用|避免|跳过|禁止|不(?:启动|执行|做|运行|开展|恢复|继续))"
+    r"[^，,\n。.!?]{0,20}(?:完整研究|完整科研|科研闭环|研究闭环|端到端研究|系统(?:性)?研究|研究包)"
     r"|(?:no|not|without|skip|avoid|don't|do not)"
     r"(?:\s+[\w'-]+){0,5}\s+(?:full|end-to-end)\s+research"
     r")",
@@ -459,6 +459,7 @@ def _is_research_continuation_request(text: str) -> bool:
     return bool(
         _RESEARCH_CONTINUATION_ACTION.search(text)
         and _RESEARCH_CONTINUATION_CONTEXT.search(text)
+        and not _NEGATED_FULL_FALLBACK.search(text)
     )
 
 
