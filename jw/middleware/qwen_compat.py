@@ -31,6 +31,7 @@ from langchain_core.messages import AIMessage, BaseMessage, ToolMessage
 from langchain_core.tools import BaseTool
 
 from ..llm.models import _dashscope_request_timeout
+from ..provider_diagnostics import LocalModelTimeoutError
 from .configurable_model import _read_model_override
 
 QWEN_TOOL_USE_PROMPT = """<qwen_tool_contract>
@@ -3177,14 +3178,19 @@ class QwenToolCompatibilityMiddleware(AgentMiddleware):
             return await handler(prepared)
         timeout_s = _dashscope_request_timeout()
         try:
-            return await asyncio.wait_for(handler(prepared), timeout=timeout_s)
-        except TimeoutError:
+            async with asyncio.timeout(timeout_s) as deadline:
+                return await handler(prepared)
+        except TimeoutError as exc:
+            if not deadline.expired():
+                raise
             _logger.warning(
                 "[jw.middleware.qwen_compat] Qwen model request exceeded the "
                 "%.0f-second total wall-clock timeout",
                 timeout_s,
             )
-            raise
+            raise LocalModelTimeoutError(
+                f"Local model request wall-clock deadline expired ({timeout_s:g}s)"
+            ) from exc
 
 
 __all__ = [

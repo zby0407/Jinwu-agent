@@ -22,7 +22,7 @@ from __future__ import annotations
 
 import re
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any
 
 from .contracts import (
@@ -399,9 +399,26 @@ def list_plugins() -> tuple[str, ...]:
     return tuple(sorted(_PLUGINS))
 
 
-def plugin_for_contract(contract: Any) -> DomainPlugin:
-    """Resolve the plugin a :class:`DataRequirementContract` selects."""
-    return get_plugin(getattr(contract, "domain_plugin", "generic"))
+def plugin_for_contract(
+    contract: Any, plugin: DomainPlugin | None = None
+) -> DomainPlugin:
+    """Overlay request fields on a plugin without changing the registry.
+
+    All stages must see the same field kinds, aliases and canonical units,
+    including fields that only exist in this request.
+    """
+    base = plugin or get_plugin(getattr(contract, "domain_plugin", "generic"))
+    specs = {spec.name: spec for spec in base.observables}
+    for item in contract.observables:
+        known = specs.get(item.name) or ObservableSpec(name=item.name)
+        specs[item.name] = replace(
+            known,
+            kind=item.kind,
+            canonical_unit=item.unit or known.canonical_unit,
+            header_hints=tuple(dict.fromkeys((*known.header_hints, *item.aliases))),
+            required=item.required,
+        )
+    return replace(base, observables=tuple(specs.values()))
 
 
 # ---------------------------------------------------------------------------

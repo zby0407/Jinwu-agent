@@ -1,7 +1,6 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { flushSync } from "react-dom";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { AlertCircle, Check, X, Pencil } from "lucide-react";
@@ -12,7 +11,7 @@ import { stringifyUnknown } from "@/app/utils/utils";
 interface ToolApprovalInterruptProps {
   actionRequest: ActionRequest;
   reviewConfig?: ReviewConfig;
-  onResume: (value: any) => void;
+  onResume: (value: any) => Promise<boolean>;
   isLoading?: boolean;
   onSubmitted?: () => void;
 }
@@ -46,7 +45,8 @@ export function ToolApprovalInterrupt({
   const [isEditing, setIsEditing] = useState(false);
   const [editedArgs, setEditedArgs] = useState<Record<string, unknown>>({});
   const [showRejectionInput, setShowRejectionInput] = useState(false);
-  const [submitted, setSubmitted] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const busy = submitting || isLoading;
 
   const actionArgs = useMemo(
     () => argsToRecord(actionRequest.args),
@@ -55,14 +55,14 @@ export function ToolApprovalInterrupt({
   const allowedDecisions = reviewConfig?.allowedDecisions ??
     reviewConfig?.allowed_decisions ?? ["approve", "reject", "edit"];
 
-  const submitDecision = (value: any) => {
-    flushSync(() => {
-      setSubmitted(true);
-      if (onSubmitted) {
-        onSubmitted();
-      }
-    });
-    onResume(value);
+  const submitDecision = async (value: any) => {
+    if (submitting) return;
+    setSubmitting(true);
+    try {
+      if (await onResume(value)) onSubmitted?.();
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   const handleApprove = () => {
@@ -138,10 +138,6 @@ export function ToolApprovalInterrupt({
     }
   };
 
-  if (submitted) {
-    return null;
-  }
-
   return (
     <div className="w-full rounded-md border border-border bg-muted/30 p-4">
       {/* Header */}
@@ -200,7 +196,7 @@ export function ToolApprovalInterrupt({
                     rows={
                       typeof value === "string" && value.length < 100 ? 2 : 4
                     }
-                    disabled={isLoading}
+                    disabled={busy}
                   />
                 </div>
               ))}
@@ -230,7 +226,7 @@ export function ToolApprovalInterrupt({
             placeholder="请说明拒绝此操作的原因…"
             className="text-sm"
             rows={2}
-            disabled={isLoading}
+            disabled={busy}
           />
         </div>
       )}
@@ -244,7 +240,7 @@ export function ToolApprovalInterrupt({
               variant="outline"
               size="sm"
               onClick={cancelEditing}
-              disabled={isLoading}
+              disabled={busy}
             >
               取消
             </Button>
@@ -252,14 +248,14 @@ export function ToolApprovalInterrupt({
               type="button"
               size="sm"
               onClick={handleEdit}
-              disabled={isLoading}
+              disabled={busy}
               className="bg-green-600 text-white hover:bg-green-700 dark:bg-green-600 dark:hover:bg-green-700"
             >
               <Check
                 size={14}
                 aria-hidden="true"
               />
-              {isLoading ? "正在保存…" : "保存并批准"}
+              {submitting ? "正在保存…" : "保存并批准"}
             </Button>
           </>
         ) : showRejectionInput ? (
@@ -272,7 +268,7 @@ export function ToolApprovalInterrupt({
                 setShowRejectionInput(false);
                 setRejectionMessage("");
               }}
-              disabled={isLoading}
+              disabled={busy}
             >
               取消
             </Button>
@@ -281,9 +277,9 @@ export function ToolApprovalInterrupt({
               variant="destructive"
               size="sm"
               onClick={handleRejectConfirm}
-              disabled={isLoading}
+              disabled={busy}
             >
-              {isLoading ? "正在拒绝…" : "确认拒绝"}
+              {submitting ? "正在拒绝…" : "确认拒绝"}
             </Button>
           </>
         ) : (
@@ -294,7 +290,7 @@ export function ToolApprovalInterrupt({
                 variant="outline"
                 size="sm"
                 onClick={handleReject}
-                disabled={isLoading}
+                disabled={busy}
                 className="text-destructive hover:bg-destructive/10"
               >
                 <X
@@ -310,7 +306,7 @@ export function ToolApprovalInterrupt({
                 variant="outline"
                 size="sm"
                 onClick={startEditing}
-                disabled={isLoading}
+                disabled={busy}
               >
                 <Pencil
                   size={14}
@@ -324,7 +320,7 @@ export function ToolApprovalInterrupt({
                 type="button"
                 size="sm"
                 onClick={handleApprove}
-                disabled={isLoading}
+                disabled={busy}
                 className={cn(
                   "bg-green-600 text-white hover:bg-green-700",
                   "dark:bg-green-600 dark:hover:bg-green-700"
@@ -334,7 +330,7 @@ export function ToolApprovalInterrupt({
                   size={14}
                   aria-hidden="true"
                 />
-                {isLoading ? "正在批准…" : "批准"}
+                {submitting ? "正在批准…" : "批准"}
               </Button>
             )}
           </>

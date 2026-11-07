@@ -24,7 +24,7 @@ import json
 import logging
 import threading
 from collections import OrderedDict
-from collections.abc import Awaitable, Callable, Iterable
+from collections.abc import Awaitable, Callable, Iterable, Mapping
 from typing import Any
 
 from langchain.agents.middleware.types import (
@@ -38,6 +38,8 @@ from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import HumanMessage
 from langchain_core.tools import BaseTool
 from langgraph.config import get_config
+
+from jw.scientific_data.handoff import delegation_state
 
 logger = logging.getLogger(__name__)
 
@@ -113,12 +115,56 @@ class _ConditionalToolSelectorMiddleware(AgentMiddleware):
         )
 
     def _build_selector(self, request: ModelRequest) -> AgentMiddleware:
-        names = _available_always_include(request.tools, self._always_include)
+        names = self._required_names(request)
         with self._cache_lock:
             if self._selector is None or names != self._selector_names:
                 self._selector = self._selector_factory(names)
                 self._selector_names = names
             return self._selector
+
+    def _required_names(self, request: ModelRequest) -> list[str]:
+        required = self._always_include
+        state = getattr(request, "state", None)
+        route = state.get("research_route", {}) if isinstance(state, Mapping) else {}
+        if (
+            isinstance(route, Mapping)
+            and route.get("mode") == "verified_analysis"
+            and route.get("source_mode") == "local"
+            and route.get("needs_computation") is True
+            and route.get("required_specialist", "none") == "none"
+        ):
+            # Selection narrows an already-authorized menu. It must not remove
+            # the runtime needed to carry out the persisted route's local work.
+            required = required | {"execute", "read_file", "write_file"}
+        if (
+            isinstance(route, Mapping)
+            and route.get("task_intent") == "data_integration"
+            and route.get("required_specialist") == "scientific-data"
+        ):
+            # A mixed-network task becomes local delivery after the specialist
+            # returns. Keep these tools even when reusing a pre-delegation
+            # selection; otherwise code-mode only exposes read-only functions.
+            messages = state.get("messages", request.messages)
+            _, reply = delegation_state(messages)
+            if reply is not None:
+                required = required | {"execute", "read_file", "write_file", "ls"}
+        return _available_always_include(request.tools, frozenset(required))
+
+    def _retain_required_tools(
+        self, original: ModelRequest, selected: ModelRequest
+    ) -> ModelRequest:
+        required = set(self._required_names(original))
+        present = {_tool_name(tool) for tool in selected.tools}
+        missing = [
+            tool for tool in original.tools if _tool_name(tool) in required - present
+        ]
+        if not missing:
+            return selected
+        logger.info(
+            "Retained route-required tools from authorized menu: %s",
+            [_tool_name(t) for t in missing],
+        )
+        return selected.override(tools=[*selected.tools, *missing])
 
     def _selection_key(self, request: ModelRequest) -> tuple | None:
         # The upstream selector sees only the last HumanMessage and the
@@ -141,6 +187,7 @@ class _ConditionalToolSelectorMiddleware(AgentMiddleware):
         inputs = [
             user.model_dump_json(),
             [(t.name, t.description) for t in request.tools if isinstance(t, BaseTool)],
+            self._required_names(request),
         ]
         digest = hashlib.sha256(
             json.dumps(inputs, ensure_ascii=False).encode()
@@ -160,12 +207,13 @@ class _ConditionalToolSelectorMiddleware(AgentMiddleware):
             names = entry[1]
         tools = {t.name: t for t in request.tools if isinstance(t, BaseTool)}
         # Rebind to this request's objects; provider dictionaries pass through.
-        return request.override(
+        selected = request.override(
             tools=[
                 *(tools[name] for name in names),
                 *(t for t in request.tools if isinstance(t, dict)),
             ]
         )
+        return self._retain_required_tools(request, selected)
 
     def _remember_selection(
         self, key: tuple | None, request: ModelRequest, selected: ModelRequest
@@ -205,6 +253,7 @@ class _ConditionalToolSelectorMiddleware(AgentMiddleware):
         def _handler_after_selection(req: ModelRequest) -> ModelResponse:
             nonlocal _handler_called
             _handler_called = True
+            req = self._retain_required_tools(request, req)
             self._remember_selection(key, request, req)
             if self._track_stream_selection:
                 global _selector_active
@@ -250,6 +299,7 @@ class _ConditionalToolSelectorMiddleware(AgentMiddleware):
         async def _handler_after_selection(req: ModelRequest) -> ModelResponse:
             nonlocal _handler_called
             _handler_called = True
+            req = self._retain_required_tools(request, req)
             self._remember_selection(key, request, req)
             if self._track_stream_selection:
                 global _selector_active
@@ -337,6 +387,10 @@ def create_tool_selector_middleware(
       model never auto-selects it (0/5 complex queries)
     - memory tools: referenced by memory prompts; filtering them makes the
       agent unable to use memory even when the prompt tells it to
+
+    A verified local main-agent route that requires computation also retains
+    available execute/read_file/write_file tools. This narrows the authorized
+    menu without dropping its required runtime; sandbox/HITL checks still apply.
     """
     from langchain.agents.middleware import LLMToolSelectorMiddleware
 

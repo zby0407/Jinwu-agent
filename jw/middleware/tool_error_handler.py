@@ -21,6 +21,8 @@ from langchain.agents.middleware.types import AgentMiddleware
 from langchain_core.messages import ToolMessage
 from langgraph.types import Command
 
+from ..provider_diagnostics import diagnose_provider_error
+
 # GraphInterrupt must propagate — never catch it as a tool error.
 try:
     from langgraph.errors import GraphInterrupt as _GraphInterrupt
@@ -84,13 +86,20 @@ def _build_error_message(request: ToolCallRequest) -> ToolMessage:
     exc = sys.exc_info()[1]
     summary = _safe_exception_summary(exc)
     fingerprint = hashlib.sha256(f"{tool_name}\0{summary}".encode()).hexdigest()
+    local_stop = (
+        exc is not None and diagnose_provider_error(exc)["code"] == "LOCAL_TIMEOUT"
+    )
+    retry_policy = (
+        "do not automatically retry; preserve receipts and await an explicit new turn"
+        if local_stop
+        else "one identical graph-level retry is allowed; after two identical failures stop"
+    )
     content = (
         "[TOOL ERROR CAPSULE]\n"
         f"fingerprint={fingerprint}\n"
         f"tool={tool_name}\n"
         f"error={summary}\n"
-        "retry_policy=one identical graph-level retry is allowed; after two "
-        "identical failures stop"
+        f"retry_policy={retry_policy}"
     )
     return ToolMessage(
         content=content,

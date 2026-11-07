@@ -76,6 +76,11 @@ def test_capabilities_explain_the_boundary(workspace):
     assert "duplicate_exact" in payload["auto_repair_codes"]
     assert "cross_source_conflict" not in payload["auto_repair_codes"]
     assert {item["name"] for item in payload["plugins"]} >= {"snia_light_curve"}
+    assert payload["astronomy_services"]
+    assert "sci_data_runs" in payload["resume_saved_work"]
+    assert "sci_data_inspect" in payload["source_discovery"]["original_reader"]
+    assert "host allowlist" in payload["network_default"]
+    assert "fixed official endpoints" in payload["network_default"]
 
 
 def test_contract_and_plan_are_inspectable(workspace):

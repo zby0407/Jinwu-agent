@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
+from ipaddress import ip_address
 from typing import Any
 from urllib.parse import urlsplit
 
@@ -99,6 +100,20 @@ class AcquisitionPolicy:
             return PolicyDecision(url, True, "local_file", host)
         if not self.allow_network:
             return PolicyDecision(url, False, "network_disabled", host)
+        parsed = urlsplit(url)
+        if parsed.username or parsed.password:
+            return PolicyDecision(url, False, "url_credentials_refused", host)
+        if host in {"localhost", "localhost.localdomain"} or host.endswith(
+            ".localhost"
+        ):
+            return PolicyDecision(url, False, "private_host_refused", host)
+        try:
+            if not ip_address(host).is_global:
+                return PolicyDecision(url, False, "private_host_refused", host)
+        except ValueError:
+            pass
+        if not self.allowed_hosts:
+            return PolicyDecision(url, False, "host_allowlist_empty", host)
         if self.allowed_hosts and not any(
             host == allowed or host.endswith(f".{allowed}")
             for allowed in self.allowed_hosts

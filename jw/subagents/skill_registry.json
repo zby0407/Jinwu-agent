@@ -160,7 +160,7 @@
       "find-skills",
       "jw-release-export-qa"
     ],
-    "scientific-data": [],
+    "scientific-data": ["scientific-data-discovery"],
     "research-influence": []
   },
   "adaptations": {

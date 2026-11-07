@@ -27,7 +27,7 @@ from .contracts import (
     ValueKind,
     default_repair_mode,
 )
-from .domain import DomainPlugin, plausibility_issue, slug
+from .domain import DomainPlugin, plausibility_issue, plugin_for_contract, slug
 from .entities import AliasClaim, EntityResolver, EntityRef, parse_coordinates
 from .semantics import map_table, select_overrides
 from .timescales import detect_time_system, to_time
@@ -204,7 +204,9 @@ def _plan(
     return _ColumnPlan(
         entity=entity,
         time=time_column,
-        time_system=detect_time_system(time_column.source_column)
+        time_system=(
+            time_column.time_system or detect_time_system(time_column.source_column)
+        )
         if time_column
         else "",
         values=tuple(values),
@@ -351,7 +353,12 @@ def _time_for(
     """Resolve a time cell to (canonical, system, flags)."""
     if not text:
         return "", plan.time_system, ("time_missing",)
-    resolution = to_time(text, time_system=plan.time_system, plugin=plugin)
+    resolution = to_time(
+        text,
+        time_system=plan.time_system,
+        plugin=plugin,
+        reference_mjd=plan.time.reference_mjd if plan.time else None,
+    )
     flags: list[str] = []
     if resolution.note:
         flags.append(f"time:{resolution.note}")
@@ -442,6 +449,7 @@ def align_tables(
     source_titles: Mapping[str, str] | None = None,
 ) -> AlignmentResult:
     """Build canonical observation records from every table that mapped."""
+    plugin = plugin_for_contract(contract, plugin)
     entities = resolver if resolver is not None else EntityResolver(plugin=plugin)
     keys = _merge_keys(contract, plugin)
     titles = source_titles or {}

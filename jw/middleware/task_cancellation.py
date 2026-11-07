@@ -7,6 +7,8 @@ from collections.abc import Awaitable, Callable
 from typing import TYPE_CHECKING, Any
 
 from langchain.agents.middleware.types import AgentMiddleware
+from langchain.agents import AgentState
+from typing import NotRequired
 from langchain_core.messages import ToolMessage
 from langgraph.types import Command
 
@@ -16,8 +18,15 @@ if TYPE_CHECKING:
     from langchain.agents.middleware.types import ToolCallRequest
 
 
-class TaskCancellationMiddleware(AgentMiddleware[Any, Any, Any]):
+class TaskCancellationState(AgentState):
+    # Durable identity of the explicit user turn, reused across approval runs.
+    task_turn_started_at_ms: NotRequired[float]
+
+
+class TaskCancellationMiddleware(AgentMiddleware[TaskCancellationState, Any, Any]):
     """Fail every new child tool call once the task cancellation marker exists."""
+
+    state_schema = TaskCancellationState
 
     @staticmethod
     def _blocked(request: ToolCallRequest) -> ToolMessage | None:

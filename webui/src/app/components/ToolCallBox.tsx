@@ -47,7 +47,7 @@ interface ToolCallBoxProps {
   actionRequestSubmitted?: boolean;
   onActionRequestSubmitted?: (key: string) => void;
   reviewConfig?: ReviewConfig;
-  onResume?: (value: any) => void;
+  onResume?: (value: any) => Promise<boolean>;
   isLoading?: boolean;
   autoApprove?: boolean;
   compact?: boolean;
@@ -249,6 +249,7 @@ export const ToolCallBox = React.memo<ToolCallBoxProps>(
               // Show tool approval UI when there's an action request but no GenUI
               <div className="mt-4">
                 <ToolApprovalInterrupt
+                  key={actionRequestKey}
                   actionRequest={actionRequest}
                   reviewConfig={reviewConfig}
                   onResume={onResume}

@@ -399,6 +399,8 @@ class DataRequirementContract:
     observables: tuple[ObservationField, ...] = ()
     identifier_fields: tuple[str, ...] = ()
     time_field: str = ""
+    time_system: str = ""  # explicit declaration; empty keeps existing detection
+    reference_mjd: float | None = None  # reference for relative seconds/days
     merge_keys: tuple[str, ...] = ()
     domain_plugin: str = "generic"
     accepted_roles: tuple[str, ...] = (
@@ -894,6 +896,8 @@ class FieldMapping:
     confidence: ConfidenceBand = ConfidenceBand.MEDIUM
     evidence: str = ""
     applied: bool = True
+    time_system: str = ""
+    reference_mjd: float | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return _jsonable(asdict(self))
@@ -914,6 +918,8 @@ class FieldMapping:
             ),
             evidence=str(raw.get("evidence") or ""),
             applied=bool(raw.get("applied", True)),
+            time_system=str(raw.get("time_system") or ""),
+            reference_mjd=_opt_float(raw.get("reference_mjd")),
         )
 
 

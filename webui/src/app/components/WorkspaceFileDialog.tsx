@@ -589,6 +589,7 @@ export const WorkspaceFileDialog = React.memo<{
                       <div className="rounded-md p-6">
                         <MarkdownContent
                           content={content}
+                          workspaceDocumentPath={path}
                           allowHorizontalOverflow
                         />
                       </div>

@@ -366,3 +366,20 @@ def test_env_settings_override_endpoints_and_provider_set():
     assert settings.zenodo_endpoint == "https://mirror.example/records"
     assert settings.mailto == "ops@example.org"
     assert settings.dataverse_endpoint == DataProviderSettings().dataverse_endpoint
+
+
+def test_default_settings_query_each_repository_instead_of_unknown_combined_name():
+    settings = resolve_provider_settings(environ={})
+    opener = FakeOpener(
+        {
+            settings.zenodo_endpoint: b'{"hits":{"hits":[]}}',
+            f"{settings.dataverse_endpoint}/api/search": b'{"data":{"items":[]}}',
+            settings.openalex_endpoint: b'{"results":[]}',
+        }
+    )
+    report = discover_data_sources(
+        contract(), allow_network=True, opener=opener, settings=settings
+    )
+    assert set(report.provider_status) == {"zenodo", "dataverse", "openalex"}
+    assert len(opener.calls) == 3
+    assert all(item["status"] == "ok" for item in report.provider_status.values())

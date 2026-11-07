@@ -66,6 +66,13 @@ from jw.research_protocols import (
 )
 from jw.research_review import ResearchDeliveryBlocked, store_from_config
 from jw.workspaces import workspace_root_from_config
+from jw.scientific_data.handoff import (
+    delegation_state,
+    persist_reply,
+    read_reply,
+    requested_report_path,
+    turn_messages,
+)
 
 from .closed_loop_orchestration import closed_loop_receipts
 from .utils import append_to_system_message, disable_thinking
@@ -181,7 +188,7 @@ _MODEL_CALL_BUDGET_STOP = re.compile(
     re.IGNORECASE,
 )
 
-_ROUTER_PROMPT = """You are the routing node for a solar-science research agent.
+_ROUTER_PROMPT = """You are the routing node for a scientific research assistant.
 Choose the smallest workflow that can truthfully satisfy the latest user request.
 
 Routes:
@@ -203,6 +210,14 @@ Professional intents:
   the solar-data research stage, which consumes already bound research inputs.
 - research_planning: produce or revise a bounded research plan.
 - data_preparation: inspect, clean, align, or feature-engineer a bounded dataset.
+  solar-data is only the producer stage for an already bound solar research
+  workflow. Cross-domain source acquisition/verification and report feedback
+  requiring new scientific verification remain scientific-data/data_integration. Use earlier
+  user context to resolve references, while the current request takes precedence;
+  pure copying/saving, path correction, formatting, or exact edits to an existing
+  text artifact using supplied editorial decisions are general, even when the
+  artifact discusses research. Do not re-delegate scientific research for such
+  mechanical file operations, and never route them to solar-data.
 - hypothesis_generation: generate or formulate scientific hypotheses.
 - hypothesis_comparison: compare, rank, or review competing hypotheses.
 - hypothesis_update: revise or update hypotheses using new evidence.
@@ -2452,7 +2467,9 @@ class ResearchRouterMiddleware(AgentMiddleware[ResearchRoutingState, Any, Any]):
         super().__init__()
         self._model = disable_thinking(model)
 
-    def _classifier_request(self, text: str) -> tuple[Any, list[dict[str, str]]]:
+    def _classifier_request(
+        self, text: str, context_text: str = ""
+    ) -> tuple[Any, list[dict[str, str]]]:
         """Use the provider's supported structured format for this auxiliary call."""
         base_url = str(
             getattr(self._model, "openai_api_base", None)
@@ -2479,14 +2496,26 @@ class ResearchRouterMiddleware(AgentMiddleware[ResearchRoutingState, Any, Any]):
         classifier = self._model.with_structured_output(_ROUTE_SCHEMA, **options)
         return classifier, [
             {"role": "system", "content": prompt},
-            {"role": "user", "content": routing_request_text(text)},
+            {
+                "role": "user",
+                "content": (
+                    (
+                        "Earlier user context (may be superseded):\n"
+                        + context_text[:12000]
+                        + "\nCurrent request takes precedence:\n"
+                    )
+                    if context_text
+                    else ""
+                )
+                + routing_request_text(text),
+            },
         ]
 
-    def _route_sync(self, text: str) -> dict[str, Any]:
+    def _route_sync(self, text: str, context_text: str = "") -> dict[str, Any]:
         if is_literature_only_request(text):
             return attach_harness_metadata(_with_analysis_protocol({}, text=text))
         try:
-            classifier, messages = self._classifier_request(text)
+            classifier, messages = self._classifier_request(text, context_text)
             response = classifier.invoke(messages)
         except Exception as exc:
             logger.warning(
@@ -2498,11 +2527,11 @@ class ResearchRouterMiddleware(AgentMiddleware[ResearchRoutingState, Any, Any]):
             route = _validated_route(response, fallback_text=text)
         return attach_harness_metadata(_with_analysis_protocol(route, text=text))
 
-    async def _route_async(self, text: str) -> dict[str, Any]:
+    async def _route_async(self, text: str, context_text: str = "") -> dict[str, Any]:
         if is_literature_only_request(text):
             return attach_harness_metadata(_with_analysis_protocol({}, text=text))
         try:
-            classifier, messages = self._classifier_request(text)
+            classifier, messages = self._classifier_request(text, context_text)
             response = await classifier.ainvoke(messages)
         except Exception as exc:
             logger.warning(
@@ -2547,7 +2576,14 @@ class ResearchRouterMiddleware(AgentMiddleware[ResearchRoutingState, Any, Any]):
             "research_route": (
                 attach_harness_metadata(continued)
                 if continued is not None
-                else self._route_sync(text)
+                else self._route_sync(
+                    text,
+                    "\n".join(
+                        _message_text(m)
+                        for m in messages[: latest[0]]
+                        if _message_role(m) in {"human", "user"}
+                    )[-12000:],
+                )
             ),
             "research_route_turn": key,
         }
@@ -2576,7 +2612,14 @@ class ResearchRouterMiddleware(AgentMiddleware[ResearchRoutingState, Any, Any]):
             "research_route": (
                 attach_harness_metadata(continued)
                 if continued is not None
-                else await self._route_async(text)
+                else await self._route_async(
+                    text,
+                    "\n".join(
+                        _message_text(m)
+                        for m in messages[: latest[0]]
+                        if _message_role(m) in {"human", "user"}
+                    )[-12000:],
+                )
             ),
             "research_route_turn": key,
         }
@@ -2591,31 +2634,36 @@ class ResearchRouterMiddleware(AgentMiddleware[ResearchRoutingState, Any, Any]):
         task_intent = route.get("task_intent", "general")
         required_specialist = route.get("required_specialist", "none")
         capability_id = route.get("capability_id", "analysis")
-        messages = list(request.messages)
+        messages = turn_messages(request)
         calls, successful_names = _calls_since_latest_human(messages)
         latest_human = _latest_human(messages)
         latest_text = _message_text(latest_human[1]) if latest_human else ""
         system_text = _message_text(request.system_message)
         if (
+            task_intent == "general"
+            and source_mode == "local"
+            and "execute" in successful_names
+        ):
+            request = request.override(
+                system_message=append_to_system_message(
+                    request.system_message,
+                    "For requests limited to local file delivery: once normal tool "
+                    "receipts confirm the requested report, copies and archive exist, "
+                    "return their paths and limitations immediately. Do not start a "
+                    "new scientific audit, memory audit, or repeated read/hash loop. "
+                    "The scientific artifact manifest is a filtered data-file list, "
+                    "not an exhaustive inventory of Markdown, images and archives; "
+                    "an omitted file is not evidence that a successful copy failed. "
+                    "If a requested deliverable is missing, complete that deliverable "
+                    "or report the actual failure instead of claiming success.",
+                )
+            )
+        if (
             task_intent == "data_integration"
             and required_specialist == "scientific-data"
         ):
-            delegated_ids = {
-                call.get("id")
-                for call in calls
-                if call.get("name") == "task"
-                and call.get("args", {}).get("subagent_type") == "scientific-data"
-            }
-            returned = any(
-                _message_role(message) == "tool"
-                and (
-                    message.get("tool_call_id")
-                    if isinstance(message, Mapping)
-                    else getattr(message, "tool_call_id", None)
-                )
-                in delegated_ids
-                for message in messages
-            )
+            delegated_ids, reply = delegation_state(messages)
+            returned = reply is not None
             instruction = (
                 "This is scientific data integration, not a solar research producer stage. "
                 "Call task with subagent_type='scientific-data' and pass the full user "
@@ -2631,15 +2679,32 @@ class ResearchRouterMiddleware(AgentMiddleware[ResearchRoutingState, Any, Any]):
                 instruction = (
                     "The scientific-data delegation has returned. Summarize its actual "
                     "files, counts, status and limitations. If it failed, report the "
-                    "failure; do not enter the solar research stages or claim completion."
+                    "failure; do not enter the solar research stages or claim completion. "
+                    "If the user requested a saved report, use write_file to persist "
+                    "that report from the actual returned evidence, preserving prior "
+                    "versions. Complete ALL user-requested local deliverables after "
+                    "saving the report, including any requested archive, copies and "
+                    "version notes. Use normal file/execute tools for mechanical delivery; "
+                    "do not rerun the specialist or scientific processing. A saved report "
+                    "alone is not completion. Verify requested files with actual tool "
+                    "receipts, or explicitly report missing deliverables and failures. "
+                    "Do not acquire, analyse, or invent additional evidence."
                 )
             task_tools = [tool for tool in request.tools if _tool_name(tool) == "task"]
+            report_tools = [
+                tool
+                for tool in request.tools
+                if _tool_name(tool)
+                in {"write_file", "read_file", "edit_file", "ls", "glob", "execute"}
+            ]
             return request.override(
                 system_message=append_to_system_message(
                     request.system_message, instruction
                 ),
-                tools=[] if returned else task_tools,
-                tool_choice="task" if task_tools and not returned else None,
+                tools=report_tools if returned else [] if delegated_ids else task_tools,
+                tool_choice="task"
+                if task_tools and not returned and not delegated_ids
+                else None,
             )
         literature_only = route.get(
             "literature_only"
@@ -3156,7 +3221,8 @@ class ResearchRouterMiddleware(AgentMiddleware[ResearchRoutingState, Any, Any]):
             return None
         if route.get("required_specialist") != "scientific-data":
             return None
-        calls, _ = _calls_since_latest_human(list(request.messages))
+        messages = turn_messages(request)
+        calls, _ = _calls_since_latest_human(messages)
         delegated_ids = {
             call.get("id")
             for call in calls
@@ -3164,16 +3230,96 @@ class ResearchRouterMiddleware(AgentMiddleware[ResearchRoutingState, Any, Any]):
             and call.get("args", {}).get("subagent_type") == "scientific-data"
         }
         if delegated_ids:
-            for message in reversed(request.messages):
+            for message in reversed(messages):
                 if (
                     not isinstance(message, ToolMessage)
                     or message.tool_call_id not in delegated_ids
                 ):
                     continue
+                text = _message_text(message)
                 try:
-                    receipt = json.loads(_message_text(message))
+                    receipt = json.loads(text)
                 except json.JSONDecodeError:
-                    return None
+                    receipt = {}
+                if not isinstance(receipt, dict):
+                    receipt = {}
+                if receipt.get("kind") == "scientific_data_handoff":
+                    workspace = workspace_root_from_config(_request_config(request))
+                    receipt, text = read_reply(workspace, receipt["receipt_path"])
+                    if receipt["status"] == "error":
+                        return ModelResponse(
+                            result=[
+                                AIMessage(
+                                    content=f"科学数据子任务未成功完成，真实失败回执已保留：{receipt['receipt_path']}。"
+                                )
+                            ]
+                        )
+                    try:
+                        nested = json.loads(text)
+                    except json.JSONDecodeError:
+                        nested = {}
+                    if not isinstance(nested, dict):
+                        nested = {}
+                    if nested.get("kind") == "solar_monthly_integration":
+                        return ModelResponse(
+                            result=[AIMessage(content=nested["summary"])]
+                        )
+                latest = _latest_human(messages)
+                target = (
+                    requested_report_path(_message_text(latest[1])) if latest else None
+                )
+                if (
+                    target
+                    and _available_tool(request.tools, ("write_file",)) is not None
+                ):
+                    writes = [
+                        c
+                        for c in calls
+                        if c.get("name") == "write_file"
+                        and str(c.get("id", "")).startswith("call_scientific_report_")
+                    ]
+                    if writes:
+                        # Saving a report does not fulfil remaining local deliverables.
+                        return None
+                    workspace = workspace_root_from_config(_request_config(request))
+                    actual = workspace / target
+                    if actual.exists():
+                        if actual.read_text(encoding="utf-8").rstrip() == text.rstrip():
+                            return None
+                        target_path = Path(target)
+                        target = str(
+                            target_path.with_name(
+                                target_path.stem
+                                + ".revision-"
+                                + hashlib.sha256(text.encode()).hexdigest()[:12]
+                                + target_path.suffix
+                            )
+                        ).replace("\\", "/")
+                    digest = hashlib.sha256(
+                        (
+                            str(message.tool_call_id)
+                            + target
+                            + (_turn_key(latest[1]) if latest else "")
+                        ).encode()
+                    ).hexdigest()[:16]
+                    return ModelResponse(
+                        result=[
+                            AIMessage(
+                                content="",
+                                tool_calls=[
+                                    {
+                                        "name": "write_file",
+                                        "args": {
+                                            "file_path": "/" + target,
+                                            "content": text,
+                                        },
+                                        "id": "call_scientific_report_" + digest,
+                                        "type": "tool_call",
+                                    }
+                                ],
+                            )
+                        ]
+                    )
                 if (
                     isinstance(receipt, dict)
                     and receipt.get("kind") == "solar_monthly_integration"
@@ -3184,9 +3330,24 @@ class ResearchRouterMiddleware(AgentMiddleware[ResearchRoutingState, Any, Any]):
             return ModelResponse(
                 result=[AIMessage(content="科学数据整合工具当前不可用，任务未执行。")]
             )
-        latest = _latest_human(list(request.messages))
+        latest = _latest_human(messages)
         description = _message_text(latest[1]) if latest else ""
-        digest = hashlib.sha256(description.encode("utf-8")).hexdigest()[:16]
+        history = (
+            [m for m in messages[: latest[0]] if _message_role(m) in {"human", "user"}]
+            if latest
+            else []
+        )
+        if history:
+            description = (
+                "Earlier task context (current request takes precedence):\n"
+                + _message_text(history[0])[:12000]
+                + "\nCurrent request:\n"
+                + description
+                + "\nFor earlier genuine specialist replies, use sci_data_runs(kind='handoff') offline."
+            )
+        digest = hashlib.sha256(
+            ((_turn_key(latest[1]) if latest else "") + description).encode("utf-8")
+        ).hexdigest()[:16]
         return ModelResponse(
             result=[
                 AIMessage(
@@ -3235,7 +3396,7 @@ class ResearchRouterMiddleware(AgentMiddleware[ResearchRoutingState, Any, Any]):
     ) -> ModelResponse:
         if is_live_request(latest_request(request.messages)[0]):
             return await handler(request)
-        dispatch = self._integration_dispatch(request)
+        dispatch = await asyncio.to_thread(self._integration_dispatch, request)
         if dispatch is not None:
             return dispatch
         prepared = await asyncio.to_thread(self._prepare_request, request)
@@ -3278,7 +3439,8 @@ class ResearchRouterMiddleware(AgentMiddleware[ResearchRoutingState, Any, Any]):
         rewritten, blocked = _direct_hypothesis_task_request(request)
         if blocked is not None:
             return blocked
-        result = handler(rewritten)
+        recovered = self._scientific_reply_before_tool(rewritten)
+        result = recovered if recovered is not None else handler(rewritten)
         routed_args = rewritten.tool_call.get("args", {})
         routed_specialist = (
             routed_args.get("subagent_type")
@@ -3288,6 +3450,12 @@ class ResearchRouterMiddleware(AgentMiddleware[ResearchRoutingState, Any, Any]):
         if rewritten is not request and routed_specialist == "solar-hypothesis":
             config = _request_config(request)
             result = _map_routed_specialist_result(result, config)
+        if routed_specialist == "scientific-data" and recovered is None:
+            result = persist_reply(
+                workspace_root_from_config(_request_config(request)),
+                str(rewritten.tool_call["id"]),
+                result,
+            )
         return result
 
     async def awrap_tool_call(
@@ -3298,7 +3466,10 @@ class ResearchRouterMiddleware(AgentMiddleware[ResearchRoutingState, Any, Any]):
         rewritten, blocked = _direct_hypothesis_task_request(request)
         if blocked is not None:
             return blocked
-        result = await handler(rewritten)
+        recovered = await asyncio.to_thread(
+            self._scientific_reply_before_tool, rewritten
+        )
+        result = recovered if recovered is not None else await handler(rewritten)
         routed_args = rewritten.tool_call.get("args", {})
         routed_specialist = (
             routed_args.get("subagent_type")
@@ -3312,7 +3483,48 @@ class ResearchRouterMiddleware(AgentMiddleware[ResearchRoutingState, Any, Any]):
                 result,
                 config,
             )
+        if routed_specialist == "scientific-data" and recovered is None:
+            root = await asyncio.to_thread(
+                workspace_root_from_config, _request_config(request)
+            )
+            result = await asyncio.to_thread(
+                persist_reply, root, str(rewritten.tool_call["id"]), result
+            )
         return result
+
+    @staticmethod
+    def _scientific_reply_before_tool(request):
+        call = request.tool_call
+        if (
+            call.get("name") != "task"
+            or call.get("args", {}).get("subagent_type") != "scientific-data"
+        ):
+            return None
+        messages = request.state.get("messages", [])
+        calls, _ = _calls_since_latest_human(messages)
+        earlier = [
+            c
+            for c in calls
+            if c.get("name") == "task"
+            and c.get("args", {}).get("subagent_type") == "scientific-data"
+        ]
+        if earlier and earlier[0]["id"] != call["id"]:
+            return ToolMessage(
+                content="[DELEGATION ALREADY DISPATCHED] Scientific-data is called once per user turn. Recover the durable handoff and save the requested report; do not dispatch again.",
+                tool_call_id=call["id"],
+                status="error",
+            )
+        root = workspace_root_from_config(_request_config(request))
+        name = re.sub(r"[^A-Za-z0-9_-]", "_", str(call["id"]))[:100] or "reply"
+        for path in sorted((root / "scientific_data/handoffs").glob(name + "__*.json")):
+            saved, _ = read_reply(root, str(path))
+            if saved["tool_call_id"] == call["id"] and saved["status"] == "returned":
+                return ToolMessage(
+                    content=json.dumps(saved, ensure_ascii=False),
+                    tool_call_id=call["id"],
+                    name="task",
+                )
+        return None
 
 
 __all__ = [

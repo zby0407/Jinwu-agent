@@ -54,6 +54,7 @@ function errorText(value, seen = new Set()) {
 
 export function isTransientProviderError(error) {
   const text = errorText(error);
+  if (/\[JW_PROVIDER:LOCAL_TIMEOUT\]|LocalModelTimeoutError/.test(text)) return false;
   if (/\[JW_PROVIDER:(TLS_HANDSHAKE|PROXY_CONNECT|TIMEOUT|CONNECTION)\]/.test(text)) return true;
   return TRANSIENT_PROVIDER_ERROR_MARKERS.some((marker) =>
     text.includes(marker)
