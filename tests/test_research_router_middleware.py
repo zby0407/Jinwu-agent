@@ -630,6 +630,43 @@ def test_router_preserves_bounded_graph_on_explicit_continuation(monkeypatch) ->
     middleware._model.with_structured_output.assert_not_called()
 
 
+@pytest.mark.parametrize(
+    "text",
+    [
+        "继续本地CSV统计，本轮不启动完整科研闭环。",
+        "继续当前本地CSV分析。本轮只完成数值统计，不做假设研究闭环。",
+        "Continue local CSV statistics; do not resume full research.",
+    ],
+)
+def test_explicit_bounded_request_does_not_resume_prior_full_graph(monkeypatch, text):
+    middleware = _middleware(monkeypatch)
+    bounded = _route("verified_analysis", source_mode="local", needs_computation=True)
+    middleware._route_sync = MagicMock(return_value=bounded)
+    state = {
+        "messages": [
+            HumanMessage("执行完整科研闭环", id="old-full"),
+            HumanMessage(text, id="bounded-now"),
+        ],
+        "research_route": _route("full_research", source_mode="mixed"),
+        "research_route_turn": "old-full",
+    }
+    update = middleware.before_agent(state, runtime=SimpleNamespace(config={}))
+    assert update["research_route"]["mode"] == "verified_analysis"
+    middleware._route_sync.assert_called_once()
+
+
+def test_negated_full_research_is_not_recovered_from_history():
+    from jw.middleware.research_router import _continuation_route
+
+    state = {
+        "messages": [
+            HumanMessage("只做CSV统计，不启动完整科研闭环。", id="old-bounded"),
+            HumanMessage("继续研究审查", id="now"),
+        ]
+    }
+    assert _continuation_route(state, "继续研究审查") is None
+
+
 def test_router_preserves_full_graph_on_terse_continuation(monkeypatch) -> None:
     middleware = _middleware(monkeypatch)
     prior = _route("full_research", source_mode="mixed", needs_computation=True)
