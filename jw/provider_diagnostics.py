@@ -2,7 +2,17 @@
 
 from __future__ import annotations
 
+
+class LocalModelTimeoutError(TimeoutError):
+    """The operator's total request deadline expired, not a network diagnosis."""
+
+
 ERRORS = {
+    "LOCAL_TIMEOUT": (
+        "本地单次模型请求总时限已到。",
+        "缩小本次输出或调整本地请求时限；不要按网络故障自动重试。",
+        False,
+    ),
     "TLS_HANDSHAKE": (
         "HTTPS 加密连接在握手期间中断。",
         "检查当前网络连接方式；可在连接设置中测试代理或直连。",
@@ -42,7 +52,9 @@ def diagnose_provider_error(exc: BaseException, route: str = "env") -> dict:
     statuses = {getattr(item, "status_code", None) for item in chain}
     # Exception text is used only for classification, never returned to the UI.
     text = " ".join(str(item) for item in chain).lower()
-    if (
+    if "LocalModelTimeoutError" in names:
+        code = "LOCAL_TIMEOUT"
+    elif (
         statuses & {402, 429}
         or names & {"RateLimitError"}
         or any(

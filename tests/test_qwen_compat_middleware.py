@@ -1202,7 +1202,7 @@ async def test_async_qwen_model_call_retries_one_truncated_stream():
 
 
 @pytest.mark.asyncio
-async def test_async_qwen_model_call_retries_one_total_wall_timeout():
+async def test_async_qwen_model_call_surfaces_local_deadline_without_retry():
     middleware = QwenToolCompatibilityMiddleware(default_model="qwen3.7-plus")
     request = _request(read_dataset, messages=[HumanMessage(content="continue")])
     recovered = ModelResponse(result=[AIMessage(content="recovered")])
@@ -1224,15 +1224,15 @@ async def test_async_qwen_model_call_retries_one_total_wall_timeout():
             "jw.middleware.qwen_compat._dashscope_request_timeout",
             return_value=0.01,
         ),
+        pytest.raises(TimeoutError, match="JW_PROVIDER:LOCAL_TIMEOUT"),
     ):
-        response = await middleware.awrap_model_call(request, handler)
+        await middleware.awrap_model_call(request, handler)
 
-    assert response.result == recovered.result
-    assert call_count == 2
+    assert call_count == 1
 
 
 @pytest.mark.asyncio
-async def test_async_qwen_model_call_stops_after_two_total_wall_timeout_retries():
+async def test_async_qwen_model_call_never_sleeps_or_retries_local_deadline():
     middleware = QwenToolCompatibilityMiddleware(default_model="qwen3.7-plus")
     request = _request(read_dataset, messages=[HumanMessage(content="continue")])
     call_count = 0
@@ -1256,12 +1256,12 @@ async def test_async_qwen_model_call_stops_after_two_total_wall_timeout_retries(
             "jw.middleware.qwen_compat._sleep_before_qwen_retry",
             new_callable=AsyncMock,
         ) as retry_sleep,
-        pytest.raises(TimeoutError),
+        pytest.raises(TimeoutError, match="JW_PROVIDER:LOCAL_TIMEOUT"),
     ):
         await middleware.awrap_model_call(request, handler)
 
-    assert call_count == 3
-    assert retry_sleep.await_count == 2
+    assert call_count == 1
+    assert retry_sleep.await_count == 0
 
 
 @pytest.mark.asyncio

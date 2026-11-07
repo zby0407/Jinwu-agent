@@ -1221,6 +1221,41 @@ class TestResolvePath:
 
 
 class TestWindowsShellCommandNormalization:
+    @pytest.mark.parametrize(
+        "command",
+        [
+            'python -c "\nprint(123)\n"',
+            "python.exe -c \"import pathlib\npathlib.Path('wrong.txt').write_text('x')\"",
+            "python - <<'PY'\nprint(123)\nPY",
+            "node -e 'console.log(1)\nconsole.log(2)'",
+        ],
+    )
+    def test_windows_rejects_silently_truncated_source(
+        self, tmp_workspace, monkeypatch, command
+    ):
+        monkeypatch.setattr(backends, "_is_windows", lambda: True)
+        _, error = prepare_sandbox_command(command, tmp_workspace, virtual_mode=True)
+        assert error and "WINDOWS SHELL FORMAT" in error
+        assert "write_file" in error and "No command was executed" in error
+
+    def test_posix_multiline_source_remains_supported(self, tmp_workspace, monkeypatch):
+        monkeypatch.setattr(backends, "_is_windows", lambda: False)
+        command = 'python -c "\nprint(123)\n"'
+        prepared, error = prepare_sandbox_command(
+            command, tmp_workspace, virtual_mode=True
+        )
+        assert error is None and prepared == command
+
+    def test_windows_script_and_single_line_source_remain_supported(
+        self, tmp_workspace, monkeypatch
+    ):
+        monkeypatch.setattr(backends, "_is_windows", lambda: True)
+        for command in ["python work/script.py", 'python -c "print(123)"']:
+            prepared, error = prepare_sandbox_command(
+                command, tmp_workspace, virtual_mode=True
+            )
+            assert error is None and prepared == command
+
     def test_windows_removes_mkdir_parents_flag_after_virtual_path_rewrite(
         self, tmp_workspace, monkeypatch
     ):
@@ -1802,6 +1837,35 @@ class TestExecuteTruncation:
 
 
 class TestExecuteArtifactManifest:
+    def test_identical_content_with_new_mtime_is_not_a_new_artifact(
+        self, tmp_workspace
+    ):
+        target = Path(tmp_workspace) / "context.json"
+        target.write_text('{"items": []}')
+        backend = CustomSandboxBackend(root_dir=tmp_workspace, virtual_mode=True)
+        resp = backend.execute(
+            "python -c \"import os; p='context.json'; s=os.stat(p); "
+            'os.utime(p,ns=(s.st_atime_ns,s.st_mtime_ns+1000000000))"'
+        )
+        assert resp.exit_code == 0
+        assert "<artifact_manifest>" not in resp.output
+        assert target.read_text() == '{"items": []}'
+
+    def test_changed_content_with_restored_size_and_mtime_is_reported(
+        self, tmp_workspace
+    ):
+        target = Path(tmp_workspace) / "measurements.csv"
+        target.write_text("x,y\n1,2\n")
+        backend = CustomSandboxBackend(root_dir=tmp_workspace, virtual_mode=True)
+        resp = backend.execute(
+            'python -c "import os; from pathlib import Path; '
+            "p=Path('measurements.csv'); s=p.stat(); p.write_text('x,y\\n3,4\\n'); "
+            'os.utime(p,ns=(s.st_atime_ns,s.st_mtime_ns))"'
+        )
+        assert resp.exit_code == 0
+        assert self._manifest(resp.output)["files"][0]["change"] == "modified"
+        assert target.read_text() == "x,y\n3,4\n"
+
     @staticmethod
     def _manifest(output: str) -> dict:
         match = re.search(
