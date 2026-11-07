@@ -9,12 +9,15 @@ records where they came from.
 from __future__ import annotations
 
 import hashlib
+import json
 import re
+import time
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Protocol
-from urllib.parse import unquote, urlsplit
+from urllib.parse import unquote, urljoin, urlsplit
+from urllib.request import url2pathname
 
 from .contracts import (
     DataRequirementContract,
@@ -24,6 +27,7 @@ from .contracts import (
     RetrievalState,
     SourceRecord,
     file_digest,
+    utc_now,
 )
 from .policy import AcquisitionPolicy, PolicyDecision
 from .sources import SourceCatalog
@@ -54,10 +58,12 @@ class FetchResult:
     size: int = 0
     error: str = ""
     from_cache: bool = False
+    final_url: str = ""
+    fetched_at: str = ""
 
     @property
     def ok(self) -> bool:
-        return self.status == "ok"
+        return self.status in {"ok", "duplicate_content"}
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -71,6 +77,8 @@ class FetchResult:
             "size": self.size,
             "error": self.error,
             "from_cache": self.from_cache,
+            "final_url": self.final_url,
+            "fetched_at": self.fetched_at,
         }
 
 
@@ -99,28 +107,52 @@ class HttpFetcher:
 
     def __init__(self, *, client: Any = None) -> None:
         self._client = client
+        self.last_url = ""
 
     def fetch(self, url: str, *, policy: AcquisitionPolicy) -> tuple[int, bytes, str]:
-        if self._client is not None:
-            response = self._client.get(url, timeout=policy.timeout_seconds)
-            return (
-                int(response.status_code),
-                bytes(response.content),
-                str(response.headers.get("content-type", "")),
-            )
         import httpx  # imported lazily so offline runs never need the transport
 
-        with httpx.Client(
-            timeout=policy.timeout_seconds,
-            follow_redirects=True,
-            headers={"user-agent": policy.user_agent},
-        ) as client:
-            response = client.get(url)
-            return (
-                int(response.status_code),
-                bytes(response.content),
-                str(response.headers.get("content-type", "")),
-            )
+        client = self._client or httpx.Client(headers={"user-agent": policy.user_agent})
+        started = time.monotonic()
+        try:
+            for _ in range(6):
+                decision = policy.allows(url)
+                if not decision.allowed or policy.scheme_of(url) not in {
+                    "http",
+                    "https",
+                }:
+                    raise ValueError(
+                        f"download refused: {decision.reason}; host={decision.host}"
+                    )
+                remaining = policy.timeout_seconds - (time.monotonic() - started)
+                if remaining <= 0:
+                    raise TimeoutError("download total deadline reached")
+                with client.stream(
+                    "GET", url, timeout=remaining, follow_redirects=False
+                ) as response:
+                    self.last_url = str(response.url)
+                    if response.is_redirect:
+                        location = response.headers.get("location", "")
+                        if not location:
+                            raise ValueError("redirect has no Location")
+                        url = urljoin(url, location)
+                        continue
+                    body = bytearray()
+                    for chunk in response.iter_bytes():
+                        if time.monotonic() - started >= policy.timeout_seconds:
+                            raise TimeoutError("download total deadline reached")
+                        if len(body) + len(chunk) > policy.max_bytes:
+                            raise ValueError("download body exceeds byte limit")
+                        body.extend(chunk)
+                    return (
+                        int(response.status_code),
+                        bytes(body),
+                        response.headers.get("content-type", ""),
+                    )
+            raise ValueError("too many redirects")
+        finally:
+            if self._client is None:
+                client.close()
 
 
 @dataclass(frozen=True, slots=True)
@@ -174,7 +206,8 @@ def acquire(
     attempts = 0
 
     for record in catalog.pending():
-        if attempts >= budget:
+        cached = _cached_fetch(record, directory, policy)
+        if attempts >= budget and cached is None:
             results.append(
                 FetchResult(
                     source_id=record.source_id,
@@ -190,7 +223,7 @@ def acquire(
             )
             continue
         decision = policy.allows(record.url or record.canonical_uri)
-        if not decision.allowed:
+        if not decision.allowed and cached is None:
             results.append(
                 FetchResult(
                     source_id=record.source_id,
@@ -207,8 +240,8 @@ def acquire(
             )
             issues.append(_policy_issue(record, decision))
             continue
-        attempts += 1
-        result = _fetch_one(
+        attempts += int(cached is None)
+        result = cached or _fetch_one(
             record,
             policy=policy,
             directory=directory,
@@ -217,6 +250,8 @@ def acquire(
         )
         results.append(result)
         if result.ok:
+            seen_digests[result.sha256] = result.path
+            _cache_fetch(directory, result)
             catalog.mark(
                 record.source_id,
                 RetrievalState.ACQUIRED,
@@ -278,11 +313,30 @@ def _fetch_one(
             error=f"{type(error).__name__}: {error}",
         )
     if status >= 400:
+        failure_path = ""
+        failure_digest = ""
+        if body:
+            failure_digest = _digest(body)
+            failures = directory.parent / "failures"
+            failures.mkdir(parents=True, exist_ok=True)
+            target = (
+                failures
+                / f"{_filename_stem(record.source_id)}__{failure_digest[7:19]}.bin"
+            )
+            if not target.exists():
+                target.write_bytes(body)
+            failure_path = str(target)
         return FetchResult(
             source_id=record.source_id,
             url=url,
             status="failed",
             http_status=status,
+            path=failure_path,
+            sha256=failure_digest,
+            content_type=content_type,
+            size=len(body),
+            final_url=str(getattr(fetcher, "last_url", "") or url),
+            fetched_at=utc_now(),
             error=f"http_{status}",
         )
     if len(body) > policy.max_bytes:
@@ -305,12 +359,23 @@ def _fetch_one(
             size=len(body),
             path=seen_digests[digest],
             from_cache=True,
+            content_type=content_type,
+            final_url=str(getattr(fetcher, "last_url", "") or url),
+            fetched_at=utc_now(),
         )
     target = directory / (
         f"{_filename_stem(record.source_id)}__"
         f"{digest[7:19]}{_extension(url, content_type)}"
     )
     existed = target.exists()
+    if existed and _digest(target.read_bytes()) != digest:
+        return FetchResult(
+            source_id=record.source_id,
+            url=url,
+            status="failed",
+            path=str(target),
+            error="stored original hash changed; use a new run_id to preserve the changed evidence",
+        )
     if not existed:
         target.write_bytes(body)
     seen_digests[digest] = str(target)
@@ -324,7 +389,66 @@ def _fetch_one(
         sha256=digest,
         size=len(body),
         from_cache=existed,
+        final_url=str(getattr(fetcher, "last_url", "") or url),
+        fetched_at=utc_now(),
     )
+
+
+def _cached_fetch(
+    record: SourceRecord, directory: Path, policy: AcquisitionPolicy
+) -> FetchResult | None:
+    """Reuse only a verified original within this acquisition directory."""
+    if urlsplit(record.url or record.canonical_uri).scheme not in {"http", "https"}:
+        return None
+    try:
+        entries = json.loads(
+            (directory.parent / "acquisition_cache.json").read_text(encoding="utf-8")
+        )
+        if not isinstance(entries, dict):
+            return None
+        item = entries.get(record.url or record.canonical_uri)
+        if not isinstance(item, dict):
+            return None
+        path = Path(item["path"]).resolve()
+        if (
+            not path.is_relative_to(directory.resolve())
+            or path.stat().st_size > policy.max_bytes
+        ):
+            return None
+        if _digest(path.read_bytes()) != item["sha256"]:
+            return None
+        return FetchResult(
+            source_id=record.source_id,
+            url=record.url or record.canonical_uri,
+            status="ok",
+            http_status=int(item.get("http_status", 200)),
+            content_type=str(item.get("content_type", "")),
+            path=str(path),
+            sha256=item["sha256"],
+            size=path.stat().st_size,
+            from_cache=True,
+            final_url=str(item.get("final_url", "")),
+            fetched_at=str(item.get("fetched_at", "")),
+        )
+    except (OSError, ValueError, TypeError, KeyError):
+        return None
+
+
+def _cache_fetch(directory: Path, result: FetchResult) -> None:
+    from filelock import FileLock
+
+    path = directory.parent / "acquisition_cache.json"
+    with FileLock(str(path) + ".lock"):
+        try:
+            entries = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            entries = {}
+        entries[result.url] = result.to_dict()
+        temporary = path.with_suffix(".tmp")
+        temporary.write_text(
+            json.dumps(entries, ensure_ascii=False, indent=2), encoding="utf-8"
+        )
+        temporary.replace(path)
 
 
 def _digest(body: bytes) -> str:
@@ -391,7 +515,13 @@ def _extension(url: str, content_type: str) -> str:
 
 def _local_path(url: str) -> Path:
     if url.startswith("file://"):
-        return Path(unquote(url[len("file://") :]))
+        legacy = unquote(url[len("file://") :])
+        if re.match(r"^[A-Za-z]:[/\\]", legacy):
+            return Path(legacy)
+        parsed = urlsplit(url)
+        if parsed.netloc not in {"", "localhost"}:
+            raise ValueError("remote file shares are not supported")
+        return Path(url2pathname(parsed.path))
     return Path(unquote(url))
 
 

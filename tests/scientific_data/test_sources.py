@@ -120,7 +120,7 @@ def test_arxiv_identifier_suffix_does_not_become_the_file_extension(tmp_path):
 
     report = acquire(
         catalog,
-        policy=AcquisitionPolicy(allow_network=True),
+        policy=AcquisitionPolicy(allow_network=True, allowed_hosts=("arxiv.org",)),
         workdir=tmp_path / "run",
         contract=contract(),
         fetcher=PdfFetcher(),
@@ -325,7 +325,7 @@ def test_hosts_outside_the_allowlist_are_denied(tmp_path):
 def test_fetch_errors_become_unreadable_source_issues(tmp_path):
     catalog = SourceCatalog()
     catalog.add(url="https://vizier.example/missing.csv", role=SourceRole.CATALOG)
-    policy = AcquisitionPolicy(allow_network=True)
+    policy = AcquisitionPolicy(allow_network=True, allowed_hosts=("vizier.example",))
 
     report = acquire(
         catalog,
@@ -346,7 +346,9 @@ def test_contract_budget_caps_the_number_of_fetches(tmp_path):
     for url in urls:
         catalog.add(url=url, role=SourceRole.CATALOG)
     fetcher = FakeFetcher(dict.fromkeys(urls, b"a\n1\n"))
-    policy = AcquisitionPolicy(allow_network=True, max_fetches=10)
+    policy = AcquisitionPolicy(
+        allow_network=True, allowed_hosts=("vizier.example",), max_fetches=10
+    )
 
     report = acquire(
         catalog,
@@ -368,7 +370,9 @@ def test_identical_payloads_are_stored_once(tmp_path):
     catalog.add(url=first, role=SourceRole.CATALOG)
     catalog.add(url=second, role=SourceRole.CATALOG)
     payload = b"object,mag\nSN2005A,16.5\n"
-    policy = AcquisitionPolicy(allow_network=True, max_fetches=5)
+    policy = AcquisitionPolicy(
+        allow_network=True, allowed_hosts=("vizier.example",), max_fetches=5
+    )
 
     report = acquire(
         catalog,
@@ -386,7 +390,9 @@ def test_oversized_payloads_are_refused(tmp_path):
     catalog = SourceCatalog()
     url = "https://vizier.example/big.csv"
     catalog.add(url=url, role=SourceRole.CATALOG)
-    policy = AcquisitionPolicy(allow_network=True, max_bytes=4)
+    policy = AcquisitionPolicy(
+        allow_network=True, allowed_hosts=("vizier.example",), max_bytes=4
+    )
 
     report = acquire(
         catalog,

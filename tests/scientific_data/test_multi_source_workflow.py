@@ -90,6 +90,7 @@ def test_network_discovery_feeds_the_pipeline_end_to_end(tmp_path):
         contract=_contract(),
         options=WorkflowOptions(
             allow_network=True,
+            allowed_hosts=("zenodo.org",),
             auto_discover=True,
             discovery_providers=("zenodo",),
             discovery_limit=1,

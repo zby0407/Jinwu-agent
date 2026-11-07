@@ -36,7 +36,7 @@ from .data_providers import (
     ProviderError,
     discover_data_sources,
 )
-from .domain import DomainPlugin, get_plugin, slug
+from .domain import DomainPlugin, get_plugin, plugin_for_contract, slug
 from .entities import AliasClaim, EntityResolver
 from .figures import (
     FigureCalibration,
@@ -180,6 +180,12 @@ def contract_from_request(payload: Mapping[str, Any]) -> DataRequirementContract
         observables=observables,
         identifier_fields=identifier_fields,
         time_field=time_field,
+        time_system=str(payload.get("time_system") or ""),
+        reference_mjd=(
+            float(payload["reference_mjd"])
+            if payload.get("reference_mjd") is not None
+            else None
+        ),
         merge_keys=tuple(payload.get("merge_keys") or plugin.merge_keys),
         domain_plugin=plugin.name,
         accepted_roles=tuple(str(item) for item in payload.get("accepted_roles") or ())
@@ -261,7 +267,7 @@ def run_integration(
 ) -> WorkflowResult:
     """Run every stage on the given inputs and write the data package."""
     settings = options or WorkflowOptions()
-    plugin = get_plugin(contract.domain_plugin)
+    plugin = plugin_for_contract(contract)
     ledger = start_run(workspace, contract, run_id=run_id)
     directory = workspace_run_dir(workspace, ledger.run_id)
     result = WorkflowResult(ledger=ledger, directory=str(directory))
@@ -425,7 +431,7 @@ def apply_human_answers(
     directory = workspace_run_dir(workspace, run_id)
     ledger = load_ledger(directory / "ledger.json")
     contract = ledger.contract
-    plugin = get_plugin(contract.domain_plugin)
+    plugin = plugin_for_contract(contract)
     result = WorkflowResult(ledger=ledger, directory=str(directory))
     rejected = 0
 

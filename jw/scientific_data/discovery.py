@@ -33,7 +33,9 @@ _PREPRINT_TRUST = 0.6
 _MAX_LIMIT = 20
 
 
-def literature_searcher(query: str, limit: int) -> Mapping[str, Any]:
+def literature_searcher(
+    query: str, limit: int, *, source: str = "all"
+) -> Mapping[str, Any]:
     """Default searcher: the repository's cached literature search.
 
     Imported lazily so the kernel works without the knowledge-base extra, and
@@ -42,7 +44,9 @@ def literature_searcher(query: str, limit: int) -> Mapping[str, Any]:
 
     from jw.tools.knowledge_base import lit_search
 
-    payload = json.loads(lit_search(query, source="all", limit=limit))
+    payload = json.loads(
+        lit_search.invoke({"query": query, "source": source, "limit": limit})
+    )
     if not isinstance(payload, Mapping):
         raise TypeError("literature search returned a non-object payload")
     return payload
@@ -172,6 +176,7 @@ def discover_sources(
     allow_network: bool = False,
     catalog: SourceCatalog | None = None,
     extra_urls: Sequence[str] = (),
+    query: str = "",
 ) -> DiscoveryReport:
     """Find candidate sources for ``contract`` and register them in a catalog.
 
@@ -182,7 +187,7 @@ def discover_sources(
     """
 
     resolved = plugin or get_plugin(contract.domain_plugin)
-    query = discovery_query(contract, plugin=resolved)
+    query = query.strip() or discovery_query(contract, plugin=resolved)
     bounded = max(1, min(int(limit or 5), _MAX_LIMIT))
     steps = tuple(step.step_id for step in plan_retrieval(contract, plugin=resolved))
     report_catalog = catalog if catalog is not None else SourceCatalog()
@@ -285,14 +290,14 @@ def discover_sources(
             )
         )
     registered = report_catalog.to_records()
-    if not hits:
+    if not hits and status == "ok":
         issues.append(
             discovery_issue(
                 status="no_results",
                 message=f"No literature hit matched {query!r}; try a broader query.",
             )
         )
-    elif not registered:
+    elif hits and not registered:
         issues.append(
             discovery_issue(
                 status="skipped_all",
@@ -309,7 +314,7 @@ def discover_sources(
             report_catalog.mark(record.source_id, RetrievalState.CANDIDATE)
 
     if not hits:
-        reported_status = "no_results"
+        reported_status = "no_results" if status == "ok" else status
     elif not registered:
         reported_status = "skipped_all"
     else:
@@ -323,7 +328,9 @@ def discover_sources(
         catalog=report_catalog,
         issues=tuple(issues),
         note=(
-            "Candidates only: nothing was downloaded. Table, supplement and "
+            "The provider did not complete a successful empty search; keep its failure/partial status."
+            if not hits and status != "ok"
+            else "Candidates only: nothing was downloaded. Table, supplement and "
             "figure payloads still have to be acquired and parsed."
         ),
         provider_status=_provider_summary(payload),

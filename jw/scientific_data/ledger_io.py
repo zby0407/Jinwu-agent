@@ -35,7 +35,13 @@ RUNS_SUBDIR = Path("scientific_data") / "runs"
 
 def workspace_run_dir(workspace: str | Path, run_id: str) -> Path:
     """Directory of one run inside the task workspace."""
-    return Path(workspace) / RUNS_SUBDIR / run_id
+    root = (Path(workspace) / RUNS_SUBDIR).resolve()
+    if not run_id or run_id in {".", ".."} or any(c in run_id for c in "/\\:"):
+        raise ValueError("run_id must be a plain directory name")
+    target = (root / run_id).resolve()
+    if not target.is_relative_to(root):
+        raise ValueError("run_id escaped the scientific-data workspace")
+    return target
 
 
 def run_dirs(workspace: str | Path) -> Path:
