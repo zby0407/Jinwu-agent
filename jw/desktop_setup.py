@@ -86,7 +86,7 @@ _PROVIDER_SPECS: tuple[ProviderSpec, ...] = (
     ProviderSpec(
         "deepseek",
         "DeepSeek",
-        "deepseek-v4-flash",
+        "deepseek-v4-pro",
         "deepseek_api_key",
         placeholder="sk-...",
     ),
@@ -154,6 +154,31 @@ _PROVIDER_SPECS: tuple[ProviderSpec, ...] = (
 )
 
 _SPEC_BY_ID = {spec.id: spec for spec in _PROVIDER_SPECS}
+# Credential/base URL fields are written into the disposable test subprocess
+# environment so provider SDKs can read them without touching config.yaml.
+_TEST_ENV_BY_FIELD = {
+    "anthropic_api_key": "ANTHROPIC_API_KEY",
+    "anthropic_base_url": "ANTHROPIC_BASE_URL",
+    "openai_api_key": "OPENAI_API_KEY",
+    "nvidia_api_key": "NVIDIA_API_KEY",
+    "google_api_key": "GOOGLE_API_KEY",
+    "minimax_api_key": "MINIMAX_API_KEY",
+    "minimax_base_url": "MINIMAX_BASE_URL",
+    "siliconflow_api_key": "SILICONFLOW_API_KEY",
+    "openrouter_api_key": "OPENROUTER_API_KEY",
+    "deepseek_api_key": "DEEPSEEK_API_KEY",
+    "zhipu_api_key": "ZHIPU_API_KEY",
+    "volcengine_api_key": "VOLCENGINE_API_KEY",
+    "dashscope_api_key": "DASHSCOPE_API_KEY",
+    "dashscope_base_url": "DASHSCOPE_BASE_URL",
+    "moonshot_api_key": "MOONSHOT_API_KEY",
+    "kimi_api_key": "KIMI_API_KEY",
+    "custom_openai_api_key": "CUSTOM_OPENAI_API_KEY",
+    "custom_openai_base_url": "CUSTOM_OPENAI_BASE_URL",
+    "custom_anthropic_api_key": "CUSTOM_ANTHROPIC_API_KEY",
+    "custom_anthropic_base_url": "CUSTOM_ANTHROPIC_BASE_URL",
+    "ollama_base_url": "OLLAMA_BASE_URL",
+}
 # Full credential lookup for status checks. The setup wizard only offers the
 # common desktop providers, but a configuration created by `jw onboard` for any
 # supported provider must still count as configured.
@@ -333,8 +358,6 @@ async def test_connection(payload: Any) -> dict[str, Any]:
     from .provider_diagnostics import diagnose_provider_error
 
     config = config_from_payload(payload)
-    if config.provider != "dashscope":
-        raise SetupError("当前版本的连接测试仅支持 DashScope")
     started = time.monotonic()
     route_info = proxy_status()
     route = (
@@ -345,7 +368,10 @@ async def test_connection(payload: Any) -> dict[str, Any]:
     os.environ["JW_DASHSCOPE_PROXY_MODE"] = route
     # This command runs in a disposable subprocess. Explicit draft credentials
     # override only this test's environment, never the application or a file.
-    os.environ["DASHSCOPE_API_KEY"] = config.dashscope_api_key
+    for field, env_name in _TEST_ENV_BY_FIELD.items():
+        value = str(getattr(config, field, "") or "")
+        if value:
+            os.environ[env_name] = value
     from .llm import get_chat_model
 
     model = None
@@ -353,12 +379,11 @@ async def test_connection(payload: Any) -> dict[str, Any]:
         model = get_chat_model(
             model=config.model, provider=config.provider, max_retries=0
         )
+        request_kwargs: dict[str, Any] = {"max_tokens": 16}
+        if config.provider in {"dashscope", "dashscope-code"}:
+            request_kwargs["extra_body"] = {"enable_thinking": False}
         result = await asyncio.wait_for(
-            model.ainvoke(
-                "Reply with OK only.",
-                max_tokens=16,
-                extra_body={"enable_thinking": False},
-            ),
+            model.ainvoke("Reply with OK only.", **request_kwargs),
             timeout=max(0.1, 28 - (time.monotonic() - started)),
         )
         return {
@@ -381,6 +406,181 @@ async def test_connection(payload: Any) -> dict[str, Any]:
                 await model.http_async_client.aclose()
             if getattr(model, "http_client", None) is not None:
                 model.http_client.close()
+
+
+_MODEL_LIST_TIMEOUT_S = 15.0
+_MODEL_LIST_LIMIT = 1_000
+
+# The official APIs advertise every non-chat artifact they host; the settings
+# picker only wants models a chat request can target.
+_NON_CHAT_MODEL_MARKERS = (
+    "embed",
+    "whisper",
+    "tts",
+    "transcribe",
+    "speech",
+    "realtime",
+    "moderation",
+    "rerank",
+    "dall-e",
+    "sora",
+    "imagen",
+    "image",
+    "audio",
+)
+
+_OPENAI_COMPAT_BASE_URLS = {
+    "openai": "https://api.openai.com/v1",
+    "deepseek": "https://api.deepseek.com",
+    "siliconflow": "https://api.siliconflow.cn/v1",
+    "openrouter": "https://openrouter.ai/api/v1",
+    "moonshot": "https://api.moonshot.cn/v1",
+    "nvidia": "https://integrate.api.nvidia.com/v1",
+    "zhipu": "https://open.bigmodel.cn/api/paas/v4",
+    "zhipu-code": "https://open.bigmodel.cn/api/coding/paas/v4",
+    "volcengine": "https://ark.cn-beijing.volces.com/api/v3",
+    "dashscope": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+    "dashscope-code": "https://coding.dashscope.aliyuncs.com/v1",
+}
+_ANTHROPIC_COMPAT_BASE_URLS = {
+    "anthropic": "https://api.anthropic.com",
+    "minimax": "https://api.minimaxi.com/anthropic",
+    "kimi-coding": "https://api.kimi.com/coding/",
+}
+_DEFAULT_OLLAMA_BASE_URL = "http://127.0.0.1:11434"
+
+
+def _redact_error(message: Any, secret: str) -> str:
+    text = str(message or "未知错误").strip()
+    if secret:
+        text = text.replace(secret, "***")
+    return text[:400]
+
+
+def _resolve_model_endpoint(provider: str, config: Any) -> tuple[str, str]:
+    """Return ``(kind, base_url)`` for providers whose models can be listed."""
+    if provider == "ollama":
+        base_url = (config.ollama_base_url or "").strip() or _DEFAULT_OLLAMA_BASE_URL
+        return "ollama", base_url
+    if provider == "google-genai":
+        return "google", ""
+    if provider == "custom-openai":
+        return "openai", (config.custom_openai_base_url or "").strip()
+    if provider == "custom-anthropic":
+        return "anthropic", (config.custom_anthropic_base_url or "").strip()
+    if provider == "anthropic":
+        base_url = (
+            (config.anthropic_base_url or "").strip()
+            or os.environ.get("ANTHROPIC_BASE_URL", "").strip()
+            or _ANTHROPIC_COMPAT_BASE_URLS["anthropic"]
+        )
+        return "anthropic", base_url
+    if provider == "minimax":
+        base_url = (
+            config.minimax_base_url or ""
+        ).strip() or _ANTHROPIC_COMPAT_BASE_URLS["minimax"]
+        return "anthropic", base_url
+    if provider in _OPENAI_COMPAT_BASE_URLS:
+        base_url = _OPENAI_COMPAT_BASE_URLS[provider]
+        if provider == "openai":
+            base_url = os.environ.get("OPENAI_BASE_URL", "").strip() or base_url
+        elif provider == "dashscope":
+            base_url = (
+                (config.dashscope_base_url or "").strip()
+                or os.environ.get("DASHSCOPE_BASE_URL", "").strip()
+                or base_url
+            )
+        return "openai", base_url
+    if provider in _ANTHROPIC_COMPAT_BASE_URLS:
+        return "anthropic", _ANTHROPIC_COMPAT_BASE_URLS[provider]
+    raise SetupError(f"{provider} 暂不支持自动获取模型列表，请手动填写模型名称。")
+
+
+def _filter_chat_models(model_ids: list[str]) -> list[str]:
+    seen: set[str] = set()
+    result: list[str] = []
+    for raw in model_ids:
+        model_id = str(raw or "").strip()
+        if model_id.startswith("models/"):
+            model_id = model_id.removeprefix("models/")
+        if not model_id:
+            continue
+        lowered = model_id.casefold()
+        if any(marker in lowered for marker in _NON_CHAT_MODEL_MARKERS):
+            continue
+        if model_id in seen:
+            continue
+        seen.add(model_id)
+        result.append(model_id)
+    return result
+
+
+def _list_openai_compatible_models(api_key: str, base_url: str) -> list[str]:
+    import openai
+
+    client = openai.OpenAI(
+        api_key=api_key,
+        base_url=base_url or None,
+        timeout=_MODEL_LIST_TIMEOUT_S,
+        max_retries=0,
+    )
+    return [str(item.id) for item in client.models.list().data]
+
+
+def _list_anthropic_models(api_key: str, base_url: str) -> list[str]:
+    import anthropic
+
+    client = anthropic.Anthropic(
+        api_key=api_key,
+        base_url=base_url or None,
+        timeout=_MODEL_LIST_TIMEOUT_S,
+        max_retries=0,
+    )
+    return [str(item.id) for item in client.models.list(limit=_MODEL_LIST_LIMIT).data]
+
+
+def _list_google_models(api_key: str) -> list[str]:
+    from google import genai
+
+    client = genai.Client(api_key=api_key)
+    return [str(model.name) for model in client.models.list()]
+
+
+def list_provider_models(payload: Any) -> dict[str, Any]:
+    """List models the provider's live API currently advertises.
+
+    The payload follows the same shape as ``configure`` (provider plus optional
+    draft ``api_key`` / ``base_url``); a blank or omitted credential falls back
+    to the saved one. Nothing is persisted.
+    """
+    config = config_from_payload(payload)
+    provider = config.provider
+    kind, base_url = _resolve_model_endpoint(provider, config)
+    api_key = _effective_key(config, provider)
+
+    try:
+        if kind == "ollama":
+            from .llm.ollama_discovery import validate_ollama_connection
+
+            reachable, message, names = validate_ollama_connection(base_url)
+            if not reachable:
+                raise SetupError(f"无法连接 Ollama：{message}")
+            model_ids = names
+        elif kind == "google":
+            model_ids = _list_google_models(api_key)
+        elif kind == "anthropic":
+            model_ids = _list_anthropic_models(api_key, base_url)
+        else:
+            model_ids = _list_openai_compatible_models(api_key, base_url)
+    except SetupError:
+        raise
+    except Exception as exc:
+        raise SetupError(f"获取模型列表失败：{_redact_error(exc, api_key)}") from None
+
+    models = _filter_chat_models(model_ids)[:_MODEL_LIST_LIMIT]
+    if not models:
+        raise SetupError("接口没有返回可用的对话模型，请手动填写模型名称。")
+    return {"provider": provider, "models": models}
 
 
 def _read_payload() -> Any:
@@ -409,8 +609,12 @@ def main(argv: list[str] | None = None) -> int:
             import asyncio
 
             result = asyncio.run(test_connection(_read_payload()))
+        elif mode == "models":
+            result = list_provider_models(_read_payload())
         else:
-            raise SetupError("用法: python -m jw.desktop_setup status|configure|test")
+            raise SetupError(
+                "用法: python -m jw.desktop_setup status|configure|validate|test|models"
+            )
     except SetupError as exc:
         json.dump({"ok": False, "error": str(exc)}, sys.stdout, ensure_ascii=False)
         sys.stdout.write("\n")

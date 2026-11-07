@@ -1,6 +1,6 @@
 """Literature pipeline for the knowledge base (plan §5.3).
 
-``lit_search`` queries NASA ADS, OpenAlex (equivalent logic to
+``lit_search`` queries NASA ADS, INSPIRE-HEP, OpenAlex (equivalent logic to
 ``src/research_planner/knowledge.py::search_scholarly_literature``,
 re-implemented here so the planner package stays untouched), the public arXiv
 API, Crossref, or all providers with partial-failure tolerance. It refreshes each
@@ -60,10 +60,11 @@ ADS_SEARCH_URL = "https://api.adsabs.harvard.edu/v1/search/query"
 OPENALEX_WORKS_URL = "https://api.openalex.org/works"
 ARXIV_API_URL = "https://export.arxiv.org/api/query"
 CROSSREF_WORKS_URL = "https://api.crossref.org/works"
+INSPIRE_LITERATURE_URL = "https://inspirehep.net/api/literature"
 MAX_REMOTE_BYTES = 2 * 1024 * 1024
 USER_AGENT = "JW-KnowledgeBase/1.0 (literature pipeline)"
 
-SOURCES = ("all", "ads", "openalex", "arxiv", "crossref")
+SOURCES = ("all", "ads", "inspirehep", "openalex", "arxiv", "crossref")
 SORTS = ("relevance", "recent")
 _ATOM = "{http://www.w3.org/2005/Atom}"
 _ARXIV_NS = "{http://arxiv.org/schemas/atom}"
@@ -797,6 +798,126 @@ def _search_crossref(
 
 
 # ----------------------------------------------------------------------
+# INSPIRE-HEP
+# ----------------------------------------------------------------------
+def _inspire_first_text(value: Any, key: str = "value") -> str:
+    if not isinstance(value, list):
+        return ""
+    for entry in value:
+        if isinstance(entry, dict):
+            text = str(entry.get(key) or "").strip()
+            if text:
+                return text
+    return ""
+
+
+def _search_inspirehep(
+    query: str,
+    limit: int,
+    from_year: int | None,
+    to_year: int | None,
+    sort: str,
+) -> list[dict[str, Any]]:
+    # INSPIRE's query syntax is domain-specific; keep year filtering local so
+    # plain text queries retain the same behavior as our other providers.
+    params = {
+        "q": query,
+        "size": min(
+            100,
+            limit * 3 if from_year is not None or to_year is not None else limit,
+        ),
+        "fields": (
+            "control_number,titles.title,authors.full_name,abstracts.value,"
+            "arxiv_eprints.value,dois.value,"
+            "publication_info,preprint_date,earliest_date,document_type"
+        ),
+    }
+    if sort == "recent":
+        params["sort"] = "mostrecent"
+    url = INSPIRE_LITERATURE_URL + "?" + urllib.parse.urlencode(params)
+    payload = json.loads(_http_get(url, accept="application/json").decode("utf-8"))
+    hits = payload.get("hits") if isinstance(payload, dict) else None
+    rows = hits.get("hits") if isinstance(hits, dict) else None
+    if not isinstance(rows, list):
+        raise ContractError("INSPIRE-HEP returned an invalid result collection")
+
+    items: list[dict[str, Any]] = []
+    for hit in rows:
+        metadata = hit.get("metadata") if isinstance(hit, dict) else None
+        if not isinstance(metadata, dict):
+            continue
+        control_number = str(
+            metadata.get("control_number") or hit.get("id") or ""
+        ).strip()
+        if not control_number:
+            continue
+        title = _inspire_first_text(metadata.get("titles"), "title")
+        abstract = _inspire_first_text(metadata.get("abstracts"), "value")
+        raw_authors = metadata.get("authors")
+        authors = (
+            [
+                str(author.get("full_name") or "").strip()
+                for author in raw_authors[:8]
+                if isinstance(author, dict)
+                and str(author.get("full_name") or "").strip()
+            ]
+            if isinstance(raw_authors, list)
+            else []
+        )
+        doi = _inspire_first_text(metadata.get("dois"))
+        arxiv_id = _inspire_first_text(metadata.get("arxiv_eprints"))
+        publication_info = metadata.get("publication_info")
+        publication_info = publication_info if isinstance(publication_info, list) else []
+        year_value = next(
+            (
+                row.get("year")
+                for row in publication_info
+                if isinstance(row, dict) and row.get("year")
+            ),
+            None,
+        )
+        date = str(
+            metadata.get("earliest_date")
+            or metadata.get("preprint_date")
+            or ""
+        ).strip()
+        if not year_value and date[:4].isdigit():
+            year_value = date[:4]
+        try:
+            year = int(year_value) if year_value else None
+        except (TypeError, ValueError):
+            year = None
+        if from_year is not None and (year is None or year < from_year):
+            continue
+        if to_year is not None and (year is None or year > to_year):
+            continue
+        items.append(
+            {
+                "source_id": f"inspirehep:{control_number}",
+                "provider": "inspirehep",
+                "source_version": str(hit.get("updated") or ""),
+                "title": title,
+                "authors": authors,
+                "year": year,
+                "publication_date": date,
+                "doi": doi,
+                "url": (
+                    f"https://arxiv.org/abs/{arxiv_id}"
+                    if arxiv_id
+                    else f"https://inspirehep.net/literature/{control_number}"
+                ),
+                "abstract": abstract,
+                "is_refereed": bool(publication_info),
+                "is_retracted": "retracted"
+                in str(metadata.get("document_type") or "").casefold(),
+            }
+        )
+        if len(items) >= limit:
+            break
+    return items
+
+
+# ----------------------------------------------------------------------
 # lit_search
 # ----------------------------------------------------------------------
 def search_literature(
@@ -864,6 +985,7 @@ def search_literature(
         )
     searchers = {
         "ads": _search_ads,
+        "inspirehep": _search_inspirehep,
         "openalex": _search_openalex,
         "arxiv": _search_arxiv,
         "crossref": _search_crossref,

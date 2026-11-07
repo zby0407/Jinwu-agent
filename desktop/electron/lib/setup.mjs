@@ -12,6 +12,7 @@ export const SETUP_MODULE = 'jw.desktop_setup';
 export const SETUP_STATUS_TIMEOUT_MS = 30_000;
 export const SETUP_SAVE_TIMEOUT_MS = 60_000;
 export const SETUP_TEST_TIMEOUT_MS = 30_000;
+export const SETUP_MODELS_TIMEOUT_MS = 45_000;
 export const SETUP_OUTPUT_LIMIT = 256 * 1024;
 
 export class SetupCommandError extends Error {
@@ -75,7 +76,7 @@ export function parseSetupResponse(stdout, exitCode) {
 }
 
 export function setupCommandArgs(mode) {
-  if (!['status', 'configure', 'validate', 'test'].includes(mode)) {
+  if (!['status', 'configure', 'validate', 'test', 'models'].includes(mode)) {
     throw new SetupCommandError(`未知的配置命令模式：${mode}`, {
       code: 'SETUP_MODE_INVALID',
     });
@@ -162,6 +163,12 @@ export function testSetupConnection({ pythonPath, cwd, env, payload, signal, spa
   return runSetupCommand({ pythonPath, cwd, env, mode: 'test',
     stdin: JSON.stringify(normalizeSetupPayload(payload)), signal, spawnImpl,
     timeoutMs: SETUP_TEST_TIMEOUT_MS });
+}
+
+export function listSetupModels({ pythonPath, cwd, env, payload, spawnImpl }) {
+  return runSetupCommand({ pythonPath, cwd, env, mode: 'models',
+    stdin: JSON.stringify(normalizeSetupPayload(payload)), spawnImpl,
+    timeoutMs: SETUP_MODELS_TIMEOUT_MS });
 }
 
 export function validateSetupConfiguration({ pythonPath, cwd, env, payload, spawnImpl }) {

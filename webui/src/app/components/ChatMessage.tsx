@@ -518,7 +518,9 @@ export const ChatMessage = React.memo<ChatMessageProps>(
               </div>
             </div>
           ) : null}
-          {!isUser && hasContent && (
+          {/* 操作按钮（复制/重新生成/版本切换）只在整轮对话结束后显示，
+              避免进行中的每一步都弹出按钮、结束后又闪一次。 */}
+          {!isUser && hasContent && !isLoading && (
             <div className="mt-1 flex items-center gap-1">
               {responseVersions && responseVersions.total > 1 && (
                 <div

@@ -22,6 +22,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { app, BrowserWindow, Menu, dialog, ipcMain, shell } from 'electron';
 
 import { buildApplicationMenu } from './menu.mjs';
+import { startDesktopBridge, BRIDGE_MODELS_PATH } from './lib/desktop-bridge.mjs';
 import {
   buildBackendEnvironment,
   buildWebuiEnvironment,
@@ -56,6 +57,7 @@ import {
   saveSetupConfiguration,
   validateSetupConfiguration,
   testSetupConnection,
+  listSetupModels,
 } from './lib/setup.mjs';
 import {
   buildWebPreferences,
@@ -66,6 +68,7 @@ import {
 import { ProcessSupervisor, ServiceExitError } from './services/supervisor.mjs';
 
 const APP_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const APP_ICON_PATH = path.join(APP_ROOT, 'assets', 'icon.png');
 const LOADING_PAGE_PATH = path.join(APP_ROOT, 'electron', 'ui', 'loading.html');
 const SETUP_PAGE_PATH = path.join(APP_ROOT, 'electron', 'ui', 'setup.html');
 const SETUP_PRELOAD_PATH = path.join(APP_ROOT, 'electron', 'preload', 'setup-preload.cjs');
@@ -77,6 +80,31 @@ function markPhase(phase) {
 }
 
 const BACKEND_ARGS_TEMPLATE = Object.freeze(['-m', 'jw.desktop_server']);
+
+/** 品牌图标：开发态 Electron 默认图标之外显式指定；打包态同时由 .icns/.ico 提供。 */
+function appIconPath() {
+  try {
+    return fs.existsSync(APP_ICON_PATH) ? APP_ICON_PATH : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function applyApplicationIcon() {
+  const icon = appIconPath();
+  if (!icon) {
+    logger.warn(`未找到应用图标：${APP_ICON_PATH}`);
+    return;
+  }
+  if (process.platform === 'darwin') {
+    try {
+      app.dock?.setIcon(icon);
+    } catch (error) {
+      logger.warn(`设置 Dock 图标失败：${error?.message ?? error}`);
+    }
+  }
+}
+
 // 退出宽限期：jw deploy 收到 SIGTERM 后会通过 atexit 停止其 langgraph dev
 // 子树（该子树运行在独立 session 中，不属于我们的进程组），因此需要比默认
 // 5 秒更长的窗口；宽限期后仍存活则对进程组 SIGKILL。
@@ -122,6 +150,7 @@ const state = {
   setupTest: null,
   pendingTimer: null,
   agentTimer: null,
+  bridge: null,
 };
 
 process.on('SIGINT', () => app.quit());
@@ -148,7 +177,11 @@ if (!hasSingleInstanceLock) {
     focusWindow();
   });
   app.on('window-all-closed', () => {
-    app.quit();
+    // macOS 惯例：关闭窗口不退出应用；点击 Dock 图标可重新创建窗口。
+    // 其他平台保持“关闭即退出”，避免后台残留。
+    if (process.platform !== 'darwin') {
+      app.quit();
+    }
   });
   app.on('activate', () => {
     void handleActivate();
@@ -204,6 +237,7 @@ async function bootstrap() {
   );
   logger.info(`用户数据目录：${paths.userDataDir}`);
   logger.info(`默认工作区：${paths.workspaceDir}`);
+  applyApplicationIcon();
   refreshMenu();
   await showLoadingPage();
   markPhase('window-visible');
@@ -229,6 +263,7 @@ async function bootstrap() {
   }
   ensureWorkspaceDirectory(paths.workspaceDir);
   migrateLegacyData();
+  await ensureDesktopBridge();
 
   const pending = readPendingSetup(paths.userDataDir);
   if (pending) {
@@ -267,6 +302,129 @@ async function getSetupStatus(runtime) {
     cwd: paths.workspaceDir,
     env,
   });
+}
+
+/** Secret-free setup status shared by the native window and the in-app settings. */
+function serializeSetupStatus(status) {
+  return {
+    configured: Boolean(status.configured),
+    provider: status.provider ?? null,
+    model: status.model ?? null,
+    configPath: status.configPath ?? null,
+    schema: Array.isArray(status.schema) ? status.schema : [],
+    hasCredential: status.hasCredential,
+    credentialProviders: status.credentialProviders ?? [],
+    proxyMode: status.proxyMode ?? 'env',
+    proxyModeSource: status.proxyModeSource ?? 'config',
+    proxyModeOverridden: status.proxyModeOverridden ?? false,
+    proxyModeSourcePath: status.proxyModeSourcePath,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// 桌面设置桥接：WebUI 的“设置 → 模型与 API”通过本机回环 HTTP 复用同一套
+// 校验 / 暂存 / 重启逻辑，无需给渲染进程开放任何 Node 能力。
+// ---------------------------------------------------------------------------
+
+async function ensureDesktopBridge() {
+  if (state.bridge) return state.bridge;
+  try {
+    state.bridge = await startDesktopBridge({ handler: handleBridgeRequest });
+    logger.info(`桌面设置桥接已就绪：${state.bridge.url}`);
+    return state.bridge;
+  } catch (error) {
+    logger.warn(`桌面设置桥接启动失败：${error?.message ?? error}`);
+    return null;
+  }
+}
+
+async function handleBridgeRequest({ path: requestPath, method, body }) {
+  if (!state.runtime) {
+    return { status: 503, body: { ok: false, error: '运行时尚未加载。' } };
+  }
+  if (requestPath === BRIDGE_MODELS_PATH) {
+    if (method !== 'POST') {
+      return { status: 405, body: { ok: false, error: 'Method not allowed.' } };
+    }
+    return listProviderModels(body);
+  }
+  if (method === 'GET') {
+    const status = await getSetupStatus(state.runtime);
+    state.setupStatus = status;
+    state.setupSchema = Array.isArray(status.schema) ? status.schema : [];
+    return { status: 200, body: { ok: true, ...serializeSetupStatus(status) } };
+  }
+  const result = await saveConfigurationFromPayload(body);
+  const { httpStatus: _httpStatus, ...payload } = result;
+  return { status: result.httpStatus ?? 200, body: payload };
+}
+
+/** Ask the provider's live API which models the current credential can use. */
+async function listProviderModels(payload) {
+  if (state.setupSaving || state.setupTest || state.restarting) {
+    return { status: 409, body: { ok: false, error: '配置正在保存，请稍候。' } };
+  }
+  try {
+    const result = await listSetupModels({ ...setupOptions(), payload });
+    const models = Array.isArray(result.models) ? result.models : [];
+    if (!models.length) {
+      return { status: 502, body: { ok: false, error: '接口没有返回可用的对话模型。' } };
+    }
+    return {
+      status: 200,
+      body: {
+        ok: true,
+        provider:
+          typeof result.provider === 'string' ? result.provider : payload?.provider ?? null,
+        models,
+      },
+    };
+  } catch (error) {
+    const message = error?.message ?? '获取模型列表失败。';
+    logger.warn(`获取在线模型失败：${message}`);
+    const status = error?.code === 'TIMEOUT' ? 504 : 502;
+    return { status, body: { ok: false, error: message } };
+  }
+}
+
+async function saveConfigurationFromPayload(payload) {
+  if (state.setupSaving || state.setupTest || state.restarting) {
+    return { httpStatus: 409, ok: false, error: '配置正在保存，请稍候。' };
+  }
+  if (!state.runtime) {
+    return { httpStatus: 503, ok: false, error: '运行时尚未加载，无法保存配置。' };
+  }
+  state.setupSaving = true;
+  try {
+    await validateSetupConfiguration({ ...setupOptions(), payload });
+    stageSetup(paths.userDataDir, payload);
+    const applied = await applyPendingSetup();
+    if (!applied) {
+      schedulePendingSetup();
+      return { httpStatus: 200, ok: true, pending: true };
+    }
+    const result = state.setupStatus ?? {};
+    const provider =
+      typeof payload?.provider === 'string' ? payload.provider.trim() : '未知';
+    logger.info(`连接设置已保存：provider=${provider}；开始应用。`);
+    // Let the HTTP/IPC response reach the caller before the backend restarts.
+    setTimeout(() => {
+      void activateAfterSetup();
+    }, 250);
+    return {
+      httpStatus: 200,
+      ok: true,
+      pending: false,
+      provider: result.provider ?? provider,
+      model: result.model ?? null,
+      configPath: result.configPath ?? null,
+    };
+  } catch (error) {
+    logger.warn(`连接设置保存失败：${error?.message ?? error}`);
+    return { httpStatus: 400, ok: false, error: error?.message ?? String(error) };
+  } finally {
+    state.setupSaving = false;
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -327,6 +485,13 @@ async function startServices({ reason = 'launch' } = {}) {
       webuiPort: ports.webuiPort,
       inheritedEnv: process.env,
     });
+    const bridge = state.bridge ?? (await ensureDesktopBridge());
+    if (bridge) {
+      webuiEnv.JW_DESKTOP_BRIDGE_URL = bridge.url;
+      webuiEnv.JW_DESKTOP_BRIDGE_TICKET = bridge.ticket;
+    } else {
+      logger.warn('桌面设置桥接不可用，应用内模型设置将只读。');
+    }
     logEnvironmentSummary('后端', backendEnv);
     logEnvironmentSummary('前端', webuiEnv);
     const leakedSecretNames = Object.keys(webuiEnv).filter(isSecretEnvName).sort();
@@ -566,17 +731,7 @@ function registerSetupIpc() {
     const status = state.setupStatus ?? {};
     return {
       ok: true,
-      configured: Boolean(status.configured),
-      provider: status.provider ?? null,
-      model: status.model ?? null,
-      configPath: status.configPath ?? null,
-      schema: state.setupSchema,
-      hasCredential: status.hasCredential,
-      credentialProviders: status.credentialProviders ?? [],
-      proxyMode: status.proxyMode ?? 'env',
-      proxyModeSource: status.proxyModeSource ?? 'config',
-      proxyModeOverridden: status.proxyModeOverridden ?? false,
-      proxyModeSourcePath: status.proxyModeSourcePath,
+      ...serializeSetupStatus(status),
       pending: Boolean(readPendingSetup(paths.userDataDir)),
     };
   });
@@ -590,45 +745,9 @@ function registerSetupIpc() {
     if (state.setupSaving || state.setupTest || state.restarting) {
       return { ok: false, error: '配置正在保存，请稍候。' };
     }
-    if (!state.runtime) {
-      return { ok: false, error: '运行时尚未加载，无法保存配置。' };
-    }
-    state.setupSaving = true;
-    try {
-      await validateSetupConfiguration({ ...setupOptions(), payload });
-      stageSetup(paths.userDataDir, payload);
-      const applied = await applyPendingSetup();
-      if (!applied) {
-        schedulePendingSetup();
-        return { ok: true, pending: true };
-      }
-      const result = state.setupStatus;
-      const provider =
-        typeof payload?.provider === 'string' ? payload.provider.trim() : '未知';
-      logger.info(`首次配置已保存：provider=${provider}；开始启动服务。`);
-      state.setupStatus = {
-        ...(state.setupStatus ?? {}),
-        configured: true,
-        provider: result.provider ?? provider,
-        model: result.model ?? null,
-        configPath: result.configPath ?? null,
-      };
-      // Let the IPC response reach the page before closing its window.
-      setTimeout(() => {
-        void activateAfterSetup();
-      }, 250);
-      return {
-        ok: true,
-        provider: result.provider,
-        model: result.model,
-        configPath: result.configPath,
-      };
-    } catch (error) {
-      logger.warn(`首次配置保存失败：${error?.message ?? error}`);
-      return { ok: false, error: error?.message ?? String(error) };
-    } finally {
-      state.setupSaving = false;
-    }
+    const result = await saveConfigurationFromPayload(payload);
+    const { httpStatus: _httpStatus, ...response } = result;
+    return response;
   });
 
   ipcMain.handle('setup:cancel', (event) => {
@@ -859,6 +978,7 @@ function createWindow() {
     minHeight: 640,
     title: APP_NAME,
     backgroundColor: '#0d1117',
+    icon: appIconPath(),
     show: false,
     webPreferences: buildWebPreferences({ isDev: IS_DEV }),
   });
@@ -930,6 +1050,47 @@ async function openExternalUrl(url) {
   }
 }
 
+/** 窗口当前是否停在 WebUI 上（用于避免 Dock 激活时无谓重载）。 */
+function isWindowOnWebui(window) {
+  if (!window || window.isDestroyed() || !state.webuiUrl) {
+    return false;
+  }
+  const current = window.webContents.getURL();
+  return Boolean(current) && current.startsWith(state.webuiUrl);
+}
+
+/**
+ * 恢复/创建主窗口。
+ *
+ * macOS 点击 Dock 图标时窗口可能已被关闭，或刚由 createWindow() 创建（尚未加载
+ * 任何页面）。这里只在“没有加载 WebUI”时加载，已在前台页面时绝不重载，避免丢失
+ * 当前会话与滚动位置（问题：点击 Dock 跳到空白主页）。
+ */
+async function restoreMainWindow() {
+  const window = createWindow();
+  if (window.isMinimized()) {
+    window.restore();
+  }
+  window.show();
+  window.focus();
+
+  if (isWindowOnWebui(window)) {
+    return window;
+  }
+  if (state.servicesReady && state.webuiUrl) {
+    try {
+      await window.loadURL(state.webuiUrl);
+    } catch (error) {
+      logger.warn(`恢复窗口失败：${error?.message ?? error}`);
+    }
+    return window;
+  }
+  if (!window.webContents.getURL()) {
+    await showLoadingPage();
+  }
+  return window;
+}
+
 function focusWindow() {
   const setupWindow = state.setupWindow;
   if (setupWindow && !setupWindow.isDestroyed()) {
@@ -940,7 +1101,7 @@ function focusWindow() {
   }
   const window = state.window;
   if (!window || window.isDestroyed()) {
-    createWindow();
+    void restoreMainWindow();
     return;
   }
   if (window.isMinimized()) {
@@ -956,18 +1117,12 @@ async function handleActivate() {
     state.setupWindow.focus();
     return;
   }
-  const window = createWindow();
-  if (window.isMinimized()) {
-    window.restore();
+  // 尚未完成首次配置：回到配置向导，而不是空白主窗口。
+  if (!state.setupStatus?.configured && !state.servicesReady) {
+    showSetupWindow();
+    return;
   }
-  window.show();
-  if (state.servicesReady && state.webuiUrl) {
-    try {
-      await window.loadURL(state.webuiUrl);
-    } catch (error) {
-      logger.warn(`恢复窗口失败：${error?.message ?? error}`);
-    }
-  }
+  await restoreMainWindow();
 }
 
 // ---------------------------------------------------------------------------
@@ -1159,6 +1314,8 @@ function cleanupForQuit() {
   if (!state.cleanupPromise) {
     state.cleanupPromise = (async () => {
       await stopServices('quit');
+      await state.bridge?.close?.();
+      state.bridge = null;
     })();
   }
   return state.cleanupPromise;

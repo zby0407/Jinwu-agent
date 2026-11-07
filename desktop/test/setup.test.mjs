@@ -8,6 +8,8 @@ import {
   saveSetupConfiguration,
   setupCommandArgs,
   testSetupConnection,
+  listSetupModels,
+  SETUP_MODELS_TIMEOUT_MS,
   SETUP_TEST_TIMEOUT_MS,
 } from '../electron/lib/setup.mjs';
 
@@ -175,4 +177,26 @@ test('saveSetupConfiguration rejects secret-bearing errors from stderr only as d
       return true;
     },
   );
+});
+
+test('listSetupModels runs the models mode with the draft credentials on stdin', async () => {
+  const { calls, spawnImpl } = fakeSpawn({
+    ok: true,
+    provider: 'deepseek',
+    models: ['deepseek-flash', 'deepseek-v4-pro'],
+  });
+
+  const result = await listSetupModels({
+    pythonPath: '/runtime/python/bin/python3',
+    cwd: '/runtime/project',
+    env: {},
+    payload: { provider: 'deepseek', api_key: 'sk-super-secret' },
+    spawnImpl,
+  });
+
+  assert.deepEqual(result.models, ['deepseek-flash', 'deepseek-v4-pro']);
+  assert.deepEqual(calls[0].args, ['-m', 'jw.desktop_setup', 'models']);
+  assert.ok(!calls[0].args.join(' ').includes('sk-super-secret'));
+  assert.match(calls[0].child.stdin.data, /sk-super-secret/);
+  assert.equal(SETUP_MODELS_TIMEOUT_MS, 45_000);
 });

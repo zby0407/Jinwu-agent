@@ -14,6 +14,8 @@ import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import { DataSourceSettings } from "@/app/components/DataSourceSettings";
+import { ModelSettings } from "@/app/components/ModelSettings";
+import { ScientificDataInterfaces } from "@/app/components/ScientificDataInterfaces";
 import { DEFAULT_ASSISTANT_ID, DeploymentConfig } from "@/lib/config";
 import { useCollapseAgentActions } from "@/lib/uiSettings";
 
@@ -24,7 +26,7 @@ interface ConfigDialogProps {
   initialConfig?: DeploymentConfig;
 }
 
-type ConfigTab = "general" | "sources";
+type ConfigTab = "general" | "sources" | "literature" | "model" | "interfaces";
 
 export function ConfigDialog({
   open,
@@ -39,7 +41,7 @@ export function ConfigDialog({
   const [tab, setTab] = useState<ConfigTab>("general");
   // Desktop builds inject the local endpoint via JW_DESKTOP_MANAGED (see
   // page.tsx auto-detection): the URL is owned by the shell, so the dialog
-  // only surfaces the data-source management tab.
+  // surfaces model/API settings plus data-source management instead.
   const [desktopManaged, setDesktopManaged] = useState(false);
   const inputRef = useRef<HTMLInputElement | null>(null);
   // UI preference: persisted independently of deployment config. The hook
@@ -60,8 +62,8 @@ export function ConfigDialog({
         if (cancelled) return;
         const managed = Boolean(d?.desktopManaged);
         setDesktopManaged(managed);
-        // The desktop shell owns the endpoint: land on data sources.
-        setTab(managed ? "sources" : "general");
+        // The desktop shell owns the endpoint: land on model settings.
+        setTab(managed ? "model" : "general");
         if (!initialConfig?.deploymentUrl && d?.deploymentUrl) {
           setDeploymentUrl(d.deploymentUrl);
         }
@@ -108,52 +110,79 @@ export function ConfigDialog({
       <DialogContent
         className={cn(
           "flex max-h-[85vh] flex-col",
-          tab === "sources" || desktopManaged
+          tab === "sources" || tab === "literature"
             ? "h-[min(85vh,700px)] sm:max-w-[1000px]"
-            : "sm:max-w-[525px]"
+            : tab === "model"
+              ? "h-[min(85vh,700px)] sm:max-w-[620px]"
+              : tab === "interfaces"
+                ? "h-[min(85vh,700px)] sm:max-w-[720px]"
+                : "sm:max-w-[525px]"
         )}
       >
         <DialogHeader>
           <DialogTitle>配置</DialogTitle>
           <DialogDescription>
-            {tab === "sources" || desktopManaged
-              ? "查看和管理当前接入的观测数据源与论文源。"
-              : `金乌部署的访问地址。默认会自动检测本地部署，也可以填写通过 jw deploy 获得的公开 URL。设置将保存在浏览器本地存储中。`}
+            {tab === "sources"
+              ? "查看和管理当前接入的观测数据源。"
+              : tab === "literature"
+                ? "管理论文源订阅与文献检索的 API 凭据。"
+                : tab === "model"
+                ? "修改本机金乌的默认模型与 API 凭证，保存后自动重启后端生效。"
+                : tab === "interfaces"
+                  ? "配置 PDF 表格识别、图表识别与数据源发现所用的云端服务，密钥只保存在本机后端。"
+                  : `金乌部署的访问地址。默认会自动检测本地部署，也可以填写通过 jw deploy 获得的公开 URL。设置将保存在浏览器本地存储中。`}
           </DialogDescription>
         </DialogHeader>
-        {!desktopManaged && (
-          <div
-            role="tablist"
-            aria-label="设置分类"
-            className="flex gap-1 border-b border-border/70"
-          >
-            {(
-              [
-                ["general", "常规"],
-                ["sources", "数据源"],
-              ] as Array<[ConfigTab, string]>
-            ).map(([mode, label]) => (
-              <button
-                key={mode}
-                type="button"
-                role="tab"
-                aria-selected={tab === mode}
-                onClick={() => setTab(mode)}
-                className={cn(
-                  "-mb-px border-b-2 px-3 py-2 text-sm transition-colors",
-                  tab === mode
-                    ? "border-[var(--brand)] font-medium text-foreground"
-                    : "border-transparent text-muted-foreground hover:text-foreground"
-                )}
-              >
-                {label}
-              </button>
-            ))}
+        <div
+          role="tablist"
+          aria-label="设置分类"
+          className="flex gap-1 border-b border-border/70"
+        >
+          {(
+            desktopManaged
+              ? ([
+                  ["model", "模型与 API"],
+                  ["sources", "数据源"],
+                  ["literature", "文献源"],
+                  ["interfaces", "识别 API"],
+                ] as Array<[ConfigTab, string]>)
+              : ([
+                  ["general", "常规"],
+                  ["sources", "数据源"],
+                  ["literature", "文献源"],
+                  ["interfaces", "识别 API"],
+                ] as Array<[ConfigTab, string]>)
+          ).map(([mode, label]) => (
+            <button
+              key={mode}
+              type="button"
+              role="tab"
+              aria-selected={tab === mode}
+              onClick={() => setTab(mode)}
+              className={cn(
+                "-mb-px border-b-2 px-3 py-2 text-sm transition-colors",
+                tab === mode
+                  ? "border-[var(--brand)] font-medium text-foreground"
+                  : "border-transparent text-muted-foreground hover:text-foreground"
+              )}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+        {tab === "model" && desktopManaged ? (
+          <ModelSettings />
+        ) : tab === "interfaces" ? (
+          <div className="min-h-0 flex-1 overflow-y-auto py-4">
+            <ScientificDataInterfaces />
           </div>
-        )}
-        {tab === "sources" || desktopManaged ? (
+        ) : tab === "sources" ? (
           <div className="flex min-h-0 flex-1 flex-col py-4">
-            <DataSourceSettings />
+            <DataSourceSettings section="data" />
+          </div>
+        ) : tab === "literature" ? (
+          <div className="flex min-h-0 flex-1 flex-col py-4">
+            <DataSourceSettings section="literature" />
           </div>
         ) : (
           <div className="grid gap-4 overflow-y-auto py-4">
@@ -218,7 +247,10 @@ export function ConfigDialog({
           </div>
         )}
         <DialogFooter>
-          {tab === "sources" ? (
+          {tab === "sources" ||
+          tab === "literature" ||
+          tab === "model" ||
+          tab === "interfaces" ? (
             <Button
               variant="outline"
               onClick={() => onOpenChange(false)}

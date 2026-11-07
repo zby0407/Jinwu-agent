@@ -236,6 +236,11 @@ WRITING_GUIDELINES = """# Writing Guidelines
 - Use bullets for configs, stage lists, and key results; use short paragraphs for reasoning.
 - Avoid first-person singular ("I ..."). Prefer neutral phrasing ("This experiment...") or "we" style.
 - Professional, objective tone. Be precise, technical, and concise.
+- When the run produces image artifacts (plots, diagrams, maps), embed them in
+  the final chat answer as markdown images using the workspace-relative path,
+  e.g. `![ROC 曲线](outputs/roc_curves.png)` - the chat interface renders them
+  inline. A bare file path in backticks is NOT displayed; the image syntax is
+  required. Do not embed images that were not actually produced.
 """
 
 # =============================================================================
@@ -315,6 +320,7 @@ SHELL_GUIDELINES = _build_shell_guidelines()
 # =============================================================================
 # Sub-agent delegation strategy
 # =============================================================================
+
 
 DELEGATION_STRATEGY = """# Sub-Agent Delegation
 

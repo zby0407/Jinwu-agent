@@ -20,6 +20,10 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse
 from starlette.routing import Route
 
+from jw.astronomy_data_sources import (
+    describe_astronomy_data_sources,
+    query_astronomy_data_source,
+)
 from jw.data_preview import build_dataset_preview
 from jw.data_source_settings import load_source_settings, set_source_enabled
 from jw.paths import WORKSPACE_ROOT
@@ -91,8 +95,21 @@ def _fetch_data_sources() -> dict[str, Any]:
         sources.append(
             {
                 **dataset,
+                "category": "solar",
+                "query_mode": "local_dataset",
+                "description": "官方太阳活动观测数据集。",
                 "enabled": enabled_state.get(dataset_id, True),
                 "registration": registration,
+            }
+        )
+    for source in describe_astronomy_data_sources():
+        source_id = str(source["id"])
+        sources.append(
+            {
+                **source,
+                "relative": "",
+                "enabled": enabled_state.get(source_id, True),
+                "registration": None,
             }
         )
     return {"status": "ok", "sources": sources}
@@ -100,6 +117,7 @@ def _fetch_data_sources() -> dict[str, Any]:
 
 def _set_data_source_enabled(dataset_id: str, enabled: bool) -> dict[str, Any]:
     known = {str(dataset["id"]) for dataset in describe_solar_datasets()}
+    known.update(str(source["id"]) for source in describe_astronomy_data_sources())
     if dataset_id not in known:
         return {"error": f"unknown dataset id: {dataset_id}", "status_code": 404}
     set_source_enabled(dataset_id, enabled)
@@ -123,6 +141,30 @@ async def update_data_source(request: Request) -> JSONResponse:
     )
     status_code = int(result.pop("status_code", 200))
     return _json(result, status_code=status_code)
+
+
+async def query_data_source(request: Request) -> JSONResponse:
+    source_id = request.path_params["dataset_id"]
+    known = {str(source["id"]) for source in describe_astronomy_data_sources()}
+    if source_id not in known:
+        return _json(
+            {"error": f"unknown queryable data source: {source_id}"}, status_code=404
+        )
+    if not load_source_settings().get(source_id, True):
+        return _json(
+            {"error": "data source is disabled", "code": "disabled"}, status_code=409
+        )
+    try:
+        body = await request.json()
+    except (json.JSONDecodeError, ValueError):
+        return _json({"error": "request body must be JSON"}, status_code=400)
+    if not isinstance(body, dict):
+        return _json({"error": "request body must be a JSON object"}, status_code=400)
+    try:
+        result = await asyncio.to_thread(query_astronomy_data_source, source_id, body)
+    except (OSError, TimeoutError, ValueError, json.JSONDecodeError) as exc:
+        return _json({"error": str(exc), "code": "upstream_error"}, status_code=502)
+    return _json(result)
 
 
 # Source-checkout fallback: when JW runs from its own repository (dev /
@@ -220,5 +262,10 @@ DATA_SOURCE_ROUTES = [
         "/api/data-sources/{dataset_id}",
         update_data_source,
         methods=["PUT"],
+    ),
+    Route(
+        "/api/data-sources/{dataset_id}/query",
+        query_data_source,
+        methods=["POST"],
     ),
 ]

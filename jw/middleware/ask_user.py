@@ -200,7 +200,33 @@ or available tools.
 - Use `text` for open-ended input (preferred language, custom parameters, etc.)
 - Group related questions into a **single** `ask_user` call (max 5 questions)
 - Never ask more than once per decision point — respect the user's time
-- After receiving answers, summarize what you understood before proceeding"""
+- After receiving answers, summarize what you understood before proceeding
+
+### Exact JSON shape (field names are NOT negotiable — follow this example):
+
+```json
+{
+  "questions": [
+    {
+      "question": "Which dataset should I use?",
+      "type": "multiple_choice",
+      "choices": [
+        {"value": "CIFAR-10 (small, trains in minutes)"},
+        {"value": "ImageNet (large, needs GPU hours)"}
+      ]
+    },
+    {
+      "question": "Any custom preprocessing requirements?",
+      "type": "text"
+    }
+  ]
+}
+```
+
+Multiple-choice options use the field `choices` — a list of objects each with a
+`value` string (that string is what the user sees and what you get back). Do NOT
+use `options`, `items`, `label`, or `answers`. An "Other" free-form option is
+appended automatically — do not add it yourself."""
 
 
 # ---------------------------------------------------------------------------

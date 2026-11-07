@@ -210,3 +210,62 @@ def test_main_error_is_json_without_traceback(isolated_config, capsys) -> None:
     payload = json.loads(capsys.readouterr().out)
     assert payload["ok"] is False
     assert "Traceback" not in payload["error"]
+
+
+def test_list_models_uses_saved_key_and_filters_non_chat(
+    isolated_config, monkeypatch
+) -> None:
+    desktop_setup.configure_from_payload(
+        {"provider": "deepseek", "model": "deepseek-v4-pro", "api_key": "sk-test"}
+    )
+    seen: dict[str, str] = {}
+
+    def fake_list(api_key: str, base_url: str) -> list[str]:
+        seen["api_key"] = api_key
+        seen["base_url"] = base_url
+        return ["deepseek-v4-pro", "deepseek-embedding-v1", "deepseek-flash"]
+
+    monkeypatch.setattr(desktop_setup, "_list_openai_compatible_models", fake_list)
+    result = desktop_setup.list_provider_models({"provider": "deepseek"})
+
+    assert seen == {
+        "api_key": "sk-test",
+        "base_url": "https://api.deepseek.com",
+    }
+    assert result == {
+        "provider": "deepseek",
+        "models": ["deepseek-v4-pro", "deepseek-flash"],
+    }
+
+
+def test_list_models_redacts_key_from_provider_errors(
+    isolated_config, monkeypatch
+) -> None:
+    desktop_setup.configure_from_payload(
+        {"provider": "deepseek", "model": "deepseek-v4-pro", "api_key": "sk-secret"}
+    )
+
+    def fake_list(api_key: str, base_url: str) -> list[str]:
+        raise RuntimeError(f"Incorrect API key provided: {api_key}")
+
+    monkeypatch.setattr(desktop_setup, "_list_openai_compatible_models", fake_list)
+    with pytest.raises(desktop_setup.SetupError) as excinfo:
+        desktop_setup.list_provider_models({"provider": "deepseek"})
+
+    assert "sk-secret" not in str(excinfo.value)
+    assert "***" in str(excinfo.value)
+
+
+def test_model_endpoint_resolution(isolated_config) -> None:
+    config = desktop_setup.get_effective_config()
+    assert desktop_setup._resolve_model_endpoint("deepseek", config) == (
+        "openai",
+        "https://api.deepseek.com",
+    )
+    assert desktop_setup._resolve_model_endpoint("ollama", config) == (
+        "ollama",
+        "http://127.0.0.1:11434",
+    )
+    assert desktop_setup._filter_chat_models(
+        ["models/gemini-3.5-flash", "text-embedding-004", "gpt-4o-audio-preview"]
+    ) == ["gemini-3.5-flash"]
