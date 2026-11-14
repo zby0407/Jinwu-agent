@@ -177,10 +177,11 @@ _FILE_COMPUTATION_REQUEST = re.compile(
     re.IGNORECASE,
 )
 _NEGATED_ACTION = re.compile(
-    r"(?:不要|不得|禁止|无需|不必|不用|不需要|不允许|不可|不能|避免|排除|"
+    r"(?:不要|不得|禁止|无需|不必|不用|不需要|不允许|不可|不能|避免|排除|不是|并非|而非|"
     r"不(?=(?:做|作|进行|开展|执行|调用|进入|运行|启动|计算|分析|使用|加入|复现|预测|检验)))"
     r"|\b(?:do\s+not|don't|must\s+not|should\s+not|will\s+not|"
-    r"no\s+need\s+to|without|avoid|exclude)\b"
+    r"no\s+need\s+to|without|avoid|exclude|is\s+not|are\s+not|isn't|aren't)\b"
+    r"|\bnot\s+(?:a|an|the)\b"
     r"|\bno\s+(?:new\s+)?(?:computation|calculation|experiment|analysis|regression|simulation)",
     re.IGNORECASE,
 )
