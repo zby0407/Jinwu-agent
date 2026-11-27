@@ -445,7 +445,7 @@ export const ChatMessage = React.memo<ChatMessageProps>(
                 event.preventDefault();
                 submitEdit();
               }}
-              className="border-[var(--brand)]/65 mt-4 overflow-hidden rounded-xl rounded-br-none border bg-[rgba(7,8,11,0.96)] shadow-[0_0_24px_rgba(210,145,31,0.12)]"
+              className="mt-4 overflow-hidden rounded-xl rounded-br-none border border-sky-300 bg-white shadow-sm"
             >
               <textarea
                 ref={editTextareaRef}
@@ -479,7 +479,7 @@ export const ChatMessage = React.memo<ChatMessageProps>(
                 <button
                   type="submit"
                   disabled={!editValue.trim()}
-                  className="border-[var(--brand)]/60 rounded-md border bg-[var(--brand-solid)] px-3 py-1.5 text-xs font-semibold text-[var(--brand-foreground)] shadow-[inset_0_1px_0_rgba(255,238,174,0.18)] transition-opacity hover:opacity-90 focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-40"
+                  className="rounded-md border border-sky-700 bg-sky-700 px-3 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-sky-800 focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:border-blue-200 disabled:bg-blue-200 disabled:text-slate-700"
                 >
                   发送
                 </button>
@@ -492,14 +492,9 @@ export const ChatMessage = React.memo<ChatMessageProps>(
                 className={cn(
                   "mt-4 overflow-hidden break-words text-sm font-normal leading-[150%]",
                   isUser
-                    ? "rounded-xl rounded-br-none border border-border px-3 py-2 text-foreground"
-                    : "text-primary"
+                    ? "chat-user-message rounded-xl rounded-br-none px-3 py-2"
+                    : "chat-assistant-message w-full rounded-xl rounded-bl-none border border-border px-4 py-3 sm:px-5"
                 )}
-                style={
-                  isUser
-                    ? { backgroundColor: "var(--color-user-message-bg)" }
-                    : undefined
-                }
               >
                 {isUser ? (
                   <p className="m-0 whitespace-pre-wrap break-words text-sm leading-relaxed">

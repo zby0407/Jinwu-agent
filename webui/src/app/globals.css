@@ -9,36 +9,34 @@
   }
 
   :root {
-    /* The application is dark-only. Keep every shared color token here so
-       future background textures and imagery have one palette to build on. */
-    --color-primary: #f3ead4;
-    --color-user-message: #f2d386;
-    --color-user-message-bg: #2a1d0d;
-    --color-avatar-bg: #33210d;
-    --color-secondary: #b9ad91;
-    --color-success: #5dbe85;
-    --color-warning: #e0a94a;
-    --color-error: #e0796b;
-    --color-background: #090a0d;
-    --color-subagent-hover: #241a0d;
-    --color-surface: #121317;
-    --color-border: #3b3020;
-    --color-border-light: #2d271d;
-    --color-text-primary: #f3ead4;
-    --color-text-secondary: #b9ad91;
-    --color-text-tertiary: #8e8779;
-    --color-file-button: #151419;
-    --color-file-button-hover: #241b0f;
-    --brand: #f0c766;
-    --brand-hover: #ffda78;
-    --brand-solid: #c1841d;
-    --brand-foreground: #140e05;
+    /* A common palette also covers dialogs and menus rendered outside the page shell. */
+    --color-primary: #0f172a;
+    --color-user-message: #ffffff;
+    --color-user-message-bg: #3575b4;
+    --color-avatar-bg: #dbeafe;
+    --color-secondary: #475569;
+    --color-success: #15803d;
+    --color-warning: #92400e;
+    --color-error: #b91c1c;
+    --color-background: #f8fafc;
+    --color-subagent-hover: #eff6ff;
+    --color-surface: #ffffff;
+    --color-border: #cbd5e1;
+    --color-border-light: #e2e8f0;
+    --color-text-primary: #0f172a;
+    --color-text-secondary: #475569;
+    --color-text-tertiary: #64748b;
+    --color-file-button: #eff6ff;
+    --color-file-button-hover: #dbeafe;
+    --brand: #0369a1;
+    --brand-hover: #075985;
+    --brand-solid: #0369a1;
+    --brand-foreground: #ffffff;
 
     /* deep-agents-ui base tokens. Its tailwind.config.mjs maps semantic classes
        (text-primary, text-tertiary, text-success, text-warning, bg-secondary,
        border-primary, the global scrollbar) to these LangSmith-style vars, but
-       the base never defined them, so those classes rendered colorless. Alias
-       them to our dark palette. */
+       the base never defined them, so those classes rendered colorless. */
     --text-primary: var(--color-text-primary);
     --text-secondary: var(--color-text-secondary);
     --text-tertiary: var(--color-text-tertiary);
@@ -109,29 +107,29 @@
 
     /* Tailwind/Radix UI component variables */
     --radius: 0.5rem;
-    --background: 225 18% 4%;
-    --foreground: 42 47% 89%;
-    --card: 230 12% 8%;
-    --card-foreground: 42 47% 89%;
-    --popover: 230 12% 8%;
-    --popover-foreground: 42 47% 89%;
-    --primary: 41 74% 57%;
-    --primary-foreground: 38 61% 5%;
-    --secondary: 36 29% 12%;
-    --secondary-foreground: 42 47% 89%;
-    --muted: 230 9% 11%;
-    --muted-foreground: 40 15% 63%;
-    --accent: 36 39% 14%;
-    --accent-foreground: 42 76% 71%;
-    --destructive: 7 65% 65%;
-    --destructive-foreground: 30 13% 12%;
-    --border: 36 30% 18%;
-    --input: 36 30% 18%;
-    --ring: 41 74% 57%;
-    --sidebar: 225 19% 5%;
-    --chart-1: 41 74% 57%;
+    --background: 210 40% 98%;
+    --foreground: 222 47% 11%;
+    --card: 0 0% 100%;
+    --card-foreground: 222 47% 11%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 222 47% 11%;
+    --primary: 201 96% 32%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 210 40% 96%;
+    --secondary-foreground: 222 47% 11%;
+    --muted: 210 40% 96%;
+    --muted-foreground: 215 16% 40%;
+    --accent: 204 100% 95%;
+    --accent-foreground: 201 96% 25%;
+    --destructive: 0 72% 46%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 214 32% 91%;
+    --input: 214 32% 91%;
+    --ring: 201 96% 32%;
+    --sidebar: 0 0% 100%;
+    --chart-1: 201 96% 32%;
     --chart-2: 173 39% 54%;
-    --chart-3: 40 68% 62%;
+    --chart-3: 212 61% 49%;
     --chart-4: 215 37% 63%;
     --chart-5: 332 39% 64%;
   }
@@ -172,70 +170,222 @@ body {
   -moz-osx-font-smoothing: grayscale;
 }
 
-/* Keep existing component logic, but give the reorganized workspace one light
-   semantic palette instead of mixing the old dark chat and light navigation. */
-.platform-shell {
-  --color-primary: #0f172a;
-  --color-secondary: #475569;
-  --color-background: #f8fafc;
-  --color-surface: #ffffff;
-  --color-border: #cbd5e1;
-  --color-border-light: #e2e8f0;
-  --color-text-primary: #0f172a;
-  --color-text-secondary: #475569;
-  --color-text-tertiary: #64748b;
-  --brand: #0369a1;
-  --brand-hover: #075985;
-  --brand-solid: #0369a1;
-  --brand-foreground: #ffffff;
-  --background: 210 40% 98%;
-  --foreground: 222 47% 11%;
-  --card: 0 0% 100%;
-  --card-foreground: 222 47% 11%;
-  --popover: 0 0% 100%;
-  --popover-foreground: 222 47% 11%;
-  --primary: 201 96% 32%;
-  --primary-foreground: 0 0% 100%;
-  --secondary: 210 40% 96%;
-  --secondary-foreground: 222 47% 11%;
-  --muted: 210 40% 96%;
-  --muted-foreground: 215 16% 40%;
-  --accent: 204 100% 95%;
-  --accent-foreground: 201 96% 25%;
-  --border: 214 32% 91%;
-  --input: 214 32% 91%;
-  --ring: 201 96% 32%;
-  --sidebar: 0 0% 100%;
-  color: #0f172a;
-}
-/* Headings on light surfaces use slate rather than the legacy dark theme. */
-.platform-header h1,
-.platform-workbench h1,
-.platform-workbench h2,
-.platform-workbench h3,
-.platform-navigation h2,
-.platform-shell main h2 {
-  color: #0f172a;
-}
 .platform-workbench #workbench-title {
   color: #fff;
 }
-/* Fixed chat-canvas artwork. It is anchored to the full workspace below the
-   top bar, so opening either desktop panel covers the image instead of asking
-   the image to resize with the remaining chat panel. */
-.chat-workspace-background {
-  background-image:
-    linear-gradient(rgba(3, 5, 9, 0.52), rgba(3, 5, 9, 0.6)),
-    radial-gradient(
-      circle at 96% 50%,
-      rgba(0, 0, 0, 0.58) 0%,
-      rgba(0, 0, 0, 0.32) 27%,
-      rgba(0, 0, 0, 0) 55%
-    ),
-    url("/backgrounds/chat-background.png");
-  background-position: center;
+
+.platform-primary-sidebar {
+  width: 13.75rem;
+  transition: width 220ms cubic-bezier(0.2, 0.75, 0.25, 1);
+}
+
+.platform-primary-sidebar[data-compact="true"] {
+  width: var(--sidebar-collapsed-width);
+}
+
+@media (min-width: 1280px) {
+  .platform-primary-sidebar:not([data-compact="true"]) {
+    width: 15.625rem;
+  }
+}
+
+.chat-sidebar-resize-handle {
+  position: absolute;
+  z-index: 21;
+  inset-block: 0;
+  width: 10px;
+  cursor: col-resize;
+  touch-action: none;
+}
+
+.chat-sidebar-resize-handle[data-side="left"] {
+  right: -11px;
+}
+
+.chat-sidebar-resize-handle[data-side="right"] {
+  left: 0;
+}
+
+.chat-sidebar-resize-handle[aria-disabled="true"] {
+  cursor: default;
+}
+
+.chat-sidebar-resize-handle::after {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 2px;
+  background-color: #60a5fa;
+  content: "";
+  opacity: 0;
+  transition: opacity 140ms ease;
+}
+
+.chat-sidebar-resize-handle:not([aria-disabled="true"]):is(:hover, :active, :focus-visible)::after {
+  opacity: 1;
+}
+
+.platform-navigation {
+  padding: 0.75rem 0.5rem;
+  overscroll-behavior: contain;
+}
+
+.platform-navigation-group + .platform-navigation-group {
+  margin-top: 0.75rem;
+}
+
+.platform-navigation-heading {
+  position: relative;
+  overflow: hidden;
+  padding: 0 0.5rem 0.25rem;
+  color: var(--color-text-secondary);
+  font-size: 0.6875rem;
+  letter-spacing: 0.08em;
+  white-space: nowrap;
+}
+
+.platform-navigation-heading span,
+.platform-navigation-heading::after,
+.platform-navigation-label {
+  transition: opacity 150ms ease;
+}
+
+.platform-navigation-heading::after {
+  position: absolute;
+  top: 0.4375rem;
+  inset-inline-start: 0.75rem;
+  width: 1.125rem;
+  height: 2px;
+  border-radius: 999px;
+  background-color: #94a3b8;
+  content: "";
+  opacity: 0;
+}
+
+.platform-navigation-items {
+  display: grid;
+  gap: 0.25rem;
+}
+
+.platform-navigation-button {
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
+  width: 100%;
+  min-height: 2.25rem;
+  overflow: hidden;
+  padding: 0.375rem 0.75rem;
+  border-radius: 0.5rem;
+  color: #334155;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  text-align: left;
+}
+
+.platform-navigation-button[aria-current="page"] {
+  color: #075985;
+  background-color: #e0f2fe;
+}
+
+.platform-navigation-label {
+  min-width: 0;
+  white-space: nowrap;
+}
+
+.platform-navigation[data-compact="true"] .platform-navigation-heading span,
+.platform-navigation[data-compact="true"] .platform-navigation-label {
+  opacity: 0;
+}
+
+.platform-navigation[data-compact="true"] .platform-navigation-heading::after {
+  opacity: 1;
+}
+
+.platform-navigation-hint {
+  position: fixed;
+  z-index: 40;
+  transform: translateY(-50%);
+  padding: 0.375rem 0.625rem;
+  border: 1px solid #bfdbfe;
+  border-radius: 0.375rem;
+  background: #fff;
+  color: #0c4a6e;
+  box-shadow: var(--shadow-lg);
+  font-size: 0.75rem;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.platform-blue-hover {
+  background-image: linear-gradient(90deg, rgb(147 197 253 / 38%), transparent 85%);
+  background-size: 0 100%;
   background-repeat: no-repeat;
+  transition: background-size 180ms ease, color 180ms ease;
+}
+
+.platform-blue-hover:is(:hover, :focus-visible) {
   background-size: 100% 100%;
+}
+
+.platform-mobile-drawer {
+  inset: 0 auto 0 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  width: min(20rem, 90vw);
+  max-width: none;
+  height: 100dvh;
+  max-height: none;
+  overflow: hidden;
+  padding: 0;
+  border-radius: 0;
+  transform: none;
+  --tw-enter-scale: 1;
+  --tw-exit-scale: 1;
+}
+
+/* Anchor the scenery behind the scrolling chat and the composer. */
+.chat-workspace-background {
+  position: absolute;
+  z-index: -1;
+  inset: auto 0 0;
+  height: min(40rem, 67%);
+  pointer-events: none;
+  background-image:
+    linear-gradient(180deg, rgb(15 36 63 / 24%), rgb(15 36 63 / 63%)),
+    url("/platform/huairou-sunset.jpg");
+  background-position: center bottom;
+  background-size: cover;
+  mask-image: linear-gradient(to bottom, transparent, #000 66%);
+}
+
+.chat-user-message {
+  background-color: var(--color-user-message-bg);
+  color: var(--color-user-message);
+}
+
+.chat-assistant-message {
+  background-color: #fff;
+  color: #111827;
+}
+
+.chat-assistant-message .prose {
+  --tw-prose-body: #111827;
+  --tw-prose-headings: #111827;
+  --tw-prose-bold: #111827;
+  --tw-prose-counters: #475569;
+  --tw-prose-bullets: #475569;
+  --tw-prose-quotes: #334155;
+  --tw-prose-links: #075985;
+  --tw-prose-code: #111827;
+}
+
+.chat-assistant-message .prose a {
+  color: #075985;
+  text-decoration: underline;
+}
+
+.chat-assistant-message .prose :is(h1, h2, h3, h4, h5, h6) {
+  color: #111827;
 }
 
 /* Skills artwork fills only the workspace below the persistent top bar. The
@@ -254,116 +404,71 @@ body {
   background-size: 100% 100%;
 }
 
-.jw-topbar {
+.chat-workspace-dock {
+  --workspace-drawer-width: clamp(19rem, 29vw, 26rem);
   position: relative;
-  z-index: 50;
-  border-bottom: 1px solid rgba(224, 172, 69, 0.28);
-  background:
-    radial-gradient(circle at 50% 130%, rgba(198, 127, 24, 0.18), transparent 42%),
-    linear-gradient(180deg, #0d0e12 0%, #08090c 100%);
-  box-shadow: 0 5px 24px rgba(0, 0, 0, 0.35);
+  z-index: 20;
+  flex: 0 0 auto;
+  width: 0;
+  transition-property: width;
+  transition-timing-function: cubic-bezier(0.22, 0.68, 0.28, 1);
 }
 
-.jw-primary-nav {
-  display: flex;
-  align-items: center;
-  gap: 0.125rem;
-  padding: 0.1875rem;
-  border: 1px solid rgba(217, 157, 48, 0.28);
-  border-radius: 0.65rem;
-  background: rgba(7, 8, 11, 0.82);
-  box-shadow: inset 0 0 18px rgba(219, 151, 35, 0.04);
+.chat-workspace-dock[data-open="true"] {
+  width: var(--workspace-drawer-width);
 }
 
-.jw-primary-nav-button {
-  position: relative;
-  display: inline-flex;
-  height: 2.1rem;
-  align-items: center;
-  justify-content: center;
-  gap: 0.45rem;
-  padding: 0 0.75rem;
-  border: 1px solid transparent;
-  border-radius: 0.45rem;
-  color: #9f9889;
-  font-size: 0.78rem;
-  font-weight: 600;
-  letter-spacing: 0.035em;
-  transition: color 180ms ease, border-color 180ms ease,
-    background-color 180ms ease, box-shadow 180ms ease, transform 180ms ease;
-}
-
-.jw-primary-nav-button::after {
-  content: "";
+.chat-workspace-dock[data-overlay="true"] {
   position: absolute;
-  right: 18%;
-  bottom: -0.22rem;
-  left: 18%;
-  height: 1px;
-  background: linear-gradient(90deg, transparent, #f2bc4b, transparent);
-  box-shadow: 0 0 8px rgba(247, 185, 64, 0.9);
-  opacity: 0;
-  transform: scaleX(0.35);
-  transition: opacity 180ms ease, transform 180ms ease;
+  inset: 0 0 0 auto;
 }
 
-.jw-primary-nav-button:hover,
-.jw-primary-nav-button[data-active="true"] {
-  border-color: rgba(231, 180, 75, 0.48);
-  color: #f4ce75;
-  background: linear-gradient(180deg, rgba(65, 44, 15, 0.72), rgba(27, 20, 11, 0.82));
-  box-shadow: inset 0 0 16px rgba(231, 169, 52, 0.08), 0 0 13px rgba(217, 147, 31, 0.1);
+.chat-workspace-dock[data-overlay="true"][data-open="true"] .chat-workspace-drawer {
+  box-shadow: -12px 0 28px rgb(15 23 42 / 12%);
 }
 
-.jw-primary-nav-button[data-active="true"]::after {
-  opacity: 1;
-  transform: scaleX(1);
-}
-
-.jw-primary-nav-button:focus-visible,
-.jw-sidebar-nav-button:focus-visible,
-.jw-edge-toggle:focus-visible {
-  outline: 2px solid hsl(var(--ring));
-  outline-offset: 2px;
-}
-
-.jw-sidebar-nav-button {
+.chat-workspace-drawer {
+  position: absolute;
+  inset: 0 auto 0 0;
   display: flex;
-  flex-shrink: 0;
-  align-items: center;
-  gap: 0.625rem;
-  border-bottom: 1px solid hsl(var(--border));
-  border-left: 2px solid transparent;
-  padding: 0.75rem;
-  color: var(--color-text-secondary);
-  text-align: left;
-  font-size: 0.875rem;
-  font-weight: 500;
-  transition: color 180ms ease, background-color 180ms ease,
-    border-color 180ms ease, box-shadow 180ms ease;
+  width: var(--workspace-drawer-width);
+  min-height: 0;
+  flex-direction: column;
+  overflow: hidden;
+  border-left: 1px solid hsl(var(--border));
+  background-color: var(--color-surface);
 }
 
-.jw-sidebar-nav-button:hover,
-.jw-sidebar-nav-button-active {
-  border-left-color: var(--brand);
-  color: #f3cd74;
-  background: linear-gradient(90deg, rgba(96, 61, 13, 0.34), transparent 80%);
-  box-shadow: inset 8px 0 18px rgba(213, 145, 34, 0.04);
+.chat-workspace-dock .chat-workspace-toggle {
+  position: absolute;
+  z-index: 22;
+  top: 50%;
+  right: 100%;
+  transform: translateY(-50%);
+}
+
+@media (max-width: 1099px) {
+  .chat-workspace-dock {
+    --workspace-drawer-width: min(22rem, calc(100vw - 3rem));
+    position: absolute;
+    inset: 0 0 0 auto;
+  }
+
+  .chat-workspace-dock[data-open="true"] .chat-workspace-drawer {
+    box-shadow: -12px 0 28px rgb(15 23 42 / 12%);
+  }
 }
 
 .jw-edge-toggle {
   display: inline-flex;
-  width: 1.75rem;
-  height: 4rem;
+  width: 1.625rem;
+  height: 2.875rem;
   align-items: center;
   justify-content: center;
-  overflow: visible;
-  border: 1px solid rgba(235, 183, 75, 0.58);
-  color: #efc35f;
-  background: linear-gradient(180deg, rgba(30, 24, 15, 0.98), rgba(7, 8, 11, 0.98));
-  box-shadow: inset 0 0 14px rgba(227, 165, 51, 0.08), 0 0 14px rgba(215, 145, 31, 0.13);
-  transition: color 180ms ease, border-color 180ms ease,
-    box-shadow 180ms ease, transform 180ms ease;
+  border: 1px solid #bfdbfe;
+  color: #075985;
+  background-color: #eff6ff;
+  box-shadow: 0 2px 8px rgb(15 23 42 / 10%);
 }
 
 .jw-edge-toggle-left {
@@ -376,26 +481,13 @@ body {
   border-radius: 0.7rem 0 0 0.7rem;
 }
 
-.jw-edge-toggle:hover {
-  border-color: #f5ca69;
-  color: #ffe39a;
-  box-shadow: inset 0 0 18px rgba(238, 180, 66, 0.15), 0 0 22px rgba(232, 160, 37, 0.28);
+.jw-edge-toggle[aria-expanded="true"] {
+  background-color: #dbeafe;
 }
 
-.jw-edge-orbit {
-  position: absolute;
-  width: 1.05rem;
-  height: 1.55rem;
-  border: 1px solid rgba(236, 182, 69, 0.28);
-  border-radius: 50%;
-  transform: rotate(22deg);
-}
-
-@media (max-width: 639px) {
-  .jw-primary-nav-button {
-    width: 2.15rem;
-    padding: 0;
-  }
+.jw-edge-toggle:focus-visible {
+  outline: 2px solid hsl(var(--ring));
+  outline-offset: -2px;
 }
 
 h1,
