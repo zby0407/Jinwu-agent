@@ -38,6 +38,31 @@ npm run start:dist
 uv run jw --ui webui
 ```
 
+## 今日太阳
+
+工作台简报和太阳活动页共享工作区下的 `today-sun/snapshot.json`。
+从仓库根目录运行独立更新命令：
+
+```bash
+python scripts/refresh_today_sun.py
+```
+
+指定了其他运行工作区时，将同一个 `JW_WORKSPACE_DIR` 传给 WebUI 和更新命令，
+或为更新命令指定 `--workspace`。命令按北京时间每天最多发布一次快照，
+从 NASA SDO 和 NOAA SWPC 读取数据。更新失败时保留已有快照。
+系统启动和页面访问仅读缓存。每日更新可以由系统调度器在固定时间独立执行。
+每日快照还包含 SIDC 的 CME 目录及 NSO/GONG 太阳背面观测。缺失的产品保留
+上一版与原缓存时间，同日重试仅补齐当日未更新的产品。
+
+「太阳活动周」读取独立的历史档案 `today-sun/cycle.json`，收录 WDC-SILSO 黑子数与周期
+极值及 NOAA 月均 F10.7。按年或需要时独立更新：
+
+```bash
+python scripts/refresh_solar_cycle.py
+```
+
+此命令支持同一 `--workspace` 参数。日常快照更新和 WebUI 启动不会替换历史档案。
+
 ## 配置
 
 - `NEXT_PUBLIC_LANGSMITH_API_KEY`：连接需要认证的 LangGraph 部署时使用。

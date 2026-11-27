@@ -295,22 +295,21 @@ async function installBackend(
   return { observed };
 }
 
-test("workbench lists up to three recent sessions and opens the selected conversation", async ({ page, baseURL }) => {
+test("workbench filters recent sessions and opens the selected conversation", async ({ page, baseURL }) => {
   const threadTitle = "怀柔望远镜采集记录与太阳活动观测图像质量核对及后续研究会话";
   await installBackend(page, baseURL, { projectPreview: true, extraThreads: 4, threadTitle });
   await page.goto("/?view=home");
 
   const recent = page.getByRole("region", { name: "最近研究" });
-  await expect(recent.getByRole("button").locator("span")).toHaveText([threadTitle, "历史样例 1", "历史样例 2"]);
+  const titles = recent.locator(".research-thread-row .truncate");
+  await expect(titles).toHaveText([threadTitle, "历史样例 1", "历史样例 2", "历史样例 3", "历史样例 4"]);
   const timestamps = recent.locator("time");
-  await expect(timestamps).toHaveCount(3);
+  await expect(timestamps).toHaveCount(5);
   await expect(timestamps.first()).toHaveAttribute("datetime", "2026-01-01T00:00:00.000Z");
   await expect(timestamps.first()).toHaveText(/2026.*\d{2}:\d{2}/);
-  const desktopViewport = page.viewportSize();
-  const desktopCardHeight = (await recent.boundingBox()).height;
+  await recent.getByRole("textbox", { name: "筛选最近研究" }).fill("怀柔望远镜");
+  await expect(titles).toHaveText([threadTitle]);
   await page.setViewportSize({ width: 390, height: 844 });
-  await expect.poll(async () => (await recent.boundingBox()).height).toBeGreaterThan(desktopCardHeight);
-  await page.setViewportSize(desktopViewport);
   await recent.getByRole("button", { name: new RegExp(`^${threadTitle}`) }).click();
 
   await expect(page).toHaveURL(new RegExp(`threadId=${THREAD_ID}`));

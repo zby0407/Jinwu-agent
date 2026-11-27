@@ -711,7 +711,7 @@ button {
 .research-action-primary { background: #145775; color: white; }
 .research-action-primary:hover { background: #0c425e; }
 .research-page :is(button,input,select):focus-visible { outline: 2px solid #13749a; outline-offset: 2px; }
-.workbench-layout { display: grid; grid-template-columns: minmax(0,1.8fr) minmax(240px,1fr); align-items: start; gap: 20px; }
+.workbench-layout { display: grid; grid-template-columns: minmax(0,1fr) minmax(240px,1.2fr); align-items: start; gap: 20px; }
 .station-banner { position: relative; height: clamp(240px,29vw,360px); overflow: hidden; background: #dfe8ec; }
 .station-banner-slide { position: absolute; inset: 0; opacity: 0; transition: opacity 900ms ease; }
 .station-banner-slide[data-active="true"] { opacity: 1; }

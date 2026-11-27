@@ -3,10 +3,12 @@
 import React, { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import Image from "next/image";
-import { ArrowRight, ChevronLeft, ChevronRight, Plus, Search, FileText, BookOpen, Bot, BrainCircuit, CalendarClock, Database, Home, Network, Orbit, Settings2, Sun, Telescope, Wrench, Blocks } from "lucide-react";
+import Link from "next/link";
+import { ArrowRight, ChevronLeft, ChevronRight, Plus, Search, FileText, BookOpen, Bot, BrainCircuit, CalendarClock, Database, FlaskConical, Home, Library, Network, Orbit, Settings2, Sun, Telescope, Wrench, Blocks } from "lucide-react";
 import { useThreads } from "@/app/hooks/useThreads";
 import { formatFullTime } from "@/lib/time";
 import { useRuntimeStatus } from "@/providers/ClientProvider";
+import { TodaySunBrief } from "@/app/components/TodaySun";
 
 type Destination = { label: string; icon: React.ComponentType<{ className?: string }>; view?: string; action?: "agents" | "settings"; note?: string };
 const groups: { title: string; items: Destination[] }[] = [
@@ -91,6 +93,17 @@ const researchLinks = [
   { title: "数据接口", desc: "查看来源配置与接入方式", view: "data", icon: Database },
 ];
 
+const cards = [
+  { title: "数据检索", desc: "查询科学数据与观测来源", view: "data", icon: Database },
+  { title: "观测与运行状态", desc: "查看望远镜与观测设施 · 遥测未接入", view: "observatories", icon: Telescope },
+  { title: "文献调研", desc: "从科研助手开启文献任务", view: "chat", icon: Library },
+  { title: "科研工作流", desc: "查看和管理定时科研任务", view: "workflow", icon: FlaskConical },
+  { title: "报告生成", desc: "从科研助手发起报告任务", view: "chat", icon: BookOpen },
+  { title: "智能体协同", desc: "查看真实任务及智能体活动", view: "agents", icon: Network },
+];
+
+const capabilityClass = "platform-blue-hover rounded-xl border border-slate-200 bg-white p-5 text-left shadow-sm hover:border-sky-400 focus-visible:outline focus-visible:outline-2 focus-visible:outline-sky-700";
+
 const stationPhotos = [
   { src: "/platform/huairou-campus.jpg", alt: "湖畔观测站建筑与圆顶" },
   { src: "/platform/huairou-telescope.jpg", alt: "观测站望远镜与圆顶" },
@@ -147,7 +160,24 @@ export function ResearchWorkbench({ onView, onNewResearch, onOpenThread }: {
     <h2 id="workbench-title" className="sr-only">科研工作台</h2>
     <StationBanner />
     <div className="research-page-inner research-page-inner-overlap">
-      <div className="workbench-layout">
+      <section className="research-surface mb-5 p-5" aria-labelledby="capabilities-title">
+        <h3 id="capabilities-title" className="text-base font-semibold">科研能力</h3>
+        <div className="mt-4 grid auto-rows-fr gap-3 sm:grid-cols-2 xl:grid-cols-3">
+          {cards.map(card => (
+            <Link key={card.title} href={card.view === "chat" ? "/" : `/?view=${card.view}`}
+              className={capabilityClass}
+              onNavigate={(event) => {
+                event.preventDefault();
+                onView(card.view);
+              }}>
+              <card.icon className="size-5 text-sky-700" aria-hidden="true" />
+              <span className="mt-3 block font-semibold">{card.title}</span>
+              <span className="mt-1 block text-sm text-slate-600">{card.desc}</span>
+            </Link>
+          ))}
+        </div>
+      </section>
+      <section className="workbench-layout" aria-label="平台状态">
         <section className="research-surface min-w-0" aria-labelledby="recent-research-title">
           <div className="research-section-header"><h3 id="recent-research-title">最近研究</h3><button type="button" aria-label="新建研究任务" title="新建研究任务" onClick={onNewResearch} className="research-icon-action"><Plus className="size-4" /></button></div>
           <div className="research-search-row"><Search className="size-4 shrink-0" /><input aria-label="筛选最近研究" placeholder="搜索最近研究" value={query} onChange={event => setQuery(event.target.value)} /></div>
@@ -159,8 +189,9 @@ export function ResearchWorkbench({ onView, onNewResearch, onOpenThread }: {
             </button>
           </li>)}</ul> : <div role="status" className="research-recent-status">{recentStatus}{backendReady && error && <button type="button" className="research-text-action ml-3" disabled={isValidating} onClick={() => void mutate()}>重试</button>}</div>}
         </section>
-        <aside className="research-surface p-5" aria-labelledby="research-tools-title"><h3 id="research-tools-title" className="text-base font-semibold">研究资源</h3><div className="research-resource-list mt-4">{researchLinks.map(link => <button key={link.view} type="button" className="research-resource-row" onClick={() => onView(link.view)}><link.icon className="size-5 shrink-0 text-slate-500" /><span className="min-w-0 flex-1"><span className="block text-sm font-medium">{link.title}</span><span className="mt-1 block text-xs text-slate-500">{link.desc}</span></span><ArrowRight className="size-4 text-slate-400" /></button>)}</div></aside>
-      </div>
+        <TodaySunBrief onOpen={() => onView("solar")} />
+      </section>
+      <aside className="research-surface mt-5 p-5" aria-labelledby="research-tools-title"><h3 id="research-tools-title" className="text-base font-semibold">研究资源</h3><div className="research-resource-list mt-4">{researchLinks.map(link => <button key={link.view} type="button" className="research-resource-row" onClick={() => onView(link.view)}><link.icon className="size-5 shrink-0 text-slate-500" /><span className="min-w-0 flex-1"><span className="block text-sm font-medium">{link.title}</span><span className="mt-1 block text-xs text-slate-500">{link.desc}</span></span><ArrowRight className="size-4 text-slate-400" /></button>)}</div></aside>
     </div>
   </main>;
 }

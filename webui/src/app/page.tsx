@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useCallback, useRef, Suspense } from "react";
 import Image from "next/image";
-import { useQueryState } from "nuqs";
+import { parseAsStringLiteral, useQueryState } from "nuqs";
 import { getConfig, saveConfig, DeploymentConfig, DEFAULT_ASSISTANT_ID } from "@/lib/config";
 import { ConfigDialog } from "@/app/components/ConfigDialog";
 import { Button } from "@/components/ui/button";
@@ -36,7 +36,7 @@ import { SidebarResizeHandle } from "@/app/components/SidebarResizeHandle";
 import { PlatformNavigation, ResearchWorkbench, PlatformPlaceholder } from "@/app/components/ResearchPlatform";
 import { ModelSettings } from "@/app/components/ModelSettings";
 import { DataCenter } from "@/app/components/DataCenter";
-import { SolarActivity } from "@/app/components/SolarActivity";
+import { SolarActivity, type SolarTab } from "@/app/components/SolarActivity";
 
 const historySidebarId = "research-history-sidebar";
 const historyMinWidth = 224;
@@ -60,6 +60,7 @@ function HomePageInner({
   const runtime = useRuntimeStatus();
   const [threadId, setThreadId] = useQueryState("threadId");
   const [view, setView] = useQueryState("view");
+  const [solarTab, setSolarTab] = useQueryState("solarTab", parseAsStringLiteral<SolarTab>(["today", "cycle"]).withDefault("today"));
   const [inspector, setInspector] = useQueryState("inspector");
   const [inspectorTab, setInspectorTab] = useQueryState("inspectorTab");
   const legacyInspectorTab = view === "workspace" || view === "artifacts" ? view : null;
@@ -80,8 +81,9 @@ function HomePageInner({
   const closeMobileSidebar = useCallback(() => setMobileSidebar(null), []);
   const navigate = useCallback((target: string) => {
     setView(target === "chat" ? null : target);
+    if (target === "solar") setSolarTab(null);
     closeMobileSidebar();
-  }, [closeMobileSidebar, setView]);
+  }, [closeMobileSidebar, setSolarTab, setView]);
 
   const refreshThreads = useRef<(() => void) | null>(null);
   const registerHistoryRefresh = useCallback((refresh: (() => void) | null) => {
@@ -380,7 +382,7 @@ function HomePageInner({
                 </div>
                 {view === "home" && <ResearchWorkbench onView={navigate} onNewResearch={startNewChat} onOpenThread={selectThread} />}
                 {view === "observatories" && <PlatformPlaceholder title="观测设施" description="仪器实时遥测与设施控制尚未接入。可在数据中心查看已配置的科学数据接口。" image="/platform/huairou-telescope.jpg" onChat={showResearch} />}
-                {view === "solar" && <main className="h-full overflow-y-auto" aria-label="太阳活动"><SolarActivity /></main>}
+                {view === "solar" && <SolarActivity tab={solarTab} onTab={setSolarTab} />}
                 {view === "data" && <main className="research-page h-full overflow-y-auto" aria-label="数据中心"><div className="research-page-inner"><DataCenter /></div></main>}
                 {view === "models" && <div className="h-full overflow-y-auto bg-background p-4"><h2 className="mb-4 text-xl font-semibold">模型管理</h2><ModelSettings /></div>}
                 {view === "tools" && <PlatformPlaceholder title="MCP 工具" description="独立 MCP 工具目录尚未接入。现有工具调用与审批可在科研助手的会话中查看。" onChat={showResearch} />}

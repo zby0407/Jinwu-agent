@@ -11,6 +11,24 @@ test.beforeEach(async ({ page }) => {
 test("workbench navigation preserves research entry points", async ({ page }) => {
   await page.goto("/?view=home");
   await expect(page.getByRole("heading", { name: "科研工作台" })).toBeVisible();
+  const observatories = page.getByRole("link", { name: /观测与运行状态/ });
+  await expect(observatories).toHaveAttribute("href", "/?view=observatories");
+  await observatories.click();
+  await expect(page.getByRole("heading", { name: "观测设施" })).toBeVisible();
+  await page.getByRole("navigation", { name: "平台导航" }).getByRole("button", { name: "工作台" }).click();
+  await expect(page.getByRole("region", { name: "平台状态" }).getByRole("heading", { name: "今日太阳" })).toBeVisible();
+  await page.getByRole("button", { name: "查看太阳活动详情" }).click();
+  await expect(page).toHaveURL(/view=solar/);
+  const today = page.getByRole("tab", { name: "今日太阳" });
+  const cycle = page.getByRole("tab", { name: "太阳活动周" });
+  await expect(today).toHaveAttribute("aria-selected", "true");
+  await today.press("ArrowRight");
+  await expect(cycle).toBeFocused();
+  await expect(cycle).toHaveAttribute("aria-selected", "true");
+  await expect(page).toHaveURL(/solarTab=cycle/);
+  await page.getByRole("navigation", { name: "平台导航" }).getByRole("button", { name: "工作台" }).click();
+  await page.getByRole("button", { name: "查看太阳活动详情" }).click();
+  await expect(today).toHaveAttribute("aria-selected", "true");
   await page.getByRole("navigation", { name: "平台导航" }).getByRole("button", { name: "观测设施" }).click();
   await expect(page.getByRole("heading", { name: "观测设施" })).toBeVisible();
   await expect(page.getByText("仪器实时遥测与设施控制尚未接入。")).toBeVisible();
@@ -297,11 +315,19 @@ test("solar activity tab renders authoritative monthly tables", async ({ page })
       { feature: "蝴蝶图", state: "missing", note: "尚未接入黑子群纬度数据库" },
     ],
   };
-  await page.route(`${config.deploymentUrl}/api/solar-activity/overview*`, route => route.fulfill({ json: overview }));
+  let overviewRequests = 0;
+  await page.route(`${config.deploymentUrl}/api/solar-activity/overview*`, route => {
+    overviewRequests++;
+    return route.fulfill({ json: overview });
+  });
 
   await page.goto("/?view=solar");
   await expect(page.getByRole("heading", { name: "太阳活动", level: 2 })).toBeVisible();
   await expect(page.getByText("实时太阳活动指标尚未接入")).toHaveCount(0);
+  await page.getByRole("tab", { name: "太阳活动周" }).click();
+  await expect(page.getByText("查询权威数据表", { exact: true })).toBeVisible();
+  expect(overviewRequests).toBe(0);
+  await page.getByText("查询权威数据表", { exact: true }).click();
   await expect(page.getByRole("heading", { name: "月度太阳活动观测表" })).toBeVisible();
   await expect(page.getByText("最新月度黑子数")).toBeVisible();
   const october = page.getByRole("row", { name: /2026-10/ });
@@ -310,7 +336,7 @@ test("solar activity tab renders authoritative monthly tables", async ({ page })
   await expect(october).toContainText("暂定值");
   await expect(page.getByRole("heading", { name: "太阳活动周极值" })).toBeVisible();
   await expect(page.getByRole("row", { name: /第 25 周/ })).toContainText("进行中");
-  await expect(page.getByText("当前数据覆盖能力")).toBeVisible();
+  await expect(page.getByText("此表的数据覆盖")).toBeVisible();
   await expect(page.getByText("尚未接入黑子群纬度数据库")).toBeVisible();
   await expect(page.getByRole("link", { name: /www.sidc.be/ })).toBeVisible();
 });
