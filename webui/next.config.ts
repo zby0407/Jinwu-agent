@@ -1,6 +1,8 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  // Keep the Next.js dev badge clear of the chat composer controls.
+  devIndicators: false,
   // Self-contained server bundle for the npm package (the bin launcher runs
   // dist/server.js). Needed because /api/skills is a server route.
   output: "standalone",

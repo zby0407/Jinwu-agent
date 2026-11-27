@@ -59,7 +59,7 @@ def test_optional_graph_failure_does_not_block_main():
         raise ValueError("synthetic-key-not-for-output")
 
     with pytest.raises(ValueError):
-        runtime.resolve_graph("JW-reproduction", fail)
+        runtime.resolve_graph("writing-agent", fail)
     assert runtime.runtime_status()["canSend"] is True
     assert "synthetic-key" not in json.dumps(runtime._states)
 
@@ -82,7 +82,6 @@ import sys
 import jw.desktop_setup
 import jw.langgraph_dev.main_graph
 import jw.langgraph_dev.graphs
-import jw.langgraph_dev.reproduction_graph
 assert 'jw.agent' not in sys.modules
 assert 'jw.config.onboard.wizard' not in sys.modules
 assert not any(m.startswith('langchain') for m in sys.modules)

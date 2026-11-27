@@ -3,6 +3,8 @@ import { test, expect } from "@playwright/test";
 const config = { deploymentUrl: "http://127.0.0.1:1", assistantId: "JW" };
 
 test.beforeEach(async ({ page }) => {
+  await page.route("**/api/jw-config", route => route.fulfill({ json: { desktopManaged: false } }));
+  await page.route(`${config.deploymentUrl}/**`, route => route.abort());
   await page.addInitScript((value) => localStorage.setItem("jw-config", JSON.stringify(value)), config);
 });
 
@@ -16,8 +18,10 @@ test("workbench navigation preserves research entry points", async ({ page }) =>
   await expect(page.getByRole("heading", { name: "科研工作流" })).toBeVisible();
   await page.getByRole("navigation", { name: "平台导航" }).getByRole("button", { name: "金乌科研助手" }).click();
   await expect(page).not.toHaveURL(/view=workflow/);
+  await expect(page.getByRole("complementary", { name: "研究会话" })).toContainText("后端未连接");
   await page.getByRole("navigation", { name: "平台导航" }).getByRole("button", { name: "知识库" }).click();
   await expect(page).toHaveURL(/view=wiki/);
+  await expect(page.getByRole("complementary", { name: "研究会话" })).toBeHidden();
   await page.getByRole("navigation", { name: "平台导航" }).getByRole("button", { name: "定时任务" }).click();
   await expect(page).toHaveURL(/view=schedule/);
   await page.getByRole("navigation", { name: "平台导航" }).getByRole("button", { name: "技能", exact: true }).click();
