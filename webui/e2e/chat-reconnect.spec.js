@@ -227,6 +227,8 @@ async function installBackend(
       if (method !== "GET") observed.mutations.push(`${method} ${path}`);
       if (method === "GET" && path === "/api/jw-config")
         return json({ desktopManaged: false });
+      if (method === "GET" && path === "/api/today-sun")
+        return json(null);
       if (
         projectPreview &&
         method === "GET" &&
@@ -315,7 +317,8 @@ test("workbench filters recent sessions and opens the selected conversation", as
   await expect(page).toHaveURL(new RegExp(`threadId=${THREAD_ID}`));
   await expect(recent).toBeHidden();
   await expect(page.getByText(HUMAN.content, { exact: true })).toBeVisible();
-  await expect(page.getByRole("complementary", { name: "研究会话" }).getByRole("button", { name: new RegExp(`^${threadTitle}`) })).toHaveAttribute("aria-current", "true");
+  await page.getByRole("button", { name: "打开研究会话" }).click();
+  await expect(page.getByRole("dialog", { name: "研究会话" }).getByRole("button", { name: new RegExp(`^${threadTitle}`) })).toHaveAttribute("aria-current", "true");
 });
 
 test("desktop research history, icon hints and the chat palette work with existing threads", async ({ page, baseURL }) => {
