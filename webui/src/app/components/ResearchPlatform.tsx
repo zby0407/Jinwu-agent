@@ -1,9 +1,9 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import Image from "next/image";
-import { BookOpen, Bot, BrainCircuit, CalendarClock, Database, FlaskConical, Home, Library, Network, Orbit, Settings2, Sun, Telescope, Wrench, Blocks } from "lucide-react";
+import { ArrowRight, ChevronLeft, ChevronRight, Plus, Search, FileText, BookOpen, Bot, BrainCircuit, CalendarClock, Database, Home, Network, Orbit, Settings2, Sun, Telescope, Wrench, Blocks } from "lucide-react";
 import { useThreads } from "@/app/hooks/useThreads";
 import { formatFullTime } from "@/lib/time";
 import { useRuntimeStatus } from "@/providers/ClientProvider";
@@ -16,7 +16,6 @@ const groups: { title: string; items: Destination[] }[] = [
     { label: "观测设施", icon: Telescope, view: "observatories" },
     { label: "太阳活动", icon: Sun, view: "solar" },
     { label: "数据中心", icon: Database, view: "data" },
-    { label: "科研工作流", icon: FlaskConical, view: "workflow" },
     { label: "知识库", icon: BookOpen, view: "wiki" },
   ] },
   { title: "协同与工具", items: [
@@ -86,71 +85,82 @@ export function PlatformNavigation({ view, compact = false, onView, onAgents, on
   );
 }
 
-const cards = [
-  { title: "数据检索", desc: "查看科学数据接口与已配置来源", view: "data", icon: Database },
-  { title: "太阳活动分析", desc: "查阅已有太阳活动知识", view: "solar", icon: Sun },
-  { title: "文献调研", desc: "从科研助手开启文献任务", view: "chat", icon: Library },
-  { title: "研究工作流", desc: "进入科研审查与实验入口", view: "workflow", icon: FlaskConical },
-  { title: "报告生成", desc: "从科研助手发起报告任务", view: "chat", icon: BookOpen },
-  { title: "智能体协同", desc: "查看真实任务及智能体活动", view: "agents", icon: Network },
+const researchLinks = [
+  { title: "知识库", desc: "检索文献、资料与已有知识", view: "wiki", icon: BookOpen },
+  { title: "定时任务", desc: "查看已配置的自动研究任务", view: "schedule", icon: CalendarClock },
+  { title: "数据接口", desc: "查看来源配置与接入方式", view: "data", icon: Database },
 ];
 
-export function ResearchWorkbench({ onView, onNewResearch, onAgents, onOpenThread }: {
+const stationPhotos = [
+  { src: "/platform/huairou-campus.jpg", alt: "湖畔观测站建筑与圆顶" },
+  { src: "/platform/huairou-telescope.jpg", alt: "观测站望远镜与圆顶" },
+  { src: "/platform/huairou-sunset.jpg", alt: "夕阳下的观测站圆顶" },
+];
+
+function greetingFor(hour: number) {
+  if (hour < 6) return "凌晨好";
+  if (hour < 9) return "早上好";
+  if (hour < 12) return "上午好";
+  if (hour < 14) return "中午好";
+  if (hour < 18) return "下午好";
+  return "晚上好";
+}
+
+function StationBanner() {
+  const [slide, setSlide] = useState(0);
+  const [paused, setPaused] = useState(false);
+  const [greeting, setGreeting] = useState("");
+  useEffect(() => {
+    setGreeting(greetingFor(new Date().getHours()));
+  }, []);
+  useEffect(() => {
+    const motion = window.matchMedia("(prefers-reduced-motion: reduce)");
+    if (motion.matches || paused) return;
+    const timer = window.setInterval(() => {
+      if (!document.hidden) setSlide(current => (current + 1) % stationPhotos.length);
+    }, 6000);
+    return () => window.clearInterval(timer);
+  }, [paused]);
+  return <section className="station-banner" aria-label="观测站照片轮播" onMouseEnter={() => setPaused(true)} onMouseLeave={() => setPaused(false)} onFocusCapture={() => setPaused(true)} onBlurCapture={event => { if (!event.currentTarget.contains(event.relatedTarget)) setPaused(false); }}>
+    {stationPhotos.map((photo, index) => <div key={photo.src} className="station-banner-slide" data-active={index === slide} aria-hidden={index !== slide}><Image src={photo.src} alt={index === slide ? photo.alt : ""} fill priority={index === 0} sizes="(max-width: 768px) 100vw, 1160px" className="object-cover" /></div>)}
+    <div className="station-banner-greeting"><div className="station-banner-greeting-inner">{greeting && <p className="station-banner-hello">{greeting}</p>}</div></div>
+    <div className="station-banner-controls"><span className="station-banner-index" aria-hidden="true">{String(slide + 1).padStart(2, "0")} / {String(stationPhotos.length).padStart(2, "0")}</span><button type="button" aria-label="上一张观测站照片" onClick={() => setSlide(current => (current - 1 + stationPhotos.length) % stationPhotos.length)}><ChevronLeft className="size-4" /></button><button type="button" aria-label="下一张观测站照片" onClick={() => setSlide(current => (current + 1) % stationPhotos.length)}><ChevronRight className="size-4" /></button></div>
+  </section>;
+}
+
+export function ResearchWorkbench({ onView, onNewResearch, onOpenThread }: {
   onView: (view: string) => void;
   onNewResearch: () => void;
-  onAgents: () => void;
   onOpenThread: (threadId: string) => void;
 }) {
   const { backendReady } = useRuntimeStatus();
-  const { data, error } = useThreads({ enabled: backendReady, limit: 3 });
-  const recentThreads = data?.[0]?.slice(0, 3) ?? [];
+  const { data, error, mutate, isValidating } = useThreads({ enabled: backendReady, limit: 8 });
+  const [query, setQuery] = useState("");
+  const recentThreads = data?.[0] ?? [];
+  const filtered = recentThreads.filter(thread => thread.title.toLocaleLowerCase().includes(query.toLocaleLowerCase()));
   let recentStatus = "正在加载研究会话…";
-  if (!backendReady) recentStatus = "连接后端后显示最近会话。";
-  else if (error) recentStatus = "暂时无法加载研究会话。";
-  else if (data) recentStatus = "暂无研究会话。";
+  if (!backendReady) recentStatus = "后端未连接";
+  else if (error) recentStatus = "无法加载研究会话";
+  else if (data) recentStatus = query ? "没有匹配的研究" : "暂无研究会话";
 
-  return <main className="platform-workbench h-full overflow-y-auto bg-slate-50 px-5 py-8 text-slate-900 sm:px-8">
-    <div className="mx-auto max-w-5xl">
-      <section className="relative isolate overflow-hidden rounded-2xl bg-slate-800 text-white shadow-sm" aria-labelledby="workbench-title">
-        <Image src="/platform/huairou-campus.jpg" alt="怀柔基地湖畔观测设施" fill priority sizes="(max-width: 768px) 100vw, 1024px" className="-z-20 object-cover object-center" />
-        <div className="absolute inset-0 -z-10 bg-gradient-to-r from-slate-950/90 via-slate-950/70 to-slate-950/20" aria-hidden="true" />
-        <div className="relative px-6 py-9 sm:px-9 sm:py-12">
-          <p className="text-xs font-semibold tracking-widest text-sky-100">怀柔基地 · 金乌智能科研平台</p>
-          <h2 id="workbench-title" className="mt-2 text-2xl font-semibold tracking-tight text-white sm:text-3xl">科研工作台</h2>
-          <p className="mt-2 max-w-lg text-sm leading-6 text-slate-100">从已有研究继续，或向金乌科研助手提出新的科学问题。</p>
-          <button type="button" onClick={onNewResearch} className="platform-blue-hover mt-6 rounded-lg bg-white px-4 py-2 text-sm font-semibold text-sky-900 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white">新建研究任务</button>
-        </div>
-      </section>
-      <section aria-labelledby="capabilities-title" className="mt-10">
-        <h3 id="capabilities-title" className="text-lg font-semibold">科研能力</h3>
-        <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-          {cards.map(card => <button key={card.title} type="button" onClick={() => card.view === "agents" ? onAgents() : onView(card.view)} className="platform-blue-hover rounded-xl border border-slate-200 bg-white p-5 text-left shadow-sm hover:border-sky-400 focus-visible:outline focus-visible:outline-2 focus-visible:outline-sky-700">
-            <card.icon className="size-5 text-sky-700" /><span className="mt-3 block font-semibold">{card.title}</span><span className="mt-1 block text-sm text-slate-600">{card.desc}</span>
-          </button>)}
-        </div>
-      </section>
-      <section className="mt-8 grid items-start gap-4 sm:grid-cols-2" aria-label="平台状态">
-        <section aria-labelledby="recent-research-title" className="min-w-0 rounded-xl border border-slate-200 bg-white p-5">
-          <h3 id="recent-research-title" className="font-semibold">最近研究</h3>
-          {recentThreads.length > 0 ? (
-            <ul className="mt-2 divide-y divide-border">
-              {recentThreads.map(thread => (
-                <li key={thread.id}>
-                  <button type="button" onClick={() => onOpenThread(thread.id)} className="platform-blue-hover grid w-full grid-cols-[minmax(0,1fr)_auto] items-baseline gap-x-3 rounded-md px-2 py-2 text-left focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring">
-                    <span className="text-sm font-medium text-sky-800 [overflow-wrap:anywhere]">{thread.title}</span>
-                    <time dateTime={thread.updatedAt.toJSON() ?? undefined} title="最后更新" className="whitespace-nowrap text-right text-xs tabular-nums text-muted-foreground">
-                      {formatFullTime(thread.updatedAt)}
-                    </time>
-                  </button>
-                </li>
-              ))}
-            </ul>
-          ) : (
-            <p role="status" className="mt-2 text-sm text-muted-foreground">{recentStatus}</p>
-          )}
+  return <main className="research-page h-full overflow-y-auto" aria-labelledby="workbench-title">
+    <h2 id="workbench-title" className="sr-only">科研工作台</h2>
+    <StationBanner />
+    <div className="research-page-inner research-page-inner-overlap">
+      <div className="workbench-layout">
+        <section className="research-surface min-w-0" aria-labelledby="recent-research-title">
+          <div className="research-section-header"><h3 id="recent-research-title">最近研究</h3><button type="button" aria-label="新建研究任务" title="新建研究任务" onClick={onNewResearch} className="research-icon-action"><Plus className="size-4" /></button></div>
+          <div className="research-search-row"><Search className="size-4 shrink-0" /><input aria-label="筛选最近研究" placeholder="搜索最近研究" value={query} onChange={event => setQuery(event.target.value)} /></div>
+          {filtered.length > 0 ? <ul className="research-thread-list">{filtered.map(thread => <li key={thread.id}>
+            <button type="button" onClick={() => onOpenThread(thread.id)} className="research-thread-row">
+              <span className="research-thread-icon"><FileText className="size-4" /></span>
+              <span className="min-w-0 flex-1"><span className="block truncate font-medium">{thread.title}</span><time className="mt-1 block text-xs text-slate-500" dateTime={thread.updatedAt.toJSON() ?? undefined}>{formatFullTime(thread.updatedAt)}</time></span>
+              <ArrowRight className="size-4 shrink-0 text-slate-400" />
+            </button>
+          </li>)}</ul> : <div role="status" className="research-recent-status">{recentStatus}{backendReady && error && <button type="button" className="research-text-action ml-3" disabled={isValidating} onClick={() => void mutate()}>重试</button>}</div>}
         </section>
-        <div className="rounded-xl border border-slate-200 bg-white p-5"><h3 className="font-semibold">观测与运行状态</h3><p className="mt-2 text-sm text-slate-600">仪器实时遥测未接入。连接状态请以顶部健康指示为准。</p></div>
-      </section>
+        <aside className="research-surface p-5" aria-labelledby="research-tools-title"><h3 id="research-tools-title" className="text-base font-semibold">研究资源</h3><div className="research-resource-list mt-4">{researchLinks.map(link => <button key={link.view} type="button" className="research-resource-row" onClick={() => onView(link.view)}><link.icon className="size-5 shrink-0 text-slate-500" /><span className="min-w-0 flex-1"><span className="block text-sm font-medium">{link.title}</span><span className="mt-1 block text-xs text-slate-500">{link.desc}</span></span><ArrowRight className="size-4 text-slate-400" /></button>)}</div></aside>
+      </div>
     </div>
   </main>;
 }

@@ -35,7 +35,8 @@ import { InspectorPanel, type InspectorTab } from "@/app/components/InspectorPan
 import { SidebarResizeHandle } from "@/app/components/SidebarResizeHandle";
 import { PlatformNavigation, ResearchWorkbench, PlatformPlaceholder } from "@/app/components/ResearchPlatform";
 import { ModelSettings } from "@/app/components/ModelSettings";
-import { ScientificDataInterfaces } from "@/app/components/ScientificDataInterfaces";
+import { DataCenter } from "@/app/components/DataCenter";
+import { SolarActivity } from "@/app/components/SolarActivity";
 
 const historySidebarId = "research-history-sidebar";
 const historyMinWidth = 224;
@@ -273,7 +274,7 @@ function HomePageInner({
         initialConfig={config}
       />
       <div className="flex h-screen flex-col">
-        <header className="platform-header flex h-14 items-center justify-between border-b border-slate-200 bg-white px-3 sm:px-5">
+        <header className="platform-header flex h-14 items-center justify-between border-b border-slate-200 bg-white px-3 sm:px-5 md:hidden">
           <div className="flex min-w-0 items-center gap-3">
             <Dialog open={isDesktopLayout === false && mobileSidebar === "navigation"} onOpenChange={open => setMobileSidebar(open ? "navigation" : null)}>
               <DialogTrigger asChild>
@@ -312,7 +313,15 @@ function HomePageInner({
               {isDesktopLayout && (
                 <>
                   <aside className="platform-primary-sidebar flex h-full shrink-0 flex-col border-r border-border bg-card" data-compact={showChat}>
+                    <div className="platform-sidebar-brand">
+                      <Image src="/jw-logo.jpg" alt="金乌" width={26} height={26} className="size-7 shrink-0 rounded-full object-cover" priority />
+                      <span className="platform-sidebar-brand-text">金乌智能科研平台</span>
+                    </div>
                     <PlatformNavigation view={showChat ? null : view} compact={showChat} onView={navigate} onAgents={showAgentsInspector} onSettings={() => setConfigDialogOpen(true)} />
+                    <div className="platform-sidebar-footer">
+                      <HealthIndicator deploymentUrl={config.deploymentUrl} onReconnect={(url) => handleSaveConfig({ ...config, deploymentUrl: url })} />
+                      <Button variant="ghost" size="icon" onClick={() => setConfigDialogOpen(true)} aria-label="设置" title="设置" className="size-8 shrink-0 text-slate-700 hover:bg-slate-100"><Settings className="size-5" aria-hidden="true" /></Button>
+                    </div>
                   </aside>
                   <aside
                     id={historySidebarId}
@@ -369,11 +378,10 @@ function HomePageInner({
                     <RealtimeActivityBridge />
                   </ChatProvider>
                 </div>
-                {view === "home" && <ResearchWorkbench onView={navigate} onNewResearch={startNewChat} onAgents={showAgentsInspector} onOpenThread={selectThread} />}
+                {view === "home" && <ResearchWorkbench onView={navigate} onNewResearch={startNewChat} onOpenThread={selectThread} />}
                 {view === "observatories" && <PlatformPlaceholder title="观测设施" description="仪器实时遥测与设施控制尚未接入。可在数据中心查看已配置的科学数据接口。" image="/platform/huairou-telescope.jpg" onChat={showResearch} />}
-                {view === "solar" && <PlatformPlaceholder title="太阳活动" description="太阳活动实时指标尚未接入。现有太阳活动周 Wiki 可通过知识库访问；科研助手可处理已有资料。" onChat={showResearch} />}
-                {view === "data" && <div className="h-full overflow-y-auto bg-background p-4"><h2 className="mb-3 text-xl font-semibold">数据中心 · 科学数据接口</h2><p className="mb-4 text-sm text-muted-foreground">以下为现有接口配置，不代表实时观测数据；修改接口仅适用于具备管理权限的部署。</p><ScientificDataInterfaces /></div>}
-                {view === "workflow" && <PlatformPlaceholder title="科研工作流" description="科研审查与研究仪表盘位于科研助手的会话内；新建研究任务后即可使用。独立工作流编排页面尚未接入。" onChat={showResearch} />}
+                {view === "solar" && <main className="h-full overflow-y-auto" aria-label="太阳活动"><SolarActivity /></main>}
+                {view === "data" && <main className="research-page h-full overflow-y-auto" aria-label="数据中心"><div className="research-page-inner"><DataCenter /></div></main>}
                 {view === "models" && <div className="h-full overflow-y-auto bg-background p-4"><h2 className="mb-4 text-xl font-semibold">模型管理</h2><ModelSettings /></div>}
                 {view === "tools" && <PlatformPlaceholder title="MCP 工具" description="独立 MCP 工具目录尚未接入。现有工具调用与审批可在科研助手的会话中查看。" onChat={showResearch} />}
                 {view === "skills" && <SkillsMarketplace />}
@@ -392,7 +400,7 @@ function HomePageInner({
                   />
                 )}
                 {view === "wiki" && <KnowledgePanel />}
-                {view === "schedule" && <ScheduledTasksPanel />}
+                {(view === "schedule" || view === "workflow") && <ScheduledTasksPanel />}
                 {view === "agents" && <main className="h-full overflow-y-auto bg-slate-50 p-5 text-slate-900"><h2 className="mb-4 text-xl font-semibold">智能体协同</h2><AgentsPanel onReportToMainChat={notifyMainChat} /></main>}
               </ResizablePanel>
 

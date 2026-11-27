@@ -43,6 +43,7 @@ from jw.langgraph_dev.runtime import runtime_status
 from jw.langgraph_dev.scientific_data_interfaces_api import (
     SCIENTIFIC_DATA_INTERFACE_ROUTES,
 )
+from jw.langgraph_dev.solar_activity_api import SOLAR_ACTIVITY_ROUTES
 
 
 async def list_model_picker_entries(*args, **kwargs):
@@ -133,5 +134,7 @@ app = Starlette(
         # PDF/chart/discovery interface settings (see
         # scientific_data_interfaces_api.py).
         *SCIENTIFIC_DATA_INTERFACE_ROUTES,
+        # Solar-activity overview assembled from curated data sources.
+        *SOLAR_ACTIVITY_ROUTES,
     ],
 )

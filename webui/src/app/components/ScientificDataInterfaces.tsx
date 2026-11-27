@@ -1,11 +1,10 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { KeyRound, Loader2 } from "lucide-react";
+import { ArrowLeft, ArrowRight, Loader2, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { cn } from "@/lib/utils";
 import {
   fetchScientificDataInterfaces,
   saveScientificDataInterfaces,
@@ -48,14 +47,14 @@ function Field({
 }) {
   const options = item.kind === "provider" ? item.options : [];
   return (
-    <div className="grid gap-1.5 py-2">
+    <div className="research-config-field">
       <div className="flex flex-wrap items-center gap-2">
-        <Label htmlFor={`sdi-${item.field}`} className="text-xs font-medium">
+        <Label htmlFor={`sdi-${item.field}`} className="text-sm font-medium">
           {item.label}
         </Label>
         <SourceBadge item={item} />
         {item.env_override && (
-          <span className="text-[10px] text-muted-foreground">
+          <span className="text-xs text-muted-foreground">
             环境变量 {item.env} 优先
           </span>
         )}
@@ -99,8 +98,8 @@ function Field({
           )}
         </div>
       )}
-      <p className="text-[11px] leading-4 text-muted-foreground">{item.hint}</p>
-      <p className="font-mono text-[10px] text-muted-foreground/70">
+      <p className="text-xs leading-5 text-muted-foreground">{item.hint}</p>
+      <p className="font-mono text-[11px] text-muted-foreground">
         {item.env}
       </p>
     </div>
@@ -116,6 +115,7 @@ export function ScientificDataInterfaces() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
+  const [activeGroup, setActiveGroup] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -179,81 +179,17 @@ export function ScientificDataInterfaces() {
   }
 
   const dirtyCount = Object.keys(drafts).length;
+  const groups = catalog.groups.map(group => ({ ...group, items: catalog.items.filter(item => item.group === group.id) })).filter(group => group.items.length > 0);
+  const selected = groups.find(group => group.id === activeGroup);
 
-  return (
-    <div className="flex h-full min-h-0 flex-col">
-      <div className="min-h-0 flex-1 overflow-y-auto pr-1">
-        <div className="flex items-start gap-2 pb-2">
-          <KeyRound className="mt-0.5 size-4 text-[var(--brand)]" />
-          <p className="text-xs leading-5 text-muted-foreground">
-            这些接口由后端进程调用。密钥只保存在本机配置文件（0600），
-            前端只能看到掩码；环境变量始终优先。
-          </p>
-        </div>
-        {catalog.groups.map((group) => {
-          const items = catalog.items.filter((item) => item.group === group.id);
-          if (items.length === 0) return null;
-          return (
-            <section key={group.id} className="border-t border-border/60 py-3">
-              <h3 className="text-sm font-semibold">{group.label}</h3>
-              <p className="mt-1 text-[11px] leading-4 text-muted-foreground">
-                {group.description}
-              </p>
-              <div className="mt-1 divide-y divide-border/40">
-                {items.map((item) => (
-                  <Field
-                    key={item.field}
-                    item={item}
-                    value={drafts[item.field] ?? item.value}
-                    onChange={(next) =>
-                      setDrafts((current) => ({ ...current, [item.field]: next }))
-                    }
-                    onClear={() =>
-                      setDrafts((current) => ({ ...current, [item.field]: "" }))
-                    }
-                  />
-                ))}
-              </div>
-            </section>
-          );
-        })}
-      </div>
-      <div className="shrink-0 border-t border-border/60 pt-3">
-        {error && (
-          <p role="alert" className="mb-2 text-xs text-destructive">
-            {error}
-          </p>
-        )}
-        {note && (
-          <p className="mb-2 text-xs text-[var(--color-success)]">{note}</p>
-        )}
-        <div className="flex items-center gap-2">
-          <Button size="sm" disabled={saving || dirtyCount === 0} onClick={() => void save()}>
-            {saving && <Loader2 className="mr-1 size-3.5 animate-spin" />}
-            保存修改
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            disabled={saving || dirtyCount === 0}
-            onClick={() => {
-              setDrafts({});
-              setError(null);
-              setNote(null);
-            }}
-          >
-            放弃
-          </Button>
-          <span
-            className={cn(
-              "text-[11px] text-muted-foreground",
-              dirtyCount === 0 && "opacity-60"
-            )}
-          >
-            {dirtyCount === 0 ? "暂无改动" : `${dirtyCount} 项待保存`}
-          </span>
-        </div>
-      </div>
-    </div>
-  );
+  return <div className="research-data-catalog">
+    {selected ? <>
+      <button type="button" className="research-text-action mb-4" onClick={() => setActiveGroup(null)}><ArrowLeft className="size-4" />返回接口目录</button>
+      <div className="research-config-panel"><div className="research-config-heading"><div><h4>{selected.label}配置</h4><p>{selected.items.filter(item => item.configured).length} / {selected.items.length} 项已配置 · 配置状态不代表连接状态</p></div><button type="button" className="research-text-action" disabled={saving || loading} onClick={() => void load()}><RefreshCw className="size-4" />重新加载</button></div>
+      <div className="research-config-fields">{selected.items.map(item => <Field key={item.field} item={item} value={drafts[item.field] ?? item.value} onChange={next => setDrafts(current => ({ ...current, [item.field]: next }))} onClear={() => setDrafts(current => ({ ...current, [item.field]: "" }))} />)}</div>
+      {dirtyCount > 0 && <div className="research-config-save"><span>{dirtyCount} 项修改未保存</span><div className="flex gap-2"><Button variant="outline" size="sm" disabled={saving} onClick={() => { setDrafts({}); setError(null); setNote(null); }}>放弃</Button><Button size="sm" disabled={saving} onClick={() => void save()}>{saving && <Loader2 className="mr-1 size-3.5 animate-spin" />}保存修改</Button></div></div>}</div>
+    </> : <div className="research-catalog-list">{groups.map(group => <button key={group.id} type="button" className="research-catalog-row" onClick={() => setActiveGroup(group.id)}><span className="research-catalog-marker" aria-hidden="true" /><span className="min-w-0 flex-1"><strong>{group.label}</strong><span className="research-catalog-desc">{group.description}</span><span className="research-catalog-meta">{group.items.length} 个配置项 · {group.items.filter(item => item.configured).length} 项已配置</span></span><ArrowRight className="size-4 shrink-0 text-slate-400" /></button>)}</div>}
+    {error && <p role="alert" className="mt-4 text-sm text-destructive">{error}</p>}
+    {note && <p role="status" className="mt-4 text-sm text-[var(--color-success)]">{note}</p>}
+  </div>;
 }
