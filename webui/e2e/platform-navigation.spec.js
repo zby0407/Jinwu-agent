@@ -11,6 +11,24 @@ test.beforeEach(async ({ page }) => {
 test("workbench navigation preserves research entry points", async ({ page }) => {
   await page.goto("/?view=home");
   await expect(page.getByRole("heading", { name: "科研工作台" })).toBeVisible();
+  const observatories = page.getByRole("link", { name: /观测与运行状态/ });
+  await expect(observatories).toHaveAttribute("href", "/?view=observatories");
+  await observatories.click();
+  await expect(page.getByRole("heading", { name: "观测设施" })).toBeVisible();
+  await page.getByRole("navigation", { name: "平台导航" }).getByRole("button", { name: "工作台" }).click();
+  await expect(page.getByRole("region", { name: "平台状态" }).getByRole("heading", { name: "今日太阳" })).toBeVisible();
+  await page.getByRole("button", { name: "查看太阳活动详情" }).click();
+  await expect(page).toHaveURL(/view=solar/);
+  const today = page.getByRole("tab", { name: "今日太阳" });
+  const cycle = page.getByRole("tab", { name: "太阳活动周" });
+  await expect(today).toHaveAttribute("aria-selected", "true");
+  await today.press("ArrowRight");
+  await expect(cycle).toBeFocused();
+  await expect(cycle).toHaveAttribute("aria-selected", "true");
+  await expect(page).toHaveURL(/solarTab=cycle/);
+  await page.getByRole("navigation", { name: "平台导航" }).getByRole("button", { name: "工作台" }).click();
+  await page.getByRole("button", { name: "查看太阳活动详情" }).click();
+  await expect(today).toHaveAttribute("aria-selected", "true");
   await page.getByRole("navigation", { name: "平台导航" }).getByRole("button", { name: "观测设施" }).click();
   await expect(page.getByRole("heading", { name: "观测设施" })).toBeVisible();
   await expect(page.getByText("仪器实时遥测与设施控制尚未接入。")).toBeVisible();

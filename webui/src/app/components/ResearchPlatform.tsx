@@ -3,10 +3,12 @@
 import React, { useState } from "react";
 import { createPortal } from "react-dom";
 import Image from "next/image";
+import Link from "next/link";
 import { BookOpen, Bot, BrainCircuit, CalendarClock, Database, FlaskConical, Home, Library, Network, Orbit, Settings2, Sun, Telescope, Wrench, Blocks } from "lucide-react";
 import { useThreads } from "@/app/hooks/useThreads";
 import { formatFullTime } from "@/lib/time";
 import { useRuntimeStatus } from "@/providers/ClientProvider";
+import { TodaySunBrief } from "@/app/components/TodaySun";
 
 type Destination = { label: string; icon: React.ComponentType<{ className?: string }>; view?: string; action?: "agents" | "settings"; note?: string };
 const groups: { title: string; items: Destination[] }[] = [
@@ -88,17 +90,18 @@ export function PlatformNavigation({ view, compact = false, onView, onAgents, on
 
 const cards = [
   { title: "数据检索", desc: "查看科学数据接口与已配置来源", view: "data", icon: Database },
-  { title: "太阳活动分析", desc: "查阅已有太阳活动知识", view: "solar", icon: Sun },
+  { title: "观测与运行状态", desc: "查看望远镜与观测设施 · 遥测未接入", view: "observatories", icon: Telescope },
   { title: "文献调研", desc: "从科研助手开启文献任务", view: "chat", icon: Library },
   { title: "研究工作流", desc: "进入科研审查与实验入口", view: "workflow", icon: FlaskConical },
   { title: "报告生成", desc: "从科研助手发起报告任务", view: "chat", icon: BookOpen },
   { title: "智能体协同", desc: "查看真实任务及智能体活动", view: "agents", icon: Network },
 ];
 
-export function ResearchWorkbench({ onView, onNewResearch, onAgents, onOpenThread }: {
+const capabilityClass = "platform-blue-hover rounded-xl border border-slate-200 bg-white p-5 text-left shadow-sm hover:border-sky-400 focus-visible:outline focus-visible:outline-2 focus-visible:outline-sky-700";
+
+export function ResearchWorkbench({ onView, onNewResearch, onOpenThread }: {
   onView: (view: string) => void;
   onNewResearch: () => void;
-  onAgents: () => void;
   onOpenThread: (threadId: string) => void;
 }) {
   const { backendReady } = useRuntimeStatus();
@@ -123,13 +126,22 @@ export function ResearchWorkbench({ onView, onNewResearch, onAgents, onOpenThrea
       </section>
       <section aria-labelledby="capabilities-title" className="mt-10">
         <h3 id="capabilities-title" className="text-lg font-semibold">科研能力</h3>
-        <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-          {cards.map(card => <button key={card.title} type="button" onClick={() => card.view === "agents" ? onAgents() : onView(card.view)} className="platform-blue-hover rounded-xl border border-slate-200 bg-white p-5 text-left shadow-sm hover:border-sky-400 focus-visible:outline focus-visible:outline-2 focus-visible:outline-sky-700">
-            <card.icon className="size-5 text-sky-700" /><span className="mt-3 block font-semibold">{card.title}</span><span className="mt-1 block text-sm text-slate-600">{card.desc}</span>
-          </button>)}
+        <div className="mt-4 grid auto-rows-fr gap-3 sm:grid-cols-2 xl:grid-cols-3">
+          {cards.map(card => (
+            <Link key={card.title} href={card.view === "chat" ? "/" : `/?view=${card.view}`}
+              className={capabilityClass}
+              onNavigate={(event) => {
+                event.preventDefault();
+                onView(card.view);
+              }}>
+              <card.icon className="size-5 text-sky-700" aria-hidden="true" />
+              <span className="mt-3 block font-semibold">{card.title}</span>
+              <span className="mt-1 block text-sm text-slate-600">{card.desc}</span>
+            </Link>
+          ))}
         </div>
       </section>
-      <section className="mt-8 grid items-start gap-4 sm:grid-cols-2" aria-label="平台状态">
+      <section className="mt-8 grid items-start gap-4 sm:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)]" aria-label="平台状态">
         <section aria-labelledby="recent-research-title" className="min-w-0 rounded-xl border border-slate-200 bg-white p-5">
           <h3 id="recent-research-title" className="font-semibold">最近研究</h3>
           {recentThreads.length > 0 ? (
@@ -149,7 +161,7 @@ export function ResearchWorkbench({ onView, onNewResearch, onAgents, onOpenThrea
             <p role="status" className="mt-2 text-sm text-muted-foreground">{recentStatus}</p>
           )}
         </section>
-        <div className="rounded-xl border border-slate-200 bg-white p-5"><h3 className="font-semibold">观测与运行状态</h3><p className="mt-2 text-sm text-slate-600">仪器实时遥测未接入。连接状态请以顶部健康指示为准。</p></div>
+        <TodaySunBrief onOpen={() => onView("solar")} />
       </section>
     </div>
   </main>;

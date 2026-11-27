@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useCallback, useRef, Suspense } from "react";
 import Image from "next/image";
-import { useQueryState } from "nuqs";
+import { parseAsStringLiteral, useQueryState } from "nuqs";
 import { getConfig, saveConfig, DeploymentConfig, DEFAULT_ASSISTANT_ID } from "@/lib/config";
 import { ConfigDialog } from "@/app/components/ConfigDialog";
 import { Button } from "@/components/ui/button";
@@ -36,6 +36,7 @@ import { SidebarResizeHandle } from "@/app/components/SidebarResizeHandle";
 import { PlatformNavigation, ResearchWorkbench, PlatformPlaceholder } from "@/app/components/ResearchPlatform";
 import { ModelSettings } from "@/app/components/ModelSettings";
 import { ScientificDataInterfaces } from "@/app/components/ScientificDataInterfaces";
+import { SolarActivity, type SolarTab } from "@/app/components/SolarActivity";
 
 const historySidebarId = "research-history-sidebar";
 const historyMinWidth = 224;
@@ -59,6 +60,7 @@ function HomePageInner({
   const runtime = useRuntimeStatus();
   const [threadId, setThreadId] = useQueryState("threadId");
   const [view, setView] = useQueryState("view");
+  const [solarTab, setSolarTab] = useQueryState("solarTab", parseAsStringLiteral<SolarTab>(["today", "cycle"]).withDefault("today"));
   const [inspector, setInspector] = useQueryState("inspector");
   const [inspectorTab, setInspectorTab] = useQueryState("inspectorTab");
   const legacyInspectorTab = view === "workspace" || view === "artifacts" ? view : null;
@@ -79,8 +81,9 @@ function HomePageInner({
   const closeMobileSidebar = useCallback(() => setMobileSidebar(null), []);
   const navigate = useCallback((target: string) => {
     setView(target === "chat" ? null : target);
+    if (target === "solar") setSolarTab(null);
     closeMobileSidebar();
-  }, [closeMobileSidebar, setView]);
+  }, [closeMobileSidebar, setSolarTab, setView]);
 
   const refreshThreads = useRef<(() => void) | null>(null);
   const registerHistoryRefresh = useCallback((refresh: (() => void) | null) => {
@@ -369,9 +372,9 @@ function HomePageInner({
                     <RealtimeActivityBridge />
                   </ChatProvider>
                 </div>
-                {view === "home" && <ResearchWorkbench onView={navigate} onNewResearch={startNewChat} onAgents={showAgentsInspector} onOpenThread={selectThread} />}
+                {view === "home" && <ResearchWorkbench onView={navigate} onNewResearch={startNewChat} onOpenThread={selectThread} />}
                 {view === "observatories" && <PlatformPlaceholder title="观测设施" description="仪器实时遥测与设施控制尚未接入。可在数据中心查看已配置的科学数据接口。" image="/platform/huairou-telescope.jpg" onChat={showResearch} />}
-                {view === "solar" && <PlatformPlaceholder title="太阳活动" description="太阳活动实时指标尚未接入。现有太阳活动周 Wiki 可通过知识库访问；科研助手可处理已有资料。" onChat={showResearch} />}
+                {view === "solar" && <SolarActivity tab={solarTab} onTab={setSolarTab} />}
                 {view === "data" && <div className="h-full overflow-y-auto bg-background p-4"><h2 className="mb-3 text-xl font-semibold">数据中心 · 科学数据接口</h2><p className="mb-4 text-sm text-muted-foreground">以下为现有接口配置，不代表实时观测数据；修改接口仅适用于具备管理权限的部署。</p><ScientificDataInterfaces /></div>}
                 {view === "workflow" && <PlatformPlaceholder title="科研工作流" description="科研审查与研究仪表盘位于科研助手的会话内；新建研究任务后即可使用。独立工作流编排页面尚未接入。" onChat={showResearch} />}
                 {view === "models" && <div className="h-full overflow-y-auto bg-background p-4"><h2 className="mb-4 text-xl font-semibold">模型管理</h2><ModelSettings /></div>}
