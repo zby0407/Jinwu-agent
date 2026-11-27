@@ -135,7 +135,6 @@ docker compose run --rm jw
 - **[Full literature review example](docs/examples/survey-literature/README.md)**: a Chinese-English survey from a topic to 68 papers in 10 sections
 - **[Project layout and data locations](docs/PROJECT_LAYOUT.md)**: source code, workspace and runtime artifacts
 - **[WebUI guide](webui/README.md)**: features of the browser interface and how to develop it
-- **[H1/H2 one-shot reproduction guide](docs/guides/solar-h1-h2-reproduction.md)**: a reproduction process with fixed models, inputs and prompts
 
 ## Contributing
 

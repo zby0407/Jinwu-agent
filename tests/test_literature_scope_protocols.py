@@ -2,7 +2,6 @@ from pathlib import Path
 
 import pytest
 
-from jw.reproduction.suite import H1_PROMPT, H2_PROMPT
 from jw.research_protocols import (
     F107_DISCONTINUITY_PROTOCOL,
     SILSO_CYCLE_MORPHOLOGY_PROTOCOL,
@@ -141,8 +140,20 @@ def test_negated_computation_does_not_become_an_affirmative_request(prompt):
             "Only use published evidence; compute the SILSO cycle extrema for cycles 21-24.",
             SILSO_CYCLE_REPRODUCTION_PROTOCOL,
         ),
-        (H1_PROMPT, SILSO_CYCLE_MORPHOLOGY_PROTOCOL),
-        (H2_PROMPT, SOLAR_POLAR_PRECURSOR_PROTOCOL),
+        (
+            "“请完成一次范围受控、独立且可复核的 SILSO 太阳活动周形态实验。”核心要求是："
+            "使用 SILSO v2.0 第 1—24 周，分析周期长度、上升时间—峰值、下降时间—峰值及早期/现代"
+            "稳定性；使用官方极值表；计算 Pearson、Spearman、bootstrap、逐周期留一；生成 CSV、报告"
+            "和散点图；不得把相关性写成因果机制。",
+            SILSO_CYCLE_MORPHOLOGY_PROTOCOL,
+        ),
+        (
+            "实际任务文本为：“检验极小期极区场对下一太阳活动周峰值的历史预测技能。”随后固定为："
+            "使用已登记的极区前兆表和回执；前五个周期训练，逐步留出第 20—24 周；拟合极区场线性"
+            "模型；与训练均值、持续性基线比较；固定种子 `20260828`，进行 10,000 次活动周级 "
+            "bootstrap；检查时间泄漏及 MWO/WSO 测量制度差异。",
+            SOLAR_POLAR_PRECURSOR_PROTOCOL,
+        ),
         (
             "Can polar fields predict the next solar cycle amplitude from the following cycles?",
             SOLAR_POLAR_PRECURSOR_PROTOCOL,

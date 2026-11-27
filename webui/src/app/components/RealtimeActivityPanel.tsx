@@ -65,7 +65,7 @@ export function RealtimeActivityPanel() {
     activeTodos.length === 0;
 
   return (
-    <div className="flex h-full flex-col border-l border-border bg-sidebar">
+    <div className="flex h-full flex-col bg-sidebar">
       <div className="flex h-11 shrink-0 items-center gap-2 border-b border-border px-3">
         <Zap
           className="size-4 text-[var(--brand)]"

@@ -135,7 +135,6 @@ docker compose run --rm jw
 - **[文献综述完整示例](docs/examples/survey-literature/README.md)**：从主题到 68 篇论文、10 个章节的中英文综述
 - **[项目目录与数据位置](docs/PROJECT_LAYOUT.md)**：源码、工作区与运行产物说明
 - **[WebUI 说明](webui/README.md)**：浏览器界面的功能与开发方式
-- **[H1/H2 一次性复现指南](docs/guides/solar-h1-h2-reproduction.md)**：固定模型、输入与提示词的复现流程
 
 ## 参与贡献
 

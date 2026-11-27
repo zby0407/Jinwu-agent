@@ -39,11 +39,11 @@ from jw.langgraph_dev.maintenance import (
     DesktopMaintenanceMiddleware,
     desktop_maintenance,
 )
-from jw.langgraph_dev.reproduction_api import REPRODUCTION_ROUTES
 from jw.langgraph_dev.runtime import runtime_status
 from jw.langgraph_dev.scientific_data_interfaces_api import (
     SCIENTIFIC_DATA_INTERFACE_ROUTES,
 )
+from jw.langgraph_dev.solar_activity_api import SOLAR_ACTIVITY_ROUTES
 
 
 async def list_model_picker_entries(*args, **kwargs):
@@ -125,7 +125,6 @@ app = Starlette(
         Route("/api/runtime-status", get_runtime_status, methods=["GET"]),
         Route("/api/desktop-maintenance", desktop_maintenance, methods=["POST"]),
         Route("/api/models", get_models, methods=["GET"]),
-        *REPRODUCTION_ROUTES,
         # Read-only knowledge-base surface (see knowledge_api.py).
         *KB_ROUTES,
         # Observational data-source status and toggles (see data_sources_api.py).
@@ -135,5 +134,7 @@ app = Starlette(
         # PDF/chart/discovery interface settings (see
         # scientific_data_interfaces_api.py).
         *SCIENTIFIC_DATA_INTERFACE_ROUTES,
+        # Solar-activity overview assembled from curated data sources.
+        *SOLAR_ACTIVITY_ROUTES,
     ],
 )

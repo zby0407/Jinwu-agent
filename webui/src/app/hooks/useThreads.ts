@@ -21,6 +21,7 @@ export interface ThreadItem {
 const DEFAULT_PAGE_SIZE = 20;
 
 export function useThreads(props: {
+  enabled?: boolean;
   status?: Thread["status"];
   limit?: number;
 }) {
@@ -28,6 +29,8 @@ export function useThreads(props: {
 
   return useSWRInfinite(
     (pageIndex: number, previousPageData: ThreadItem[] | null) => {
+      if (props.enabled === false) return null;
+
       const config = getConfig();
       const apiKey =
         config?.langsmithApiKey ||
