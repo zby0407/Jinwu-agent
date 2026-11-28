@@ -2,10 +2,11 @@
 
 import { useState } from "react";
 import { SolarCycle } from "@/app/components/SolarCycle";
-import { TodaySun } from "@/app/components/TodaySun";
+import { SolarLive } from "@/app/components/SolarLive";
 
-export type SolarTab = "today" | "cycle";
-const tabs = [{ id: "today", text: "今日太阳" }, { id: "cycle", text: "太阳活动周" }] as const;
+export type SolarTab = "live" | "cycle";
+const solarTabs: SolarTab[] = ["live", "cycle"];
+const tabs = [{ id: "live", text: "实时观测" }, { id: "cycle", text: "太阳活动周" }] as const;
 
 export function SolarActivity({ tab, onTab }: { tab: SolarTab; onTab: (tab: SolarTab) => void }) {
   const [zone, setZone] = useState("Asia/Shanghai");
@@ -20,7 +21,9 @@ export function SolarActivity({ tab, onTab }: { tab: SolarTab; onTab: (tab: Sola
               onKeyDown={(event) => {
                 if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
                 event.preventDefault();
-                const next = event.key === "Home" ? "today" : event.key === "End" ? "cycle" : id === "today" ? "cycle" : "today";
+                const index = solarTabs.indexOf(id);
+                const next = event.key === "Home" ? solarTabs[0] : event.key === "End" ? solarTabs[solarTabs.length - 1]
+                  : solarTabs[(index + (event.key === "ArrowRight" ? 1 : solarTabs.length - 1)) % solarTabs.length];
                 onTab(next);
                 document.getElementById(`solar-tab-${next}`)?.focus();
               }}
@@ -29,15 +32,15 @@ export function SolarActivity({ tab, onTab }: { tab: SolarTab; onTab: (tab: Sola
             </button>
           ))}
         </div>
-        {tab === "today" && <label className="flex items-center gap-2 text-sm text-slate-700">
+        {tab === "live" && <label className="flex items-center gap-2 text-sm text-slate-700">
           显示时区
           <select value={zone} onChange={(event) => setZone(event.target.value)} className="rounded border-slate-300 bg-white py-1.5 pl-2 pr-7 text-sm">
             <option value="Asia/Shanghai">北京时间</option><option value="UTC">UTC</option>
           </select>
         </label>}
       </div>
-      <div id="solar-panel-today" role="tabpanel" aria-labelledby="solar-tab-today" hidden={tab !== "today"}>
-        {tab === "today" && <TodaySun zone={zone} />}
+      <div id="solar-panel-live" role="tabpanel" aria-labelledby="solar-tab-live" hidden={tab !== "live"}>
+        {tab === "live" && <SolarLive zone={zone} />}
       </div>
       <div id="solar-panel-cycle" role="tabpanel" aria-labelledby="solar-tab-cycle" hidden={tab !== "cycle"}>
         {tab === "cycle" && <SolarCycle />}

@@ -4,7 +4,7 @@ import { useState } from "react";
 import useSWR from "swr";
 import { AuthoritativeSolarOverview } from "@/app/components/AuthoritativeSolarOverview";
 import { SolarSeriesChart } from "@/app/components/SolarSeriesChart";
-import { SolarSourceLink } from "@/app/components/TodaySunProducts";
+import { SolarSourceLink } from "@/app/components/SolarSourceLink";
 import { beijingDay, readSolarCache, solarCycleEndpoint, type CycleArchive, type SolarPoint } from "@/lib/todaySun";
 
 const silso = "https://www.sidc.be/SILSO/datafiles";

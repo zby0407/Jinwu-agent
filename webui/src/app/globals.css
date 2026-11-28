@@ -781,9 +781,10 @@ button {
 .research-action-secondary { border: 1px solid #cfDCE3; background: #fff; color: #1b5b72; }
 .research-action-secondary:hover { border-color: #9bc2ce; background: #eff6f9; }
 .research-header-icon-action { width: 42px; height: 42px; }
-.research-data-count { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px 18px; margin-bottom: 26px; color: #68808c; }
+.research-data-count { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 18px; margin-bottom: 26px; color: #68808c; }
 .research-data-count strong { color: #17232f; font-size: 21px; font-weight: 650; letter-spacing: -.02em; }
 .research-data-count > span { color: #607581; font-size: 12px; }
+.research-data-refresh { width: 32px; height: 32px; margin-left: auto; flex: 0 0 auto; }
 .research-loading { display: flex; align-items: center; gap: 9px; border: 1px solid #dde5e9; border-radius: 12px; background: #fff; padding: 28px 24px; color: #617480; font-size: 13px; }
 .research-data-errors { margin-bottom: 18px; border: 1px solid #efd7c4; border-radius: 10px; background: #fff8f1; padding: 12px 15px; color: #8b551f; font-size: 12px; line-height: 1.6; }
 .research-data-section { margin-top: 28px; }

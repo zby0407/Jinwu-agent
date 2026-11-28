@@ -35,6 +35,8 @@ def test_catalog_contains_api_services_and_goes() -> None:
         "mast-archive",
         "jpl-horizons",
         "noaa-goes-xrs",
+        "noaa-goes-protons",
+        "noaa-solar-regions",
     }
     assert sources["gaia-archive-tap"]["query_mode"] == "tap"
     assert sources["noaa-goes-xrs"]["category"] == "solar"

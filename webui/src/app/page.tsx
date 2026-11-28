@@ -4,12 +4,11 @@ import React, { useState, useEffect, useCallback, useRef, Suspense } from "react
 import Image from "next/image";
 import { parseAsStringLiteral, useQueryState } from "nuqs";
 import { getConfig, saveConfig, DeploymentConfig, DEFAULT_ASSISTANT_ID } from "@/lib/config";
-import { ConfigDialog } from "@/app/components/ConfigDialog";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Assistant } from "@langchain/langgraph-sdk";
 import { ClientProvider, useClient, useRuntimeStatus } from "@/providers/ClientProvider";
-import { Menu, MessagesSquare, Settings } from "lucide-react";
+import { Menu, MessagesSquare } from "lucide-react";
 import {
   ResizableHandle,
   ResizablePanel,
@@ -34,7 +33,8 @@ import { AgentsPanel } from "@/app/components/AgentsPanel";
 import { InspectorPanel, type InspectorTab } from "@/app/components/InspectorPanel";
 import { SidebarResizeHandle } from "@/app/components/SidebarResizeHandle";
 import { PlatformNavigation, ResearchWorkbench, PlatformPlaceholder } from "@/app/components/ResearchPlatform";
-import { ModelSettings } from "@/app/components/ModelSettings";
+import { Connections } from "@/app/components/Connections";
+import { ModelManagement } from "@/app/components/ModelManagement";
 import { DataCenter } from "@/app/components/DataCenter";
 import { SolarActivity, type SolarTab } from "@/app/components/SolarActivity";
 
@@ -45,22 +45,18 @@ const fitWidth = (width: number, min: number, max: number) => Math.max(min, Math
 
 interface HomePageInnerProps {
   config: DeploymentConfig;
-  configDialogOpen: boolean;
-  setConfigDialogOpen: (open: boolean) => void;
   handleSaveConfig: (config: DeploymentConfig) => void;
 }
 
 function HomePageInner({
   config,
-  configDialogOpen,
-  setConfigDialogOpen,
   handleSaveConfig,
 }: HomePageInnerProps) {
   const client = useClient();
   const runtime = useRuntimeStatus();
   const [threadId, setThreadId] = useQueryState("threadId");
   const [view, setView] = useQueryState("view");
-  const [solarTab, setSolarTab] = useQueryState("solarTab", parseAsStringLiteral<SolarTab>(["today", "cycle"]).withDefault("today"));
+  const [solarTab, setSolarTab] = useQueryState("solarTab", parseAsStringLiteral<SolarTab>(["live", "cycle"]).withDefault("live"));
   const [inspector, setInspector] = useQueryState("inspector");
   const [inspectorTab, setInspectorTab] = useQueryState("inspectorTab");
   const legacyInspectorTab = view === "workspace" || view === "artifacts" ? view : null;
@@ -114,13 +110,12 @@ function HomePageInner({
   const historyMaxWidth = Math.max(historyMinWidth,
     Math.min(448, availableWidth - (reserveWorkspace ? workspaceWidth : 0)));
   const [chatSessionRevision, setChatSessionRevision] = useState(0);
-  // "Submit a message on the main thread" — registered by ChatInterface (only
-  // while it's mounted, i.e. on the chat view), used by the Agents board to loop
-  // an async result back to the main agent. Null when not on the chat view.
+  // "Submit a message on the main thread" — registered by ChatInterface while
+  // it is mounted and used by the automatic running-agent panel to loop an
+  // async result back to the main agent.
   const [notifyMainChat, setNotifyMainChat] = useState<MainChatReporter | null>(
     null
   );
-
   const fetchAssistant = useCallback(async () => {
     const isUUID =
       /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
@@ -216,7 +211,6 @@ function HomePageInner({
     else openWorkspace();
   }, [activeInspectorTab, inspectorOpen, openWorkspace, toggleInspector]);
 
-  const showAgentsInspector = useCallback(() => navigate("agents"), [navigate]);
   const showResearch = useCallback(() => navigate("chat"), [navigate]);
   const startNewChat = useCallback(() => {
     setThreadAutoApprove(null, false);
@@ -269,12 +263,6 @@ function HomePageInner({
 
   return (
     <>
-      <ConfigDialog
-        open={configDialogOpen}
-        onOpenChange={setConfigDialogOpen}
-        onSave={handleSaveConfig}
-        initialConfig={config}
-      />
       <div className="flex h-screen flex-col">
         <header className="platform-header flex h-14 items-center justify-between border-b border-slate-200 bg-white px-3 sm:px-5 md:hidden">
           <div className="flex min-w-0 items-center gap-3">
@@ -284,7 +272,7 @@ function HomePageInner({
               </DialogTrigger>
               <DialogContent className="platform-mobile-drawer" aria-describedby={undefined}>
                 <DialogTitle className="shrink-0 px-4 pb-2 pt-5">平台导航</DialogTitle>
-                <PlatformNavigation view={showChat ? null : view} onView={navigate} onAgents={showAgentsInspector} onSettings={() => setConfigDialogOpen(true)} onClose={closeMobileSidebar} />
+                <PlatformNavigation view={showChat ? null : view} onView={navigate} onClose={closeMobileSidebar} />
               </DialogContent>
             </Dialog>
             <Image src="/jw-logo.jpg" alt="金乌" width={30} height={30} className="size-8 shrink-0 rounded-full object-cover" priority />
@@ -305,7 +293,6 @@ function HomePageInner({
               </Dialog>
             )}
             <HealthIndicator deploymentUrl={config.deploymentUrl} onReconnect={(url) => handleSaveConfig({ ...config, deploymentUrl: url })} />
-            <Button variant="ghost" size="icon" onClick={() => setConfigDialogOpen(true)} aria-label="设置" title="设置" className="size-8 text-slate-700 hover:bg-slate-100"><Settings className="size-5" aria-hidden="true" /></Button>
           </div>
         </header>
 
@@ -319,10 +306,9 @@ function HomePageInner({
                       <Image src="/jw-logo.jpg" alt="金乌" width={26} height={26} className="size-7 shrink-0 rounded-full object-cover" priority />
                       <span className="platform-sidebar-brand-text">金乌智能科研平台</span>
                     </div>
-                    <PlatformNavigation view={showChat ? null : view} compact={showChat} onView={navigate} onAgents={showAgentsInspector} onSettings={() => setConfigDialogOpen(true)} />
+                    <PlatformNavigation view={showChat ? null : view} compact={showChat} onView={navigate} />
                     <div className="platform-sidebar-footer">
                       <HealthIndicator deploymentUrl={config.deploymentUrl} onReconnect={(url) => handleSaveConfig({ ...config, deploymentUrl: url })} />
-                      <Button variant="ghost" size="icon" onClick={() => setConfigDialogOpen(true)} aria-label="设置" title="设置" className="size-8 shrink-0 text-slate-700 hover:bg-slate-100"><Settings className="size-5" aria-hidden="true" /></Button>
                     </div>
                   </aside>
                   <aside
@@ -370,7 +356,6 @@ function HomePageInner({
                   >
                     <ChatInterface
                       assistant={assistant}
-                      onShowAgents={showAgentsInspector}
                       onNotifyReady={(fn) => setNotifyMainChat(() => fn)}
                       onNavigate={handleDashboardNav}
                       onOpenThread={selectThread}
@@ -384,8 +369,8 @@ function HomePageInner({
                 {view === "observatories" && <PlatformPlaceholder title="观测设施" description="仪器实时遥测与设施控制尚未接入。可在数据中心查看已配置的科学数据接口。" image="/platform/huairou-telescope.jpg" onChat={showResearch} />}
                 {view === "solar" && <SolarActivity tab={solarTab} onTab={setSolarTab} />}
                 {view === "data" && <main className="research-page h-full overflow-y-auto" aria-label="数据中心"><div className="research-page-inner"><DataCenter /></div></main>}
-                {view === "models" && <div className="h-full overflow-y-auto bg-background p-4"><h2 className="mb-4 text-xl font-semibold">模型管理</h2><ModelSettings /></div>}
-                {view === "tools" && <PlatformPlaceholder title="MCP 工具" description="独立 MCP 工具目录尚未接入。现有工具调用与审批可在科研助手的会话中查看。" onChat={showResearch} />}
+                {view === "models" && <main className="h-full overflow-y-auto" aria-label="模型管理"><ModelManagement /></main>}
+                {view === "tools" && <Connections />}
                 {view === "skills" && <SkillsMarketplace />}
                 {view === "memory" && (
                   <MemoryPanel
@@ -403,7 +388,6 @@ function HomePageInner({
                 )}
                 {view === "wiki" && <KnowledgePanel />}
                 {(view === "schedule" || view === "workflow") && <ScheduledTasksPanel />}
-                {view === "agents" && <main className="h-full overflow-y-auto bg-slate-50 p-5 text-slate-900"><h2 className="mb-4 text-xl font-semibold">智能体协同</h2><AgentsPanel onReportToMainChat={notifyMainChat} /></main>}
               </ResizablePanel>
 
               {showAgentSidebar && isDesktopLayout && (
@@ -437,7 +421,6 @@ function HomePageInner({
 function HomePageContent() {
   const [config, setConfig] = useState<DeploymentConfig | null>(null);
   const [loadingConfig, setLoadingConfig] = useState(true);
-  const [configDialogOpen, setConfigDialogOpen] = useState(false);
   const [assistantId, setAssistantId] = useQueryState("assistantId");
 
   // The desktop shell owns the local endpoint, including alternate ports.
@@ -458,13 +441,15 @@ function HomePageContent() {
       } catch { /* Saved browser configuration remains usable offline. */ }
       finally { clearTimeout(timeout); }
       if (cancelled) return;
+      if (!resolved) {
+        resolved = {
+          deploymentUrl: "http://127.0.0.1:6174",
+          assistantId: DEFAULT_ASSISTANT_ID,
+        };
+      }
       setConfig(resolved);
       setLoadingConfig(false);
-      if (resolved) {
-        if (!assistantId) setAssistantId(resolved.assistantId);
-      } else {
-        setConfigDialogOpen(true);
-      }
+      if (!assistantId) setAssistantId(resolved.assistantId);
     })();
     return () => { cancelled = true; clearTimeout(timeout); controller.abort(); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -488,25 +473,12 @@ function HomePageContent() {
   if (!config) {
     if (loadingConfig) return <div className="flex h-screen items-center justify-center">正在加载连接设置…</div>;
     return (
-      <>
-        <ConfigDialog
-          open={configDialogOpen}
-          onOpenChange={setConfigDialogOpen}
-          onSave={handleSaveConfig}
-        />
-        <div className="flex h-screen items-center justify-center">
-          <div className="text-center">
-            <h1 className="text-2xl font-bold">欢迎来到金乌</h1>
-            <p className="mt-2 text-muted-foreground">配置你的部署以开始使用</p>
-            <Button
-              onClick={() => setConfigDialogOpen(true)}
-              className="mt-4"
-            >
-              打开配置
-            </Button>
-          </div>
+      <div className="flex h-screen items-center justify-center">
+        <div className="text-center">
+          <h1 className="text-2xl font-bold">无法初始化连接设置</h1>
+          <p className="mt-2 text-muted-foreground">请确认本地金乌后端已启动后刷新页面。</p>
         </div>
-      </>
+      </div>
     );
   }
 
@@ -517,8 +489,6 @@ function HomePageContent() {
     >
       <HomePageInner
         config={config}
-        configDialogOpen={configDialogOpen}
-        setConfigDialogOpen={setConfigDialogOpen}
         handleSaveConfig={handleSaveConfig}
       />
     </ClientProvider>

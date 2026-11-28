@@ -227,8 +227,6 @@ async function installBackend(
       if (method !== "GET") observed.mutations.push(`${method} ${path}`);
       if (method === "GET" && path === "/api/jw-config")
         return json({ desktopManaged: false });
-      if (method === "GET" && path === "/api/today-sun")
-        return json(null);
       if (
         projectPreview &&
         method === "GET" &&

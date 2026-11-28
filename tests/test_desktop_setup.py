@@ -5,12 +5,12 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 import pytest
 
 from jw import desktop_setup
-from types import SimpleNamespace
-from unittest.mock import AsyncMock
 
 
 @pytest.fixture
@@ -178,6 +178,20 @@ def test_configure_custom_openai_persists_base_url(isolated_config) -> None:
     text = config_path.read_text(encoding="utf-8")
     assert "custom_openai_base_url: https://example.test/v1" in text
     assert "custom_openai_api_key: sk-test" in text
+
+
+def test_configure_ollama_persists_optional_local_base_url(isolated_config) -> None:
+    result = desktop_setup.configure_from_payload(
+        {
+            "provider": "ollama",
+            "model": "qwen3:8b",
+            "base_url": "http://127.0.0.1:11434/",
+        }
+    )
+
+    assert result["configured"] is True
+    text = Path(result["configPath"]).read_text(encoding="utf-8")
+    assert "ollama_base_url: http://127.0.0.1:11434" in text
 
 
 def test_configure_rejects_unknown_provider(isolated_config) -> None:

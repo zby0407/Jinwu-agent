@@ -4,13 +4,12 @@ import React, { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import Image from "next/image";
 import Link from "next/link";
-import { ArrowRight, ChevronLeft, ChevronRight, Plus, Search, FileText, BookOpen, Bot, BrainCircuit, CalendarClock, Database, FlaskConical, Home, Library, Network, Orbit, Settings2, Sun, Telescope, Wrench, Blocks } from "lucide-react";
+import { ArrowRight, ChevronLeft, ChevronRight, Plus, Search, FileText, BookOpen, Bot, BrainCircuit, CalendarClock, Database, FlaskConical, Home, Library, Orbit, Sun, Telescope, Wrench, Blocks } from "lucide-react";
 import { useThreads } from "@/app/hooks/useThreads";
 import { formatFullTime } from "@/lib/time";
 import { useRuntimeStatus } from "@/providers/ClientProvider";
-import { TodaySunBrief } from "@/app/components/TodaySun";
 
-type Destination = { label: string; icon: React.ComponentType<{ className?: string }>; view?: string; action?: "agents" | "settings"; note?: string };
+type Destination = { label: string; icon: React.ComponentType<{ className?: string }>; view?: string; note?: string };
 const groups: { title: string; items: Destination[] }[] = [
   { title: "研究", items: [
     { label: "工作台", icon: Home, view: "home" },
@@ -21,22 +20,18 @@ const groups: { title: string; items: Destination[] }[] = [
     { label: "知识库", icon: BookOpen, view: "wiki" },
   ] },
   { title: "协同与工具", items: [
-    { label: "智能体协同", icon: Network, action: "agents" },
     { label: "模型管理", icon: Orbit, view: "models" },
-    { label: "MCP 工具", icon: Wrench, view: "tools" },
+    { label: "连接", icon: Wrench, view: "tools" },
     { label: "技能", icon: Blocks, view: "skills" },
     { label: "金乌记忆", icon: BrainCircuit, view: "memory" },
     { label: "定时任务", icon: CalendarClock, view: "schedule" },
   ] },
-  { title: "偏好", items: [{ label: "连接设置", icon: Settings2, action: "settings" }] },
 ];
 
-export function PlatformNavigation({ view, compact = false, onView, onAgents, onSettings, onClose }: {
+export function PlatformNavigation({ view, compact = false, onView, onClose }: {
   view: string | null;
   compact?: boolean;
   onView: (view: string) => void;
-  onAgents: () => void;
-  onSettings: () => void;
   onClose?: () => void;
 }) {
   const [hint, setHint] = useState<{ label: string; left: number; top: number } | null>(null);
@@ -57,7 +52,7 @@ export function PlatformNavigation({ view, compact = false, onView, onAgents, on
             {group.items.map(item => (
               <button key={item.label} type="button"
                 aria-label={item.label}
-                aria-current={(item.view ?? item.action) === (view ?? "chat") ? "page" : undefined}
+                aria-current={item.view === (view ?? "chat") ? "page" : undefined}
                 onPointerEnter={event => { if (event.pointerType === "mouse") showHint(event.currentTarget, item.label); }}
                 onPointerLeave={() => setHint(null)}
                 onFocus={event => { if (event.currentTarget.matches(":focus-visible")) showHint(event.currentTarget, item.label); }}
@@ -66,8 +61,6 @@ export function PlatformNavigation({ view, compact = false, onView, onAgents, on
                 onClick={() => {
                   setHint(null);
                   if (item.view) onView(item.view);
-                  else if (item.action === "agents") onAgents();
-                  else onSettings();
                   onClose?.();
                 }}
                 className="platform-navigation-button platform-blue-hover focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring">
@@ -99,7 +92,6 @@ const cards = [
   { title: "文献调研", desc: "从科研助手开启文献任务", view: "chat", icon: Library },
   { title: "科研工作流", desc: "查看和管理定时科研任务", view: "workflow", icon: FlaskConical },
   { title: "报告生成", desc: "从科研助手发起报告任务", view: "chat", icon: BookOpen },
-  { title: "智能体协同", desc: "查看真实任务及智能体活动", view: "agents", icon: Network },
 ];
 
 const capabilityClass = "platform-blue-hover rounded-xl border border-slate-200 bg-white p-5 text-left shadow-sm hover:border-sky-400 focus-visible:outline focus-visible:outline-2 focus-visible:outline-sky-700";
@@ -189,7 +181,6 @@ export function ResearchWorkbench({ onView, onNewResearch, onOpenThread }: {
             </button>
           </li>)}</ul> : <div role="status" className="research-recent-status">{recentStatus}{backendReady && error && <button type="button" className="research-text-action ml-3" disabled={isValidating} onClick={() => void mutate()}>重试</button>}</div>}
         </section>
-        <TodaySunBrief onOpen={() => onView("solar")} />
       </section>
       <aside className="research-surface mt-5 p-5" aria-labelledby="research-tools-title"><h3 id="research-tools-title" className="text-base font-semibold">研究资源</h3><div className="research-resource-list mt-4">{researchLinks.map(link => <button key={link.view} type="button" className="research-resource-row" onClick={() => onView(link.view)}><link.icon className="size-5 shrink-0 text-slate-500" /><span className="min-w-0 flex-1"><span className="block text-sm font-medium">{link.title}</span><span className="mt-1 block text-xs text-slate-500">{link.desc}</span></span><ArrowRight className="size-4 text-slate-400" /></button>)}</div></aside>
     </div>

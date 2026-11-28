@@ -154,7 +154,7 @@ export function AstronomyQueryPanel({
         </div>
       ) : (
         <p className="text-xs text-muted-foreground">
-          读取 NOAA 提供的近一天 X 射线通量记录。
+          读取 {source.provider} 的最新实时记录（与太阳活动页共用缓存）。
         </p>
       )}
       <Button
