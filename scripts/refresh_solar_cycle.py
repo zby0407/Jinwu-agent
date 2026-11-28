@@ -49,7 +49,7 @@ def radio_flux():
 
 
 def refresh(workspace):
-    directory = workspace / "today-sun"
+    directory = workspace / "solar-cycle"
     directory.mkdir(parents=True, exist_ok=True)
     with cache_lock(directory / "cycle-refresh.lock"), ThreadPoolExecutor() as pool:
         monthly = pool.submit(sunspots, "snmtotcsv")

@@ -150,6 +150,7 @@ _PROVIDER_SPECS: tuple[ProviderSpec, ...] = (
         "ollama_base_url",
         requires_api_key=False,
         requires_base_url=False,
+        base_url_field="ollama_base_url",
     ),
 )
 

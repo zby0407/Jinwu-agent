@@ -1493,7 +1493,7 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
     );
 
     // UI preference: auto-collapse completed agent-action groups. The user can
-    // turn this off in ConfigDialog; default is on.
+    // turn this off in 模型管理的界面偏好; default is on.
     const { value: collapseAgentActions } = useCollapseAgentActions();
 
     // Detect whether an AI message has any actual rendered text content (as
@@ -2453,7 +2453,7 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
                 </button>
               </div>
             )}
-            {runningAgents > 0 && (
+            {runningAgents > 0 && onShowAgents && (
               <div className="flex items-center gap-1.5 border-t border-border px-3 py-1.5 text-xs text-muted-foreground">
                 <button
                   type="button"

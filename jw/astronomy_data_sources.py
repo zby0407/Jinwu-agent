@@ -71,6 +71,28 @@ ASTRONOMY_DATA_SOURCES: tuple[dict[str, Any], ...] = (
         "default_query": "",
         "description": "GOES 软 X 射线观测的近一天时间序列；历史耀斑研究需使用归档产品。",
     },
+    {
+        "id": "noaa-goes-protons",
+        "title_zh": "NOAA GOES 积分质子通量近三天",
+        "provider": "NOAA Space Weather Prediction Center",
+        "category": "solar",
+        "query_mode": "goes",
+        "authority_url": "https://services.swpc.noaa.gov/json/goes/primary/integral-protons-3-day.json",
+        "docs_url": "https://www.swpc.noaa.gov/products/goes-proton-flux",
+        "default_query": "",
+        "description": "GOES ≥10/≥50/≥100 MeV 等能段积分质子通量，用于太阳质子事件与 S 级辐射风暴判断。",
+    },
+    {
+        "id": "noaa-solar-regions",
+        "title_zh": "NOAA 太阳活动区报告",
+        "provider": "NOAA Space Weather Prediction Center",
+        "category": "solar",
+        "query_mode": "goes",
+        "authority_url": "https://services.swpc.noaa.gov/json/solar_regions.json",
+        "docs_url": "https://www.swpc.noaa.gov/products/solar-region-summary",
+        "default_query": "",
+        "description": "每日太阳活动区汇总：编号、日面位置、黑子数、面积、McIntosh 与磁分类及耀斑概率。",
+    },
 )
 
 _BY_ID = {str(source["id"]): source for source in ASTRONOMY_DATA_SOURCES}
@@ -216,12 +238,23 @@ def _horizons_query(target: str) -> dict[str, Any]:
     return _result("jpl-horizons", rows, query=command)
 
 
-def _goes_query() -> dict[str, Any]:
-    payload = json.loads(_open(str(_BY_ID["noaa-goes-xrs"]["authority_url"])))
-    if not isinstance(payload, list):
-        raise ValueError("NOAA GOES endpoint returned an unexpected payload")
-    rows = [dict(row) for row in payload[-_MAX_ROWS:] if isinstance(row, dict)]
-    return _result("noaa-goes-xrs", rows, query="latest one-day GOES XRS")
+_LIVE_LOADERS = {
+    "noaa-goes-xrs": ("xray_rows", "latest one-day GOES XRS"),
+    "noaa-goes-protons": ("proton_rows", "latest three-day GOES integral protons"),
+    "noaa-solar-regions": ("region_rows", "latest NOAA solar region summary"),
+}
+
+
+def _goes_query(source_id: str = "noaa-goes-xrs") -> dict[str, Any]:
+    # Shared with the live solar dashboard so both read one cached sample.
+    from . import solar_live
+
+    loader, label = _LIVE_LOADERS[source_id]
+    rows = [dict(row) for row in getattr(solar_live, loader)()]
+    if source_id == "noaa-solar-regions" and rows:
+        latest = max(str(row.get("observed_date") or "") for row in rows)
+        rows = [row for row in rows if str(row.get("observed_date") or "") == latest]
+    return _result(source_id, rows[-_MAX_ROWS:], query=label)
 
 
 def query_astronomy_data_source(
@@ -243,7 +276,7 @@ def query_astronomy_data_source(
     if mode == "horizons":
         return _horizons_query(str(params.get("target") or source["default_query"]))
     if mode == "goes":
-        return _goes_query()
+        return _goes_query(source_id)
     raise ValueError(f"unsupported query mode: {mode}")
 
 

@@ -16,7 +16,6 @@ import {
   Loader2,
   RefreshCw,
   Satellite,
-  Settings2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
@@ -29,10 +28,8 @@ import {
 } from "@/lib/knowledgeBase";
 import { DatasetPreview, FeedPreview } from "@/app/components/SourcePreview";
 import { AstronomyQueryPanel } from "@/app/components/DataSourceQueryPanel";
-import { ScientificDataInterfaces } from "@/app/components/ScientificDataInterfaces";
 
 type Selection = { kind: "dataset" | "feed"; id: string };
-type CenterMode = "sources" | "config";
 
 function formatDate(value: string | null | undefined): string {
   if (!value) return "—";
@@ -403,7 +400,6 @@ function FeedDetail({ feed }: { feed: KbLiteratureFeed }) {
 }
 
 export function DataCenter() {
-  const [mode, setMode] = useState<CenterMode>("sources");
   const [sources, setSources] = useState<ObservationalDataSource[] | null>(
     null
   );
@@ -485,37 +481,6 @@ export function DataCenter() {
     Boolean(source.registration)
   ).length;
 
-  if (mode === "config") {
-    return (
-      <div className="research-data-center">
-        <header className="research-page-header">
-          <div className="min-w-0">
-            <p className="research-eyebrow">DATA CONFIGURATION</p>
-            <h2>数据中心配置</h2>
-            <p>
-              配置 PDF
-              表格识别、图表识别与数据发现服务。密钥只保存在本机后端，界面不展示明文。
-            </p>
-          </div>
-          <div className="research-page-actions">
-            <button
-              type="button"
-              className="research-action research-action-secondary"
-              onClick={() => setMode("sources")}
-            >
-              <ArrowLeft
-                className="size-4"
-                aria-hidden="true"
-              />
-              返回数据中心
-            </button>
-          </div>
-        </header>
-        <ScientificDataInterfaces />
-      </div>
-    );
-  }
-
   if (selectedDataset || selectedFeed) {
     return (
       <div className="research-data-center">
@@ -541,42 +506,6 @@ export function DataCenter() {
 
   return (
     <div className="research-data-center">
-      <header className="research-page-header">
-        <div className="min-w-0">
-          <p className="research-eyebrow">DATA CENTER</p>
-          <h2>数据中心</h2>
-          <p>
-            系统内置的观测数据集、在线查询服务与文献订阅；自定义订阅会单独标注。打开条目可预览数据、查看命中论文或发起受约束的在线查询。
-          </p>
-        </div>
-        <div className="research-page-actions">
-          <button
-            type="button"
-            className="research-icon-action research-header-icon-action"
-            aria-label="刷新数据源"
-            title="刷新数据源"
-            disabled={loading}
-            onClick={() => void load()}
-          >
-            <RefreshCw
-              className={cn("size-4", loading && "animate-spin")}
-              aria-hidden="true"
-            />
-          </button>
-          <button
-            type="button"
-            className="research-action research-action-secondary"
-            onClick={() => setMode("config")}
-          >
-            <Settings2
-              className="size-4"
-              aria-hidden="true"
-            />
-            配置
-          </button>
-        </div>
-      </header>
-
       <div
         className="research-data-count"
         aria-label="数据源统计"
@@ -588,6 +517,19 @@ export function DataCenter() {
         <span>{ingestedCount} 个本地数据集已接入</span>
         <span>{onlineSources.length} 个在线服务</span>
         <span>{literatureFeeds.length} 个文献订阅</span>
+        <button
+          type="button"
+          className="research-icon-action research-data-refresh"
+          aria-label="刷新数据源"
+          title="刷新数据源"
+          disabled={loading}
+          onClick={() => void load()}
+        >
+          <RefreshCw
+            className={cn("size-4", loading && "animate-spin")}
+            aria-hidden="true"
+          />
+        </button>
       </div>
 
       {loading && !sources && !feeds ? (

@@ -4,7 +4,7 @@ import { useState } from "react";
 import useSWR from "swr";
 import { AuthoritativeSolarOverview } from "@/app/components/AuthoritativeSolarOverview";
 import { SolarSeriesChart } from "@/app/components/SolarSeriesChart";
-import { SolarSourceLink } from "@/app/components/TodaySunProducts";
+import { SolarSourceLink } from "@/app/components/SolarSourceLink";
 import { beijingDay, readSolarCache, solarCycleEndpoint, type CycleArchive, type SolarPoint } from "@/lib/todaySun";
 
 const silso = "https://www.sidc.be/SILSO/datafiles";
@@ -66,7 +66,7 @@ function CycleCharts({ archive }: { archive: CycleArchive }) {
       </div>
       <div className="mx-auto mt-1 max-w-6xl">
         <SolarSeriesChart key={`sunspots-${cycle}`} title="国际太阳黑子数月均与 13 个月平滑曲线"
-          unit="国际黑子数" series={series} formatTime={selected ? yearMonth : year} formatDetailTime={yearMonth} maxGap={monthGap} zero />
+          unit="国际黑子数" series={series} formatTime={selected ? yearMonth : year} formatDetailTime={yearMonth} maxGap={monthGap} zero minZoomSpan={365 * 86_400_000} />
       </div>
       <p className="mt-3 text-xs leading-5 text-slate-600">
         最新月份可能为临时值，记录末端未发布的平滑值留空。

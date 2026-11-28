@@ -44,6 +44,7 @@ from jw.langgraph_dev.scientific_data_interfaces_api import (
     SCIENTIFIC_DATA_INTERFACE_ROUTES,
 )
 from jw.langgraph_dev.solar_activity_api import SOLAR_ACTIVITY_ROUTES
+from jw.langgraph_dev.solar_live_api import SOLAR_LIVE_ROUTES
 
 
 async def list_model_picker_entries(*args, **kwargs):
@@ -136,5 +137,7 @@ app = Starlette(
         *SCIENTIFIC_DATA_INTERFACE_ROUTES,
         # Solar-activity overview assembled from curated data sources.
         *SOLAR_ACTIVITY_ROUTES,
+        # Live NOAA/NASA observations for the solar dashboard (solar_live.py).
+        *SOLAR_LIVE_ROUTES,
     ],
 )
