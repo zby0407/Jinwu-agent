@@ -5,6 +5,7 @@ import { createPortal } from "react-dom";
 import Image from "next/image";
 import Link from "next/link";
 import { ArrowRight, ChevronLeft, ChevronRight, Plus, Search, FileText, BookOpen, Bot, BrainCircuit, CalendarClock, Database, FlaskConical, Home, Library, Orbit, Sun, Telescope, Wrench, Blocks } from "lucide-react";
+import { WorkbenchSolarBrief } from "@/app/components/WorkbenchSolarBrief";
 import { useThreads } from "@/app/hooks/useThreads";
 import { formatFullTime } from "@/lib/time";
 import { useRuntimeStatus } from "@/providers/ClientProvider";
@@ -86,15 +87,13 @@ const researchLinks = [
   { title: "数据接口", desc: "查看来源配置与接入方式", view: "data", icon: Database },
 ];
 
-const cards = [
+const capabilities = [
   { title: "数据检索", desc: "查询科学数据与观测来源", view: "data", icon: Database },
   { title: "观测与运行状态", desc: "查看望远镜与观测设施 · 遥测未接入", view: "observatories", icon: Telescope },
   { title: "文献调研", desc: "从科研助手开启文献任务", view: "chat", icon: Library },
   { title: "科研工作流", desc: "查看和管理定时科研任务", view: "workflow", icon: FlaskConical },
   { title: "报告生成", desc: "从科研助手发起报告任务", view: "chat", icon: BookOpen },
 ];
-
-const capabilityClass = "platform-blue-hover rounded-xl border border-slate-200 bg-white p-5 text-left shadow-sm hover:border-sky-400 focus-visible:outline focus-visible:outline-2 focus-visible:outline-sky-700";
 
 const stationPhotos = [
   { src: "/platform/huairou-campus.jpg", alt: "湖畔观测站建筑与圆顶" },
@@ -151,38 +150,64 @@ export function ResearchWorkbench({ onView, onNewResearch, onOpenThread }: {
   return <main className="research-page h-full overflow-y-auto" aria-labelledby="workbench-title">
     <h2 id="workbench-title" className="sr-only">科研工作台</h2>
     <StationBanner />
-    <div className="research-page-inner research-page-inner-overlap">
-      <section className="research-surface mb-5 p-5" aria-labelledby="capabilities-title">
-        <h3 id="capabilities-title" className="text-base font-semibold">科研能力</h3>
-        <div className="mt-4 grid auto-rows-fr gap-3 sm:grid-cols-2 xl:grid-cols-3">
-          {cards.map(card => (
-            <Link key={card.title} href={card.view === "chat" ? "/" : `/?view=${card.view}`}
-              className={capabilityClass}
+    <div className="research-page-inner research-page-inner-overlap workbench-content">
+      <section className="workbench-section" aria-labelledby="capabilities-title">
+        <div className="workbench-section-header"><h3 id="capabilities-title">科研能力</h3></div>
+        <div className="workbench-capabilities">
+          {capabilities.map(item => (
+            <Link key={item.title} href={item.view === "chat" ? "/" : `/?view=${item.view}`}
+              className="workbench-entry workbench-capability"
               onNavigate={(event) => {
                 event.preventDefault();
-                onView(card.view);
+                onView(item.view);
               }}>
-              <card.icon className="size-5 text-sky-700" aria-hidden="true" />
-              <span className="mt-3 block font-semibold">{card.title}</span>
-              <span className="mt-1 block text-sm text-slate-600">{card.desc}</span>
+              <item.icon className="size-[18px] shrink-0 text-sky-800" aria-hidden="true" />
+              <span className="workbench-entry-text">
+                <strong>{item.title}</strong><span>{item.desc}</span>
+              </span>
+              <ArrowRight className="workbench-entry-arrow" aria-hidden="true" />
             </Link>
           ))}
         </div>
       </section>
       <section className="workbench-layout" aria-label="平台状态">
-        <section className="research-surface min-w-0" aria-labelledby="recent-research-title">
-          <div className="research-section-header"><h3 id="recent-research-title">最近研究</h3><button type="button" aria-label="新建研究任务" title="新建研究任务" onClick={onNewResearch} className="research-icon-action"><Plus className="size-4" /></button></div>
-          <div className="research-search-row"><Search className="size-4 shrink-0" /><input aria-label="筛选最近研究" placeholder="搜索最近研究" value={query} onChange={event => setQuery(event.target.value)} /></div>
-          {filtered.length > 0 ? <ul className="research-thread-list">{filtered.map(thread => <li key={thread.id}>
-            <button type="button" onClick={() => onOpenThread(thread.id)} className="research-thread-row">
-              <span className="research-thread-icon"><FileText className="size-4" /></span>
-              <span className="min-w-0 flex-1"><span className="block truncate font-medium">{thread.title}</span><time className="mt-1 block text-xs text-slate-500" dateTime={thread.updatedAt.toJSON() ?? undefined}>{formatFullTime(thread.updatedAt)}</time></span>
-              <ArrowRight className="size-4 shrink-0 text-slate-400" />
+        <section className="workbench-section min-w-0" aria-labelledby="recent-research-title">
+          <div className="workbench-section-header">
+            <h3 id="recent-research-title">最近研究</h3>
+            <button type="button" aria-label="新建研究任务" onClick={onNewResearch} className="workbench-action">
+              <Plus className="size-4" aria-hidden="true" /> 新建研究
             </button>
-          </li>)}</ul> : <div role="status" className="research-recent-status">{recentStatus}{backendReady && error && <button type="button" className="research-text-action ml-3" disabled={isValidating} onClick={() => void mutate()}>重试</button>}</div>}
+          </div>
+          <label className="workbench-search">
+            <Search className="size-4 shrink-0" aria-hidden="true" />
+            <input aria-label="筛选最近研究" placeholder="搜索最近研究" value={query} onChange={event => setQuery(event.target.value)} />
+          </label>
+          {filtered.length > 0 ? <ul className="workbench-list">{filtered.map(thread => <li key={thread.id}>
+            <button type="button" onClick={() => onOpenThread(thread.id)} className="workbench-entry research-thread-row">
+              <FileText className="size-4 shrink-0 text-slate-500" aria-hidden="true" />
+              <span className="workbench-entry-text"><strong className="truncate">{thread.title}</strong>
+                <time dateTime={thread.updatedAt.toJSON() ?? undefined}>{formatFullTime(thread.updatedAt)}</time>
+              </span>
+              <ArrowRight className="workbench-entry-arrow" aria-hidden="true" />
+            </button>
+          </li>)}</ul> : <div role="status" className="workbench-list-status">{recentStatus}{backendReady && error && <button type="button" className="workbench-action ml-3" disabled={isValidating} onClick={() => void mutate()}>重试</button>}</div>}
         </section>
+        <aside className="workbench-section min-w-0" aria-labelledby="research-tools-title">
+          <div className="workbench-section-header"><h3 id="research-tools-title">研究资源</h3></div>
+          <ul className="workbench-list">
+            {researchLinks.map(link => (
+              <li key={link.view}>
+                <button type="button" className="workbench-entry" onClick={() => onView(link.view)}>
+                  <link.icon className="size-4 shrink-0 text-slate-500" aria-hidden="true" />
+                  <span className="workbench-entry-text"><strong>{link.title}</strong><span>{link.desc}</span></span>
+                  <ArrowRight className="workbench-entry-arrow" aria-hidden="true" />
+                </button>
+              </li>
+            ))}
+          </ul>
+        </aside>
       </section>
-      <aside className="research-surface mt-5 p-5" aria-labelledby="research-tools-title"><h3 id="research-tools-title" className="text-base font-semibold">研究资源</h3><div className="research-resource-list mt-4">{researchLinks.map(link => <button key={link.view} type="button" className="research-resource-row" onClick={() => onView(link.view)}><link.icon className="size-5 shrink-0 text-slate-500" /><span className="min-w-0 flex-1"><span className="block text-sm font-medium">{link.title}</span><span className="mt-1 block text-xs text-slate-500">{link.desc}</span></span><ArrowRight className="size-4 text-slate-400" /></button>)}</div></aside>
+      <WorkbenchSolarBrief backendReady={backendReady} onView={onView} />
     </div>
   </main>;
 }

@@ -14,6 +14,7 @@ import {
   magneticLabel,
   projectDisk,
   solarLiveKey,
+  solarLiveOptions,
   type LiveImageKey,
   type LivePoint,
   type LiveRegion,
@@ -22,7 +23,6 @@ import {
 import { formatHistoryTime, historyImageUrl, type HistoryChannelKey } from "@/lib/solarLive";
 import { cn } from "@/lib/utils";
 
-const REFRESH_MS = 60_000;
 // SDO 1024 px browse images put the limb at 47.0 % of the width from centre.
 const HMI_DISK = 0.47;
 const HOUR = 3_600_000;
@@ -437,11 +437,7 @@ const liveSections = [
 type LiveSectionId = (typeof liveSections)[number]["id"];
 
 export function SolarLive({ zone }: { zone: string }) {
-  const { data, error, isLoading, isValidating, mutate } = useSWR(solarLiveKey, fetchSolarLive, {
-    refreshInterval: REFRESH_MS,
-    revalidateOnFocus: false,
-    shouldRetryOnError: false,
-  });
+  const { data, error, isLoading, isValidating, mutate } = useSWR(solarLiveKey, fetchSolarLive, solarLiveOptions);
   const [active, setActive] = useState<LiveSectionId>("sunspots");
   const [history, setHistory] = useState<HistorySelection | null>(null);
   const [editing, setEditing] = useState(false);

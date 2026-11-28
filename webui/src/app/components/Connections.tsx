@@ -23,7 +23,7 @@ export function Connections() {
   const active = sections.find((item) => item.id === section) ?? sections[0];
 
   return (
-    <div className="min-h-full bg-slate-50 text-slate-900">
+    <main className="h-full min-h-0 overflow-y-auto bg-slate-50 text-slate-900" aria-label="连接">
       <div className="mx-auto max-w-7xl px-4 py-5 sm:px-7 sm:py-7">
         <div role="tablist" aria-label="连接分类" className="mb-5 flex flex-wrap gap-2">
           {sections.map((item) => (
@@ -68,6 +68,6 @@ export function Connections() {
           )}
         </section>
       </div>
-    </div>
+    </main>
   );
 }

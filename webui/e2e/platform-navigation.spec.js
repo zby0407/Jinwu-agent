@@ -56,6 +56,33 @@ test("workbench navigation preserves research entry points", async ({ page }) =>
   await expect(page).not.toHaveURL(/view=home/);
 });
 
+test("views with section navigation reuse compact desktop navigation", async ({ page }) => {
+  await page.goto("/?view=home");
+  const navigation = page.getByRole("navigation", { name: "平台导航" });
+  await expect(navigation).toHaveAttribute("data-compact", "false");
+  for (const name of ["太阳活动", "知识库", "金乌记忆", "定时任务"]) {
+    const destination = navigation.getByRole("button", { name, exact: true });
+    await destination.click();
+    await expect(navigation).toHaveAttribute("data-compact", "true");
+    await expect(destination).toHaveAttribute("aria-current", "page");
+  }
+  await navigation.getByRole("button", { name: "工作台" }).click();
+  await expect(navigation).toHaveAttribute("data-compact", "false");
+});
+
+test("connections can scroll through both source sections", async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 520 });
+  await page.goto("/?view=tools");
+  const content = page.getByRole("main", { name: "连接" });
+  for (const name of ["数据源", "文献源"]) {
+    await content.getByRole("tab", { name }).click();
+    await content.evaluate(element => { element.scrollTop = 0; });
+    await content.getByRole("heading", { name, exact: true }).hover();
+    await page.mouse.wheel(0, 320);
+    await expect.poll(() => content.evaluate(element => element.scrollTop)).toBeGreaterThan(0);
+  }
+});
+
 test("model management hides agent collaboration and consolidates system settings", async ({ page }) => {
   await page.route("**/api/model-config/models", route => route.fulfill({
     json: { ok: true, provider: "ollama", models: ["qwen3:8b", "llama3.2:3b"] },
@@ -423,7 +450,35 @@ test("solar activity tab renders authoritative monthly tables", async ({ page })
   await expect(page.getByRole("link", { name: /www.sidc.be/ })).toBeVisible();
 });
 
-test("live solar observations render NOAA and SDO panels", async ({ page }) => {
+test("the international sunspot chart supports bounded wheel zoom", async ({ page }) => {
+  const rows = Array.from({ length: 60 }, (_, index) => [
+    new Date(Date.UTC(2000, index)).toISOString().slice(0, 7),
+    50 + index,
+  ]);
+  await page.route("**/api/solar-cycle", route => route.fulfill({
+    json: { version: 1, frozenAt: "2005-01-01T00:00:00Z", monthly: rows, smoothed: rows, f107: [], cycles: [] },
+  }));
+  await page.goto("/?view=solar&solarTab=cycle");
+  const section = page.getByRole("region", { name: "国际太阳黑子数" });
+  const plot = section.getByRole("img");
+  const range = section.getByRole("status");
+  await expect(range).toHaveText("滚轮缩放时间轴");
+  await plot.hover();
+  await page.mouse.wheel(0, -480);
+  await expect(range).toHaveText(/\d{4}-\d{2} — \d{4}-\d{2}/);
+  const firstRange = await range.textContent();
+  await page.mouse.wheel(0, -480);
+  const zoomIn = section.getByRole("button", { name: "放大", exact: true });
+  await expect(zoomIn).toBeDisabled();
+  await expect(range).not.toHaveText(firstRange);
+  await page.mouse.wheel(0, 480);
+  await expect(zoomIn).toBeEnabled();
+  await page.mouse.wheel(0, 480);
+  await expect(range).toHaveText("滚轮缩放时间轴");
+  await expect(section.getByRole("button", { name: "缩小", exact: true })).toBeDisabled();
+});
+
+test("workbench brief and live solar observations render NOAA and SDO data", async ({ page }) => {
   const end = Date.parse("2026-11-28T05:00:00Z");
   const minute = 60_000;
   const xrayPoints = Array.from({ length: 121 }, (_, index) => {
@@ -469,7 +524,16 @@ test("live solar observations render NOAA and SDO panels", async ({ page }) => {
     return route.fulfill({ body: jpeg, contentType: "image/jpeg" });
   });
 
-  await page.goto("/?view=solar");
+  await page.route(`${config.deploymentUrl}/api/runtime-status`, route => route.fulfill({ json: { backendReady: true, canSend: true } }));
+  await page.goto("/?view=home");
+  const brief = page.getByRole("region", { name: "今日太阳" });
+  await expect(brief.getByRole("img", { name: /全日面观测/ })).toBeVisible();
+  await expect(brief.getByText("11/28 04:59 UTC", { exact: true })).toBeVisible();
+  await expect(brief.getByText("GOES 过去 24 小时 X 射线峰值为 C3.9 级。")).toBeVisible();
+  await expect(brief.locator("dd")).toHaveText(["1", "B7.5", "150pfu"]);
+  await expect(brief.getByRole("link", { name: "NOAA SWPC · 活动区报告" })).toHaveAttribute("href", overview.regions.source_url);
+  await brief.getByRole("link", { name: "查看完整监测" }).click();
+  await expect(page).toHaveURL(/view=solar/);
   const rail = page.getByRole("tablist", { name: "实时观测" });
   await expect(rail.getByRole("tab", { name: "太阳黑子区域" })).toHaveAttribute("aria-selected", "true");
   const sunspots = page.getByRole("region", { name: "太阳黑子区域" });

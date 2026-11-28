@@ -213,6 +213,10 @@ async function installBackend(
         return json({ entries: [], default: null });
       if (apiPath === "/api/runtime-status")
         return json({ backendReady: true, canSend: true, elapsedMs: 0 });
+      if (method === "GET" && apiPath === "/api/solar-live/overview") {
+        const unavailable = { status: "error", error: "No observations in chat fixture" };
+        return json({ status: "partial", xray: unavailable, flares: unavailable, protons: unavailable, regions: unavailable, images: {} });
+      }
       if (method === "POST" && apiPath === "/runs/crons/search")
         return json([]);
       if (apiPath === "/info") return json({ version: "e2e" });
@@ -338,7 +342,7 @@ test("desktop research history, icon hints and the chat palette work with existi
   expect(await iconPositions()).toEqual(expandedPositions);
   await expect.poll(() => nav.locator(".platform-navigation-heading").evaluateAll(headings =>
     headings.map(heading => getComputedStyle(heading, "::after").opacity)
-  )).toEqual(["1", "1", "1"]);
+  )).toEqual(["1", "1"]);
   expect(await iconPositions()).toEqual(expandedPositions);
   await expect(sidebar).toBeVisible();
   await workbench.hover();

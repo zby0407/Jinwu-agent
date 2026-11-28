@@ -81,6 +81,11 @@ function backend() {
 }
 
 export const solarLiveKey = "/api/solar-live/overview";
+export const solarLiveOptions = {
+  refreshInterval: 60_000,
+  revalidateOnFocus: false,
+  shouldRetryOnError: false,
+};
 
 export async function fetchSolarLive(): Promise<SolarLiveOverview> {
   const { base, headers } = backend();

@@ -61,6 +61,8 @@ function HomePageInner({
   const [inspectorTab, setInspectorTab] = useQueryState("inspectorTab");
   const legacyInspectorTab = view === "workspace" || view === "artifacts" ? view : null;
   const showChat = view === null || legacyInspectorTab !== null;
+  const navigationView = showChat ? null : view === "workflow" ? "schedule" : view;
+  const compactNavigation = showChat || navigationView === "solar" || navigationView === "wiki" || navigationView === "memory" || navigationView === "schedule";
   const inspectorOpen = showChat && (inspector === "1" || legacyInspectorTab !== null);
   const activeInspectorTab: InspectorTab = legacyInspectorTab ?? (
     inspectorTab === "artifacts" || inspectorTab === "activity" ? inspectorTab : "workspace"
@@ -272,7 +274,7 @@ function HomePageInner({
               </DialogTrigger>
               <DialogContent className="platform-mobile-drawer" aria-describedby={undefined}>
                 <DialogTitle className="shrink-0 px-4 pb-2 pt-5">平台导航</DialogTitle>
-                <PlatformNavigation view={showChat ? null : view} onView={navigate} onClose={closeMobileSidebar} />
+                <PlatformNavigation view={navigationView} onView={navigate} onClose={closeMobileSidebar} />
               </DialogContent>
             </Dialog>
             <Image src="/jw-logo.jpg" alt="金乌" width={30} height={30} className="size-8 shrink-0 rounded-full object-cover" priority />
@@ -301,12 +303,12 @@ function HomePageInner({
             <div className="relative z-10 flex h-full min-w-0">
               {isDesktopLayout && (
                 <>
-                  <aside className="platform-primary-sidebar flex h-full shrink-0 flex-col border-r border-border bg-card" data-compact={showChat}>
+                  <aside className="platform-primary-sidebar flex h-full shrink-0 flex-col border-r border-border bg-card" data-compact={compactNavigation}>
                     <div className="platform-sidebar-brand">
                       <Image src="/jw-logo.jpg" alt="金乌" width={26} height={26} className="size-7 shrink-0 rounded-full object-cover" priority />
                       <span className="platform-sidebar-brand-text">金乌智能科研平台</span>
                     </div>
-                    <PlatformNavigation view={showChat ? null : view} compact={showChat} onView={navigate} />
+                    <PlatformNavigation view={navigationView} compact={compactNavigation} onView={navigate} />
                     <div className="platform-sidebar-footer">
                       <HealthIndicator deploymentUrl={config.deploymentUrl} onReconnect={(url) => handleSaveConfig({ ...config, deploymentUrl: url })} />
                     </div>
