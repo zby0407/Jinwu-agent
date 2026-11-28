@@ -2,10 +2,7 @@
 
 import { useEffect, useMemo, useState, useRef, useCallback } from "react";
 import {
-  Clock,
   Download,
-  FlaskConical,
-  Library,
   Loader2,
   MessageSquare,
   Pencil,
@@ -51,8 +48,7 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
-import { getConfig } from "@/lib/config";
-import { launchSolarH1H2, type ReproductionLaunch } from "@/lib/reproduction";
+import { useRuntimeStatus } from "@/providers/ClientProvider";
 
 type StatusFilter = "all" | "idle" | "busy" | "interrupted" | "error";
 
@@ -144,7 +140,7 @@ interface ThreadListProps {
   onThreadSelect: (id: string) => void;
   onClose?: () => void;
   onNewChat?: () => void;
-  onMutateReady?: (mutate: () => void) => void;
+  onMutateReady?: (mutate: (() => void) | null) => void;
   onInterruptCountChange?: (count: number) => void;
 }
 
@@ -156,17 +152,14 @@ export function ThreadList({
   onInterruptCountChange,
 }: ThreadListProps) {
   const [currentThreadId, setThreadId] = useQueryState("threadId");
-  const [view, setView] = useQueryState("view");
+  const [, setView] = useQueryState("view");
+  const { backendReady, elapsedMs } = useRuntimeStatus();
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
   const [search, setSearch] = useState("");
   const [renameTarget, setRenameTarget] = useState<ThreadItem | null>(null);
   const [renameValue, setRenameValue] = useState("");
   const [deleteTarget, setDeleteTarget] = useState<ThreadItem | null>(null);
   const [actionBusy, setActionBusy] = useState(false);
-  const [reproductionConfirmOpen, setReproductionConfirmOpen] = useState(false);
-  const [reproductionBusy, setReproductionBusy] = useState(false);
-  const [reproductionResult, setReproductionResult] =
-    useState<ReproductionLaunch | null>(null);
   const [now, setNow] = useState(() => new Date());
   const [pinBusyIds, setPinBusyIds] = useState<Set<string>>(() => new Set());
   const [exportBusyIds, setExportBusyIds] = useState<Set<string>>(
@@ -174,6 +167,7 @@ export function ThreadList({
   );
 
   const threads = useThreads({
+    enabled: backendReady,
     status: statusFilter === "all" ? undefined : statusFilter,
     limit: 20,
   });
@@ -291,13 +285,8 @@ export function ThreadList({
   }, [flattened, needsAttention]);
 
   // Expose thread list revalidation to parent component
-  // Use refs to create a stable callback that always calls the latest mutate function
-  const onMutateReadyRef = useRef(onMutateReady);
+  // Keep the refresh callback stable while SWR changes its bound mutate function.
   const mutateRef = useRef(threads.mutate);
-
-  useEffect(() => {
-    onMutateReadyRef.current = onMutateReady;
-  }, [onMutateReady]);
 
   useEffect(() => {
     mutateRef.current = threads.mutate;
@@ -308,10 +297,9 @@ export function ThreadList({
   }, []);
 
   useEffect(() => {
-    onMutateReadyRef.current?.(mutateFn);
-    // Only run once on mount to avoid infinite loops
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+    onMutateReady?.(mutateFn);
+    return () => onMutateReady?.(null);
+  }, [onMutateReady, mutateFn]);
 
   // Notify parent of interrupt count changes
   useEffect(() => {
@@ -321,7 +309,6 @@ export function ThreadList({
   // Synchronous re-entry lock: `actionBusy` state only blocks after a re-render,
   // so a fast second Enter could fire a mutation twice. The ref guards instantly.
   const actionBusyRef = useRef(false);
-  const reproductionBusyRef = useRef(false);
   const pinBusyIdsRef = useRef<Set<string>>(new Set());
   const exportBusyIdsRef = useRef<Set<string>>(new Set());
 
@@ -376,39 +363,6 @@ export function ThreadList({
     } finally {
       actionBusyRef.current = false;
       setActionBusy(false);
-    }
-  };
-
-  const submitReproduction = async () => {
-    if (reproductionBusyRef.current) return;
-    const config = getConfig();
-    if (!config) {
-      toast.error("后端尚未配置或连接，请先检查连接设置。");
-      return;
-    }
-    reproductionBusyRef.current = true;
-    setReproductionBusy(true);
-    try {
-      const result = await launchSolarH1H2({
-        deploymentUrl: config.deploymentUrl,
-        apiKey:
-          config.langsmithApiKey ||
-          process.env.NEXT_PUBLIC_LANGSMITH_API_KEY ||
-          "",
-      });
-      setReproductionConfirmOpen(false);
-      setReproductionResult(result);
-      mutateFn();
-      if (result.status === "submitted") {
-        toast.success("H1/H2 已提交到两个独立实验会话。");
-      } else {
-        toast.warning("复现任务仅部分提交，请查看详细错误。");
-      }
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : "复现调度失败。");
-    } finally {
-      reproductionBusyRef.current = false;
-      setReproductionBusy(false);
     }
   };
 
@@ -478,7 +432,7 @@ export function ThreadList({
           onClick={() => onThreadSelect(thread.id)}
           className={cn(
             "grid w-full cursor-pointer items-center gap-2 rounded-md py-2 pl-2.5 pr-28 text-left transition-colors duration-200 md:pr-2.5 md:group-focus-within:pr-28 md:group-hover:pr-28",
-            "hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+            "platform-blue-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
             currentThreadId === thread.id
               ? "border border-primary bg-accent hover:bg-accent"
               : "border border-transparent bg-transparent"
@@ -610,7 +564,7 @@ export function ThreadList({
   };
 
   return (
-    <div className="absolute inset-0 flex flex-col">
+    <div className="flex h-full min-h-0 flex-col">
       <button
         ref={newChatRef}
         type="button"
@@ -623,57 +577,13 @@ export function ThreadList({
           }
           onClose?.();
         }}
-        className="jw-sidebar-nav-button"
+        className="platform-blue-hover mx-3 mt-3 flex shrink-0 items-center gap-2 rounded-lg border border-sky-200 bg-sky-50 px-3 py-2.5 text-left text-sm font-semibold text-sky-900 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
       >
         <Telescope
           className="size-4"
           aria-hidden="true"
         />
         开始新实验
-      </button>
-      <button
-        type="button"
-        onClick={() => {
-          if (view === "wiki") {
-            setView(null);
-            onClose?.();
-            return;
-          }
-          setView("wiki");
-          onClose?.();
-        }}
-        className={cn(
-          "jw-sidebar-nav-button",
-          view === "wiki" && "jw-sidebar-nav-button-active"
-        )}
-      >
-        <Library
-          className="size-4"
-          aria-hidden="true"
-        />
-        太阳活动周 Wiki
-      </button>
-      <button
-        type="button"
-        onClick={() => {
-          if (view === "schedule") {
-            setView(null);
-            onClose?.();
-            return;
-          }
-          setView("schedule");
-          onClose?.();
-        }}
-        className={cn(
-          "jw-sidebar-nav-button",
-          view === "schedule" && "jw-sidebar-nav-button-active"
-        )}
-      >
-        <Clock
-          className="size-4"
-          aria-hidden="true"
-        />
-        定时任务
       </button>
       <div className="flex-shrink-0 border-b border-border p-2.5">
         <div className="relative">
@@ -754,46 +664,14 @@ export function ThreadList({
               </SelectGroup>
             </SelectContent>
           </Select>
-          {onClose && (
-            <button
-              type="button"
-              aria-label={view ? "关闭导航" : "关闭研究导航"}
-              onClick={onClose}
-              className="rounded-md p-2 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
-            >
-              <X
-                className="size-4"
-                aria-hidden="true"
-              />
-            </button>
-          )}
         </div>
       </div>
 
-      <div className="flex-shrink-0 border-b border-border p-2.5">
-        <Button
-          type="button"
-          variant="outline"
-          className="border-[var(--brand)]/60 bg-[var(--brand)]/10 hover:bg-[var(--brand)]/20 w-full text-[var(--brand)] hover:text-[var(--brand)]"
-          onClick={() => setReproductionConfirmOpen(true)}
-          disabled={reproductionBusy}
-        >
-          {reproductionBusy ? (
-            <Loader2
-              className="mr-2 size-4 animate-spin"
-              aria-hidden="true"
-            />
-          ) : (
-            <FlaskConical
-              className="mr-2 size-4"
-              aria-hidden="true"
-            />
-          )}
-          一键复现 H1/H2
-        </Button>
-      </div>
-
-      <ScrollArea className="h-0 flex-1">
+      {!backendReady ? (
+        <p role="status" className="p-4 text-sm text-muted-foreground">
+          {elapsedMs === 0 ? "正在连接，稍候加载会话。" : "后端未连接，会话将在连接恢复后加载。"}
+        </p>
+      ) : <ScrollArea className="h-0 min-h-0 flex-1">
         {threads.error && <ErrorState message={threads.error.message} />}
 
         {!threads.error && !threads.data && threads.isLoading && (
@@ -805,6 +683,8 @@ export function ThreadList({
         {!threads.error && !threads.isLoading && isEmpty && <EmptyState />}
 
         {!threads.error &&
+          !threads.isLoading &&
+          threads.data &&
           !isEmpty &&
           search.trim() &&
           filtered.length === 0 && (
@@ -871,126 +751,7 @@ export function ThreadList({
             )}
           </div>
         )}
-      </ScrollArea>
-
-      <Dialog
-        open={reproductionConfirmOpen}
-        onOpenChange={(open) => {
-          if (!reproductionBusy) setReproductionConfirmOpen(open);
-        }}
-      >
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>确认一键复现 H1/H2</DialogTitle>
-            <DialogDescription>
-              将并发创建两个互相隔离的实验会话，并逐字发送版本化的 H1、H2
-              提示词。
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-2 text-sm text-muted-foreground">
-            <div className="rounded-md border border-border p-2">
-              <div>H1：SILSO 第 1—24 周形态实验</div>
-              <div>H2：极小期极区场历史预测技能检验</div>
-            </div>
-            <p>固定模型：DashScope / qwen3.7-max</p>
-            <p>
-              自动模式：批准允许的工具、禁用
-              ask_user；仍保留工作区隔离、危险命令拦截和科研审查。
-            </p>
-            <p className="text-amber-600 dark:text-amber-400">
-              两轮会同时调用模型并可能产生较高费用。提交成功只代表提示词进入
-              run，不代表实验成功。
-            </p>
-          </div>
-          <DialogFooter>
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => setReproductionConfirmOpen(false)}
-              disabled={reproductionBusy}
-            >
-              取消
-            </Button>
-            <Button
-              type="button"
-              onClick={submitReproduction}
-              disabled={reproductionBusy}
-            >
-              {reproductionBusy && (
-                <Loader2 className="mr-2 size-4 animate-spin" />
-              )}
-              确认并发提交
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      <Dialog
-        open={reproductionResult !== null}
-        onOpenChange={(open) => {
-          if (!open) setReproductionResult(null);
-        }}
-      >
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>
-              {reproductionResult?.status === "submitted"
-                ? "H1/H2 调度完成"
-                : "H1/H2 部分提交"}
-            </DialogTitle>
-            <DialogDescription>
-              批次 {reproductionResult?.batch_id}。以下 ID
-              仅证明调度，不证明科研成功。
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-3">
-            {reproductionResult?.runs.map((run) => (
-              <div
-                key={run.case_id}
-                className="rounded-md border border-border p-3 text-sm"
-              >
-                <div className="font-semibold">{run.case_id}</div>
-                <div className="break-all text-xs text-muted-foreground">
-                  threadId: {run.thread_id}
-                </div>
-                <div className="break-all text-xs text-muted-foreground">
-                  runId: {run.run_id}
-                </div>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  className="mt-2"
-                  onClick={() => {
-                    onThreadSelect(run.thread_id);
-                    setReproductionResult(null);
-                    onClose?.();
-                  }}
-                >
-                  打开 {run.case_id}
-                </Button>
-              </div>
-            ))}
-            {reproductionResult?.errors.map((error, index) => (
-              <p
-                key={`${error.case_id}-${index}`}
-                className="text-sm text-destructive"
-              >
-                {error.case_id ?? "批次"} / {error.stage ?? "unknown"}：
-                {error.message ?? "未知错误"}
-              </p>
-            ))}
-          </div>
-          <DialogFooter>
-            <Button
-              type="button"
-              onClick={() => setReproductionResult(null)}
-            >
-              关闭
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      </ScrollArea>}
 
       {/* Rename dialog */}
       <Dialog

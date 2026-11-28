@@ -115,13 +115,14 @@ type DashboardNavTarget =
 
 interface ChatInterfaceProps {
   assistant: Assistant | null;
-  // Open the right inspector on its Agents tab (composer "agents running" pulse).
+  // Open the Agents board from the composer's running indicator.
   onShowAgents?: () => void;
   // Navigate to a memory tab / the schedule view from the empty-state dashboard.
   onNavigate?: (target: DashboardNavTarget) => void;
   // Open a pinned thread from the empty-state dashboard.
   onOpenThread?: (id: string) => void;
-  // Whether the workspace inspector is currently visible.
+  // Toggle the file browser in the right workspace drawer.
+  onToggleWorkspace?: () => void;
   workspaceOpen?: boolean;
   // Register a "submit a message on THIS (main) thread" function up to page so
   // the Agents board can loop an async result back to the main agent. Returns
@@ -278,6 +279,7 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
     onNotifyReady,
     onNavigate,
     onOpenThread,
+    onToggleWorkspace,
     workspaceOpen,
   }) => {
     const [metaOpen, setMetaOpen] = useState<"tasks" | "files" | null>(null);
@@ -2631,10 +2633,10 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
                       {autoApprove ? "自动批准：开" : "自动批准"}
                     </span>
                   </button>
-                  {onNavigate && workspaceDir && (
+                  {onToggleWorkspace && workspaceDir && (
                     <button
                       type="button"
-                      onClick={() => onNavigate({ view: "workspace" })}
+                      onClick={onToggleWorkspace}
                       title={`${
                         workspaceOpen ? "关闭" : "打开"
                       }工作区：${workspaceDir}`}

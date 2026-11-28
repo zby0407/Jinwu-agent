@@ -1,141 +1,132 @@
 "use client";
 
-import { FolderOpen, Bot, PackageOpen, Zap } from "lucide-react";
-import { useQueryState } from "nuqs";
-import { cn } from "@/lib/utils";
-import { WorkspacePanel } from "@/app/components/WorkspacePanel";
-import { AgentsPanel } from "@/app/components/AgentsPanel";
-import { RealtimeActivityPanel } from "@/app/components/RealtimeActivityPanel";
+import { useEffect, useState, type CSSProperties } from "react";
+import { FolderOpen, PackageOpen, Zap } from "lucide-react";
 import { ArtifactsPanel } from "@/app/components/ArtifactsPanel";
-import type { MainChatReporter } from "@/lib/asyncAgents";
+import { PanelEdgeToggle } from "@/app/components/PanelEdgeToggle";
+import { RealtimeActivityPanel } from "@/app/components/RealtimeActivityPanel";
+import { SidebarResizeHandle, type SidebarSize } from "@/app/components/SidebarResizeHandle";
+import { WorkspacePanel } from "@/app/components/WorkspacePanel";
+
+const tabs = [
+  { id: "workspace", label: "工作区", Icon: FolderOpen },
+  { id: "artifacts", label: "产物", Icon: PackageOpen },
+  { id: "activity", label: "实时活动", Icon: Zap },
+] as const;
+
+const panelId = "chat-workspace-drawer";
+const slideDuration = 240;
+
+export type InspectorTab = (typeof tabs)[number]["id"];
 
 interface InspectorPanelProps {
-  // Loop a finished async agent's result back to the main chat (Agents tab).
-  // Null when the chat view isn't mounted (e.g. viewing Skills/Memory).
-  onReportToMainChat?: MainChatReporter | null;
+  open: boolean;
+  overlay: boolean;
+  tab: InspectorTab;
+  size?: SidebarSize;
+  onTabChange: (tab: InspectorTab) => void;
+  onToggle: () => void;
 }
 
-type InspectorTab = "workspace" | "agents" | "activity" | "artifacts";
+export function InspectorPanel({ open, overlay, tab, size, onTabChange, onToggle }: InspectorPanelProps) {
+  const [keepContent, setKeepContent] = useState(open);
+  const [dragging, setDragging] = useState(false);
+  const canResize = open && !!size;
 
-/**
- * Dockable right-hand inspector with tabs:
- *  - Activity: real-time view of what the AI is currently processing.
- *  - Workspace: the on-disk workspace browser.
- *  - Agents: background async sub-agents (writing / data-analysis) this
- *    conversation launched, with live status + steps.
- * The active tab is mirrored to the `inspectorTab` URL param so the composer's
- * "agents running" indicator can deep-link straight to the Agents tab.
- */
-export function InspectorPanel({ onReportToMainChat }: InspectorPanelProps) {
-  const [tabParam, setTab] = useQueryState("inspectorTab");
-  const tab: InspectorTab =
-    tabParam === "workspace"
-      ? "workspace"
-      : tabParam === "agents"
-      ? "agents"
-      : tabParam === "artifacts"
-      ? "artifacts"
-      : "activity";
+  useEffect(() => {
+    if (open) {
+      setKeepContent(true);
+      return;
+    }
+    // Keep the selected tab visible while the drawer slides out.
+    const timer = window.setTimeout(() => setKeepContent(false), slideDuration);
+    return () => window.clearTimeout(timer);
+  }, [open]);
+
+  useEffect(() => {
+    if (!canResize) setDragging(false);
+  }, [canResize]);
+
+  const dockStyle = {
+    "--workspace-drawer-width": size ? `${size.width}px` : undefined,
+    transitionDuration: canResize && dragging ? "0ms" : `${slideDuration}ms`,
+  } as CSSProperties;
 
   return (
-    <div className="flex h-full flex-col border-l border-border bg-sidebar">
-      <div className="flex h-11 shrink-0 items-center gap-2 border-b border-border px-2">
-        <div
-          role="tablist"
-          aria-label="研究工作区"
-          className="flex min-w-0 items-center gap-1 overflow-x-auto"
-        >
-          <button
-            type="button"
-            role="tab"
-            aria-selected={tab === "activity"}
-            onClick={() => setTab(null)}
-            className={cn(
-              "flex items-center gap-1.5 rounded-md px-2 py-1 text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-              tab === "activity"
-                ? "bg-accent text-foreground"
-                : "text-muted-foreground hover:text-foreground"
-            )}
-          >
-            <Zap
-              className="size-4 text-[var(--brand)]"
-              aria-hidden="true"
-            />
-            活动
-          </button>
-          <button
-            type="button"
-            role="tab"
-            aria-selected={tab === "artifacts"}
-            onClick={() => setTab("artifacts")}
-            className={cn(
-              "flex items-center gap-1.5 rounded-md px-2 py-1 text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-              tab === "artifacts"
-                ? "bg-accent text-foreground"
-                : "text-muted-foreground hover:text-foreground"
-            )}
-          >
-            <PackageOpen
-              className="size-4 text-[var(--brand)]"
-              aria-hidden="true"
-            />
-            产物
-          </button>
-          <button
-            type="button"
-            role="tab"
-            aria-selected={tab === "workspace"}
-            onClick={() => setTab("workspace")}
-            className={cn(
-              "flex items-center gap-1.5 rounded-md px-2 py-1 text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-              tab === "workspace"
-                ? "bg-accent text-foreground"
-                : "text-muted-foreground hover:text-foreground"
-            )}
-          >
-            <FolderOpen
-              className="size-4 text-[var(--brand)]"
-              aria-hidden="true"
-            />
-            工作区
-          </button>
-          <button
-            type="button"
-            role="tab"
-            aria-selected={tab === "agents"}
-            onClick={() => setTab("agents")}
-            className={cn(
-              "flex items-center gap-1.5 rounded-md px-2 py-1 text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-              tab === "agents"
-                ? "bg-accent text-foreground"
-                : "text-muted-foreground hover:text-foreground"
-            )}
-          >
-            <Bot
-              className="size-4 text-[var(--brand)]"
-              aria-hidden="true"
-            />
-            Agent
-          </button>
-        </div>
-      </div>
-      {tab === "agents" ? (
-        <div className="min-h-0 flex-1 overflow-hidden p-3">
-          <AgentsPanel onReportToMainChat={onReportToMainChat} />
-        </div>
-      ) : tab === "artifacts" ? (
-        <div className="min-h-0 flex-1 overflow-hidden">
-          <ArtifactsPanel />
-        </div>
-      ) : tab === "workspace" ? (
-        <div className="min-h-0 flex-1 overflow-y-auto p-3">
-          <WorkspacePanel />
-        </div>
-      ) : (
-        <div className="min-h-0 flex-1 overflow-hidden">
-          <RealtimeActivityPanel />
-        </div>
+    <aside
+      className="chat-workspace-dock"
+      data-open={open}
+      data-overlay={overlay}
+      style={dockStyle}
+      aria-label="研究工具"
+      onKeyDown={event => {
+        if (
+          event.key !== "Escape" || event.defaultPrevented || !open ||
+          !event.currentTarget.contains(event.target as Node)
+        ) return;
+        event.preventDefault();
+        event.currentTarget.querySelector("button")?.focus();
+        onToggle();
+      }}
+    >
+      <PanelEdgeToggle
+        side="right"
+        open={open}
+        controls={panelId}
+        onClick={onToggle}
+        label={open ? "收起右侧工作区" : "展开右侧工作区"}
+        className="chat-workspace-toggle"
+      />
+      {open && size && (
+        <SidebarResizeHandle
+          side="right"
+          label="调整右侧工作区宽度"
+          controls={panelId}
+          size={size}
+          onDraggingChange={setDragging}
+        />
       )}
-    </div>
+      <div id={panelId} className="chat-workspace-drawer" inert={!open} aria-hidden={!open}>
+        {(open || keepContent) && (
+          <>
+            <div role="tablist" aria-label="研究工作区" className="grid shrink-0 grid-cols-3 gap-1 border-b border-border bg-sky-50/60 p-2">
+              {tabs.map(({ id, label, Icon }, index) => (
+                <button
+                  key={id}
+                  id={`${panelId}-${id}`}
+                  type="button"
+                  role="tab"
+                  aria-selected={tab === id}
+                  aria-controls={`${panelId}-content`}
+                  tabIndex={tab === id ? 0 : -1}
+                  onClick={() => onTabChange(id)}
+                  onKeyDown={event => {
+                    const next = ({
+                      ArrowLeft: (index + tabs.length - 1) % tabs.length,
+                      ArrowRight: (index + 1) % tabs.length,
+                      Home: 0,
+                      End: tabs.length - 1,
+                    } as Record<string, number>)[event.key];
+                    if (typeof next !== "number") return;
+                    event.preventDefault();
+                    onTabChange(tabs[next].id);
+                    event.currentTarget.parentElement?.querySelectorAll<HTMLButtonElement>("[role=tab]")[next]?.focus();
+                  }}
+                  className="platform-blue-hover flex min-h-8 items-center justify-center gap-1.5 whitespace-nowrap rounded-md px-1 py-1.5 text-xs font-medium text-slate-600 aria-selected:bg-sky-100 aria-selected:text-sky-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+                >
+                  <Icon className="size-3.5 shrink-0 text-sky-700" aria-hidden="true" />
+                  {label}
+                </button>
+              ))}
+            </div>
+            <div id={`${panelId}-content`} role="tabpanel" aria-labelledby={`${panelId}-${tab}`} className="min-h-0 flex-1 overflow-hidden">
+              {tab === "workspace" && <div className="h-full overflow-y-auto p-3"><WorkspacePanel /></div>}
+              {tab === "artifacts" && <ArtifactsPanel />}
+              {tab === "activity" && <RealtimeActivityPanel />}
+            </div>
+          </>
+        )}
+      </div>
+    </aside>
   );
 }

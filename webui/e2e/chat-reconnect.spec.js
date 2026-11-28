@@ -32,7 +32,7 @@ const PROJECT_INPUT_CONTENT =
 const PROJECT_ANSWER = {
   id: "answer-project-input",
   type: "ai",
-  content: `登记输入：\`${PROJECT_INPUT_PATH}\``,
+  content: `## 观测摘要\n\n登记输入：\`${PROJECT_INPUT_PATH}\`\n\n- 来源已登记\n\n| 观测 | 状态 |\n| --- | --- |\n| HMI | 可读 |`,
 };
 const observations = new WeakMap();
 
@@ -79,6 +79,8 @@ async function installBackend(
     versions = false,
     projectPreview = false,
     empty = false,
+    extraThreads = 0,
+    threadTitle = "隔离回放测试",
   } = {}
 ) {
   const backendPrefix = "/__e2e_langgraph";
@@ -119,7 +121,7 @@ async function installBackend(
     created_at: "2026-01-01T00:00:00.000Z",
     updated_at: "2026-01-01T00:00:00.000Z",
     status: "idle",
-    metadata: { graph_id: "JW", title: "隔离回放测试" },
+    metadata: { graph_id: "JW", title: threadTitle },
     values: current().values,
     interrupts: {},
   });
@@ -150,12 +152,21 @@ async function installBackend(
       const apiPath = path.slice(backendPrefix.length);
       if (method === "POST" && apiPath === "/assistants/search")
         return json([assistant]);
-      if (method === "POST" && apiPath === "/threads/search")
-        return json([thread()]);
+      if (method === "POST" && apiPath === "/threads/search") {
+        const primary = thread();
+        const more = Array.from({ length: extraThreads }, (_, index) => ({
+          ...primary,
+          thread_id: `00000000-0000-4000-8000-${String(1000 + index).padStart(12, "0")}`,
+          metadata: { graph_id: "JW", title: `历史样例 ${index + 1}` },
+        }));
+        return json([primary, ...more]);
+      }
       if (method === "GET" && apiPath === `/threads/${THREAD_ID}/state`)
         return json(current());
       if (method === "GET" && apiPath === `/threads/${THREAD_ID}`)
         return json(thread());
+      if (method === "GET" && apiPath === `/threads/${THREAD_ID}/runs`)
+        return json([]);
       if (method === "POST" && apiPath === `/threads/${THREAD_ID}/history`)
         return json(history());
       if (
@@ -200,7 +211,9 @@ async function installBackend(
       }
       if (apiPath === "/api/models")
         return json({ entries: [], default: null });
-      if (empty && method === "POST" && apiPath === "/runs/crons/search")
+      if (apiPath === "/api/runtime-status")
+        return json({ backendReady: true, canSend: true, elapsedMs: 0 });
+      if (method === "POST" && apiPath === "/runs/crons/search")
         return json([]);
       if (apiPath === "/info") return json({ version: "e2e" });
       if (method !== "GET") observed.mutations.push(`${method} ${apiPath}`);
@@ -212,6 +225,10 @@ async function installBackend(
     }
     if (path.startsWith("/api/")) {
       if (method !== "GET") observed.mutations.push(`${method} ${path}`);
+      if (method === "GET" && path === "/api/jw-config")
+        return json({ desktopManaged: false });
+      if (method === "GET" && path === "/api/today-sun")
+        return json(null);
       if (
         projectPreview &&
         method === "GET" &&
@@ -239,8 +256,14 @@ async function installBackend(
       }
       if (method === "GET" && path === "/api/memory")
         return json({ entries: [] });
+      if (method === "GET" && path === "/api/memory/observations")
+        return json({ observations: [], total: 0 });
+      if (method === "GET" && path === "/api/memory/executions")
+        return json({ executions: [], total: 0 });
       if (method === "GET" && path === "/api/workspace")
         return json({ dir: "/isolated-fixture", entries: [] });
+      if (method === "GET" && path === "/api/workspace/artifacts")
+        return json({ artifacts: [], truncated: false });
       if (method === "GET" && path === "/api/research-review/status")
         return json({ active: false });
       observed.unexpected.push(`${method} ${path}`);
@@ -273,6 +296,247 @@ async function installBackend(
 
   return { observed };
 }
+
+test("workbench filters recent sessions and opens the selected conversation", async ({ page, baseURL }) => {
+  const threadTitle = "怀柔望远镜采集记录与太阳活动观测图像质量核对及后续研究会话";
+  await installBackend(page, baseURL, { projectPreview: true, extraThreads: 4, threadTitle });
+  await page.goto("/?view=home");
+
+  const recent = page.getByRole("region", { name: "最近研究" });
+  const titles = recent.locator(".research-thread-row .truncate");
+  await expect(titles).toHaveText([threadTitle, "历史样例 1", "历史样例 2", "历史样例 3", "历史样例 4"]);
+  const timestamps = recent.locator("time");
+  await expect(timestamps).toHaveCount(5);
+  await expect(timestamps.first()).toHaveAttribute("datetime", "2026-01-01T00:00:00.000Z");
+  await expect(timestamps.first()).toHaveText(/2026.*\d{2}:\d{2}/);
+  await recent.getByRole("textbox", { name: "筛选最近研究" }).fill("怀柔望远镜");
+  await expect(titles).toHaveText([threadTitle]);
+  await page.setViewportSize({ width: 390, height: 844 });
+  await recent.getByRole("button", { name: new RegExp(`^${threadTitle}`) }).click();
+
+  await expect(page).toHaveURL(new RegExp(`threadId=${THREAD_ID}`));
+  await expect(recent).toBeHidden();
+  await expect(page.getByText(HUMAN.content, { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "打开研究会话" }).click();
+  await expect(page.getByRole("dialog", { name: "研究会话" }).getByRole("button", { name: new RegExp(`^${threadTitle}`) })).toHaveAttribute("aria-current", "true");
+});
+
+test("desktop research history, icon hints and the chat palette work with existing threads", async ({ page, baseURL }) => {
+  await installBackend(page, baseURL, { projectPreview: true, extraThreads: 16 });
+  await page.goto("/?view=home");
+  const nav = page.getByRole("navigation", { name: "平台导航" });
+  const assistant = nav.getByRole("button", { name: "金乌科研助手" });
+  const workbench = nav.getByRole("button", { name: "工作台" });
+  const sidebar = page.getByRole("complementary", { name: "研究会话" });
+  await expect(sidebar).toBeHidden();
+  const iconPositions = () => nav.locator("button > svg").evaluateAll(icons => icons.map(icon => {
+    const { x, y } = icon.getBoundingClientRect();
+    return { x, y };
+  }));
+  const expandedPositions = await iconPositions();
+  await assistant.click();
+  await expect(nav).toHaveAttribute("data-compact", "true");
+  await expect(nav.getByRole("heading", { name: "研究", exact: true })).toBeHidden();
+  expect(await iconPositions()).toEqual(expandedPositions);
+  await expect.poll(() => nav.locator(".platform-navigation-heading").evaluateAll(headings =>
+    headings.map(heading => getComputedStyle(heading, "::after").opacity)
+  )).toEqual(["1", "1", "1"]);
+  expect(await iconPositions()).toEqual(expandedPositions);
+  await expect(sidebar).toBeVisible();
+  await workbench.hover();
+  await expect(page.getByRole("tooltip")).toHaveText("工作台");
+  await expect(workbench).toHaveCSS("background-size", "100% 100%");
+  const search = sidebar.getByRole("searchbox", { name: "搜索研究会话" });
+  await search.hover();
+  await expect(page.getByRole("tooltip")).toHaveCount(0);
+  await workbench.focus();
+  await page.keyboard.press("Tab");
+  await expect(assistant).toBeFocused();
+  await expect(page.getByRole("tooltip")).toHaveText("金乌科研助手");
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("tooltip")).toHaveCount(0);
+
+  const previous = sidebar.getByRole("button", { name: /^隔离回放测试/ });
+  await expect(previous).toBeVisible();
+  const historyViewport = sidebar.locator("[data-slot=scroll-area-viewport]");
+  await expect.poll(() => historyViewport.evaluate(element => element.scrollHeight > element.clientHeight)).toBe(true);
+  await search.fill("找不到的对话");
+  await expect(sidebar.getByText("没有匹配搜索条件的研究会话。")).toBeVisible();
+  await search.fill("隔离回放");
+  await expect(sidebar.getByText("历史样例 1", { exact: true })).toHaveCount(0);
+  await expect(sidebar.getByRole("combobox")).toBeVisible();
+  await expect(sidebar.getByLabel("更多会话操作")).toHaveCount(0);
+  await previous.click();
+  await expect(page).toHaveURL(new RegExp(`threadId=${THREAD_ID}`));
+  await expect(previous).toHaveAttribute("aria-current", "true");
+
+  const userMessage = page.locator('[data-message-role="user"] [data-message-content]');
+  const reply = page.locator('[data-message-role="assistant"] [data-message-content]');
+  await expect(userMessage).toHaveCSS("background-color", "rgb(53, 117, 180)");
+  await expect(userMessage.locator("p")).toHaveCSS("color", "rgb(255, 255, 255)");
+  await expect(reply).toHaveCSS("background-color", "rgb(255, 255, 255)");
+  await expect(reply.locator("p")).toHaveCSS("color", "rgb(17, 24, 39)");
+  await expect(reply.getByRole("heading", { name: "观测摘要" })).toHaveCSS("color", "rgb(17, 24, 39)");
+  await expect(reply.getByRole("listitem")).toHaveCSS("color", "rgb(17, 24, 39)");
+  await expect(reply.getByRole("cell", { name: "HMI" })).toHaveCSS("color", "rgb(17, 24, 39)");
+  const background = page.locator(".chat-workspace-background");
+  await expect(background).toHaveCSS("background-image", /huairou-sunset\.jpg/);
+  await expect(background).toHaveCSS("position", "absolute");
+  await expect(background).toHaveCSS("bottom", "0px");
+  const send = page.getByRole("button", { name: "发送消息", exact: true });
+  await expect(send).toBeDisabled();
+  await expect(send).toHaveCSS("background-color", "rgb(191, 219, 254)");
+  await page.getByRole("textbox", { name: "消息", exact: true }).fill("仅用于检查按钮配色");
+  await expect(send).toBeEnabled();
+  await expect(send).toHaveCSS("color", "rgb(255, 255, 255)");
+
+  await workbench.click();
+  await expect(nav).toHaveAttribute("data-compact", "false");
+  await expect(sidebar).toBeHidden();
+  await assistant.click();
+  await expect(previous).toHaveAttribute("aria-current", "true");
+  await expect(userMessage).toBeVisible();
+  await sidebar.getByRole("button", { name: "开始新实验" }).click();
+  await expect(page).not.toHaveURL(/threadId=/);
+  await expect(page.getByRole("textbox", { name: "消息", exact: true })).toHaveValue("");
+});
+
+test("research workspace slides both ways and stays in the current conversation", async ({ page, baseURL }) => {
+  await installBackend(page, baseURL, { projectPreview: true });
+  await page.goto(`/?threadId=${THREAD_ID}`);
+  const open = page.getByRole("button", { name: "展开右侧工作区" });
+  const close = page.getByRole("button", { name: "收起右侧工作区" });
+  const tabs = page.getByRole("tablist", { name: "研究工作区" });
+  const drawer = page.locator(".chat-workspace-dock");
+  await expect(open).toHaveAttribute("aria-expanded", "false");
+  await expect(tabs).toBeHidden();
+  await drawer.evaluate(element => {
+    element.addEventListener("transitionend", event => {
+      if (event.target === element && event.propertyName === "width") {
+        element.dataset.lastSlide = element.dataset.open === "true" ? "out" : "in";
+      }
+    });
+  });
+  const closedButton = await open.boundingBox();
+
+  await open.click();
+  await expect(drawer).toHaveAttribute("data-last-slide", "out");
+  await expect(close).toHaveAttribute("aria-expanded", "true");
+  expect((await close.boundingBox()).x).toBeLessThan(closedButton.x - 200);
+  await expect(tabs.getByRole("tab")).toHaveText(["工作区", "产物", "实时活动"]);
+  await expect(page.getByRole("tabpanel", { name: "工作区" }).getByText("目录树")).toBeVisible();
+  await tabs.getByRole("tab", { name: "产物" }).click();
+  await expect(page.getByRole("tabpanel", { name: "产物" }).getByText("暂无产物")).toBeVisible();
+  await tabs.getByRole("tab", { name: "产物" }).press("End");
+  await expect(page.getByRole("tabpanel", { name: "实时活动" }).getByText("空闲")).toBeVisible();
+  await expect(page.getByText(HUMAN.content, { exact: true })).toBeVisible();
+  await expect(page).toHaveURL(new RegExp(`threadId=${THREAD_ID}`));
+
+  await close.click();
+  await expect(drawer).toHaveAttribute("data-last-slide", "in");
+  await expect(drawer).toHaveCSS("width", "0px");
+  await expect(tabs).toBeHidden();
+  const composerWorkspace = page.getByRole("button", { name: /^打开工作区：/ });
+  await composerWorkspace.click();
+  await expect(page.getByRole("tabpanel", { name: "工作区" })).toBeVisible();
+  await expect(page).not.toHaveURL(/view=workspace/);
+});
+
+test("mobile keeps the workspace arrow reachable and can open an old artifacts link", async ({ page, baseURL }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await installBackend(page, baseURL, { projectPreview: true });
+  await page.goto(`/?view=artifacts&threadId=${THREAD_ID}`);
+  await expect(page.getByRole("tabpanel", { name: "产物" })).toBeVisible();
+  await expect(page.getByRole("separator", { name: "调整右侧工作区宽度" })).toBeHidden();
+  await expect(page).not.toHaveURL(/view=artifacts/);
+  await page.getByRole("button", { name: "收起右侧工作区" }).click();
+  const open = page.getByRole("button", { name: "展开右侧工作区" });
+  await expect(open).toBeInViewport();
+  await open.click();
+  await expect(page.getByRole("tablist", { name: "研究工作区" })).toBeInViewport();
+  await page.getByRole("tab", { name: "实时活动" }).press("Escape");
+  await expect(open).toBeFocused();
+  await expect(page.getByRole("tablist", { name: "研究工作区" })).toBeHidden();
+});
+
+test("desktop sidebar widths follow the mouse and keep room for the conversation", async ({ page, baseURL }) => {
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await installBackend(page, baseURL, { projectPreview: true });
+  await page.goto(`/?threadId=${THREAD_ID}`);
+  const open = page.getByRole("button", { name: "展开右侧工作区" });
+  const close = page.getByRole("button", { name: "收起右侧工作区" });
+  const history = page.getByRole("complementary", { name: "研究会话" });
+  const historyGrip = page.getByRole("separator", { name: "调整左侧会话栏宽度" });
+  const workspaceGrip = page.getByRole("separator", { name: "调整右侧工作区宽度" });
+  const drawer = page.locator(".chat-workspace-dock");
+  const drag = async (grip, distance) => {
+    const { x, y, width } = await grip.boundingBox();
+    const startX = x + width / 2;
+    const startY = y + 100;
+    await page.mouse.move(startX, startY);
+    await page.mouse.down();
+    await page.mouse.move(startX + distance, startY, { steps: 6 });
+    await page.mouse.up();
+  };
+
+  await expect(historyGrip).toBeVisible();
+  const startingHistoryWidth = Number(await historyGrip.getAttribute("aria-valuenow"));
+  await open.click();
+  const startingWorkspaceWidth = Number(await workspaceGrip.getAttribute("aria-valuenow"));
+  await expect(drawer).toHaveCSS("width", `${startingWorkspaceWidth}px`);
+
+  await drag(historyGrip, 72);
+  await expect(history).toHaveCSS("width", `${startingHistoryWidth + 72}px`);
+  await expect(drawer).toHaveCSS("width", `${startingWorkspaceWidth}px`);
+
+  await drag(workspaceGrip, -80);
+  await expect(drawer).toHaveCSS("width", `${startingWorkspaceWidth + 80}px`);
+  await expect(history).toHaveCSS("width", `${startingHistoryWidth + 72}px`);
+  await drag(workspaceGrip, 34);
+  const chosenWorkspaceWidth = startingWorkspaceWidth + 46;
+  await expect(drawer).toHaveCSS("width", `${chosenWorkspaceWidth}px`);
+
+  const widestHistory = Number(await historyGrip.getAttribute("aria-valuemax"));
+  await historyGrip.press("End");
+  await expect(history).toHaveCSS("width", `${widestHistory}px`);
+  expect((await page.locator('[data-panel-id="chat"]').boundingBox()).width).toBeGreaterThanOrEqual(360);
+
+  await close.click();
+  await expect(drawer).toHaveCSS("width", "0px");
+  await expect(workspaceGrip).toBeHidden();
+  await open.click();
+  await expect(drawer).toHaveCSS("width", `${chosenWorkspaceWidth}px`);
+  await expect(page.getByText(HUMAN.content, { exact: true })).toBeVisible();
+
+  await page.setViewportSize({ width: 1024, height: 800 });
+  await expect(drawer).toHaveCSS("position", "absolute");
+  const chat = page.locator('[data-panel-id="chat"]');
+  const narrowChatWidth = (await chat.boundingBox()).width;
+  await drag(workspaceGrip, 24);
+  await expect(drawer).toHaveCSS("width", `${chosenWorkspaceWidth - 24}px`);
+  expect((await chat.boundingBox()).width).toBe(narrowChatWidth);
+});
+
+test("mobile research history opens separately and closes after selecting or starting a thread", async ({ page, baseURL }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await installBackend(page, baseURL, { projectPreview: true });
+  await page.goto("/?view=home");
+  await page.getByRole("button", { name: "打开平台导航" }).click();
+  const navigation = page.getByRole("dialog", { name: "平台导航" });
+  await navigation.getByRole("button", { name: "金乌科研助手" }).click();
+  await expect(navigation).toBeHidden();
+  const openHistory = page.getByRole("button", { name: "打开研究会话" });
+  await openHistory.click();
+  const history = page.getByRole("dialog", { name: "研究会话" });
+  await expect(history).toBeVisible();
+  await history.getByRole("button", { name: /^隔离回放测试/ }).click();
+  await expect(history).toBeHidden();
+  await expect(page.getByText(HUMAN.content, { exact: true })).toBeVisible();
+  await openHistory.click();
+  await history.getByRole("button", { name: "开始新实验" }).click();
+  await expect(history).toBeHidden();
+  await expect(page).not.toHaveURL(/threadId=/);
+});
 
 test("starter buttons fill actionable editable drafts without submitting", async ({
   page,
