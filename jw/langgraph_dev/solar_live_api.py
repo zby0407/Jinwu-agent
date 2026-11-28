@@ -48,7 +48,9 @@ async def solar_live_history(request: Request) -> JSONResponse:
     try:
         result = await asyncio.to_thread(history_listing, date)
     except ValueError as exc:
-        return JSONResponse({"error": str(exc), "code": "invalid_date"}, status_code=404)
+        return JSONResponse(
+            {"error": str(exc), "code": "invalid_date"}, status_code=404
+        )
     return JSONResponse(result, headers={"Cache-Control": "private, max-age=300"})
 
 
@@ -56,11 +58,15 @@ async def solar_live_history_image(request: Request) -> Response:
     channel = request.path_params["channel"]
     stamp = request.path_params["stamp"]
     if channel not in HISTORY_CHANNELS:
-        return JSONResponse({"error": f"unknown history channel: {channel}"}, status_code=404)
+        return JSONResponse(
+            {"error": f"unknown history channel: {channel}"}, status_code=404
+        )
     try:
         image = await asyncio.to_thread(history_image, channel, stamp)
     except ValueError as exc:
-        return JSONResponse({"error": str(exc), "code": "invalid_stamp"}, status_code=404)
+        return JSONResponse(
+            {"error": str(exc), "code": "invalid_stamp"}, status_code=404
+        )
     except OSError as exc:
         return JSONResponse(
             {"error": str(exc), "code": "upstream_error"}, status_code=502
@@ -79,5 +85,9 @@ SOLAR_LIVE_ROUTES = [
     Route("/api/solar-live/overview", solar_live_overview, methods=["GET"]),
     Route("/api/solar-live/image/{key}", solar_live_image, methods=["GET"]),
     Route("/api/solar-live/history/{date}", solar_live_history, methods=["GET"]),
-    Route("/api/solar-live/history/image/{channel}/{stamp}", solar_live_history_image, methods=["GET"]),
+    Route(
+        "/api/solar-live/history/image/{channel}/{stamp}",
+        solar_live_history_image,
+        methods=["GET"],
+    ),
 ]

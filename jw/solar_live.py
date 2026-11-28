@@ -487,7 +487,9 @@ def history_listing(date: str) -> dict[str, Any]:
     def load() -> dict[str, Any]:
         year, month, day = date.split("-")
         try:
-            listing = _open(f"{HISTORY_ROOT}/{year}/{month}/{day}/", _MAX_JSON_BYTES)[0].decode("ascii", errors="ignore")
+            listing = _open(f"{HISTORY_ROOT}/{year}/{month}/{day}/", _MAX_JSON_BYTES)[
+                0
+            ].decode("ascii", errors="ignore")
         except OSError as exc:
             raise ValueError(f"no SDO browse archive for {date}") from exc
         stamps: dict[str, set[str]] = {key: set() for key in HISTORY_CHANNELS}

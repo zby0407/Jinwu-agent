@@ -202,7 +202,9 @@ def test_history_listing_groups_timestamps_per_channel(monkeypatch) -> None:
     <a href="20240510_001034_1024_0131.jpg">x</a>
     <a href="20240509_235959_1024_HMIBC.jpg">wrong day</a>
     """
-    monkeypatch.setattr("jw.solar_live.urllib.request.urlopen", _fake_listing_open(listing))
+    monkeypatch.setattr(
+        "jw.solar_live.urllib.request.urlopen", _fake_listing_open(listing)
+    )
     result = solar_live.history_listing("2024-05-10")
     assert result["status"] == "ok"
     assert result["channels"]["hmi"]["times"] == ["000000", "001500"]
@@ -220,7 +222,9 @@ def test_history_listing_rejects_dates_outside_archive() -> None:
 
 def test_history_image_validates_stamp_and_channel(monkeypatch) -> None:
     jpeg = b"\xff\xd8\xff\xe0" + b"0" * 32
-    monkeypatch.setattr("jw.solar_live.urllib.request.urlopen", _fake_listing_open(jpeg))
+    monkeypatch.setattr(
+        "jw.solar_live.urllib.request.urlopen", _fake_listing_open(jpeg)
+    )
     image = solar_live.history_image("hmi", "20240510_120000")
     assert image["bytes"] == jpeg
     assert "2024/05/10/20240510_120000_1024_HMIIF.jpg" in image["url"]
