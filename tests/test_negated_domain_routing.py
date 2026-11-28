@@ -21,7 +21,9 @@ from jw.research_protocols import (
     ],
 )
 def test_excluded_domain_does_not_hijack_another_forecast(exclusion):
-    prompt = "Prepare hourly solar wind speed data and chronological splits. " + exclusion
+    prompt = (
+        "Prepare hourly solar wind speed data and chronological splits. " + exclusion
+    )
     assert detect_analysis_protocol(prompt) == "none"
     route = _with_analysis_protocol(
         {"mode": "verified_analysis", "task_intent": "data_preparation"},
